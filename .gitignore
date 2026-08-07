@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# openFrameworks build output
+# ---------------------------------------------------------------------------
+# Intermediates
+obj/
+
+# Compiled app + shipped DLLs live in bin/, but bin/data/ is tracked
+# (fonts, shaders, calibration.json). Ignore everything in bin/ except data/.
+bin/*
+!bin/data/
+
+# Object and library files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.exp
+*.ilk
+*.pdb
+*.idb
+
+# ---------------------------------------------------------------------------
+# Visual Studio
+# ---------------------------------------------------------------------------
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.aps
+Debug/
+Release/
+x64/
+Win32/
+ipch/
+
+# NOTE: *.sln, *.vcxproj, *.vcxproj.filters, Makefile, config.make and
+# addons.make are intentionally NOT ignored. projectGenerator writes them,
+# but committing them keeps the addon list and build settings reproducible.
+
+# ---------------------------------------------------------------------------
+# Python (services/hands, services/vision, services/voice, calibration)
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ---------------------------------------------------------------------------
+# PlatformIO (firmware/loadcells, XIAO ESP32S3)
+# ---------------------------------------------------------------------------
+.pio/
+
+# ---------------------------------------------------------------------------
+# OS junk
+# ---------------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+.DS_Store?
+._*
