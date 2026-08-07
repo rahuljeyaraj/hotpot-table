@@ -63,6 +63,23 @@ env/
 .pio/
 
 # ---------------------------------------------------------------------------
+# Model weights
+# ---------------------------------------------------------------------------
+# Weights are NOT in git and NOT in Git LFS. Roboflow already versions them;
+# duplicating that here costs quota and breaks clones made without LFS.
+# Provenance for every file that lands in models/ is logged in models/README.md.
+# Scoped to models/ on purpose — a repo-wide *.bin would swallow firmware images.
+models/**/*.pt
+models/**/*.onnx
+models/**/*.tflite
+models/**/*.pth
+models/**/*.weights
+models/**/*.bin
+
+# The log itself stays tracked.
+!models/README.md
+
+# ---------------------------------------------------------------------------
 # OS junk
 # ---------------------------------------------------------------------------
 Thumbs.db
