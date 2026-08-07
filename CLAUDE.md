@@ -88,6 +88,22 @@ light, a camera beside it can see.
 - VS 2026 retarget is **manual**: Solution Explorer right-click, or the Setup
   assistant's "Retarget all". No automatic prompt appears.
 - Build from a Developer Command Prompt for VS so compiler paths are inherited
+- **VS 2026 uses platform toolset `v145`, not `v143`.** Its MSBuild path is
+  `MSBuild\Microsoft\VC\v180\`.
+- projectGenerator emits `v143`, which fails with **MSB8020** on a
+  VS 2026-only machine.
+- Fix applied: `hotpot-table.vcxproj` was hand-edited from `v143` to `v145`
+  in all configurations, and that edit is committed. `openframeworksLib.vcxproj`
+  was already retargeted separately and is outside this repo.
+- Build command, from a Developer Command Prompt for VS 2026:
+  ```
+  msbuild hotpot-table.sln /p:Configuration=Debug /p:Platform=x64 /m
+  ```
+- If a toolset error appears on a different machine, list valid toolset names
+  with:
+  ```
+  dir "<VS install>\MSBuild\Microsoft\VC\v180\Platforms\x64\PlatformToolsets"
+  ```
 
 ### Two required C++17 patches to ofxFlowTools
 The addon predates C++17 and will not compile without these:
