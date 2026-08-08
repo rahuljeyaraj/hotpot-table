@@ -30,6 +30,17 @@ namespace {
 	const float kNudgeStepMM = 1.0f;
 	const float kNudgeFastStepMM = 5.0f;
 
+	// A hovered bin's outline changes colour. Nothing else changes yet - no
+	// fill, no name, no price - so the outline is carrying the entire signal
+	// and has to read at a glance from standing height.
+	//
+	// Deliberately not the green of the alignment overlay below: that green
+	// means "this is the line the arrow keys move", and the two must not be
+	// confused by someone nudging with a hand over the table. Cyan is hand 0's
+	// dot colour, which is the direction section 9 heads in anyway - the halo
+	// takes the cursor's colour on hover.
+	const ofColor kBinHoverColour(0, 200, 255);
+
 	// Lives in bin/data/ alongside the other rig state.
 	const char * kOffsetsFile = "bin_offsets.json";
 
@@ -129,6 +140,11 @@ void ofApp::setup(){
 
 //--------------------------------------------------------------
 void ofApp::receiveOsc(){
+	// Both are the record of THIS frame only, so they start empty every frame.
+	// What survives between frames is `hands`, which is the render hold.
+	freshHandsPx.clear();
+	detectionFrame = false;
+
 	// Drain the queue every frame. The tracker sends one message per hand per
 	// frame and may well run faster than this app draws, so leaving anything
 	// buffered would mean drawing a stale position.
@@ -150,6 +166,14 @@ void ofApp::receiveOsc(){
 			hand.posPx = glm::vec2(m.getArgAsFloat(1), m.getArgAsFloat(2));
 			hand.lastSeenMS = now;
 
+			// Recorded separately from `hands` because this is the only place
+			// a position is known to be a live detection rather than a held
+			// one. Ids are not carried: hover asks "is any hand in this bin",
+			// and the ids are the tracker's per-frame detection order, which
+			// two hands can swap between frames anyway.
+			freshHandsPx.push_back(hand.posPx);
+			detectionFrame = true;
+
 			lastMessageMS = now;
 			everReceived = true;
 		}
@@ -158,6 +182,13 @@ void ofApp::receiveOsc(){
 			// says the tracker is alive and currently sees nothing. Existing
 			// hands are left to time out on their own, so a single dropped
 			// detection frame does not blink the dot.
+			//
+			// For hover it is the opposite: this is the tracker positively
+			// reporting an empty table, which is exactly the evidence that no
+			// bin is being hovered. freshHandsPx stays empty and every
+			// accumulator resets.
+			detectionFrame = true;
+
 			lastMessageMS = now;
 			everReceived = true;
 		}
@@ -331,6 +362,30 @@ void ofApp::loadOffsets(){
 }
 
 //--------------------------------------------------------------
+// Bin i as it actually lands on the plywood: the grid cell bounded by its
+// column's two vertical lines and its row's two horizontal ones, so it carries
+// the offsets from bin_offsets.json as well as the CAD chain.
+//
+// Every consumer goes through here. The black fill is drawn from it and the
+// hover hit test is done against it, which is the only way those two can be
+// guaranteed to be the same rectangle. Hit testing raw BINS[] instead would
+// test the drawing while the black sits on the as-built cutouts, and CLAUDE.md
+// section 17 puts those up to ~5 mm apart per edge on top of a 4 mm global
+// offset - enough to hover a bin whose black the hand is not over.
+ofRectangle ofApp::binRectPx(int i) const {
+	// BINS is row-major with kCols per row, so bin i is at row i / kCols,
+	// column i % kCols - the same walk drawBinCutouts makes.
+	const int r = i / kCols;
+	const int c = i % kCols;
+
+	const float x = mmToPxX(vLineMM(c * 2));
+	const float y = mmToPxY(hLineMM(r * 2));
+	return ofRectangle(x, y,
+		mmToPxX(vLineMM(c * 2 + 1)) - x,
+		mmToPxY(hLineMM(r * 2 + 1)) - y);
+}
+
+//--------------------------------------------------------------
 void ofApp::drawBinCutouts(){
 	// Section 8 of CLAUDE.md: the projector must put near-zero light into the
 	// bins. Projected colour landing on the food contaminates the classifier's
@@ -350,25 +405,25 @@ void ofApp::drawBinCutouts(){
 	// Each box is a grid cell, bounded by its column's two vertical lines and
 	// its row's two horizontal ones - so a moved line resizes every box that
 	// shares it, which is the whole point of the line model.
-	for(int r = 0; r < kRows; r++){
-		for(int c = 0; c < kCols; c++){
-			const float x = mmToPxX(vLineMM(c * 2));
-			const float y = mmToPxY(hLineMM(r * 2));
-			const float w = mmToPxX(vLineMM(c * 2 + 1)) - x;
-			const float h = mmToPxY(hLineMM(r * 2 + 1)) - y;
+	for(int i = 0; i < BIN_COUNT; i++){
+		const ofRectangle box = binRectPx(i);
 
-			ofFill();
-			ofSetColor(0);
-			ofDrawRectangle(x, y, w, h);
+		ofFill();
+		ofSetColor(0);
+		ofDrawRectangle(box);
 
-			// ofPath, not ofSetLineWidth - drivers cap the latter at 1 px
-			ofPath outline;
-			outline.setFilled(false);
-			outline.setStrokeWidth(strokePx);
-			outline.setColor(ofColor::white);
-			outline.rectangle(x, y, w, h);
-			outline.draw();
-		}
+		// Only the colour changes on hover. Width stays put: a thicker stroke
+		// would grow inwards over the cutout and put light into the food,
+		// which section 8 rules out no matter what the UI wants to say.
+		const bool hovered = (binHover[i] == HoverState::HOVERED);
+
+		// ofPath, not ofSetLineWidth - drivers cap the latter at 1 px
+		ofPath outline;
+		outline.setFilled(false);
+		outline.setStrokeWidth(strokePx);
+		outline.setColor(hovered ? kBinHoverColour : ofColor::white);
+		outline.rectangle(box);
+		outline.draw();
 	}
 
 	drawSelectionHighlight();
@@ -446,8 +501,101 @@ void ofApp::drawHands(){
 }
 
 //--------------------------------------------------------------
+// Steps every bin's dwell accumulator once per frame.
+//
+// THE ACCUMULATOR ADVANCES ONLY ON A REAL DETECTION FRAME. There are two
+// timers in this app and they must not be crossed:
+//
+//   - the render hold (kHandTimeoutMS, Hand::lastSeenMS) keeps the dot painted
+//     through a dropout so it does not blink. It is a display convenience.
+//   - this accumulator measures how long a hand was actually seen inside one
+//     bin. It is the input to a decision about what the diner wants.
+//
+// Feeding the first into the second would let a hand that stopped being
+// detected go on earning hover from a frozen position - the dot sits there
+// looking correct while the table decides something the hand is not doing.
+// So this reads freshHandsPx, never `hands`.
+void ofApp::updateHover(){
+	if(!detectionFrame){
+		// The tracker said nothing this frame. That is a dropout, not an empty
+		// table, and the two are not the same claim: nothing advances, and
+		// nothing resets either. The accumulators simply hold where they are
+		// until the tracker speaks again.
+		return;
+	}
+
+	const uint64_t now = ofGetElapsedTimeMillis();
+
+	// Real elapsed wall time since the previous detection, not ofGetLastFrameTime().
+	// The app draws at 60 fps and the tracker runs at 30, so an app frame is
+	// the wrong unit twice over - it counts frames with no detection in them,
+	// and it under-counts the ones that do. Dwell is a wall-clock claim about a
+	// hand, so it is measured against the wall clock.
+	float dtMS = (lastDetectionMS == 0) ? 0.0f : (float)(now - lastDetectionMS);
+
+	// A gap longer than the render hold means the hand left the table, not
+	// that a frame or two was dropped - by then drawHands has already erased
+	// the dot. None of that gap is credited, and the bins are forced to reset
+	// below so a hand returning to the same bin starts from zero rather than
+	// inheriting the dwell it had built up before it vanished.
+	const bool handWasGone = (dtMS > (float)kHandTimeoutMS);
+	if(handWasGone){
+		dtMS = 0.0f;
+	}
+	lastDetectionMS = now;
+
+	for(int i = 0; i < BIN_COUNT; i++){
+		// The same rect the black fill is drawn from, offsets and all.
+		const ofRectangle box = binRectPx(i);
+
+		bool inside = false;
+		if(!handWasGone){
+			for(const glm::vec2 & p : freshHandsPx){
+				if(box.inside(p.x, p.y)){
+					inside = true;
+					break;
+				}
+			}
+		}
+
+		if(!inside){
+			// Reset, not decay. A hand that left a bin has not partly chosen
+			// it, and a decay would let a hand oscillating over two bins earn
+			// both. Pass-over is rejected by never letting it bank anything.
+			binDwellMS[i] = 0.0f;
+
+			if(binHover[i] == HoverState::HOVERED){
+				ofLogNotice("hover") << "bin " << i << " HOVERED -> IDLE after "
+					<< (now - binHoveredSinceMS[i]) << " ms held";
+			}
+			binHover[i] = HoverState::IDLE;
+			continue;
+		}
+
+		binDwellMS[i] += dtMS;
+
+		if(binHover[i] != HoverState::HOVERED){
+			if(binDwellMS[i] >= HOVER_DWELL_MS){
+				binHover[i] = HoverState::HOVERED;
+				binHoveredSinceMS[i] = now;
+
+				// The actual dwell, not HOVER_DWELL_MS: the overshoot past the
+				// threshold is one tracker frame, and seeing it is how the
+				// tracker's real cadence shows up in the log.
+				ofLogNotice("hover") << "bin " << i << " IDLE -> HOVERED after "
+					<< ofToString(binDwellMS[i], 0) << " ms dwell";
+			}
+			else {
+				binHover[i] = HoverState::DWELLING;
+			}
+		}
+	}
+}
+
+//--------------------------------------------------------------
 void ofApp::update(){
 	receiveOsc();
+	updateHover();
 }
 
 //--------------------------------------------------------------

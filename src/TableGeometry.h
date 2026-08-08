@@ -119,3 +119,23 @@ static_assert(sameMM(BINS[4].yMM, BINS[0].yMM + BIN_H_MM + 50.0f),
 	"near row does not match the 50 mm row gap in the Y chain");
 static_assert(sameMM(BINS[4].yMM + BIN_H_MM + 177.4f, TABLE_H_MM),
 	"near row does not close the Y chain");
+
+// --- interaction timing ---------------------------------------------------
+// How long a hand must stay inside one bin before that bin counts as hovered.
+//
+// RIG-TUNABLE STARTING VALUE, NOT A DERIVED DIMENSION. Everything above this
+// point comes off the drawing and is checked by the asserts. This does not:
+// there is no chain it falls out of and no measurement it can be computed
+// from, so it must not be read as one.
+//
+// What it exists to reject: a hand travelling from one bin to another passes
+// straight over the bins in between. Those pass-overs are real detections
+// inside a real bin rect and are indistinguishable from an intentional hover
+// except by how long they last. The threshold is the whole discrimination.
+//
+// Too low and the table lights up every bin on the way to the one the diner
+// wanted. Too high and a deliberate hover feels broken. 1000 ms is a guess at
+// the middle, to be replaced by watching real hands cross the real table -
+// time a few pass-overs, take the longest, leave headroom. It is not
+// calculated and there is nothing here to calculate it from.
+static constexpr float HOVER_DWELL_MS = 1000.0f;

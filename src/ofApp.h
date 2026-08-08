@@ -30,6 +30,14 @@ class ofApp : public ofBaseApp{
 		void receiveOsc();
 		void drawHands();
 		void drawBinCutouts();
+		void updateHover();
+
+		// The one definition of where bin i is on screen. Both the black fill
+		// and the hover hit test read it, so they cannot drift apart: a hit
+		// test against raw BINS[] would be testing the CAD drawing while the
+		// black is drawn on the as-built plywood, and the two are up to a
+		// centimetre apart (CLAUDE.md section 17).
+		ofRectangle binRectPx(int i) const;
 
 		float vLineMM(int i) const;
 		float hLineMM(int i) const;
@@ -98,6 +106,19 @@ class ofApp : public ofBaseApp{
 		// it must survive ids arriving out of order or with gaps.
 		std::map<int, Hand> hands;
 
+		// Positions that arrived over OSC since the last time the hover state
+		// was stepped. Kept separate from `hands` on purpose: `hands` holds a
+		// position for kHandTimeoutMS after the tracker last reported it, so
+		// reading it would let a hand that is no longer being detected keep
+		// earning dwell. See updateHover().
+		std::vector<glm::vec2> freshHandsPx;
+
+		// Whether the tracker said anything at all this frame, /hand or
+		// /hand/none. Distinguishes "the tracker is alive and sees no hand",
+		// which resets every accumulator, from "the tracker went quiet", which
+		// must not.
+		bool detectionFrame = false;
+
 		ofxOscReceiver oscReceiver;
 
 		// Wall clock of the last message of ANY kind, /hand or /hand/none.
@@ -105,4 +126,26 @@ class ofApp : public ofBaseApp{
 		// stopped tracker leaves a black table rather than a frozen dot.
 		uint64_t lastMessageMS = 0;
 		bool everReceived = false;
+
+		// --- hover ---------------------------------------------------------
+		// One state per bin. DWELLING is not just IDLE-with-a-number: it is the
+		// state where a bin is accumulating but has not earned anything, and
+		// naming it keeps "the hand is over this bin" and "this bin is hovered"
+		// from being confused for each other, which is the entire point of the
+		// dwell threshold.
+		enum class HoverState { IDLE, DWELLING, HOVERED };
+
+		HoverState binHover[BIN_COUNT] = {};
+		float binDwellMS[BIN_COUNT] = {};
+
+		// When a bin entered HOVERED, so leaving it can report how long it was
+		// held. Only meaningful while that bin is HOVERED.
+		uint64_t binHoveredSinceMS[BIN_COUNT] = {};
+
+		// Wall clock of the last frame that carried a real detection. The dwell
+		// accumulator advances by the gap between consecutive values of this -
+		// NOT by ofGetLastFrameTime(), which would keep counting through a
+		// detection dropout, and NOT by Hand::lastSeenMS, which is the render
+		// hold. Two timers, deliberately not shared.
+		uint64_t lastDetectionMS = 0;
 };
