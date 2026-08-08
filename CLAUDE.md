@@ -363,7 +363,49 @@ check: "camera has moved 40 px since last calibration, re-run it."
 
 ---
 
-## 16. Repo layout
+## 16. Calibration conventions — solved, do not re-derive
+
+### Dot 0 is deliberately oversized. Do not make the dots uniform.
+Calibration dot 0 (table mm x=44, y=86 — the top-left target) is drawn at
+radius **30**. The other eight are radius **20**.
+
+This is load-bearing, not cosmetic. The nine centres are evenly spaced on both
+axes, so the pattern maps exactly onto itself under a 180° rotation. The
+0° and 180° hypotheses therefore reproject with **identical** error — by
+construction, not by coincidence — and cannot be told apart by the error
+figure, by RANSAC inlier count, or by eye on the annotated overlay.
+
+The size marker is the only thing that breaks the tie. `solve_homography.py`
+picks the orientation whose row-major sort puts the largest blob at index 0.
+Equalising the radii silently reintroduces a 50/50 coin flip on orientation,
+and a 180°-wrong homography looks plausible until a hand moves the wrong way.
+
+### Solved result
+- Camera is mounted **180° relative to the projector**.
+- Mean reprojection error **3.66 px**, max **14.98 px** (≈11.7 mm at table scale).
+- `tools/calibration/homography.json` holds the matrix. It maps
+  **camera pixels → projector pixels** on the RAW, UNROTATED frame
+  (`cv2.findHomography(camera_pts, projector_pts)`, src→dst). Consumers need
+  that direction as-is — do **not** invert it.
+
+### The max-error point is lens distortion, not a detection fault
+The 14.98 px point sits at a frame corner. That is radial lens distortion, and
+detection is doing its job. The fix, if it is ever needed, is chessboard
+intrinsics plus `cv2.undistort` before detection — not tighter blob tuning.
+
+**Not currently needed.** 11.7 mm is well inside the 205 mm tray width.
+
+### Camera backend must be MSMF on Windows
+DSHOW forces auto-exposure, ignores `CAP_PROP_EXPOSURE` entirely, and clips the
+white table top to 255 — which buries the dots (measured: board 249, dot 253).
+MSMF holds a fixed exposure and the same dots come back with real contrast.
+
+Every script that opens this camera must use MSMF at 1920×1080, so that what
+the tracker sees matches the frame the homography was solved on.
+
+---
+
+## 17. Repo layout
 
 ```
 hotpot-table/
@@ -388,7 +430,7 @@ flow dead ends stop costing time twice.
 
 ---
 
-## 17. Docker
+## 18. Docker
 
 **Not used for the oF app.** CPU overhead is not the issue — the issue is that
 the app needs GPU, display, camera, USB serial and audio passthrough, which
@@ -402,7 +444,7 @@ Python services: `requirements.txt` + venv is sufficient.
 
 ---
 
-## 18. Working style
+## 19. Working style
 
 - **One action at a time.** Wait for confirmation before the next step.
 - Short responses, dyslexia-friendly formatting, no long text blocks.
@@ -414,7 +456,7 @@ Python services: `requirements.txt` + venv is sufficient.
 
 ---
 
-## 19. Open questions
+## 20. Open questions
 
 - reComputer exact model and GPU capability — **biggest unresolved risk**
 - FBO layering test: fluid → black tray rects → scrim → UI
