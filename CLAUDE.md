@@ -57,6 +57,20 @@ Second failure mode at shallow angles: lifting the hand vertically and pulling
 it toward the camera produce identical image motion, so the cursor drifts when
 the hand merely lifts.
 
+### Confirmed on the rig, stage 1e
+Observed with a real hand and a live dot: **raise the hand and the dot slides
+outward, toward the edge of the table; lower it and the dot returns under the
+fingers.** That is exactly the parallax above, seen for the first time on
+hardware rather than on paper. It is not a calibration fault and re-solving the
+homography will not remove it — the homography maps the table surface, and the
+hand is not on the table surface.
+
+It also confirms the camera is not perfectly vertical yet, since a true nadir
+view would drift far less. **Measure the elevation angle before stage 3.**
+
+This is the concrete reason fluid comes last (§14). Had the halos been built
+first, this would have read as a calibration bug and cost a re-solve.
+
 Camera shadow from the projector is **not** a concern. The projector's light
 cone starts at its lens and spreads outward; a camera at lens height, 100–200 mm
 to the side, sits outside the cone. General rule: whatever the projector can
@@ -387,7 +401,7 @@ The system must be demoable at stage 2, and stay demoable through every later sw
 
 | Stage | Hand | Weight | Ingredient ID | Visuals |
 |---|---|---|---|---|
-| 1 Loop | real | — | — | one dot |
+| 1 Loop ✅ | real | — | — | one dot |
 | 2 Mocks | real | keyboard 1–8 | hardcoded | flat bins |
 | 3 Sensors | real | load cells | classifier | flat bins |
 | 4 Polish | real | load cells | classifier | fluid, blob, voice |
@@ -397,6 +411,20 @@ mocked — the whole question is whether the camera/projector loop feels right.
 
 Fluid comes **last**. If the halo lands 30 mm off the bin, you need to already
 know it isn't calibration.
+
+### Stage 1 result (complete)
+Real hand, real dot, closed loop. Tracker 30 fps (camera-capped), oF 60 fps,
+both running together. Two hands tracked and told apart correctly.
+
+**Jitter is a few mm unsmoothed and was judged acceptable, so no filter is
+justified yet.** Do not add a one-euro filter until something actually demands
+it — the raw number is now known, which is the whole point of having sent
+positions unfiltered.
+
+Landmark 9 lands on the knuckle line, between the bases of the fingers, not in
+the middle of the palm. Fine for a cursor; revisit when tongs arrive.
+
+Outstanding from this stage: the height-dependent drift in §3.
 
 ---
 
@@ -537,6 +565,10 @@ Python services: `requirements.txt` + venv is sufficient.
 ## 20. Open questions
 
 - reComputer exact model and GPU capability — **biggest unresolved risk**
+- Camera elevation angle — measure it. Stage 1 showed visible height-dependent
+  drift (§3), which caps how accurate any halo can be
+- Hand id is the tracker's per-frame detection index, so two hands can swap ids
+  and therefore colours. Needs a real identity before ids mean anything
 - FBO layering test: fluid → black tray rects → scrim → UI
 - Bench test: does the bowl-holding hand false-trigger bin hover zones?
 - Bench test: do tongs in hand degrade MediaPipe palm confidence?
