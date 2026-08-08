@@ -515,7 +515,54 @@ rather than the property to tell whether a change took.
 
 ---
 
-## 17. Repo layout
+## 17. As-built rig state — `bin/data/bin_offsets.json`
+
+**`bin_offsets.json` is AS-BUILT RIG STATE, NOT SOURCE.** It describes this
+physical table, the way `homography.json` does. It is committed so the dialled-in
+alignment survives a clone, not because it is something to design against.
+
+### BINS[] in `TableGeometry.h` stays CAD
+`BINS[]` is the drawing. `bin_offsets.json` is the correction from the drawing to
+the plywood. **Never edit `BINS[]` — or its chain terms, or the static_asserts —
+to fix physical alignment.** Doing that destroys the only record of what was
+intended, and the layout asserts stop meaning anything the moment the numbers in
+them are measurements rather than a design.
+
+Every alignment fix goes into `bin_offsets.json`, via the on-screen nudge keys.
+
+### What is currently in it
+- **Global offset: −4.0, 3.0 mm.** Moves all twelve grid lines together.
+- **Per-edge deltas** on top of that, giving black rects of:
+
+| | measured | CAD cutout |
+|---|---|---|
+| widths | 216, 214, 212, 217 mm (cols 1–4) | ~214 mm |
+| heights | 267 mm far row, 265 mm near row | ~269 mm |
+
+The ~5 mm spread across the columns is real. The eight tray carriers are
+independent with no shared rigid base (§11), so the cutouts sit where the build
+put them. Heights land under CAD on both rows.
+
+### These offsets absorb TWO errors at once
+Cutout position error **and** residual homography error, mixed together and not
+separable after the fact.
+
+**Re-solving the homography INVALIDATES `bin_offsets.json`.** The numbers in it
+are partly a correction for the old matrix. There is no way to carry them across,
+scale them, or subtract the difference out. After any re-solve the file must be
+**re-nudged from scratch** — zero it and redo the alignment against the real
+cutouts. Same after any change to the plywood or the projector mount.
+
+### Physical check that was passed
+Shallow-angle check from the diner side, all 8 bins: black covers the full
+opening, and the white band on the plywood around each cutout is still intact.
+That is the pair of conditions that matters — black short of the opening lets
+projector light into the food (§8), black overrunning onto the plywood eats the
+surround the UI needs.
+
+---
+
+## 18. Repo layout
 
 ```
 hotpot-table/
@@ -540,7 +587,7 @@ flow dead ends stop costing time twice.
 
 ---
 
-## 18. Docker
+## 19. Docker
 
 **Not used for the oF app.** CPU overhead is not the issue — the issue is that
 the app needs GPU, display, camera, USB serial and audio passthrough, which
@@ -554,7 +601,7 @@ Python services: `requirements.txt` + venv is sufficient.
 
 ---
 
-## 19. Working style
+## 20. Working style
 
 - **One action at a time.** Wait for confirmation before the next step.
 - Short responses, dyslexia-friendly formatting, no long text blocks.
@@ -566,7 +613,7 @@ Python services: `requirements.txt` + venv is sufficient.
 
 ---
 
-## 20. Open questions
+## 21. Open questions
 
 - reComputer exact model and GPU capability — **biggest unresolved risk**
 - Camera elevation angle — measure it. Stage 1 showed visible height-dependent
