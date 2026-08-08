@@ -43,6 +43,28 @@ class ofApp : public ofBaseApp{
 		// Magnitude of the next mock event, walking the cycling set in the .cpp.
 		float nextMockDeltaGrams();
 
+		// Steps the display deadband once per frame. Decides WHEN the UI is
+		// allowed to catch up to the weights, and nothing else - see
+		// displayedWeightGrams for why it cannot be allowed to do more.
+		void updateDisplayedWeights();
+
+		// Grams taken out of bin i, given a weight reading for that bin. The
+		// reading is a parameter rather than read from a member on purpose:
+		// there are two weights in this app - the true one and the displayed
+		// one - and every caller has to say which of them it is pricing.
+		float removedGrams(int bin, float weightGrams) const;
+
+		// What that many grams out of bin i costs. Prices in ingredients.json
+		// are PER 100 GRAMS, so this divides by 100 before multiplying.
+		float binPrice(int bin, float removedG) const;
+
+		// The read-only cart, in the back half of the centre column.
+		void drawCart();
+
+		// Where the cart is allowed to draw. Derived from the corrected bin
+		// rects, not from raw mm, so nudging the grid moves the cart with it.
+		ofRectangle cartRectPx() const;
+
 		// The one definition of where bin i is on screen. The outline, the label
 		// clearance and the hover hit test all read it, so they cannot drift
 		// apart: a hit test against raw BINS[] would be testing the CAD drawing
@@ -181,6 +203,41 @@ class ofApp : public ofBaseApp{
 		// size of SUCCESSIVE events, and a per-bin cursor would hand every bin
 		// the same first pick.
 		int mockDeltaIndex = 0;
+
+		// What each bin weighed before anybody touched it. The zero that every
+		// price is measured from.
+		//
+		// A NAMED ARRAY RATHER THAN THE STARTING CONSTANT, because this is the
+		// thing a tare overwrites. When the load cells arrive, taring a bin is
+		// exactly "copy the current reading into this array", and a bare
+		// literal in the subtraction would make that a code change instead of
+		// an assignment. It is also per-bin because a real tare is: eight bins
+		// with eight different amounts of ingredient in them.
+		float startWeightGrams[BIN_COUNT] = {};
+
+		// The weight the UI is currently showing, per bin.
+		//
+		// THIS IS THE DEADBAND, AND IT IS THE WHOLE OF THE DEADBAND. It gates
+		// WHEN the display catches up to binWeightGrams, and it never touches
+		// the price arithmetic - see updateDisplayedWeights() for why the
+		// obvious "ignore deltas under 10 g" version is a different and wrong
+		// thing.
+		//
+		// Every value in here was the true weight of its bin at some instant,
+		// never an approximation of one. That is what keeps the arithmetic
+		// honest: a price computed from this array is exact, just slightly old.
+		float displayedWeightGrams[BIN_COUNT] = {};
+
+		// --- cart -----------------------------------------------------------
+		// Whether the cart is currently taller than the space it is allowed.
+		// State rather than a one-shot "already logged" flag on purpose: the
+		// shared-flag bug in CLAUDE.md section 22 item 2 is one advisory
+		// permanently silencing an unrelated fatal check, and a one-shot here
+		// would do the same thing to itself - the first overflow would be the
+		// only one ever reported, including after the layout changed. Logging
+		// the crossings instead means every entry into overflow is heard, and
+		// nothing repeats 60 times a second.
+		bool cartOverflowing = false;
 
 		// --- hand tracking, fed by tools/tracker/track_hands.py ------------
 		// Positions arrive already in projector pixels; the Python side owns

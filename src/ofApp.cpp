@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace {
 	// calibration dot appearance
@@ -199,6 +200,42 @@ namespace {
 	// and not shift-plus-a-number.
 	const std::string kPutBackKeys = "qwertyui";
 
+	// --- display deadband ----------------------------------------------------
+	// How far the true weight has to be from the shown weight before the shown
+	// weight is allowed to catch up, in grams.
+	//
+	// A DISPLAY RULE, NOT A MEASUREMENT RULE. It decides when the cart is
+	// redrawn and takes no part in what the cart says. Section 11 calls it a
+	// "detection deadband", and that name invites the wrong implementation - see
+	// updateDisplayedWeights().
+	//
+	// 10 g is section 11's figure. It is a guess at the noise floor of a
+	// CZL-611N at 1.0 mV/V through an HX711, to be replaced by a measurement of
+	// the real rig, and the mock exists partly so this number has something to
+	// be wrong about before the hardware arrives.
+	const float kDisplayDeadbandGrams = 10.0f;
+
+	// --- cart ----------------------------------------------------------------
+	// Clearance in table mm between the cart's ink and the bin rects either side
+	// of it. Its own constant rather than kLabelClearanceMM: that one is the gap
+	// between a label and the cutout it names, this one is the gap between two
+	// unrelated pieces of UI, and tying them together would make a change to
+	// either silently move the other.
+	const float kCartClearanceMM = 20.0f;
+
+	// Gap between two cart lines, table mm. Ink to ink, like the label block.
+	const float kCartLineGapMM = 5.0f;
+
+	// Gap between the cart's three columns, table mm.
+	const float kCartColGapMM = 10.0f;
+
+	// Gap above and below the rule that separates the lines from the total.
+	const float kCartRuleGapMM = 7.0f;
+
+	// Rule thickness in table mm, so it stays a fixed physical width like the
+	// bin outline rather than a fixed pixel one.
+	const float kCartRuleMM = 1.5f;
+
 	// Marks the line being moved. This is a setup overlay, not the diner-facing
 	// UI, so it is outside the "colour is reserved for progress" rule in §9 -
 	// and green stays clear of both hand-dot colours. Brought down from value
@@ -355,8 +392,16 @@ void ofApp::setup(){
 
 	// Every bin starts full. Set here rather than in the header so the number
 	// stays with the other tuned constants at the top of this file.
+	//
+	// All three arrays are seeded from the same value in one loop, and that is
+	// the invariant the pricing depends on: at t=0 nothing has been removed, so
+	// start == current, and the display is already showing the truth rather than
+	// waiting for a first event to catch up to it. Seeding them separately would
+	// be three chances to disagree about what "untouched" means.
 	for(int i = 0; i < BIN_COUNT; i++){
 		binWeightGrams[i] = kMockFullBinGrams;
+		startWeightGrams[i] = kMockFullBinGrams;
+		displayedWeightGrams[i] = kMockFullBinGrams;
 	}
 	ofLogNotice("ofApp") << "mock bin weights: all " << BIN_COUNT << " bins at "
 		<< ofToString(kMockFullBinGrams, 1) << " g"
@@ -604,6 +649,86 @@ void ofApp::applyBinWeightDelta(int bin, float deltaGrams){
 }
 
 //--------------------------------------------------------------
+// How much has come out of bin i, measured from its start weight.
+//
+// CUMULATIVE, NEVER A SUM OF EVENTS. Two subtractions of two absolute weights,
+// so the answer depends only on where the bin started and where it is now -
+// never on how many events happened in between, in what order, or whether any
+// of them was seen. Accumulating the per-event deltas instead would give the
+// same number today and a drifting one forever after: every dropped, doubled or
+// rounded event would be baked in permanently, with nothing left to correct it
+// against. The load cells will drop events. This subtraction cannot care.
+//
+// It is also why there is no put-back branch anywhere in this file. A put-back
+// raises the current weight, which lowers this difference, which lowers the
+// price - the refund is the arithmetic, not a case in it. If a refund branch
+// ever looks necessary, something upstream has started tracking a running total
+// instead of a weight, and THAT is the bug to fix.
+float ofApp::removedGrams(int bin, float weightGrams) const {
+	if(bin < 0 || bin >= BIN_COUNT){
+		return 0.0f;
+	}
+
+	// Clamped at zero: putting back more than was ever taken is a bin heavier
+	// than it started, which is real - a diner returning something from another
+	// bin, or a hand resting on the tray - and it must read as "nothing removed"
+	// rather than as a negative price. The table cannot pay the diner.
+	return std::max(0.0f, startWeightGrams[bin] - weightGrams);
+}
+
+//--------------------------------------------------------------
+// What `removedG` grams out of bin i costs.
+//
+// PRICES IN ingredients.json ARE PER 100 GRAMS. The field is called
+// price_per_100g and the label under every bin says "/ 100g", so the hundred
+// below is the units of the file, not a scale factor anybody chose here.
+//
+// Linear in weight, deliberately: no quantiser, no step, no rounding to 25 g.
+// Section 11 wants the DISPLAYED figure stepped eventually, and that will be a
+// change to what is shown, not to this.
+float ofApp::binPrice(int bin, float removedG) const {
+	if(bin < 0 || bin >= BIN_COUNT || (int)ingredients.size() != BIN_COUNT){
+		return 0.0f;
+	}
+
+	return (removedG / 100.0f) * ingredients[bin].pricePer100g;
+}
+
+//--------------------------------------------------------------
+// Lets the shown weights catch up to the true ones, once per frame.
+//
+// THE DEADBAND GATES THE DISPLAY AND NOTHING ELSE. What it must never become is
+// the version it keeps getting simplified into:
+//
+//     if(fabs(delta) < 10) ignore the event      // WRONG
+//
+// That one throws small movements away. This one only makes them wait. The
+// difference shows up on the second small pick: two 6 g picks are each under
+// the threshold, so the per-event version discards both and the diner is
+// charged for nothing. Here the first 6 g leaves a 6 g gap and holds; the
+// second makes the gap 12 g, which crosses, and the display snaps to the FULL
+// 12 g. Nothing is discarded. It arrives late.
+//
+// The snap is to the CURRENT TRUE WEIGHT, not to the threshold and not to the
+// old value plus a step. That is what makes the lateness the only error this
+// introduces: every value in displayedWeightGrams was the real weight of that
+// bin at the instant it was copied, so the price computed from it is exact
+// arithmetic on a real weight - just a real weight from slightly earlier. Snap
+// to anything else and the deadband would be inside the arithmetic, quietly
+// pricing a weight that never existed.
+void ofApp::updateDisplayedWeights(){
+	for(int i = 0; i < BIN_COUNT; i++){
+		const float gap = binWeightGrams[i] - displayedWeightGrams[i];
+
+		if(std::fabs(gap) < kDisplayDeadbandGrams){
+			continue;
+		}
+
+		displayedWeightGrams[i] = binWeightGrams[i];
+	}
+}
+
+//--------------------------------------------------------------
 void ofApp::saveOffsets(){
 	ofJson j;
 	j["offsetXMM"] = offsetXMM;
@@ -808,6 +933,18 @@ void ofApp::loadIngredients(){
 		}
 
 		loaded[bin].name = name;
+
+		// PRICE PER 100 GRAMS. Not per gram, not per pick, not per bin. The
+		// field name says so, the label under the bin says "/ 100g", and
+		// binPrice() divides by that hundred - those three have to keep
+		// agreeing, and this is the line where the number enters the app.
+		//
+		// No fallback if it is missing or not a number: the check above has
+		// already returned, leaving every label undrawn, with the reason
+		// logged. Same rule as the currency, for the same reason - a default
+		// price is a second source of truth that wins silently at exactly the
+		// moment the file is broken, and a table that charges a made-up price
+		// is worse than a table that shows none.
 		loaded[bin].pricePer100g = entry["price_per_100g"].get<float>();
 		seen[bin] = true;
 	}
@@ -1189,6 +1326,211 @@ void ofApp::drawBinLabels(){
 }
 
 //--------------------------------------------------------------
+// The rectangle the cart is allowed to draw in: the back half of the centre
+// column, in projector pixels.
+//
+// The centre column is the 440 mm pot gap in the X chain (TableGeometry.h), and
+// the back half is the far half of the table - so this is the one large piece of
+// plywood that no bin, no cutout and no label strip is entitled to.
+//
+// Bounded by the corrected bin rects rather than by the raw mm chain, so the
+// nudge keys move the cart along with the grid they move the bins with. Bins 1
+// and 2 are the two columns either side of the gap; every bin in a column shares
+// its column's two vertical lines, so bins 5 and 6 would give the same two
+// numbers and asking them as well would only look like a check.
+//
+// The centre gap is 440 mm against a 200 mm bin, so a name wide enough to reach
+// in here from a label strip would already have tripped the overhang advisory in
+// drawBinLabels by a wide margin. No separate width check for it here.
+ofRectangle ofApp::cartRectPx() const {
+	const float sideClearance = mmToPxX(kCartClearanceMM);
+	const float left = binRectPx(1).getMaxX() + sideClearance;
+	const float right = binRectPx(2).getMinX() - sideClearance;
+
+	// Top edge held off the table edge by the same clearance, and the bottom is
+	// the half-way line across the table - which is what "back half" means and
+	// is also comfortably clear of the near row's label strip.
+	const float top = mmToPxY(kCartClearanceMM);
+	const float bottom = PROJ_H_PX * 0.5f;
+
+	return ofRectangle(left, top, right - left, bottom - top);
+}
+
+//--------------------------------------------------------------
+// The cart. Read-only: what has been taken, what each of those costs, and what
+// it comes to. There is nothing to press here and nothing that can be pressed
+// by accident.
+//
+// PRICED FROM displayedWeightGrams, NOT binWeightGrams. That is the only place
+// the deadband has any effect - see updateDisplayedWeights(). Everything below
+// is exact arithmetic on whatever weight it is handed.
+void ofApp::drawCart(){
+	// The names, the prices and the symbol all come from ingredients.json and
+	// none of them has a fallback, so a bad file leaves the cart undrawn exactly
+	// as it leaves the labels undrawn. loadIngredients has already said why,
+	// once; repeating it every frame would bury it.
+	if(!fontsLoaded || (int)ingredients.size() != BIN_COUNT || currency.empty()){
+		return;
+	}
+
+	ofEnableAlphaBlending();
+
+	const ofRectangle area = cartRectPx();
+
+	// asc - desc is the ink height of a line. Line height would carry the font's
+	// own leading, which is a gap this code has not chosen.
+	const float itemLineH = priceFont.getAscenderHeight() - priceFont.getDescenderHeight();
+	const float totalLineH = nameFont.getAscenderHeight() - nameFont.getDescenderHeight();
+	const float lineGapPx = mmToPxY(kCartLineGapMM);
+	const float ruleGapPx = mmToPxY(kCartRuleGapMM);
+	const float rulePx = mmToPxY(kCartRuleMM);
+	const float colGapPx = mmToPxX(kCartColGapMM);
+
+	// One row per bin that has had something taken out of it, plus the total.
+	struct CartLine {
+		std::string name;
+		std::string grams;
+		std::string price;
+	};
+	std::vector<CartLine> lines;
+
+	// Summed across ALL eight bins, not across the rows below. The two are the
+	// same number - a bin with nothing removed contributes exactly zero - but
+	// summing the bins says the total is a property of the table, while summing
+	// the rows would make it a property of the list, and the list is a rendering
+	// decision that already drops the empty ones.
+	float total = 0.0f;
+
+	for(int i = 0; i < BIN_COUNT; i++){
+		const float removed = removedGrams(i, displayedWeightGrams[i]);
+		const float price = binPrice(i, removed);
+
+		total += price;
+
+		if(removed <= 0.0f){
+			continue;
+		}
+
+		// Whole grams, two decimals on the money. The two decimals are
+		// load-bearing for the same reason they are on the bin labels: every
+		// price is 0.00 until a real menu lands, and sizing this strip against
+		// the narrow string zeros happen to make would move the overflow to the
+		// day the numbers arrive.
+		lines.push_back({
+			ingredients[i].name,
+			ofToString(removed, 0) + " g",
+			currency + ofToString(price, 2)
+		});
+	}
+
+	const std::string totalLabel = "TOTAL";
+	const std::string totalPrice = currency + ofToString(total, 2);
+
+	// The total block is measured before anything is drawn, and it is what the
+	// item rows are clipped against rather than the other way round. The total
+	// is the one number a diner is actually here to read, so it is the last
+	// thing that may be dropped, not the first.
+	const bool haveRule = !lines.empty();
+	const float totalBlockH = (haveRule ? ruleGapPx + rulePx + ruleGapPx : 0.0f)
+		+ totalLineH;
+
+	const float itemsAvailH = area.getHeight() - totalBlockH;
+
+	// n rows cost n line heights and n-1 gaps.
+	const int wanted = (int)lines.size();
+	int shown = wanted;
+	if(wanted > 0 && (wanted * itemLineH + (wanted - 1) * lineGapPx) > itemsAvailH){
+		shown = (int)std::floor((itemsAvailH + lineGapPx) / (itemLineH + lineGapPx));
+		shown = std::max(0, std::min(shown, wanted));
+	}
+
+	// A collapsed area means the grid has been nudged until the two middle
+	// columns meet, which is a rig problem rather than a layout one - but it
+	// reads the same way here, as a cart with nowhere to go.
+	const bool noRoom = (area.getWidth() <= 0.0f) || (area.getHeight() <= 0.0f);
+	const bool overflowing = noRoom || (shown < wanted);
+
+	// Logged on the CROSSINGS, not once ever and not every frame. A one-shot
+	// flag is the bug in CLAUDE.md section 22 item 2 - the first firing silences
+	// the check for the rest of the run, so a second, worse overflow after a
+	// menu change is never heard. Reporting the recovery too means a log that
+	// says "overflowing" is a log that is still overflowing.
+	if(overflowing && !cartOverflowing){
+		ofLogError("ofApp") << "cart does not fit its space: " << wanted
+			<< " lines plus the total need "
+			<< ofToString(wanted * itemLineH + std::max(0, wanted - 1) * lineGapPx
+				+ totalBlockH, 0)
+			<< " px, back half of the centre column is "
+			<< ofToString(area.getHeight(), 0) << " x "
+			<< ofToString(area.getWidth(), 0)
+			<< " px - CLIPPING to " << shown << " lines. Nothing may spill into"
+			<< " the front half or across a bin; shrink the cart font or shorten"
+			<< " the list.";
+	}
+	else if(!overflowing && cartOverflowing){
+		ofLogNotice("ofApp") << "cart fits again (" << wanted << " lines)";
+	}
+	cartOverflowing = overflowing;
+
+	if(noRoom){
+		return;
+	}
+
+	// Black on the field, like the labels, and size is the only hierarchy -
+	// section 9 reserves colour for progress indication.
+	ofSetColor(0);
+
+	// Right edges for the two number columns. Measured from the widest string
+	// that will actually be drawn, including the total's, so the decimal points
+	// line up down the strip instead of each row centring on its own width.
+	float priceColW = nameFont.getStringBoundingBox(totalPrice, 0.0f, 0.0f).getWidth();
+	float gramsColW = 0.0f;
+	for(int k = 0; k < shown; k++){
+		priceColW = std::max(priceColW,
+			priceFont.getStringBoundingBox(lines[k].price, 0.0f, 0.0f).getWidth());
+		gramsColW = std::max(gramsColW,
+			priceFont.getStringBoundingBox(lines[k].grams, 0.0f, 0.0f).getWidth());
+	}
+
+	const float priceRight = area.getMaxX();
+	const float gramsRight = priceRight - priceColW - colGapPx;
+
+	// Ink boxes rather than advance widths, and the box's own origin subtracted
+	// out, so a glyph with side bearings still lands on the column edge.
+	auto drawRight = [](const ofTrueTypeFont & font, const std::string & s,
+	                    float rightX, float baselineY){
+		const ofRectangle b = font.getStringBoundingBox(s, 0.0f, 0.0f);
+		font.drawString(s, rightX - b.getWidth() - b.x, baselineY);
+	};
+
+	float y = area.getMinY();
+
+	for(int k = 0; k < shown; k++){
+		const float baseline = y + priceFont.getAscenderHeight();
+
+		priceFont.drawString(lines[k].name, area.getMinX(), baseline);
+		drawRight(priceFont, lines[k].grams, gramsRight, baseline);
+		drawRight(priceFont, lines[k].price, priceRight, baseline);
+
+		y += itemLineH;
+		if(k < shown - 1){
+			y += lineGapPx;
+		}
+	}
+
+	// The rule only exists to separate two things, so it is only drawn when
+	// there are two things. With an empty cart the total stands alone.
+	if(haveRule){
+		y += ruleGapPx;
+		ofDrawRectangle(area.getMinX(), y, area.getWidth(), rulePx);
+		y += rulePx + ruleGapPx;
+	}
+
+	nameFont.drawString(totalLabel, area.getMinX(), y + nameFont.getAscenderHeight());
+	drawRight(nameFont, totalPrice, priceRight, y + nameFont.getAscenderHeight());
+}
+
+//--------------------------------------------------------------
 void ofApp::drawHands(){
 	// Nothing at all until the tracker has been heard from. A table that has
 	// never had a tracker attached stays black rather than showing a stale dot.
@@ -1333,6 +1675,11 @@ void ofApp::updateHover(){
 void ofApp::update(){
 	receiveOsc();
 	updateHover();
+
+	// Once per frame, before anything draws, so the whole frame is rendered from
+	// one set of shown weights rather than from values that could move between
+	// the in-bin readout and the cart.
+	updateDisplayedWeights();
 }
 
 //--------------------------------------------------------------
@@ -1438,6 +1785,12 @@ void ofApp::draw(){
 	// Before the hand dot rather than after it, so the dot - which is what
 	// stage 1 is still being judged on - stays the topmost thing on the table.
 	drawBinLabels();
+
+	// The cart sits in the same layer as the labels - table-fixed UI text on
+	// plywood - and after them because it is the one region neither the bins nor
+	// their label strips are entitled to, so nothing it draws over can be
+	// something a bin needed.
+	drawCart();
 
 	// hands on top of the bins, under nothing yet
 	drawHands();
