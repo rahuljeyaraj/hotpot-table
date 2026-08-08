@@ -44,6 +44,9 @@ void logMonitors(int selected){
 //========================================================================
 int main( ){
 
+	// default channel's lazy initialiser never runs on this toolchain - see Probe 1/2
+	ofSetLoggerChannel(std::make_shared<ofConsoleLoggerChannel>());
+
 	int monitorIndex = readMonitorIndex();
 	logMonitors(monitorIndex);
 
