@@ -1,7 +1,22 @@
 #include "ofApp.h"
 
 //--------------------------------------------------------------
+void ofApp::logWindowState(const std::string & when){
+	ofLogNotice("ofApp") << when
+		<< ": pos(" << ofGetWindowPositionX() << "," << ofGetWindowPositionY() << ")"
+		<< " size " << ofGetWindowWidth() << "x" << ofGetWindowHeight()
+		<< " screen " << ofGetScreenWidth() << "x" << ofGetScreenHeight()
+		<< " fullscreen=" << (ofGetWindowMode() == OF_FULLSCREEN ? "yes" : "no");
+}
+
+//--------------------------------------------------------------
 void ofApp::setup(){
+	logWindowState("setup before fullscreen");
+
+	ofSetFullscreen(true);
+
+	logWindowState("setup after fullscreen");
+
 	ofBackground(0);
 }
 
@@ -12,6 +27,13 @@ void ofApp::update(){
 
 //--------------------------------------------------------------
 void ofApp::draw(){
+	// the window is only shown just before the first draw, so read back the
+	// real geometry here rather than inferring it from setup()
+	uint64_t frame = ofGetFrameNum();
+	if(frame == 0 || frame == 30){
+		logWindowState("frame " + ofToString(frame));
+	}
+
 	ofBackground(0);
 
 	float w = ofGetWidth();
