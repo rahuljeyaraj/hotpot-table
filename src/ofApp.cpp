@@ -1,6 +1,8 @@
 #include "ofApp.h"
 #include "TableGeometry.h"
 
+#include <algorithm>
+
 namespace {
 	// calibration dot appearance
 	const float kDotRadiusPx = 20.0f;
@@ -70,6 +72,58 @@ namespace {
 
 	// Lives in bin/data/ alongside the other rig state.
 	const char * kOffsetsFile = "bin_offsets.json";
+
+	// --- ingredient labels ---------------------------------------------------
+	const char * kIngredientsFile = "ingredients.json";
+
+	// DejaVu Sans Bold, committed to bin/data/fonts/ rather than pulled from a
+	// system path. The reComputer is Linux and the dev machine is Windows, and a
+	// font that resolves on one and not the other fails as a blank table.
+	//
+	// Bold, not regular, and that is not a style preference. This is white text
+	// on white plywood lit by a projector in a room that section 21 REQUIRES to
+	// stay lit - so the ambient light the classifier needs is also the light
+	// washing out the projected UI. Contrast comes from stroke width, which is
+	// the one thing a bold face has more of. Same lesson as the dim-cyan bin
+	// outline that was rejected at the table further up.
+	const char * kFontFile = "fonts/DejaVuSans-Bold.ttf";
+
+	// Font sizes as PHYSICAL heights on the plywood, converted to pixels at
+	// load. Stated in mm because that is the dimension legibility depends on;
+	// the pixel number is a consequence of the projector, not a choice.
+	//
+	// Sized for the far row, which is the worst case: a diner standing at the
+	// near edge is roughly 1.4 m of slant range from the back label strip
+	// (about 1.2 m across the table, about 0.85 m of eye height above it).
+	// Signage practice puts the legibility threshold near 1/200 of viewing
+	// distance and comfortable reading near 1/100. Nothing here is good
+	// conditions - projected light competing with the room lighting section 21
+	// mandates - so this takes the comfortable ratio: 1400 / 100 = 14 mm of cap
+	// height. DejaVu's cap height is 0.73 em, so 14 / 0.73 = 19 mm of em, taken
+	// up to 22 mm for headroom, since the back strip has 175 mm to spend and
+	// nothing else wants it.
+	const float kNameEmMM = 22.0f;
+
+	// The price is the number the diner is actually here to read, so it drops
+	// only enough to establish which line is which - 17/22 is a clear
+	// hierarchy while still clearing the 1/100 comfortable ratio (11 mm of em,
+	// 12.4 mm of cap, against the 14 mm the far row asks for at 1/100 and the
+	// 7 mm it asks for at the 1/200 threshold).
+	const float kPriceEmMM = 17.0f;
+
+	// Gap between the name's ink and the price's ink.
+	const float kLabelLineGapMM = 4.0f;
+
+	// Clearance between the edge of a bin's black rect and the nearest label
+	// ink. The black already overshoots the physical hole by CUTOUT_MARGIN_MM,
+	// so 10 mm here leaves the text about 20 mm clear of the actual opening -
+	// comfortably past both the 1 mm nudge step the alignment was dialled in
+	// with and the few mm of residual it could still be carrying.
+	//
+	// Not reusing CUTOUT_MARGIN_MM itself: that one is a projector-spill
+	// margin and this one is a typographic one, and tying them together would
+	// mean a future change to either silently moving the other.
+	const float kLabelClearanceMM = 10.0f;
 
 	// Under bin/data/ so ofSaveScreen finds it without path games, but git
 	// ignored - these are output to look at, not data the app loads.
@@ -219,6 +273,29 @@ void ofApp::setup(){
 	}
 
 	loadOffsets();
+
+	loadIngredients();
+
+	// Loaded ONCE, at the size they are drawn at. mmToPxY rather than a literal
+	// so the sizes stay the physical heights argued for at the top of this file
+	// if the projector ever changes - but still resolved here, before any
+	// drawing, so nothing is ever scaled up at draw time (section 7).
+	const int nameSizePx = (int)roundf(mmToPxY(kNameEmMM));
+	const int priceSizePx = (int)roundf(mmToPxY(kPriceEmMM));
+
+	fontsLoaded = nameFont.load(kFontFile, nameSizePx)
+		&& priceFont.load(kFontFile, priceSizePx);
+
+	if(fontsLoaded){
+		ofLogNotice("ofApp") << "label fonts: " << kFontFile
+			<< " at " << nameSizePx << " px name (" << ofToString(kNameEmMM, 1)
+			<< " mm), " << priceSizePx << " px price ("
+			<< ofToString(kPriceEmMM, 1) << " mm)";
+	}
+	else {
+		ofLogError("ofApp") << "could not load " << ofToDataPath(kFontFile)
+			<< " - bin labels will not be drawn";
+	}
 
 	ofSetCircleResolution(64);
 
@@ -450,6 +527,98 @@ void ofApp::loadOffsets(){
 }
 
 //--------------------------------------------------------------
+// Reads bin/data/ingredients.json into `ingredients`, or leaves it empty.
+//
+// EVERY failure path leaves it empty and logs an error. There is no partial
+// load and no default name, on purpose: the file is the single source of truth
+// for what is in the bins, and a C++ fallback would be a second one. A second
+// source only ever shows up when the first is broken, which is exactly when
+// nobody is watching for it - the table would look fine and read wrong. A blank
+// strip is a visible fault; "Mushroom" over a bin of prawns is not.
+void ofApp::loadIngredients(){
+	ingredients.clear();
+
+	const std::string path = ofToDataPath(kIngredientsFile);
+
+	if(!ofFile::doesFileExist(path)){
+		ofLogError("ofApp") << "no " << path
+			<< " - bin labels will not be drawn. This file is the only place"
+			<< " ingredient names and prices live.";
+		return;
+	}
+
+	ofJson j = ofLoadJson(path);
+
+	if(!j.is_array()){
+		ofLogError("ofApp") << path << " is not a JSON array of bin entries"
+			<< " - bin labels will not be drawn";
+		return;
+	}
+	if((int)j.size() < BIN_COUNT){
+		ofLogError("ofApp") << path << " has " << j.size() << " entries, need "
+			<< BIN_COUNT << " (one per bin) - bin labels will not be drawn";
+		return;
+	}
+
+	// Filled by the entry's own "bin" field rather than by array position. The
+	// field is in the file precisely so the order in it does not matter, and
+	// honouring position instead would make the field decorative - and wrong
+	// the first time someone sorts the file alphabetically.
+	std::vector<Ingredient> loaded(BIN_COUNT);
+	std::vector<bool> seen(BIN_COUNT, false);
+
+	for(size_t e = 0; e < j.size(); e++){
+		const ofJson & entry = j[e];
+
+		if(!entry.is_object() || !entry.contains("bin") || !entry["bin"].is_number_integer()
+			|| !entry.contains("name") || !entry["name"].is_string()
+			|| !entry.contains("price_per_100g") || !entry["price_per_100g"].is_number()){
+			ofLogError("ofApp") << path << " entry " << e
+				<< " needs an integer bin, a string name and a numeric"
+				<< " price_per_100g - bin labels will not be drawn";
+			return;
+		}
+
+		const int bin = entry["bin"].get<int>();
+		if(bin < 0 || bin >= BIN_COUNT){
+			ofLogError("ofApp") << path << " entry " << e << " has bin " << bin
+				<< ", outside 0.." << (BIN_COUNT - 1)
+				<< " - bin labels will not be drawn";
+			return;
+		}
+		if(seen[bin]){
+			// Two entries claiming one bin has no right answer, and picking
+			// either would be a guess about which price to charge.
+			ofLogError("ofApp") << path << " has more than one entry for bin "
+				<< bin << " - bin labels will not be drawn";
+			return;
+		}
+
+		const std::string name = entry["name"].get<std::string>();
+		if(name.empty()){
+			ofLogError("ofApp") << path << " bin " << bin
+				<< " has an empty name - bin labels will not be drawn";
+			return;
+		}
+
+		loaded[bin].name = name;
+		loaded[bin].pricePer100g = entry["price_per_100g"].get<float>();
+		seen[bin] = true;
+	}
+
+	for(int i = 0; i < BIN_COUNT; i++){
+		if(!seen[i]){
+			ofLogError("ofApp") << path << " has no entry for bin " << i
+				<< " - bin labels will not be drawn";
+			return;
+		}
+	}
+
+	ingredients = loaded;
+	ofLogNotice("ofApp") << "loaded " << ingredients.size() << " ingredients from " << path;
+}
+
+//--------------------------------------------------------------
 // Bin i as it actually lands on the plywood: the grid cell bounded by its
 // column's two vertical lines and its row's two horizontal ones, so it carries
 // the offsets from bin_offsets.json as well as the CAD chain.
@@ -597,6 +766,139 @@ void ofApp::drawSelectionHighlight(){
 	}
 
 	hi.draw();
+}
+
+//--------------------------------------------------------------
+// Ingredient name and price on the plywood strip beside each bin.
+//
+// WHICH STRIP, AND WHY IT IS SAFE
+// The Y chain in TableGeometry.h is 177 + 255 + 50 + 255 + 177.4. The two 177 mm
+// terms at the ends are the label strips: solid plywood between the far edge of
+// the table and the far row, and between the near row and the diner's edge.
+// Neither strip contains any part of any cutout - the far row starts at 177 and
+// the near row ends at 737, and the offsets in bin_offsets.json move those by
+// single millimetres, not by a strip's width.
+//
+// That is the whole reason the placement below only has to reason about Y. A
+// label confined to its own strip cannot land in a cutout no matter how wide it
+// is, because there is no cutout anywhere along that band. Horizontal overflow
+// past a bin's own width spills into the 50 mm and 440 mm gaps between columns,
+// which are plywood too. Section 8 is satisfied by the band, not by the string.
+//
+// ORIENTATION
+// Drawn upright in screen space, with no rotation, and that already reads from
+// the diner's side. Table +y runs from the far edge towards the diner, and
+// mmToPxY maps it straight onto screen +y, so screen-down is diner-wards. A
+// diner at the near edge is looking along -y, which puts table +x on their
+// right and glyph tops away from them - the orientation of a page laid flat on
+// the table in front of them.
+void ofApp::drawBinLabels(){
+	// Nothing loaded is not an error here - loadIngredients already said so,
+	// once, with a reason. Repeating it 60 times a second would bury it.
+	if(!fontsLoaded || (int)ingredients.size() != BIN_COUNT){
+		return;
+	}
+
+	// ofxFlowTools leaves OF_BLENDMODE_ADD set (CLAUDE.md section 7). No fluid
+	// yet, but text drawn under ADD washes out to nothing against the grid, and
+	// the fix belongs with the text rather than with whatever set the mode.
+	ofEnableAlphaBlending();
+
+	// asc is positive and desc is negative, so asc - desc is the full ink
+	// height of a line. Used rather than getLineHeight() because line height
+	// carries the font's leading, which would put a gap between the two lines
+	// that this code has not chosen and cannot see.
+	const float nameLineH = nameFont.getAscenderHeight() - nameFont.getDescenderHeight();
+	const float priceLineH = priceFont.getAscenderHeight() - priceFont.getDescenderHeight();
+	const float lineGapPx = mmToPxY(kLabelLineGapMM);
+	const float blockH = nameLineH + lineGapPx + priceLineH;
+
+	const float clearancePx = mmToPxY(kLabelClearanceMM);
+
+	// Full white for both lines. Size is the only hierarchy, deliberately:
+	// section 9 reserves colour for progress indication, and the dim-cyan bin
+	// outline further up is the measured proof that dropping the value of a
+	// near-white on white plywood is how projected UI disappears.
+	ofSetColor(255);
+
+	for(int i = 0; i < BIN_COUNT; i++){
+		const Ingredient & ing = ingredients[i];
+
+		// The CORRECTED rect, offsets and all - the same one the black is drawn
+		// from. Placing against raw BINS[] would clear the drawing while the
+		// black sits somewhere else, and section 17 puts those up to ~5 mm per
+		// edge apart on top of a global offset.
+		const ofRectangle box = binRectPx(i);
+
+		// Row 0 is the far row, so its strip is the one beyond it, towards the
+		// far edge of the table. Row 1 is the near row and its strip is between
+		// it and the diner. Either way the block hugs its own bin: bottom-
+		// anchored above the far row, top-anchored below the near row, so the
+		// label is always on the side of the strip nearest the bin it names.
+		const bool farRow = (i / kCols) == 0;
+		const float blockTop = farRow ? box.getMinY() - clearancePx - blockH
+		                              : box.getMaxY() + clearancePx;
+		const float blockBottom = blockTop + blockH;
+
+		// Guaranteed clear of the cutout by construction above, and checked
+		// anyway. This is the one rule in the app whose violation is not a
+		// cosmetic bug: light landing in a bin contaminates the classifier's
+		// input (section 8). Cheap enough to run every frame, and it has to,
+		// because the nudge keys move `box` at runtime.
+		const bool insideCutout = farRow ? (blockBottom > box.getMinY())
+		                                 : (blockTop < box.getMaxY());
+		const bool offTable = (blockTop < 0.0f) || (blockBottom > (float)PROJ_H_PX);
+
+		if(insideCutout || offTable){
+			if(!labelPlacementLogged){
+				labelPlacementLogged = true;
+				ofLogError("ofApp") << "bin " << i << " label does not fit its "
+					<< (farRow ? "back" : "front") << " strip ("
+					<< ofToString(blockTop, 1) << ".." << ofToString(blockBottom, 1)
+					<< " px, bin " << ofToString(box.getMinY(), 1) << ".."
+					<< ofToString(box.getMaxY(), 1) << " px)"
+					<< " - not drawing it. Reduce the font size rather than the"
+					<< " clearance; nothing may be drawn inside a cutout.";
+			}
+			continue;
+		}
+
+		// Two decimals with no currency symbol, because CLAUDE.md does not name
+		// a currency and this is not the place to invent one. Add it to the
+		// JSON when it is decided, not here.
+		const std::string priceStr = ofToString(ing.pricePer100g, 2) + " / 100g";
+
+		// Ink boxes, not advance widths: centring on the advance leaves the
+		// string visibly off-centre for anything with side bearings, and these
+		// two lines are stacked so any mismatch between them shows.
+		const ofRectangle nameBox = nameFont.getStringBoundingBox(ing.name, 0.0f, 0.0f);
+		const ofRectangle priceBox = priceFont.getStringBoundingBox(priceStr, 0.0f, 0.0f);
+
+		const float cx = box.getCenter().x;
+
+		// drawString takes a baseline, so step down from the block top by the
+		// ascender to get there.
+		nameFont.drawString(ing.name,
+			cx - nameBox.getWidth() * 0.5f - nameBox.x,
+			blockTop + nameFont.getAscenderHeight());
+
+		priceFont.drawString(priceStr,
+			cx - priceBox.getWidth() * 0.5f - priceBox.x,
+			blockTop + nameLineH + lineGapPx + priceFont.getAscenderHeight());
+
+		// Advisory only - a wide label overflows onto plywood, never into a
+		// cutout, so it is untidy rather than unsafe. Worth saying once,
+		// because two long names in the adjacent columns either side of the
+		// 50 mm gap will run into each other.
+		if(!labelPlacementLogged
+			&& std::max(nameBox.getWidth(), priceBox.getWidth()) > box.getWidth()){
+			labelPlacementLogged = true;
+			ofLogWarning("ofApp") << "bin " << i << " label \"" << ing.name
+				<< "\" is wider than its bin (" << ofToString(nameBox.getWidth(), 0)
+				<< " px vs " << ofToString(box.getWidth(), 0)
+				<< " px) - it overhangs onto the plywood between columns";
+		}
+	}
 }
 
 //--------------------------------------------------------------
@@ -813,6 +1115,11 @@ void ofApp::draw(){
 	// black over the cutouts last of the table-fixed layers, so the grid and
 	// diagonals above cannot put light into a bin
 	drawBinCutouts();
+
+	// UI text goes after the black, per the layer order in section 7. Before
+	// the hand dot rather than after it, so the dot - which is what stage 1 is
+	// still being judged on - stays the topmost thing on the table.
+	drawBinLabels();
 
 	// hands on top of the bins, under nothing yet
 	drawHands();
