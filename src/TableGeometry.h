@@ -5,8 +5,10 @@
 // converts here, so a projector or table change is a one-place edit.
 
 // Plywood top: 60 x 36 inches.
-static const float TABLE_W_MM = 1524.0f;
-static const float TABLE_H_MM = 914.4f;
+// constexpr rather than const so the bin layout below can be checked against
+// these at compile time.
+static constexpr float TABLE_W_MM = 1524.0f;
+static constexpr float TABLE_H_MM = 914.4f;
 
 // Projector native resolution, image assumed to cover the whole table.
 static const int PROJ_W_PX = 1920;
@@ -21,3 +23,98 @@ inline float mmToPxX(float mm){
 inline float mmToPxY(float mm){
 	return mm * (float)PROJ_H_PX / TABLE_H_MM;
 }
+
+// --- bins -----------------------------------------------------------------
+// Eight bins, two rows of four, symmetric about the table centre with a wide
+// gap up the middle for the pot.
+//
+// The two chains below are the source of truth for the layout. Each is a
+// left-to-right (or far-to-near) walk across the table, and each MUST sum to
+// the table dimension - a chain that does not span the table means a bin has
+// been placed off the plywood. The static_asserts at the bottom enforce this.
+//
+//   X: 92 +200+50+200 +440 +200+50+200+ 92 = 1524   (TABLE_W_MM)
+//      ^   ^^^ ^^ ^^^  ^^^                  ^^
+//      |   bin gap bin  |                   edge margin
+//      edge margin      centre gap (pot)
+//
+//   Y: 177 +255+50+255+ 177.4 = 914.4               (TABLE_H_MM)
+//       ^    ^^^ ^^ ^^^  ^^^^^
+//       |    far gap near  near edge margin
+//       far edge margin
+//
+// The xMM/yMM values in BINS are running totals of these chains, not
+// independent measurements. Change a chain term and the origins must be
+// recomputed to match.
+
+static constexpr float BIN_W_MM = 200.0f;
+static constexpr float BIN_H_MM = 255.0f;
+
+// The projector must not spill light into a physical bin cutout, so the black
+// fill is drawn slightly larger than the bin itself. Absorbs both the
+// homography's residual error and the saw kerf on the real cutout.
+static constexpr float CUTOUT_MARGIN_MM = 10.0f;
+
+// A bin footprint in table mm. Origin is the far-left corner, matching the
+// mm axes: +x to the right, +y away from the near edge.
+struct BinRect {
+	float xMM, yMM, wMM, hMM;
+};
+
+// Indices 0-3 are the far row left to right, 4-7 the near row left to right,
+// so bin N and bin N+4 share a column. Same order as the calibration dots:
+// row-major, far row first.
+static constexpr int BIN_COUNT = 8;
+
+static constexpr BinRect BINS[BIN_COUNT] = {
+	{   92.0f, 177.0f, BIN_W_MM, BIN_H_MM },  // 0  far left
+	{  342.0f, 177.0f, BIN_W_MM, BIN_H_MM },  // 1  far centre-left
+	{  982.0f, 177.0f, BIN_W_MM, BIN_H_MM },  // 2  far centre-right
+	{ 1232.0f, 177.0f, BIN_W_MM, BIN_H_MM },  // 3  far right
+	{   92.0f, 482.0f, BIN_W_MM, BIN_H_MM },  // 4  near left
+	{  342.0f, 482.0f, BIN_W_MM, BIN_H_MM },  // 5  near centre-left
+	{  982.0f, 482.0f, BIN_W_MM, BIN_H_MM },  // 6  near centre-right
+	{ 1232.0f, 482.0f, BIN_W_MM, BIN_H_MM },  // 7  near right
+};
+
+// The rect to fill black for a bin: the bin grown by CUTOUT_MARGIN_MM on all
+// four sides, so the origin moves back by the margin and each span grows by
+// twice it.
+inline constexpr BinRect binFillRectMM(const BinRect & bin){
+	return {
+		bin.xMM - CUTOUT_MARGIN_MM,
+		bin.yMM - CUTOUT_MARGIN_MM,
+		bin.wMM + 2.0f * CUTOUT_MARGIN_MM,
+		bin.hMM + 2.0f * CUTOUT_MARGIN_MM
+	};
+}
+
+// --- layout checks --------------------------------------------------------
+// Exact float equality would be a coin flip: neither 177.4 nor 914.4 is
+// representable in binary, so the Y chain lands within an ulp of TABLE_H_MM
+// rather than exactly on it. 0.01 mm is far tighter than anything that
+// matters on plywood and far looser than float rounding at this magnitude.
+inline constexpr bool sameMM(float a, float b){
+	return (a - b) < 0.01f && (b - a) < 0.01f;
+}
+
+// The two chains span the table.
+static_assert(sameMM(92.0f + BIN_W_MM + 50.0f + BIN_W_MM + 440.0f
+                          + BIN_W_MM + 50.0f + BIN_W_MM + 92.0f, TABLE_W_MM),
+	"X bin layout chain does not sum to TABLE_W_MM");
+
+static_assert(sameMM(177.0f + BIN_H_MM + 50.0f + BIN_H_MM + 177.4f, TABLE_H_MM),
+	"Y bin layout chain does not sum to TABLE_H_MM");
+
+// The BINS origins are the running totals those chains imply. These catch a
+// bin size edited without moving the bins that follow it.
+static_assert(sameMM(BINS[1].xMM, BINS[0].xMM + BIN_W_MM + 50.0f),
+	"far row left pair does not match the 50 mm gap in the X chain");
+static_assert(sameMM(BINS[2].xMM, BINS[1].xMM + BIN_W_MM + 440.0f),
+	"centre gap does not match the 440 mm term in the X chain");
+static_assert(sameMM(BINS[3].xMM + BIN_W_MM + 92.0f, TABLE_W_MM),
+	"far row right edge does not close the X chain");
+static_assert(sameMM(BINS[4].yMM, BINS[0].yMM + BIN_H_MM + 50.0f),
+	"near row does not match the 50 mm row gap in the Y chain");
+static_assert(sameMM(BINS[4].yMM + BIN_H_MM + 177.4f, TABLE_H_MM),
+	"near row does not close the Y chain");
