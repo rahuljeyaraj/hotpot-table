@@ -1,0 +1,6 @@
+# Captured frames are per-session artefacts, not source. A 1080p PNG of a mostly
+# black table is small, but there is no reason to version one per calibration run
+# and no reason to reach for Git LFS. homography.json is the output that matters
+# and it stays tracked.
+capture_raw.png
+capture_annotated.png

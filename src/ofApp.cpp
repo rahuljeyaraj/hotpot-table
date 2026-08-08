@@ -3,7 +3,7 @@
 
 namespace {
 	// calibration dot appearance
-	const float kDotRadiusPx = 12.0f;
+	const float kDotRadiusPx = 20.0f;
 
 	// dot centres in table mm - all nine sit on solid plywood, clear of every
 	// tray cutout. Do not move these without re-measuring the cutouts.

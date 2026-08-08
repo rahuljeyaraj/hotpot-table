@@ -1,0 +1,4 @@
+# Not pinned to exact versions: this venv is created fresh per machine, and the
+# host runs Python 3.14 where numpy 1.x will not build. Lower bounds only.
+opencv-python>=4.10
+numpy>=2.1
