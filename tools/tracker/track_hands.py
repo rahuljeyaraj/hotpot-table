@@ -186,6 +186,25 @@ def open_camera(args):
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
 
+    # Exposure must be set explicitly. The driver default on this rig produces a
+    # frame averaging 27/255 - the hand is plainly there to a human eye, and
+    # MediaPipe finds nothing in it at any rotation or confidence threshold.
+    # Raising it lands the average near 121 and the same hand is detected
+    # immediately.
+    #
+    # This is the opposite of what calibration wants. solve_homography.py needs
+    # a dark frame so the projected dots stay separable from a white table;
+    # tracking needs the table itself lit. Same camera, same backend, opposite
+    # exposure - so neither script may rely on the driver default.
+    #
+    # Manual rather than auto on purpose: auto works today but would hunt once
+    # the projector starts painting bright UI, and a hunting exposure changes
+    # the image mid-pick. CAP_PROP_EXPOSURE is honoured by MSMF (it is DSHOW
+    # that ignores it).
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, args.auto_exposure)
+    if args.exposure is not None:
+        cap.set(cv2.CAP_PROP_EXPOSURE, args.exposure)
+
     actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     if (actual_w, actual_h) != (args.width, args.height):
@@ -197,11 +216,26 @@ def open_camera(args):
             f"resolution"
         )
 
-    for _ in range(max(0, args.warmup)):
-        cap.read()  # first frames out of a UVC camera are stale or half-exposed
+    frame = None
+    for _ in range(max(1, args.warmup)):
+        ok, f = cap.read()  # first frames off a UVC camera are stale or half-exposed
+        if ok:
+            frame = f
 
     print(f"camera           : index {args.camera}, {args.backend}, "
           f"{actual_w}x{actual_h}")
+
+    # A too-dark frame is the failure that looks like a broken tracker: the
+    # pipeline runs, the FPS is fine, and it just reports zero hands forever.
+    # Say so at startup instead of leaving it to be discovered with a hand
+    # already over the table.
+    if frame is not None:
+        mean = float(frame.mean())
+        note = "" if mean >= args.min_mean_grey else (
+            f"  <- TOO DARK, expect zero detections; raise --exposure"
+        )
+        print(f"exposure         : mean grey {mean:.1f}/255{note}")
+
     return cap
 
 
@@ -382,6 +416,13 @@ def main():
     p.add_argument("--height", type=int, default=1080)
     p.add_argument("--warmup", type=int, default=20,
                    help="frames to discard before tracking starts")
+    p.add_argument("--exposure", type=float, default=-4.0,
+                   help="CAP_PROP_EXPOSURE; less negative is brighter. The "
+                        "driver default is far too dark for detection")
+    p.add_argument("--auto-exposure", type=float, default=0.25,
+                   help="CAP_PROP_AUTO_EXPOSURE; 0.25 manual, 0.75 auto")
+    p.add_argument("--min-mean-grey", type=float, default=60.0,
+                   help="warn below this average frame brightness")
     p.add_argument("--homography", type=Path, default=DEFAULT_HOMOGRAPHY)
     p.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     p.add_argument("--osc-host", default="127.0.0.1")

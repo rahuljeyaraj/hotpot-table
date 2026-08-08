@@ -457,6 +457,30 @@ MSMF holds a fixed exposure and the same dots come back with real contrast.
 Every script that opens this camera must use MSMF at 1920×1080, so that what
 the tracker sees matches the frame the homography was solved on.
 
+### Calibration and tracking need OPPOSITE exposures — set it explicitly
+Never rely on the driver default. On this rig it yields a frame averaging
+**27/255**: a hand is obvious to the eye, and MediaPipe finds nothing in it at
+any rotation or confidence threshold. Raising exposure puts the average near
+**121** and the same hand is detected instantly.
+
+This is the failure mode that looks like a broken tracker — the pipeline runs,
+FPS is normal, and it reports zero hands forever.
+
+| Script | Wants | Why |
+|---|---|---|
+| `solve_homography.py` | dark | projected dots must stay separable from a white table |
+| `track_hands.py` | bright | the table itself has to be lit to see a hand on it |
+
+`track_hands.py` sets `CAP_PROP_AUTO_EXPOSURE` to 0.25 (manual) and
+`CAP_PROP_EXPOSURE` to −4, and prints the achieved mean grey at startup with a
+warning below 60. Manual rather than auto deliberately: auto works in a dark
+room but will hunt once the projector paints bright UI, and a hunting exposure
+changes the image mid-pick.
+
+**MSMF does honour `CAP_PROP_EXPOSURE`** — it is DSHOW that ignores it. The
+driver keeps *reporting* −4 whatever you set, so read back frame brightness
+rather than the property to tell whether a change took.
+
 ---
 
 ## 17. Repo layout
