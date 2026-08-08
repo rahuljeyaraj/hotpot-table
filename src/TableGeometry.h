@@ -55,8 +55,9 @@ static constexpr float BIN_H_MM = 255.0f;
 // homography's residual error and the saw kerf on the real cutout.
 static constexpr float CUTOUT_MARGIN_MM = 10.0f;
 
-// A bin footprint in table mm. Origin is the far-left corner, matching the
-// mm axes: +x to the right, +y away from the near edge.
+// A bin footprint in table mm. Origin is the corner nearest the far-left of
+// the table, matching the mm axes: +x to the right, +y from the far edge
+// towards the diner - which is why the far row below has the smaller yMM.
 struct BinRect {
 	float xMM, yMM, wMM, hMM;
 };

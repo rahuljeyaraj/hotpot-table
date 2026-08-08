@@ -24,6 +24,15 @@ namespace {
 	// plywood rather than a fixed pixel width.
 	const float kBinOutlineMM = 3.0f;
 
+	// Nudge steps in table mm. 1 mm is finer than the calibration's own 3.66 px
+	// mean reprojection error (~2.9 mm at table scale), so the useful limit is
+	// what can be seen on the plywood, not the step.
+	const float kNudgeStepMM = 1.0f;
+	const float kNudgeFastStepMM = 5.0f;
+
+	// Lives in bin/data/ alongside the other rig state.
+	const char * kOffsetsFile = "bin_offsets.json";
+
 	// --- hand tracking -------------------------------------------------------
 	// Must match --osc-port in tools/tracker/track_hands.py.
 	const int kOscPort = 12345;
@@ -101,6 +110,8 @@ void ofApp::setup(){
 		}
 	}
 
+	loadOffsets();
+
 	ofSetCircleResolution(64);
 
 	oscReceiver.setup(kOscPort);
@@ -145,6 +156,64 @@ void ofApp::receiveOsc(){
 }
 
 //--------------------------------------------------------------
+void ofApp::nudgeOffset(float dxMM, float dyMM){
+	offsetXMM += dxMM;
+	offsetYMM += dyMM;
+
+	// Logged as well as drawn: the on-screen readout is on the projector, which
+	// is across the room from whoever is holding the arrow keys.
+	ofLogNotice("ofApp") << "bin offset (" << ofToString(offsetXMM, 1) << ", "
+		<< ofToString(offsetYMM, 1) << ") mm - unsaved, press s to keep it";
+}
+
+//--------------------------------------------------------------
+void ofApp::saveOffsets(){
+	ofJson j;
+	j["offsetXMM"] = offsetXMM;
+	j["offsetYMM"] = offsetYMM;
+
+	const std::string path = ofToDataPath(kOffsetsFile);
+	if(ofSaveJson(path, j)){
+		ofLogNotice("ofApp") << "saved bin offset (" << ofToString(offsetXMM, 1) << ", "
+			<< ofToString(offsetYMM, 1) << ") mm to " << path;
+	}
+	else {
+		ofLogError("ofApp") << "could not write " << path
+			<< " - the nudge is still applied, but only until this run ends";
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::loadOffsets(){
+	const std::string path = ofToDataPath(kOffsetsFile);
+
+	// Checked rather than left to ofLoadJson, which logs an error for a missing
+	// file. No offsets yet is the normal state on a fresh clone, not a fault.
+	if(!ofFile::doesFileExist(path)){
+		ofLogNotice("ofApp") << "no " << kOffsetsFile
+			<< ", bins start at their CAD positions";
+		return;
+	}
+
+	ofJson j = ofLoadJson(path);
+
+	// A file that exists but does not parse must be loud. Falling back to zero
+	// silently would look exactly like a nudge that was never saved, and the
+	// natural response to that is to re-measure a rig that was already right.
+	if(!j.contains("offsetXMM") || !j.contains("offsetYMM")
+		|| !j["offsetXMM"].is_number() || !j["offsetYMM"].is_number()){
+		ofLogError("ofApp") << path << " has no numeric offsetXMM/offsetYMM"
+			<< " - ignoring it and starting at the CAD positions";
+		return;
+	}
+
+	offsetXMM = j["offsetXMM"].get<float>();
+	offsetYMM = j["offsetYMM"].get<float>();
+	ofLogNotice("ofApp") << "loaded bin offset (" << ofToString(offsetXMM, 1) << ", "
+		<< ofToString(offsetYMM, 1) << ") mm from " << path;
+}
+
+//--------------------------------------------------------------
 void ofApp::drawBinCutouts(){
 	// Section 8 of CLAUDE.md: the projector must put near-zero light into the
 	// bins. Projected colour landing on the food contaminates the classifier's
@@ -167,9 +236,10 @@ void ofApp::drawBinCutouts(){
 		const BinRect fill = binFillRectMM(BINS[i]);
 
 		// mmToPx* are pure scales with no offset, so they convert spans as
-		// well as positions
-		const float x = mmToPxX(fill.xMM);
-		const float y = mmToPxY(fill.yMM);
+		// well as positions. The nudge shifts the origin only - the cutouts do
+		// not change size just because the pattern sits a few mm off.
+		const float x = mmToPxX(fill.xMM + offsetXMM);
+		const float y = mmToPxY(fill.yMM + offsetYMM);
 		const float w = mmToPxX(fill.wMM);
 		const float h = mmToPxY(fill.hMM);
 
@@ -299,11 +369,32 @@ void ofApp::draw(){
 	if(!everReceived){
 		ss << "  (no tracker yet)";
 	}
+	ss << "\nbin offset " << ofToString(offsetXMM, 1) << ", "
+	   << ofToString(offsetYMM, 1) << " mm  (arrows 1mm, shift 5mm, s saves)";
 	ofDrawBitmapString(ss.str(), 10, 20);
 }
 
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key){
+	// Shift is read live rather than from the key code: an arrow key reports the
+	// same code either way, so the modifier is the only thing distinguishing a
+	// coarse nudge from a fine one.
+	const float step = ofGetKeyPressed(OF_KEY_SHIFT) ? kNudgeFastStepMM : kNudgeStepMM;
+
+	// Screen directions, not table directions - whoever is nudging is looking at
+	// the projected rectangles. +y runs towards the diner, so up is negative.
+	switch(key){
+		case OF_KEY_LEFT:  nudgeOffset(-step, 0.0f); return;
+		case OF_KEY_RIGHT: nudgeOffset( step, 0.0f); return;
+		case OF_KEY_UP:    nudgeOffset( 0.0f, -step); return;
+		case OF_KEY_DOWN:  nudgeOffset( 0.0f,  step); return;
+	}
+
+	if(key == 's' || key == 'S'){
+		saveOffsets();
+		return;
+	}
+
 	if(key == 'c' || key == 'C'){
 		showCalibration = !showCalibration;
 		ofLogNotice("ofApp") << "calibration pattern " << (showCalibration ? "on" : "off");

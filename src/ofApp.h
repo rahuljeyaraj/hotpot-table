@@ -30,6 +30,22 @@ class ofApp : public ofBaseApp{
 		void drawHands();
 		void drawBinCutouts();
 
+		void nudgeOffset(float dxMM, float dyMM);
+		void saveOffsets();
+		void loadOffsets();
+
+		// Whole-pattern nudge in table mm, applied to every bin. Exists because
+		// the eight tray modules are independent with no shared rigid base, so
+		// the real cutouts sit where the build put them rather than where CAD
+		// says. This corrects the part of that error common to all eight; a bin
+		// that is off on its own needs a per-bin offset, which does not exist yet.
+		//
+		// Deliberately NOT applied to the calibration dots: those are the
+		// reference the homography was solved against, and moving them would
+		// invalidate it.
+		float offsetXMM = 0.0f;
+		float offsetYMM = 0.0f;
+
 		// nine calibration points in table mm, row-major, top row first
 		std::vector<glm::vec2> calibDotsMM;
 		bool showCalibration = false;
