@@ -533,6 +533,87 @@ def prepare_for_mediapipe(frame):
 
 # --- debug view -------------------------------------------------------------
 
+def list_displays():
+    """Every monitor as (x, y, w, h, is_primary), in desktop coordinates.
+
+    cv2.moveWindow takes virtual-desktop coordinates, so an origin is all that
+    is needed to put the debug window on a chosen screen. Left unplaced, HighGUI
+    lets Windows decide, and Windows is entitled to decide "the projector" -
+    which on this rig means the debug view lands on the table, on top of the UI
+    it is meant to be debugging.
+
+    THIS INDEX IS NOT THE ONE IN bin/data/display.txt. That file holds a GLFW
+    monitor index for the oF app, and GLFW always enumerates the primary monitor
+    first while Win32 does not, so the two orders disagree. Copying a number
+    from one into the other puts the window on the wrong screen. Pick from the
+    list this script prints.
+
+    Deliberately does not touch the process's DPI awareness. Whatever HighGUI's
+    coordinates mean, these come from the same process and mean the same thing,
+    and that self-consistency is the only property needed here.
+    """
+    if sys.platform != "win32":
+        return []
+
+    import ctypes
+    from ctypes import wintypes
+
+    class RECT(ctypes.Structure):
+        _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG),
+                    ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", RECT),
+                    ("rcWork", RECT), ("dwFlags", wintypes.DWORD)]
+
+    MONITORINFOF_PRIMARY = 1
+    user32 = ctypes.windll.user32
+    found = []
+
+    proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC,
+                               ctypes.POINTER(RECT), wintypes.LPARAM)
+
+    def visit(handle, _hdc, _rect, _param):
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if user32.GetMonitorInfoW(handle, ctypes.byref(info)):
+            r = info.rcMonitor
+            found.append((r.left, r.top, r.right - r.left, r.bottom - r.top,
+                          bool(info.dwFlags & MONITORINFOF_PRIMARY)))
+        return True
+
+    try:
+        user32.EnumDisplayMonitors(None, None, proto(visit), 0)
+    except OSError:
+        return []
+    return found
+
+
+def choose_display(displays, wanted):
+    """Which monitor the debug window goes on, and why.
+
+    Default is the primary. The projector is the extended display on this rig -
+    the oF app is pointed at a non-zero GLFW index - so primary is the operator's
+    monitor, which is where a debug window belongs. It is a default, not an
+    assumption: --debug-display overrides it, and the list is printed either way.
+    """
+    if not displays:
+        return None
+
+    if wanted is not None:
+        if not 0 <= wanted < len(displays):
+            raise TrackerError(
+                f"--debug-display {wanted} but only {len(displays)} "
+                f"monitor(s) present, numbered 0 to {len(displays) - 1}"
+            )
+        return wanted
+
+    for i, d in enumerate(displays):
+        if d[4]:
+            return i
+    return 0
+
+
 class DebugView:
     """One window showing the model's actual input, with its actual output.
 
@@ -555,6 +636,10 @@ class DebugView:
     FONT_SCALE = 0.6
     FONT_THICKNESS = 2            # see _text - both passes must share it
     LINE_H = 30
+
+    WIDTH = 1280                  # window, not image - see _place
+    HEIGHT = 720
+    INSET = 60
 
     SKELETON = (0, 255, 0)        # BGR
     LANDMARK = (0, 165, 255)
@@ -585,7 +670,39 @@ class DebugView:
         # screen. That scales the WINDOW; the image handed to imshow is still
         # full resolution and unresampled by this script.
         cv2.namedWindow(self.WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        cv2.resizeWindow(self.WINDOW, 1280, 720)
+        cv2.resizeWindow(self.WINDOW, self.WIDTH, self.HEIGHT)
+        self._place()
+
+    def _place(self):
+        """Put the window on the operator's monitor, not on the table.
+
+        Sized to fit the target monitor rather than to the frame: the frame is
+        1920x1080 and the window is a scaled view of it, so there is nothing to
+        gain from matching it and a real cost to overflowing the screen.
+        """
+        displays = list_displays()
+        index = choose_display(displays, self.args.debug_display)
+        if index is None:
+            print("debug window     : could not enumerate monitors, leaving "
+                  "placement to the window manager - use --debug-display if "
+                  "it lands on the projector")
+            return
+
+        for i, (x, y, w, h, primary) in enumerate(displays):
+            mark = " <- debug window" if i == index else ""
+            print(f"  display [{i}]   : {w}x{h} at ({x},{y})"
+                  f"{'  PRIMARY' if primary else ''}{mark}")
+
+        x, y, w, h, _ = displays[index]
+        width = min(self.WIDTH, w - 2 * self.INSET)
+        height = min(self.HEIGHT, h - 2 * self.INSET)
+        cv2.resizeWindow(self.WINDOW, width, height)
+
+        # Inset rather than flush to the origin, for the reason main.cpp records
+        # about the oF window: Windows shifts a decorated window a few pixels
+        # off the requested spot, and a title bar at y=0 can end up under the
+        # screen edge with no way to drag it.
+        cv2.moveWindow(self.WINDOW, x + self.INSET, y + self.INSET)
 
     # -- overlays ----------------------------------------------------------
 
@@ -923,6 +1040,12 @@ def main():
                         "handedness, the detection box and live "
                         "grey/exposure/gain/rate/fps. Changes nothing else: "
                         "the CSV is still written and OSC is still sent")
+    p.add_argument("--debug-display", type=int, default=None,
+                   help="which monitor the --debug window opens on, indexed "
+                        "into the list printed at startup. Defaults to the "
+                        "primary, so it does not land on the projector. NOT "
+                        "the same numbering as bin/data/display.txt, which is "
+                        "a GLFW index for the oF app")
     p.add_argument("--min-mean-grey", type=float, default=60.0,
                    help="warn below this average frame brightness")
     p.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR,
