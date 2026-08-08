@@ -41,6 +41,20 @@ namespace {
 	// takes the cursor's colour on hover.
 	const ofColor kBinHoverColour(0, 200, 255);
 
+	// Section 9 puts two different claims on this one outline, and they must not
+	// be read as the same thing.
+	//
+	// This is the instant one: the outline changes the moment a hand is inside,
+	// before any dwell exists. Section 9 allows that precisely because it
+	// commits to nothing - the load cell confirms the actual pick, so a halo
+	// that lights on a hand passing through cannot have been wrong about
+	// anything.
+	//
+	// The same hue as kBinHoverColour, dimmed, rather than a third colour. The
+	// progress stroke then reads as this colour arriving rather than as an
+	// unrelated second state, which is what a different hue would say.
+	const ofColor kBinEnterColour(0, 70, 90);
+
 	// Floor for the pass-over instrumentation below. A hand clipping the corner
 	// of a bin rect on its way somewhere else banks a few tens of ms, and those
 	// are not pass-overs - they are the edge of the rect being touched at all.
@@ -85,6 +99,67 @@ namespace {
 	};
 	const size_t kHandColourCount =
 		sizeof(kHandColours) / sizeof(kHandColours[0]);
+
+	// The bin outline itself, walked clockwise from the top centre and cut off
+	// at `frac` of its total length. This is the progress indicator - there is
+	// no ring, arc or bar anywhere, because everything inside the rect is the
+	// cutout and has to stay black (section 8). The only geometry available to
+	// draw on is the 3 mm line already there, so progress runs along it.
+	//
+	// Top centre rather than a corner: it is the one point on a rectangle that
+	// reads the same from every side of the table, and it puts the closing gap
+	// in the middle of the far edge, where a bin nearly full is obvious at a
+	// glance instead of hidden in a corner.
+	ofPolyline binOutlineProgress(const ofRectangle & r, float frac){
+		const float w = r.getWidth();
+		const float h = r.getHeight();
+		const float midX = r.x + w * 0.5f;
+
+		// clockwise from top centre, round the four corners, back to it
+		const glm::vec2 stops[] = {
+			{ midX,    r.y     },
+			{ r.x + w, r.y     },
+			{ r.x + w, r.y + h },
+			{ r.x,     r.y + h },
+			{ r.x,     r.y     },
+			{ midX,    r.y     },
+		};
+		const size_t stopCount = sizeof(stops) / sizeof(stops[0]);
+
+		ofPolyline line;
+		line.addVertex(stops[0].x, stops[0].y);
+
+		// Length still to lay down, in pixels. Walk the segments spending it,
+		// and stop part way along whichever one runs out.
+		float remaining = ofClamp(frac, 0.0f, 1.0f) * (2.0f * w + 2.0f * h);
+
+		for(size_t s = 1; s < stopCount; s++){
+			const glm::vec2 a = stops[s - 1];
+			const glm::vec2 b = stops[s];
+			const float len = glm::distance(a, b);
+
+			// A zero-length side would divide by zero below. Only reachable
+			// with a collapsed rect, which means the grid lines have been
+			// nudged past each other rather than anything wrong here.
+			if(len <= 0.0f){
+				continue;
+			}
+
+			if(remaining >= len){
+				line.addVertex(b.x, b.y);
+				remaining -= len;
+				continue;
+			}
+
+			if(remaining > 0.0f){
+				const glm::vec2 p = a + (b - a) * (remaining / len);
+				line.addVertex(p.x, p.y);
+			}
+			break;
+		}
+
+		return line;
+	}
 }
 
 //--------------------------------------------------------------
@@ -419,18 +494,56 @@ void ofApp::drawBinCutouts(){
 		ofSetColor(0);
 		ofDrawRectangle(box);
 
-		// Only the colour changes on hover. Width stays put: a thicker stroke
-		// would grow inwards over the cutout and put light into the food,
-		// which section 8 rules out no matter what the UI wants to say.
+		// Only ever the colour changes. Width stays put: a thicker stroke would
+		// grow inwards over the cutout and put light into the food, which
+		// section 8 rules out no matter what the UI wants to say.
+		const bool handInside = (binHover[i] != HoverState::IDLE);
 		const bool hovered = (binHover[i] == HoverState::HOVERED);
 
 		// ofPath, not ofSetLineWidth - drivers cap the latter at 1 px
 		ofPath outline;
 		outline.setFilled(false);
 		outline.setStrokeWidth(strokePx);
-		outline.setColor(hovered ? kBinHoverColour : ofColor::white);
+		outline.setColor(hovered ? kBinHoverColour
+			: handInside ? kBinEnterColour
+			: ofColor::white);
 		outline.rectangle(box);
 		outline.draw();
+
+		// HOVERED is the full rect above, not a progress walk that happens to
+		// have reached the end. Drawing it as geometry rather than as an
+		// arrived-at animation is what makes it stay filled, and it avoids a
+		// hairline seam at the top centre where a closed walk meets itself.
+		if(!handInside || hovered){
+			continue;
+		}
+
+		// Progress is read straight off the accumulator every frame, with no
+		// animation state of its own. That is the whole reason a reset snaps:
+		// there is no second value here that could drain, so the render cannot
+		// imply a decay the accumulator does not have.
+		const float frac = binDwellMS[i] / HOVER_DWELL_MS;
+		if(frac <= 0.0f){
+			continue;
+		}
+
+		const ofPolyline walk = binOutlineProgress(box, frac);
+		const std::vector<glm::vec3> & pts = walk.getVertices();
+		if(pts.size() < 2){
+			continue;
+		}
+
+		// Same width, same line, brighter - so the earned part is the same
+		// outline arriving at full strength rather than a second shape.
+		ofPath progress;
+		progress.setFilled(false);
+		progress.setStrokeWidth(strokePx);
+		progress.setColor(kBinHoverColour);
+		progress.moveTo(pts[0].x, pts[0].y);
+		for(size_t p = 1; p < pts.size(); p++){
+			progress.lineTo(pts[p].x, pts[p].y);
+		}
+		progress.draw();
 	}
 
 	drawSelectionHighlight();
