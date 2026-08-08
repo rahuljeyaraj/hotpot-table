@@ -545,11 +545,16 @@ class DebugView:
     is what MediaPipe is being asked to find a hand in; a prettied-up frame
     would answer a question nobody asked.
 
-    Text is stroked black-then-colour rather than sitting on a filled panel, so
-    the only pixels it hides are the glyphs themselves.
+    Text is outlined rather than sitting on a filled panel, so the only pixels
+    it hides are the glyphs themselves.
     """
 
     WINDOW = "track_hands --debug"
+
+    FONT = cv2.FONT_HERSHEY_SIMPLEX
+    FONT_SCALE = 0.6
+    FONT_THICKNESS = 2            # see _text - both passes must share it
+    LINE_H = 30
 
     SKELETON = (0, 255, 0)        # BGR
     LANDMARK = (0, 165, 255)
@@ -585,10 +590,27 @@ class DebugView:
     # -- overlays ----------------------------------------------------------
 
     def _text(self, img, text, org, colour):
-        cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                    (0, 0, 0), 4, cv2.LINE_AA)
-        cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                    colour, 1, cv2.LINE_AA)
+        """Outlined text, both layers at the SAME thickness.
+
+        That is not a style choice. cv2.putText's glyph ADVANCE depends on
+        thickness - measured on OpenCV 5.0, one 36-character string is 286 px
+        wide at thickness 1 and 305 px at thickness 2 or more. So the obvious
+        way to outline text, a fat black pass under a thin coloured pass, is
+        wrong: the two start flush at the left and drift apart to the right,
+        and every line ends in a black ghost of its own tail.
+
+        Same thickness in both passes, offset by position instead. The four
+        diagonal offsets are what makes it an outline rather than a shadow,
+        which matters here because the text sits on a grainy frame with no
+        panel behind it and has to stay legible over both black and white.
+        """
+        x, y = org
+        for dx, dy in ((-2, -2), (2, -2), (-2, 2), (2, 2)):
+            cv2.putText(img, text, (x + dx, y + dy), self.FONT,
+                        self.FONT_SCALE, (0, 0, 0), self.FONT_THICKNESS,
+                        cv2.LINE_AA)
+        cv2.putText(img, text, (x, y), self.FONT, self.FONT_SCALE, colour,
+                    self.FONT_THICKNESS, cv2.LINE_AA)
 
     def _draw_hand(self, img, landmarks, handedness, index):
         h, w = img.shape[:2]
@@ -659,7 +681,7 @@ class DebugView:
              f"(as handed to MediaPipe)", self.OK),
         ]
         for i, (text, colour) in enumerate(lines):
-            self._text(img, text, (14, 30 + i * 26), colour)
+            self._text(img, text, (14, self.LINE_H * (i + 1)), colour)
 
         # An auto-exposure frame must never be mistaken for a fixed one - the
         # two are not comparable measurements, and a screenshot outlives the
@@ -671,7 +693,8 @@ class DebugView:
             if self.args.auto_exposure else
             (f"EXPOSURE FIXED at {asked}", self.OK)
         )
-        self._text(img, banner, (14, 30 + len(lines) * 26 + 8), colour)
+        self._text(img, banner, (14, self.LINE_H * (len(lines) + 1) + 10),
+                   colour)
 
     # -- rolling numbers ---------------------------------------------------
 
