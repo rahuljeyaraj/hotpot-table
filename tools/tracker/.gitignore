@@ -1,0 +1,4 @@
+# Google's hand landmark model bundle, ~7.8 MB. Fetched on first run straight
+# from Google's own URL, which is the authoritative copy - vendoring it here
+# would only add a binary to clone and a second thing to keep current.
+hand_landmarker.task

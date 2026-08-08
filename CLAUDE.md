@@ -69,10 +69,38 @@ light, a camera beside it can see.
 - **openFrameworks 0.12.1** — main app, C++
 - **ofxFlowTools** — GPU fluid simulation
 - **ofxGui** — required, ofxFlowTools references it
-- **MediaPipe Hands** (Python) — `max_num_hands=2`, `model_complexity=0`
+- **MediaPipe Hands** (Python) — two hands, lightest model
 - **OSC** — MediaPipe → openFrameworks
 - **JSONL over USB CDC** — XIAO → host
 - Voice: openWakeWord or Porcupine on host, using the webcam's own mic
+
+### `mediapipe.solutions.hands` does not exist any more
+Every tutorial, and an earlier version of this file, says to use
+`mp.solutions.hands.Hands(max_num_hands=2, model_complexity=0)`. Google removed
+that API. Measured on this machine: present in mediapipe **0.10.14**, gone by
+**0.10.35** and in **1.0.0**, where the whole package exposes only
+`Image`, `ImageFormat` and `tasks`.
+
+Pinning back to 0.10.14 also drags in jax, jaxlib and scipy, which is a lot of
+dependency for a weaker reComputer to carry.
+
+Use the **Tasks API**. The old settings map across exactly:
+
+| legacy | Tasks API |
+|---|---|
+| `max_num_hands=2` | `num_hands=2` |
+| `model_complexity=0` | the "lite" `hand_landmarker.task` bundle |
+
+Landmark indices are unchanged, so **9 is still the palm centre**
+(middle-finger MCP — steadier than any fingertip, since it barely moves as the
+fingers open and close).
+
+Running mode is **VIDEO**, not IMAGE or LIVE_STREAM. IMAGE re-detects from
+scratch every frame. LIVE_STREAM is callback-based and drops frames to keep up,
+which would hide exactly the jitter and latency that stage 1 exists to measure.
+
+The `.task` bundle (~7.8 MB) is fetched from Google on first run and gitignored.
+Google's copy is authoritative; vendoring it only adds a binary to clone.
 
 ---
 

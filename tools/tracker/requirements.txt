@@ -1,0 +1,14 @@
+# Its own venv, separate from tools/calibration/. mediapipe pins numpy and
+# protobuf hard, and the calibration solver has no reason to inherit those.
+#
+# Build this venv with Python 3.10 (`py -3.10 -m venv venv`). This host's
+# default `py` is 3.14, which has no mediapipe wheel - pip fails to resolve it
+# at all rather than saying why.
+#
+# mediapipe >=1.0 on purpose. The legacy `mediapipe.solutions.hands` API that
+# most tutorials still use was REMOVED by Google; it survives only up to
+# 0.10.14, which also drags in jax, jaxlib and scipy. track_hands.py uses the
+# supported Tasks API instead. See the note at the top of that file.
+opencv-python>=4.10
+mediapipe>=1.0
+python-osc>=1.8
