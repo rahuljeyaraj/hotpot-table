@@ -534,14 +534,26 @@ Every alignment fix goes into `bin_offsets.json`, via the on-screen nudge keys.
 - **Global offset: −4.0, 3.0 mm.** Moves all twelve grid lines together.
 - **Per-edge deltas** on top of that, giving black rects of:
 
-| | measured | CAD cutout |
+| | measured | CAD cutout (§12) |
 |---|---|---|
 | widths | 216, 214, 212, 217 mm (cols 1–4) | ~214 mm |
 | heights | 267 mm far row, 265 mm near row | ~269 mm |
 
+The CAD baseline is the **plywood cutout in §12**, not `BIN_W_MM`/`BIN_H_MM`. It
+comes off the tray chain: tray 205 mm wide (§3) → carrier base plate ~208 × 263
+at 1 mm per-side clearance → cutout ~214 × 269. That is the only place those two
+numbers are defined, and they have been in this file since the first commit.
+Do not compare the measured rects against the 220 × 275 nominal fill rect
+(`BIN + 2 × CUTOUT_MARGIN_MM`) — that is the drawn rect, not the hole.
+
 The ~5 mm spread across the columns is real. The eight tray carriers are
 independent with no shared rigid base (§11), so the cutouts sit where the build
-put them. Heights land under CAD on both rows.
+put them.
+
+Because the nudging aligned the black to the **actual openings**, these measured
+sizes are effectively a measurement of the as-built cutouts. Read that way, both
+rows came out 2–4 mm shorter than the ~269 mm nominal, and the columns straddle
+~214 mm. Widths were cut closer to drawing than heights.
 
 ### These offsets absorb TWO errors at once
 Cutout position error **and** residual homography error, mixed together and not
