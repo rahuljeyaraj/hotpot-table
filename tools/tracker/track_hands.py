@@ -43,6 +43,21 @@ DETECTION LOGGING
     CLAUDE.md), or the pose itself is hard for the model. One line of CSV
     separates them after the fact. The startup mean-grey reading cannot - it is
     sampled once during warmup and is stale the moment it prints.
+
+DEBUG VIEW
+    --debug opens one window showing the frame EXACTLY as handed to MediaPipe -
+    after rotation, colour conversion and any resize - never the raw grab. It
+    answers a question the CSV cannot: the Windows Camera app shows a usable,
+    grainy hand in the same dark room where this logs mean grey ~20 and detects
+    nothing, so the image the model actually receives has to be looked at.
+
+    THE WINDOW IS EVIDENCE, SO NOTHING MAY IMPROVE THE PIXELS. No brightening,
+    no histogram equalisation, no denoise, no gamma. Only landmarks, a box and
+    text are drawn on top. A window that shows a nicer frame than the model got
+    is worse than no window, because it disproves the wrong thing.
+
+    Everything else is unchanged by --debug: the CSV is still written and OSC is
+    still sent.
 """
 
 import argparse
@@ -51,6 +66,7 @@ import json
 import sys
 import time
 import urllib.request
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -83,6 +99,26 @@ MODEL_URL = (
 # is the tip of the tongs, not the hand holding them, and the offset between
 # the two will not be a constant.
 PALM_LANDMARK = 9
+
+# CAP_PROP_AUTO_EXPOSURE is a two-state enum wearing a float's clothing: 0.25
+# means manual, 0.75 means auto. Nothing in between does anything.
+AUTO_EXPOSURE_MANUAL = 0.25
+AUTO_EXPOSURE_AUTO = 0.75
+
+# The 21-landmark skeleton, copied from MediaPipe's own HAND_CONNECTIONS.
+#
+# Hardcoded rather than imported: it used to live in
+# mediapipe.python.solutions.hands, and that whole legacy module is GONE as of
+# mediapipe 1.0 (same removal as the docstring's HandLandmarker note). The
+# landmark indices themselves are unchanged, so this list is still current.
+HAND_CONNECTIONS = (
+    (0, 1), (1, 2), (2, 3), (3, 4),            # thumb
+    (0, 5), (5, 6), (6, 7), (7, 8),            # index
+    (5, 9), (9, 10), (10, 11), (11, 12),       # middle
+    (9, 13), (13, 14), (14, 15), (15, 16),     # ring
+    (13, 17), (17, 18), (18, 19), (19, 20),    # pinky
+    (0, 17),                                   # palm base
+)
 
 
 class TrackerError(RuntimeError):
@@ -224,9 +260,29 @@ def open_camera(args):
     # the projector starts painting bright UI, and a hunting exposure changes
     # the image mid-pick. CAP_PROP_EXPOSURE is honoured by MSMF (it is DSHOW
     # that ignores it).
-    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, args.auto_exposure)
-    if args.exposure is not None:
-        cap.set(cv2.CAP_PROP_EXPOSURE, args.exposure)
+    #
+    # --auto-exposure hands that decision back to the camera for one run. It is
+    # a DIAGNOSTIC, not the fix for a dark room - CLAUDE.md section 21 is
+    # explicit that auto is not the lever, because it hunts under projector
+    # light. It is here to answer one question: does this sensor produce a
+    # usable frame at all when it is allowed to choose its own settings, the way
+    # the Windows Camera app lets it? If auto is bright and manual is not, the
+    # problem is the exposure value, not the room.
+    if args.auto_exposure:
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, AUTO_EXPOSURE_AUTO)
+    else:
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, args.auto_exposure_value)
+        if args.exposure is not None:
+            cap.set(cv2.CAP_PROP_EXPOSURE, args.exposure)
+
+    # Gain is the other half of the brightness story and this script has never
+    # touched it, so it has been sitting at whatever the driver felt like.
+    # Exposure buys light by integrating longer, which costs motion blur; gain
+    # buys it by amplifying, which costs noise. A hand blurred across 30 fps and
+    # a hand buried in noise fail detection differently, so they are separate
+    # knobs rather than one "brightness".
+    if args.gain is not None:
+        cap.set(cv2.CAP_PROP_GAIN, args.gain)
 
     actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -263,9 +319,26 @@ def open_camera(args):
     # different --exposure values, grey MUST move. If it does not, the setting
     # did not take and both runs are the same measurement.
     reported = cap.get(cv2.CAP_PROP_EXPOSURE)
-    print(f"exposure set     : requested {args.exposure}, device reports "
-          f"{reported:g}"
-          + ("" if reported == args.exposure else "   <- differ, see below"))
+    if args.auto_exposure:
+        print(f"exposure set     : AUTO (--auto-exposure), device reports "
+              f"{reported:g} - the camera is free to change it while running")
+    else:
+        print(f"exposure set     : requested {args.exposure}, device reports "
+              f"{reported:g}"
+              + ("" if reported == args.exposure else "   <- differ, see below"))
+
+    # Same caveat as exposure, and worth restating because gain is new here:
+    # section 16 of CLAUDE.md records that this MSMF driver reports back a
+    # stored number rather than what the sensor is doing, so these two figures
+    # agreeing is NOT evidence the gain took, and disagreeing is not evidence it
+    # failed. The mean grey below - and the on-screen grey under --debug - is
+    # the evidence. Change --gain, watch grey move, or it did not take.
+    if args.gain is not None:
+        reported_gain = cap.get(cv2.CAP_PROP_GAIN)
+        print(f"gain set         : requested {args.gain}, device reports "
+              f"{reported_gain:g}"
+              + ("" if reported_gain == args.gain else
+                 "   <- differ, read-back is unreliable on MSMF, see below"))
 
     # A too-dark frame is the failure that looks like a broken tracker: the
     # pipeline runs, the FPS is fine, and it just reports zero hands forever.
@@ -346,6 +419,25 @@ def camera_to_projector(H, x_cam, y_cam):
 
 # --- detection log ---------------------------------------------------------
 
+def exposure_tag(args):
+    """What this run's exposure is called in the filename and in every row.
+
+    %g so -4.0 becomes "-4" and -3.5 stays "-3.5" - the filename carries the
+    setting, so two sweep points can never be told apart only by their
+    timestamps, and a stray copied file still says what it is.
+
+    An --auto-exposure run is tagged "auto" rather than with the number that was
+    not applied. Filing it under exp-4 would put a run the camera chose the
+    exposure for in the same bucket as the runs that pinned it, and the whole
+    point of the sweep is that one file means one setting.
+    """
+    if args.auto_exposure:
+        return "auto"
+    if args.exposure is None:
+        return "none"
+    return f"{args.exposure:g}"
+
+
 class DetectionLog:
     """One CSV row per frame, plus a rolling summary on stderr.
 
@@ -359,14 +451,10 @@ class DetectionLog:
     second costs nothing next to MediaPipe.
     """
 
-    def __init__(self, directory, label, window_s, exposure):
+    def __init__(self, directory, label, window_s, exposure_tag):
         self.label = label
         self.window_s = window_s
-
-        # %g so -4.0 becomes "-4" and -3.5 stays "-3.5" - the filename carries
-        # the setting, so two sweep points can never be told apart only by
-        # their timestamps, and a stray copied file still says what it is.
-        self.exposure = "none" if exposure is None else f"{exposure:g}"
+        self.exposure = exposure_tag
 
         directory.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -425,6 +513,220 @@ class DetectionLog:
         self._fh.close()
 
 
+# --- the frame MediaPipe sees ----------------------------------------------
+
+def prepare_for_mediapipe(frame):
+    """Raw BGR camera frame -> the exact array the model is handed.
+
+    THE ONLY PLACE THAT TRANSFORMATION HAPPENS. Rotation, colour conversion and
+    any resize added later all belong in here, because --debug renders this
+    return value and nothing else. Do the work anywhere else and the debug
+    window silently starts lying about the input.
+
+    Today that is: rotate 180, BGR -> RGB, no resize. The rotation is a COPY -
+    cv2.rotate returns a new array - so the caller's raw frame stays raw and
+    nothing downstream can pick up the rotated one by accident.
+    """
+    upright = cv2.rotate(frame, cv2.ROTATE_180)
+    return cv2.cvtColor(upright, cv2.COLOR_BGR2RGB)
+
+
+# --- debug view -------------------------------------------------------------
+
+class DebugView:
+    """One window showing the model's actual input, with its actual output.
+
+    The frame drawn here is prepare_for_mediapipe()'s return value round-tripped
+    back to BGR for imshow - the same bytes the model got, reinterpreted for the
+    display, not re-derived from the raw grab.
+
+    NOTHING IN HERE MAY IMPROVE THE IMAGE. No brightening, equalisation,
+    denoise or gamma. The window exists to show that a mean-grey-20 frame really
+    is what MediaPipe is being asked to find a hand in; a prettied-up frame
+    would answer a question nobody asked.
+
+    Text is stroked black-then-colour rather than sitting on a filled panel, so
+    the only pixels it hides are the glyphs themselves.
+    """
+
+    WINDOW = "track_hands --debug"
+
+    SKELETON = (0, 255, 0)        # BGR
+    LANDMARK = (0, 165, 255)
+    PALM = (255, 0, 255)          # landmark 9 - the one that becomes OSC
+    BOX = (255, 200, 0)
+    OK = (150, 255, 150)
+    WARN = (0, 80, 255)
+
+    def __init__(self, cap, args):
+        self.cap = cap
+        self.args = args
+        self.window_s = args.report_interval
+
+        # Sliding windows, not the tumbling one DetectionLog reports on. A
+        # tumbling window reads zero for four seconds after every reset, which
+        # on a live display looks like detection dropping out.
+        self._detections = deque()   # (t, hands > 0)
+        self._frame_times = deque()  # t
+
+        # cap.get() goes to the driver, and on MSMF that is not free. At 30 fps
+        # it would be 60 property reads a second to keep two numbers on screen
+        # that move slowly if at all, so they are refreshed twice a second.
+        self._props_at = 0.0
+        self._exposure = float("nan")
+        self._gain = float("nan")
+
+        # WINDOW_NORMAL so a 1920x1080 frame can be dragged smaller than the
+        # screen. That scales the WINDOW; the image handed to imshow is still
+        # full resolution and unresampled by this script.
+        cv2.namedWindow(self.WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(self.WINDOW, 1280, 720)
+
+    # -- overlays ----------------------------------------------------------
+
+    def _text(self, img, text, org, colour):
+        cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                    (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                    colour, 1, cv2.LINE_AA)
+
+    def _draw_hand(self, img, landmarks, handedness, index):
+        h, w = img.shape[:2]
+        pts = [(int(lm.x * w), int(lm.y * h)) for lm in landmarks]
+
+        # The box a classifier crop would be taken from, drawn from the landmark
+        # extents. Translucent fill so it never hides the pixels underneath -
+        # the frame is the evidence, the box is annotation.
+        #
+        # Extents exactly, with no padding: this is what the landmarks claim,
+        # not a crop recommendation. A real classifier crop will want margin
+        # around it, and that margin is that consumer's decision to make.
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        x0, y0 = max(0, min(xs)), max(0, min(ys))
+        x1, y1 = min(w - 1, max(xs)), min(h - 1, max(ys))
+
+        fill = img.copy()
+        cv2.rectangle(fill, (x0, y0), (x1, y1), self.BOX, cv2.FILLED)
+        cv2.addWeighted(fill, 0.20, img, 0.80, 0, dst=img)
+        cv2.rectangle(img, (x0, y0), (x1, y1), self.BOX, 2)
+
+        for a, b in HAND_CONNECTIONS:
+            cv2.line(img, pts[a], pts[b], self.SKELETON, 2, cv2.LINE_AA)
+        for i, p in enumerate(pts):
+            if i == PALM_LANDMARK:
+                continue
+            cv2.circle(img, p, 4, self.LANDMARK, cv2.FILLED, cv2.LINE_AA)
+
+        # Landmark 9 last and larger: it is the only one that leaves this
+        # process, so on screen it should be the one that stands out.
+        cv2.circle(img, pts[PALM_LANDMARK], 7, self.PALM, cv2.FILLED,
+                   cv2.LINE_AA)
+
+        # Handedness survives the 180 rotation untouched - a rotation is not a
+        # mirror, so chirality is preserved and the label means the same thing
+        # it would on the unrotated frame.
+        if handedness:
+            top = handedness[0]
+            caption = f"#{index} {top.category_name} {top.score:.2f}"
+        else:
+            caption = f"#{index} handedness: none"
+        self._text(img, caption, (x0, max(18, y0 - 10)), self.BOX)
+
+        self._text(img, f"box {x1 - x0}x{y1 - y0} px", (x0, min(h - 8, y1 + 20)),
+                   self.BOX)
+
+    def _draw_status(self, img, mean_grey):
+        asked = ("driver default" if self.args.exposure is None
+                 else f"{self.args.exposure:g}")
+        exposure = "AUTO" if self.args.auto_exposure else f"{asked} fixed"
+        gain_req = "not set" if self.args.gain is None else f"{self.args.gain}"
+
+        grey_ok = mean_grey >= self.args.min_mean_grey
+        lines = [
+            (f"mean grey  {mean_grey:6.1f}/255"
+             + ("" if grey_ok else
+                f"   TOO DARK (floor {self.args.min_mean_grey:g})"),
+             self.OK if grey_ok else self.WARN),
+            (f"exposure   {exposure}   device reports {self._exposure:g}",
+             self.OK),
+            (f"gain       requested {gain_req}   device reports "
+             f"{self._gain:g}", self.OK),
+            (f"detected   {self._detection_rate() * 100:5.1f}%  over the last "
+             f"{self.window_s:.0f}s", self.OK),
+            (f"fps        {self._fps():5.1f}", self.OK),
+            (f"input      {img.shape[1]}x{img.shape[0]}  rot180  RGB  "
+             f"(as handed to MediaPipe)", self.OK),
+        ]
+        for i, (text, colour) in enumerate(lines):
+            self._text(img, text, (14, 30 + i * 26), colour)
+
+        # An auto-exposure frame must never be mistaken for a fixed one - the
+        # two are not comparable measurements, and a screenshot outlives the
+        # command line that produced it. So the mode gets its own banner rather
+        # than a word in a list.
+        banner, colour = (
+            ("AUTO EXPOSURE - camera is choosing, values will drift",
+             self.WARN)
+            if self.args.auto_exposure else
+            (f"EXPOSURE FIXED at {asked}", self.OK)
+        )
+        self._text(img, banner, (14, 30 + len(lines) * 26 + 8), colour)
+
+    # -- rolling numbers ---------------------------------------------------
+
+    def _trim(self, q, now, window):
+        while q and now - q[0][0] > window:
+            q.popleft()
+
+    def _detection_rate(self):
+        if not self._detections:
+            return 0.0
+        hit = sum(1 for _, d in self._detections if d)
+        return hit / len(self._detections)
+
+    def _fps(self):
+        if len(self._frame_times) < 2:
+            return 0.0
+        span = self._frame_times[-1][0] - self._frame_times[0][0]
+        return (len(self._frame_times) - 1) / span if span > 0 else 0.0
+
+    # -- per frame ---------------------------------------------------------
+
+    def show(self, rgb, result, mean_grey):
+        """Draw one frame. False means the operator asked to stop."""
+        now = time.perf_counter()
+
+        self._detections.append((now, bool(result.hand_landmarks)))
+        self._trim(self._detections, now, self.window_s)
+        self._frame_times.append((now, None))
+        self._trim(self._frame_times, now, 1.0)
+
+        if now - self._props_at >= 0.5:
+            self._exposure = self.cap.get(cv2.CAP_PROP_EXPOSURE)
+            self._gain = self.cap.get(cv2.CAP_PROP_GAIN)
+            self._props_at = now
+
+        # The model's input, byte for byte, put back in imshow's channel order.
+        canvas = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+        for i, landmarks in enumerate(result.hand_landmarks):
+            handedness = (result.handedness[i]
+                          if i < len(result.handedness) else None)
+            self._draw_hand(canvas, landmarks, handedness, i)
+
+        self._draw_status(canvas, mean_grey)
+        cv2.imshow(self.WINDOW, canvas)
+
+        # waitKey is what pumps the window's event queue, so it has to be called
+        # every frame whether or not a key is wanted.
+        key = cv2.waitKey(1) & 0xFF
+        return key not in (ord("q"), 27)
+
+    def close(self):
+        cv2.destroyWindow(self.WINDOW)
+
+
 # --- main loop -------------------------------------------------------------
 
 def make_landmarker(args):
@@ -469,8 +771,13 @@ def run(args):
     cap = open_camera(args)
 
     log = DetectionLog(args.log_dir, args.label, args.report_interval,
-                       args.exposure)
+                       exposure_tag(args))
     print(f"detection log    : {log.path}")
+
+    view = DebugView(cap, args) if args.debug else None
+    if view is not None:
+        print("debug window     : showing the frame as handed to MediaPipe, "
+              "unmodified - q or esc to stop")
 
     frames = 0
     last_report = time.perf_counter()
@@ -498,11 +805,7 @@ def run(args):
                 cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean()
             )
 
-            # Rotate a COPY, for MediaPipe only. cv2.rotate returns a new
-            # array, so `frame` stays raw and nothing downstream can pick up
-            # the rotated one by accident.
-            upright = cv2.rotate(frame, cv2.ROTATE_180)
-            rgb = cv2.cvtColor(upright, cv2.COLOR_BGR2RGB)
+            rgb = prepare_for_mediapipe(frame)
 
             timestamp_ms = int((time.perf_counter() - started) * 1000.0)
             result = landmarker.detect_for_video(
@@ -534,6 +837,12 @@ def run(args):
 
             log.record(mean_grey, len(hands))
 
+            # After the CSV write and after the OSC send, so a debug run
+            # measures and reports exactly what a normal run does.
+            if view is not None and not view.show(rgb, result, mean_grey):
+                print("\nstopped from the debug window")
+                break
+
             frames += 1
             now = time.perf_counter()
             elapsed = now - last_report
@@ -547,6 +856,8 @@ def run(args):
         log.close()
         print(f"detection log    : {log.frame_idx} frames written to "
               f"{log.path}")
+        if view is not None:
+            view.close()
         landmarker.close()
         cap.release()
 
@@ -568,8 +879,27 @@ def main():
     p.add_argument("--exposure", type=float, default=-4.0,
                    help="CAP_PROP_EXPOSURE; less negative is brighter. The "
                         "driver default is far too dark for detection")
-    p.add_argument("--auto-exposure", type=float, default=0.25,
-                   help="CAP_PROP_AUTO_EXPOSURE; 0.25 manual, 0.75 auto")
+    p.add_argument("--gain", type=int, default=None,
+                   help="CAP_PROP_GAIN. Left alone if not given. Read-back is "
+                        "unreliable on MSMF (CLAUDE.md section 16), so judge "
+                        "it by mean grey, not by the value printed at startup")
+    p.add_argument("--auto-exposure", action="store_true",
+                   help="let the camera run auto-exposure instead of pinning "
+                        "it. DIAGNOSTIC ONLY - section 21 says auto is not the "
+                        "fix for a dark room, it hunts under projector light. "
+                        "Logs are tagged expauto, and the --debug window says "
+                        "so in red")
+    p.add_argument("--auto-exposure-value", type=float,
+                   default=AUTO_EXPOSURE_MANUAL,
+                   help="raw CAP_PROP_AUTO_EXPOSURE value used for MANUAL "
+                        "mode; 0.25 on this driver. Only for a camera that "
+                        "spells manual differently")
+    p.add_argument("--debug", action="store_true",
+                   help="open a window showing the frame exactly as handed to "
+                        "MediaPipe, with all 21 landmarks, the skeleton, "
+                        "handedness, the detection box and live "
+                        "grey/exposure/gain/rate/fps. Changes nothing else: "
+                        "the CSV is still written and OSC is still sent")
     p.add_argument("--min-mean-grey", type=float, default=60.0,
                    help="warn below this average frame brightness")
     p.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR,
