@@ -30,30 +30,36 @@ namespace {
 	const float kNudgeStepMM = 1.0f;
 	const float kNudgeFastStepMM = 5.0f;
 
-	// A hovered bin's outline changes colour. Nothing else changes yet - no
-	// fill, no name, no price - so the outline is carrying the entire signal
-	// and has to read at a glance from standing height.
-	//
-	// Deliberately not the green of the alignment overlay below: that green
-	// means "this is the line the arrow keys move", and the two must not be
-	// confused by someone nudging with a hand over the table. Cyan is hand 0's
-	// dot colour, which is the direction section 9 heads in anyway - the halo
-	// takes the cursor's colour on hover.
-	const ofColor kBinHoverColour(0, 200, 255);
-
 	// Section 9 puts two different claims on this one outline, and they must not
 	// be read as the same thing.
 	//
-	// This is the instant one: the outline changes the moment a hand is inside,
+	// Red is the instant one: the outline turns the moment a hand is inside,
 	// before any dwell exists. Section 9 allows that precisely because it
 	// commits to nothing - the load cell confirms the actual pick, so a halo
 	// that lights on a hand passing through cannot have been wrong about
 	// anything.
 	//
-	// The same hue as kBinHoverColour, dimmed, rather than a third colour. The
-	// progress stroke then reads as this colour arriving rather than as an
-	// unrelated second state, which is what a different hue would say.
-	const ofColor kBinEnterColour(0, 70, 90);
+	// MEASURED ON THE RIG, NOT A PREFERENCE: this started as a dim cyan and was
+	// rejected at the table for being very difficult to see. A near-white hue
+	// at low value is exactly the wrong choice against a white outline on white
+	// plywood under a projector - it differs from the idle state mostly in
+	// brightness, which is the thing projector light and ambient light are
+	// already fighting over. Red differs in hue at full value and survives both.
+	const ofColor kBinEnterColour(255, 40, 40);
+
+	// Green is the earned one, and it does not sit next to the red - it REPLACES
+	// it, running along the same line. That makes the leftover red the work
+	// still to do, so the same stroke reports progress twice over: how much is
+	// green, and how much is still not. A progress colour drawn on unchanged
+	// background would only say the first.
+	//
+	// Red to green also carries the meaning for free, with no legend to learn.
+	//
+	// This is close to the alignment overlay's green further down, which is a
+	// known and accepted collision: that one only ever appears on the single
+	// line the arrow keys are moving, at double width, during setup - and
+	// nobody is dwelling on bins while nudging the grid.
+	const ofColor kBinProgressColour(0, 255, 60);
 
 	// Floor for the pass-over instrumentation below. A hand clipping the corner
 	// of a bin rect on its way somewhere else banks a few tens of ms, and those
@@ -504,7 +510,7 @@ void ofApp::drawBinCutouts(){
 		ofPath outline;
 		outline.setFilled(false);
 		outline.setStrokeWidth(strokePx);
-		outline.setColor(hovered ? kBinHoverColour
+		outline.setColor(hovered ? kBinProgressColour
 			: handInside ? kBinEnterColour
 			: ofColor::white);
 		outline.rectangle(box);
@@ -533,12 +539,12 @@ void ofApp::drawBinCutouts(){
 			continue;
 		}
 
-		// Same width, same line, brighter - so the earned part is the same
-		// outline arriving at full strength rather than a second shape.
+		// Same width, same line, drawn straight over the red - so the green is
+		// the red being consumed rather than a second shape beside it.
 		ofPath progress;
 		progress.setFilled(false);
 		progress.setStrokeWidth(strokePx);
-		progress.setColor(kBinHoverColour);
+		progress.setColor(kBinProgressColour);
 		progress.moveTo(pts[0].x, pts[0].y);
 		for(size_t p = 1; p < pts.size(); p++){
 			progress.lineTo(pts[p].x, pts[p].y);
