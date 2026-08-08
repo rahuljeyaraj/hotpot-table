@@ -503,23 +503,22 @@ FPS is normal, and it reports zero hands forever.
 | `solve_homography.py` | dark | projected dots must stay separable from a white table |
 | `track_hands.py` | bright | the table itself has to be lit to see a hand on it |
 
-Manual rather than auto is the decision for the built rig: auto works in a
-still room but will hunt once the projector paints bright UI, and a hunting
-exposure changes the image mid-pick. `--no-auto-exposure` sets
-`CAP_PROP_AUTO_EXPOSURE` to 0.25 (manual) and `CAP_PROP_EXPOSURE` to −4, and
-prints the achieved mean grey at startup with a warning below 60.
+`track_hands.py` sets `CAP_PROP_AUTO_EXPOSURE` to 0.25 (manual) and
+`CAP_PROP_EXPOSURE` to −4, and prints the achieved mean grey at startup with a
+warning below 60. Manual rather than auto deliberately: auto works in a dark
+room but will hunt once the projector paints bright UI, and a hunting exposure
+changes the image mid-pick.
 
-**`track_hands.py` nevertheless defaults to AUTO during bring-up.** In the
-room the tracker is being developed in, a pinned −4 collapses to mean grey ~20
-and detects nothing, and a tracker nobody can develop against is worse than one
-that drifts. This is a bring-up default, not a reversal of the above — the rig
-under a projector runs `--no-auto-exposure`. Auto runs are tagged `expauto` in
-the log filename and say so in red in the debug window, so the two can never be
-confused in the data.
+**Measured, with the oF app projecting:** under `--auto-exposure` the mean grey
+drifted 105 → 110 → 116 inside a minute, and that was under mostly-black UI.
+The hunt in §16 is not hypothetical.
 
-`--exposure` without `--no-auto-exposure` is refused rather than ignored,
-so an exposure sweep cannot silently measure the same auto-exposed camera at
-every point.
+`--auto-exposure` exists as a diagnostic only — it answers "does the sensor
+produce a usable frame when it chooses for itself". Those runs are tagged
+`expauto` in the log filename and say so in red in the debug window, so they
+cannot be confused with pinned runs. Passing `--exposure` alongside it is
+refused rather than ignored, so an exposure sweep cannot silently measure the
+same auto-exposed camera at every point.
 
 **MSMF does honour `CAP_PROP_EXPOSURE`** — it is DSHOW that ignores it. The
 driver keeps *reporting* −4 whatever you set, so read back frame brightness
@@ -650,7 +649,7 @@ alone makes this look like a tracking problem, which it is not.
 
 | Subsystem | Why a dark room breaks it |
 |---|---|
-| Hand tracking (§16) | Under `--no-auto-exposure` the exposure is **fixed** at −4, so the camera does not compensate when the room dims — the frame collapses toward the 27/255 average that MediaPipe finds nothing in. The current auto-by-default masks this during bring-up; it does not fix it, and it is not what the rig will run. |
+| Hand tracking (§16) | `track_hands.py` sets a **fixed** manual exposure of −4. Fixed means the camera does not compensate when the room dims — the frame collapses toward the 27/255 average that MediaPipe finds nothing in. |
 | Food classification (§10) | The classifier was trained on plain ingredients under ambient light. Unlit food is out of distribution. |
 | The black rectangles (§8) | The projector paints solid black over every cutout *on purpose*, so it can put near-zero light into the bins. **The projector therefore cannot be the light source for the food.** That is the design working, not a gap in it. |
 
@@ -658,21 +657,19 @@ The third is the one that closes the trap. Brightening the UI cannot rescue
 the other two, because the one place light is needed is the one place the
 projector is deliberately forbidden from lighting.
 
-### The exposure is fixed on purpose — auto is a bring-up default, not the fix
+### The exposure is fixed on purpose — do not "fix" it with auto
 §16 explains why: auto-exposure works in a still room but hunts once the
 projector starts painting bright UI, and a hunting exposure changes the image
-mid-pick. Manual is the decision for the built rig.
+mid-pick. Manual is the decision.
 
-`track_hands.py` currently defaults to auto so the tracker is usable in the
-development room (§16). **That is temporary and it does not make a dark room
-acceptable** — the classifier and the black rectangles above are unaffected by
-what the camera does with its own exposure, so two of the three failures in the
-table stand regardless.
+Auto also rescues none of the other two failures in the table above — the
+classifier and the blacked-out cutouts do not care what the camera does with
+its own exposure — so even a well-behaved auto would leave two of the three
+standing.
 
-If a dimmer room is genuinely wanted, the lever is `--no-auto-exposure
---exposure` (−4 → −3 or −2), re-checking that the reported mean grey stays
-above 60. The cost is sensor noise and motion blur at 30 fps. Auto is not the
-lever.
+If a dimmer room is genuinely wanted, the lever is `--exposure` (−4 → −3
+or −2), re-checking that the reported mean grey stays above 60. The cost is
+sensor noise and motion blur at 30 fps. Auto is not the lever.
 
 ### The mean-grey warning goes stale the moment it prints
 `track_hands.py` samples mean grey **once, during warmup**, prints it, and

@@ -38,19 +38,18 @@ DETECTION LOGGING
     up with the measurement. To sweep, invoke the script once per value; each
     run is then a separate file that names its own setting.
 
-EXPOSURE - AUTO BY DEFAULT, WHICH SECTIONS 16 AND 21 DO NOT DESCRIBE
-    Those sections say the exposure is pinned to -4 and that auto is not the
-    lever. That was the decision, and it is still the decision for a table under
-    a projector painting bright UI: auto hunts, and a hunting exposure changes
-    the image mid-pick.
+EXPOSURE - PINNED, AS SECTIONS 16 AND 21 REQUIRE
+    Manual at -4 by default. Auto hunts once the projector paints bright UI,
+    and a hunting exposure changes the image mid-pick. Measured on the rig with
+    the oF app running: mean grey drifted 105 -> 110 -> 116 inside one minute
+    under mostly-black UI, which is the mild case.
 
-    The default is auto anyway because the rig is not there yet. A fixed -4
-    collapses to mean grey ~20 in the room this is being developed in, which
-    detects nothing at all, and a tracker nobody can develop against is worse
-    than one that drifts. --no-auto-exposure restores the pinned behaviour and
-    is what the built rig should run.
+    --auto-exposure exists as a DIAGNOSTIC, for one question only: does this
+    sensor produce a usable frame when allowed to choose, the way the Windows
+    Camera app lets it. Those runs are tagged expauto so they can never be
+    mistaken for pinned ones in the log directory.
 
-    Passing --exposure without --no-auto-exposure is refused rather than
+    Passing --exposure together with --auto-exposure is refused rather than
     silently ignored - see main().
 
     It exists because "the tracker sees nothing" has two very different causes
@@ -344,10 +343,9 @@ def open_camera(args):
     # did not take and both runs are the same measurement.
     reported = cap.get(cv2.CAP_PROP_EXPOSURE)
     if args.auto_exposure:
-        print(f"exposure set     : AUTO (the default), device reports "
-              f"{reported:g} - the camera is free to change it while running."
-              f"\n                   --no-auto-exposure pins it, which is what "
-              f"CLAUDE.md 16/21 describe")
+        print(f"exposure set     : AUTO (--auto-exposure), device reports "
+              f"{reported:g} - the camera is free to change it while running, "
+              f"and will hunt under projector light")
     else:
         print(f"exposure set     : requested {args.exposure}, device reports "
               f"{reported:g}"
@@ -1052,22 +1050,22 @@ def main():
                    help="frames to discard before tracking starts")
     p.add_argument("--exposure", type=float, default=None,
                    help=f"CAP_PROP_EXPOSURE; less negative is brighter. "
-                        f"Implies --no-auto-exposure is wanted and is refused "
-                        f"without it, so a sweep cannot silently measure the "
-                        f"same auto-exposed frame six times. Manual runs "
-                        f"without this use {DEFAULT_EXPOSURE:g}")
+                        f"Defaults to {DEFAULT_EXPOSURE:g}. Refused alongside "
+                        f"--auto-exposure, so a sweep cannot silently measure "
+                        f"the same auto-exposed frame at every point")
     p.add_argument("--gain", type=int, default=None,
                    help="CAP_PROP_GAIN. Left alone if not given. Read-back is "
                         "unreliable on MSMF (CLAUDE.md section 16), so judge "
                         "it by mean grey, not by the value printed at startup")
     p.add_argument("--auto-exposure", action=argparse.BooleanOptionalAction,
-                   default=True,
-                   help="let the camera choose its own exposure. ON BY "
-                        "DEFAULT. --no-auto-exposure pins it instead, which is "
-                        "what CLAUDE.md sections 16 and 21 describe and what "
-                        "the projector-lit table will eventually need. Auto "
-                        "runs are tagged expauto and the debug window says so "
-                        "in red")
+                   default=False,
+                   help="let the camera choose its own exposure. OFF by "
+                        "default - the exposure is pinned, as CLAUDE.md "
+                        "sections 16 and 21 require. DIAGNOSTIC ONLY: auto "
+                        "hunts once the projector paints bright UI, measured "
+                        "on the rig as mean grey drifting 105 -> 116 with the "
+                        "oF app running. Auto runs are tagged expauto and the "
+                        "debug window says so in red")
     p.add_argument("--auto-exposure-value", type=float,
                    default=AUTO_EXPOSURE_MANUAL,
                    help="raw CAP_PROP_AUTO_EXPOSURE value used for MANUAL "
@@ -1125,11 +1123,12 @@ def main():
     # instead. After this, exposure is None if and only if auto is on.
     if args.auto_exposure and args.exposure is not None:
         raise TrackerError(
-            f"--exposure {args.exposure:g} needs --no-auto-exposure.\n"
-            f"  auto-exposure is the default now, and in auto mode the camera "
-            f"picks the exposure and this value would be ignored.\n"
-            f"  for a fixed frame:  --no-auto-exposure --exposure "
-            f"{args.exposure:g}"
+            f"--exposure {args.exposure:g} and --auto-exposure contradict "
+            f"each other.\n"
+            f"  in auto mode the camera picks the exposure, so this value "
+            f"would be ignored.\n"
+            f"  for a fixed frame:  drop --auto-exposure (it is off by "
+            f"default)"
         )
     if not args.auto_exposure and args.exposure is None:
         args.exposure = DEFAULT_EXPOSURE
