@@ -19,6 +19,11 @@ namespace {
 	const float kCalibXMM[] = { 44.0f, 762.0f, 1480.0f };
 	const float kCalibYMM[] = { 86.0f, 457.0f, 828.0f };
 
+	// --- bins ----------------------------------------------------------------
+	// Outline width in table mm, so it stays a fixed physical width on the
+	// plywood rather than a fixed pixel width.
+	const float kBinOutlineMM = 3.0f;
+
 	// --- hand tracking -------------------------------------------------------
 	// Must match --osc-port in tools/tracker/track_hands.py.
 	const int kOscPort = 12345;
@@ -75,6 +80,18 @@ void ofApp::setup(){
 
 	logWindowState("setup after fullscreen");
 
+	// Everything placed in mm goes through mmToPx*, which scales to a hardcoded
+	// PROJ_W_PX x PROJ_H_PX. On any other framebuffer the bins and calibration
+	// dots land somewhere else on the plywood. Warn rather than rescale: the
+	// homography was solved at this resolution too, so quietly stretching to
+	// fit would hide a mismatch that also invalidates the solve.
+	if(ofGetWidth() != PROJ_W_PX || ofGetHeight() != PROJ_H_PX){
+		ofLogWarning("ofApp") << "framebuffer is " << ofGetWidth() << "x" << ofGetHeight()
+			<< " but mm-placed geometry is calibrated to " << PROJ_W_PX << "x" << PROJ_H_PX
+			<< " - bins and calibration dots will NOT line up with the table."
+			<< " Not rescaling.";
+	}
+
 	ofBackground(0);
 
 	// row-major, top row first
@@ -128,6 +145,51 @@ void ofApp::receiveOsc(){
 }
 
 //--------------------------------------------------------------
+void ofApp::drawBinCutouts(){
+	// Section 8 of CLAUDE.md: the projector must put near-zero light into the
+	// bins. Projected colour landing on the food contaminates the classifier's
+	// input, which was trained on plain ingredients under ambient light.
+	//
+	// So these are unconditional - no toggle. Anything that can be seen inside
+	// a cutout is a bug, which is why this runs after the background content
+	// rather than before it: drawing black first and a test pattern second
+	// would put the grid straight back into the bins.
+	//
+	// One stroke width has to serve both axes, and the axes do not scale
+	// equally (3 mm is 3.78 px across, 3.54 px down). Taking X makes the
+	// outline a touch heavy vertically - invisible at this width, and the
+	// alternative is stroking each edge separately for no real gain.
+	const float strokePx = mmToPxX(kBinOutlineMM);
+
+	for(int i = 0; i < BIN_COUNT; i++){
+		// grown by CUTOUT_MARGIN_MM, so the black covers the real cutout even
+		// with the homography's residual error and a saw cut that wandered
+		const BinRect fill = binFillRectMM(BINS[i]);
+
+		// mmToPx* are pure scales with no offset, so they convert spans as
+		// well as positions
+		const float x = mmToPxX(fill.xMM);
+		const float y = mmToPxY(fill.yMM);
+		const float w = mmToPxX(fill.wMM);
+		const float h = mmToPxY(fill.hMM);
+
+		ofFill();
+		ofSetColor(0);
+		ofDrawRectangle(x, y, w, h);
+
+		// ofPath, not ofSetLineWidth - drivers cap the latter at 1 px
+		ofPath outline;
+		outline.setFilled(false);
+		outline.setStrokeWidth(strokePx);
+		outline.setColor(ofColor::white);
+		outline.rectangle(x, y, w, h);
+		outline.draw();
+	}
+
+	ofSetColor(255);
+}
+
+//--------------------------------------------------------------
 void ofApp::drawHands(){
 	// Nothing at all until the tracker has been heard from. A table that has
 	// never had a tracker attached stays black rather than showing a stale dot.
@@ -170,9 +232,11 @@ void ofApp::draw(){
 
 	ofBackground(0);
 
-	// calibration pattern owns the whole screen - the camera must see the dots
-	// and nothing else, so no hand dot here either
+	// calibration pattern is otherwise alone on the screen - the camera must see
+	// the dots and little else, so no hand dot here either
 	if(showCalibration){
+		drawBinCutouts();
+
 		ofSetColor(255);
 		for(size_t i = 0; i < calibDotsMM.size(); i++){
 			const glm::vec2 & mm = calibDotsMM[i];
@@ -220,7 +284,11 @@ void ofApp::draw(){
 	border.rectangle(1, 1, w - 2, h - 2);
 	border.draw();
 
-	// hands on top of the test pattern, under nothing yet
+	// black over the cutouts last of the table-fixed layers, so the grid and
+	// diagonals above cannot put light into a bin
+	drawBinCutouts();
+
+	// hands on top of the bins, under nothing yet
 	drawHands();
 
 	// top-left readout

@@ -28,6 +28,7 @@ class ofApp : public ofBaseApp{
 
 		void receiveOsc();
 		void drawHands();
+		void drawBinCutouts();
 
 		// nine calibration points in table mm, row-major, top row first
 		std::vector<glm::vec2> calibDotsMM;
