@@ -1210,54 +1210,64 @@ void ofApp::draw(){
 	float w = ofGetWidth();
 	float h = ofGetHeight();
 
-	// Test pattern, inverted along with everything else so it stays a working
-	// test pattern rather than white-on-white. Same geometry, same weights,
-	// values mirrored: the grid was 60 on black and is 195 on white, the rest
-	// was 255 and is now 0.
+	// THE STAGE 1a TEST PATTERN IS OFF. It is commented out rather than deleted
+	// because it is the instrument that answers "is the projector actually
+	// filling the table, square and in focus", and that question comes back
+	// every time the projector is moved or a new machine drives it. Uncomment
+	// the block below to get it, and comment it out again afterwards.
 	//
-	// KNOWN CONFLICT, LEFT IN DELIBERATELY: the diagonals and the grid cross
-	// four of the eight cutouts, and dark lines over a cutout are exactly the
-	// patterned shadow the flat field exists to avoid. The black rects used to
-	// absorb this - they were drawn after the pattern for precisely that reason
-	// - and nothing absorbs it now. This is scaffolding due to come out, so it
-	// is not worth a clipping path; it is worth knowing about before judging a
-	// classifier result taken with it on.
-	ofSetColor(195);
-	for(float x = 0; x <= w; x += 100){
-		ofDrawLine(x, 0, x, h);
-	}
-	for(float y = 0; y <= h; y += 100){
-		ofDrawLine(0, y, w, y);
-	}
+	// It had to go now rather than at stage 4 because of the conflict this
+	// comment used to describe as known and accepted: the diagonals and the
+	// grid crossed four of the eight cutouts, and dark lines over a cutout are
+	// exactly the patterned shadow the flat field exists to avoid. The black
+	// rects used to absorb it - they were drawn after the pattern for precisely
+	// that reason - and since they went (section 8 inverted, see
+	// drawBinOutlines) nothing has. With the field now the classifier's only
+	// illuminant in a dark room, scaffolding that stripes the food is no longer
+	// something to note and work around.
+	//
+	// Values are the inverted set: the grid was 60 on black and is 195 on
+	// white, everything else was 255 and is now 0.
+	//
+	// ofSetColor(195);
+	// for(float x = 0; x <= w; x += 100){
+	// 	ofDrawLine(x, 0, x, h);
+	// }
+	// for(float y = 0; y <= h; y += 100){
+	// 	ofDrawLine(0, y, w, y);
+	// }
+	//
+	// ofSetColor(0);
+	//
+	// // diagonals corner to corner
+	// ofDrawLine(0, 0, w, h);
+	// ofDrawLine(w, 0, 0, h);
+	//
+	// // 50px crosshair at exact centre
+	// float cx = w / 2;
+	// float cy = h / 2;
+	// ofDrawLine(cx - 25, cy, cx + 25, cy);
+	// ofDrawLine(cx, cy - 25, cx, cy + 25);
+	//
+	// // filled 20px circles at all 4 corners
+	// ofDrawCircle(0, 0, 10);
+	// ofDrawCircle(w, 0, 10);
+	// ofDrawCircle(0, h, 10);
+	// ofDrawCircle(w, h, 10);
+	//
+	// // 2px black rectangle inset 1px from the very edge
+	// ofPath border;
+	// border.setFilled(false);
+	// border.setStrokeWidth(2);
+	// border.setColor(ofColor::black);
+	// border.rectangle(1, 1, w - 2, h - 2);
+	// border.draw();
 
-	ofSetColor(0);
-
-	// diagonals corner to corner
-	ofDrawLine(0, 0, w, h);
-	ofDrawLine(w, 0, 0, h);
-
-	// 50px crosshair at exact centre
-	float cx = w / 2;
-	float cy = h / 2;
-	ofDrawLine(cx - 25, cy, cx + 25, cy);
-	ofDrawLine(cx, cy - 25, cx, cy + 25);
-
-	// filled 20px circles at all 4 corners
-	ofDrawCircle(0, 0, 10);
-	ofDrawCircle(w, 0, 10);
-	ofDrawCircle(0, h, 10);
-	ofDrawCircle(w, h, 10);
-
-	// 2px black rectangle inset 1px from the very edge
-	ofPath border;
-	border.setFilled(false);
-	border.setStrokeWidth(2);
-	border.setColor(ofColor::black);
-	border.rectangle(1, 1, w - 2, h - 2);
-	border.draw();
-
-	// Outlines over the pattern, so a diagonal cannot cut across the one line
-	// that reports hover state.
+	// Outlines. Their position in the order used to matter - they went over the
+	// pattern so a diagonal could not cut across the one line that reports
+	// hover state - and with the pattern off there is nothing left to sit over.
+	// Left where it is: uncommenting the block above must not silently put a
+	// diagonal back through the hover outlines.
 	drawBinOutlines();
 
 	// UI text last of the table-fixed layers, per the layer order in section 7.
