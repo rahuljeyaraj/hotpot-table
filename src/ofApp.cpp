@@ -1,4 +1,15 @@
 #include "ofApp.h"
+#include "TableGeometry.h"
+
+namespace {
+	// calibration dot appearance
+	const float kDotRadiusPx = 12.0f;
+
+	// dot centres in table mm - all nine sit on solid plywood, clear of every
+	// tray cutout. Do not move these without re-measuring the cutouts.
+	const float kCalibXMM[] = { 44.0f, 762.0f, 1480.0f };
+	const float kCalibYMM[] = { 86.0f, 457.0f, 828.0f };
+}
 
 //--------------------------------------------------------------
 void ofApp::logWindowState(const std::string & when){
@@ -10,6 +21,17 @@ void ofApp::logWindowState(const std::string & when){
 }
 
 //--------------------------------------------------------------
+void ofApp::logCalibrationDots(){
+	for(size_t i = 0; i < calibDotsMM.size(); i++){
+		const glm::vec2 & mm = calibDotsMM[i];
+		ofLogNotice("ofApp") << "dot " << i
+			<< ": table (" << ofToString(mm.x, 1) << ", " << ofToString(mm.y, 1) << ") mm"
+			<< " -> proj (" << (int)roundf(mmToPxX(mm.x))
+			<< ", " << (int)roundf(mmToPxY(mm.y)) << ") px";
+	}
+}
+
+//--------------------------------------------------------------
 void ofApp::setup(){
 	logWindowState("setup before fullscreen");
 
@@ -18,6 +40,15 @@ void ofApp::setup(){
 	logWindowState("setup after fullscreen");
 
 	ofBackground(0);
+
+	// row-major, top row first
+	for(float y : kCalibYMM){
+		for(float x : kCalibXMM){
+			calibDotsMM.push_back(glm::vec2(x, y));
+		}
+	}
+
+	ofSetCircleResolution(64);
 }
 
 //--------------------------------------------------------------
@@ -35,6 +66,16 @@ void ofApp::draw(){
 	}
 
 	ofBackground(0);
+
+	// calibration pattern owns the whole screen - the camera must see the dots
+	// and nothing else
+	if(showCalibration){
+		ofSetColor(255);
+		for(const glm::vec2 & mm : calibDotsMM){
+			ofDrawCircle(roundf(mmToPxX(mm.x)), roundf(mmToPxY(mm.y)), kDotRadiusPx);
+		}
+		return;
+	}
 
 	float w = ofGetWidth();
 	float h = ofGetHeight();
@@ -83,7 +124,13 @@ void ofApp::draw(){
 
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key){
-
+	if(key == 'c' || key == 'C'){
+		showCalibration = !showCalibration;
+		ofLogNotice("ofApp") << "calibration pattern " << (showCalibration ? "on" : "off");
+		if(showCalibration){
+			logCalibrationDots();
+		}
+	}
 }
 
 //--------------------------------------------------------------

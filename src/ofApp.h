@@ -23,5 +23,10 @@ class ofApp : public ofBaseApp{
 
 	private:
 		void logWindowState(const std::string & when);
+		void logCalibrationDots();
+
+		// nine calibration points in table mm, row-major, top row first
+		std::vector<glm::vec2> calibDotsMM;
+		bool showCalibration = false;
 
 };
