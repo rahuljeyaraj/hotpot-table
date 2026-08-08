@@ -248,22 +248,51 @@ dissipation, viscosity, vorticity, buoyancy. Steam rings here = high vorticity,
   buffer swap the back buffer holds an undefined frame.
 
 ### Layer order
+As built today, stage 2 — no fluid yet, and no black rects (§8):
 ```
-fluid → solid black tray rectangles → dark scrim plates → UI text/halos
+flat white field → bin outlines → UI text (names, prices) → hand dot
+```
+Outlines before text is not arbitrary: the outline is the one line that reports
+hover state, so nothing may be drawn across it afterwards.
+
+The stage 4 target, once fluid lands:
+```
+fluid → tray cutout treatment (§8) → dark scrim plates → UI text/halos
 ```
 
 ---
 
-## 8. CRITICAL — black rectangles over tray cutouts
+## 8. CRITICAL — the bins need a known constant illuminant
 
-The projector must put near-zero light into the bins.
+> **STATUS: the rule below is no longer what the code does, and this section is
+> owed a rewrite (§22). It is kept rather than deleted because the observation
+> in it is real and the reasoning still applies to a lit room.** The app draws
+> **no black rects** as of `56047b6`; the cutouts are part of a flat white
+> field. Read this section together with §14's stage 2 result before changing
+> anything about what the projector puts into a bin.
+
+**The surviving rule, which neither version violates: whatever the camera sees
+in a bin must be a KNOWN CONSTANT.** Everything below is one answer to that,
+correct for one room.
 
 Observed failure: projected content spilled into the tray cutouts (a cloud
 image washed pink/white over the food), which contaminates the classifier's
 input — it was trained on plain ingredients under ambient light.
 
-**The oF UI must draw a solid black rectangle over every tray cutout.**
-The camera then sees food under ambient light only.
+**In a LIT room the oF UI must draw a solid black rectangle over every tray
+cutout.** The camera then sees food under ambient light only. This is the
+original rule and it is right whenever §21's ambient light is present.
+
+**In a DARK room it inverts.** With no ambient there is no "leave the food
+alone" option — a black rect over a cutout is not neutral, it is the food in
+total darkness, which starves the classifier rather than protecting it. The
+choice is projector light or no light, so the whole table becomes a flat white
+field and the cutouts are simply part of it. What §8 originally observed was a
+*coloured, patterned* image washing over the food; flat white is neither.
+
+**The flat field is only a controlled illuminant if it is actually flat, and
+that has never been measured.** See §22 item 1 — this gates the retrain
+capture.
 
 ---
 
@@ -367,10 +396,15 @@ annotation (206 images) was both faster and more accurate.
 ### `bin/data/ingredients.json` is the menu, and it is an object not an array
 This is **DATA, not rig state** — unlike `bin_offsets.json` (§17) it describes
 the menu, not this particular table, and it is edited by hand rather than by
-nudge keys. It is the **only** place names, prices and the currency live; there
-is deliberately no hardcoded fallback in C++, because a fallback is a second
-source of truth that silently wins exactly when the first is broken. A blank
-label strip is a visible fault; the wrong price is not.
+nudge keys. It is the **only** place names, prices and the currency live.
+
+**The loader is `loadIngredients()` at `src/ofApp.cpp:596`, and it has no C++
+fallback. Do not add a default.** Every failure path — missing file, wrong
+shape, missing or empty `currency`, a bad or duplicated entry — leaves all
+eight labels undrawn and logs the reason. A fallback is a second source of
+truth that silently wins exactly when the first is broken, which is exactly
+when nobody is watching. A blank label strip is a visible fault; the wrong
+price is not.
 
 ```json
 { "currency": "$", "ingredients": [ { "bin": 0, "name": "...", "price_per_100g": 0.0 }, ... ] }
@@ -385,9 +419,10 @@ The file was a bare top-level array until step 2k; it was wrapped in an object
 to give the currency somewhere to live that is not inside one of the entries.
 Any loader written against the old shape needs updating.
 
-**All prices are 0.00 pending a real menu.** The two decimals are load-bearing
-anyway: the label layout is sized against the string real prices will produce,
-not against the shorter one zeros happen to make.
+**All eight prices are still 0.0 pending a real menu.** The price line is
+`currency + price + " / 100g"` with two decimals, and the two decimals are
+load-bearing: the label strip is sized against the width real prices will
+produce, not the narrower one zeros happen to make.
 
 ---
 
@@ -431,7 +466,7 @@ The system must be demoable at stage 2, and stay demoable through every later sw
 | Stage | Hand | Weight | Ingredient ID | Visuals |
 |---|---|---|---|---|
 | 1 Loop ✅ | real | — | — | one dot |
-| 2 Mocks | real | keyboard 1–8 | hardcoded | flat bins |
+| 2 Mocks — UI substrate ✅, weight mocks next | real | keyboard 1–8 | hardcoded | flat bins |
 | 3 Sensors | real | load cells | classifier | flat bins |
 | 4 Polish | real | load cells | classifier | fluid, blob, voice |
 
@@ -454,6 +489,40 @@ Landmark 9 lands on the knuckle line, between the bases of the fingers, not in
 the middle of the palm. Fine for a cursor; revisit when tongs arrive.
 
 Outstanding from this stage: the height-dependent drift in §3.
+
+### Stage 2 UI substrate (complete) — `7ac6756` → `47281e6`
+
+Four commits close the visual substrate stage 2 sits on. The weight mocks
+themselves are **not** done and are the next item of work (§22).
+
+| commit | what |
+|---|---|
+| `7ac6756` | names and prices onto the label strips, from `ingredients.json` |
+| `56047b6` | UI inverted: flat white field, **black rects gone**, black text |
+| `2c9118c` | currency to `"$"`, `ingredients.json` becomes an object (§11) |
+| `47281e6` | stage 1a test pattern off |
+
+What the table now draws: flat white field, eight bin outlines, a name and a
+price per bin, the hand dot. Nothing else.
+
+**The test pattern was a bare unconditional draw block** in `ofApp::draw()`,
+sitting between `ofBackground()` and `drawBinOutlines()` — no flag, no key
+toggle, nothing to switch. Grid, corner-to-corner diagonals, centre crosshair,
+corner dots, inset border. It is **commented out and left in place**, not
+deleted: it is the instrument that answers "is the projector filling the table,
+square and in focus", which is a question that returns every time the projector
+moves or a new machine drives it. Uncomment it, use it, comment it out again.
+
+It had to go now rather than at stage 4 because its own comment already called
+the conflict known and accepted: the diagonals and grid crossed four of the
+eight cutouts, and dark lines over a cutout are the patterned shadow the field
+exists to avoid. What made that acceptable was the black rects absorbing it —
+drawn *after* the pattern for exactly that reason — and those went with
+`56047b6`. **`drawBinOutlines()` must stay after the commented block**, so that
+uncommenting it cannot silently put a diagonal back across the hover line.
+
+**Verified in the framebuffer only.** The projected surface has NOT been
+inspected by eye — see §22 item 1 for everything that check still owes.
 
 ---
 
@@ -568,7 +637,11 @@ Every alignment fix goes into `bin_offsets.json`, via the on-screen nudge keys.
 
 ### What is currently in it
 - **Global offset: −4.0, 3.0 mm.** Moves all twelve grid lines together.
-- **Per-edge deltas** on top of that, giving black rects of:
+- **Per-edge deltas** on top of that, giving corrected bin rects of:
+
+  (These were nudged when the rects were filled black. The fill is gone (§8) but
+  the geometry is unchanged — the same rects now drive the bin outlines, the
+  label clearance and the hover hit test, all via `binRectPx()`.)
 
 | | measured | CAD cutout (§12) |
 |---|---|---|
@@ -663,6 +736,15 @@ Python services: `requirements.txt` + venv is sufficient.
 
 ## 21. CRITICAL — the room must be lit
 
+> **UNRESOLVED CONTRADICTION, FLAGGED NOT SETTLED.** The dark-room demo the UI
+> was inverted for (`56047b6`, §14) makes the projector's white field the
+> illuminant for the food — which is precisely what the third row of the table
+> below says it can never be. The two cannot both be law. This section still
+> stands as written for the *lit* room, and the tracking failure in it was
+> observed on the rig and is not in doubt; what has not been decided is which
+> room the build actually targets. **Do not resolve this by editing one section
+> to match the other.** §22 item 1 is the measurement that informs it.
+
 **Ambient light is a hard requirement of the build, not a preference about
 how the demo looks.** Turning the room lights off breaks three subsystems at
 once, for three unrelated reasons. It was observed on the rig: lights off,
@@ -676,7 +758,7 @@ alone makes this look like a tracking problem, which it is not.
 |---|---|
 | Hand tracking (§16) | `track_hands.py` sets a **fixed** manual exposure of −4. Fixed means the camera does not compensate when the room dims — the frame collapses toward the 27/255 average that MediaPipe finds nothing in. |
 | Food classification (§10) | The classifier was trained on plain ingredients under ambient light. Unlit food is out of distribution. |
-| The black rectangles (§8) | The projector paints solid black over every cutout *on purpose*, so it can put near-zero light into the bins. **The projector therefore cannot be the light source for the food.** That is the design working, not a gap in it. |
+| The black rectangles (§8) | *In the lit-room design.* The projector paints solid black over every cutout *on purpose*, so it can put near-zero light into the bins. **The projector therefore cannot be the light source for the food.** That is the design working, not a gap in it. |
 
 The third is the one that closes the trap. Brightening the UI cannot rescue
 the other two, because the one place light is needed is the one place the
@@ -726,17 +808,78 @@ through. The log looks like the tracker printed nothing but warnings.
 
 ## 22. Open questions
 
-- reComputer exact model and GPU capability — **biggest unresolved risk**
-- Camera elevation angle — measure it. Stage 1 showed visible height-dependent
-  drift (§3), which caps how accurate any halo can be
+### Next session, in this order
+
+**1. Eight-bin illuminant measurement. GATES THE RETRAIN CAPTURE.**
+Grey card in each cutout in turn, room lights off, captured through the same
+webcam, compare mean grey across all eight.
+
+The flat white field is only a *controlled* illuminant if it is actually flat,
+and nobody has measured it. A centre hot-spot with edge fall-off means bins 0
+and 7 are lit differently from bins 3 and 4, and the classifier will learn a
+position-dependent brightness gradient as a feature — which is the §8
+contamination failure arriving as a slow gradient instead of a pink wash. **If
+the spread exceeds the tracking margin the fix is per-bin brightness correction
+in the UI, not a retrain.**
+
+Also unconfirmed by eye, and cheap to check at the same time: keystone, focus,
+stray desktop or cursor on that output, projector black-level glow. Nothing on
+the table has ever been inspected physically — every check so far has been a
+framebuffer grab, which cannot see any of these.
+
+**2. Split `labelPlacementLogged`, and prove the width check can fire.**
+One flag is shared by the advisory "label is wider than its bin" warning and
+the fatal "label landed in a cutout" error, so whichever fires first
+permanently silences the other.
+
+The check has never been observed firing, which has **two indistinguishable
+explanations**: nothing overhangs, or the check is dead. Temporarily shrink one
+bin's width until it must trip, confirm the log line appears, revert. Owed
+before labels move and before the dataset is captured — the failure it catches
+is black text landing on food, which contaminates the capture directly.
+
+**3. Keyboard 1–8 fake picks → settled weight delta.** Then the pricing FSM:
+10 g deadband, 25 g quantise on *cumulative* weight, hysteresis at the step
+boundaries, and put-back handling (a weight *increase* must refund, not be
+ignored). Then cart render in the centre column's back half, and a popup on
+`HOVERED`. This is the actual stage 2 mock work; §14's substrate is only what
+it draws onto.
+
+### Still unresolved (not blocking)
+
+- **Bins 6 and 7 are Tofu and Baby Corn.** Neither survives weeks at room
+  temperature in Kerala, and neither has a Roboflow class (§10 lists eight
+  classes, and these are not among them). The menu and the model disagree.
+- **§8 needs rewriting, not deleting.** The surviving rule is that bins need a
+  known constant illuminant. Black was correct for a lit room, flat white is
+  correct for a dark one, and the section currently states only the first as
+  law. It carries a status banner in the meantime.
+- **Lit room or dark room? §21 and the dark-room demo now contradict each
+  other** — §21 says the projector can never be the food's light source, and
+  the flat white field makes it exactly that. Both sections carry banners and
+  neither has been edited to agree with the other. This is one decision that
+  settles §8, §21 and the retrain capture conditions together, so it should be
+  made deliberately rather than absorbed into whichever section is edited next.
+- **Classifier retrain is mandatory** — ambient-lit weights plus the tongs
+  deletion (§10). Capture under projector white, *after* item 1 above.
+- Brightness floor is 50%. 25% has not been measured.
+- MediaPipe takes ~1 s to acquire a hand, against `HOVER_DWELL_MS` of 1000 ms.
+  Those two numbers are the same size, which makes the dwell threshold
+  unmeasurable until acquisition is separated from dwell.
+- 22 mm labels at 1.4 m have never been checked by eye — the size is derived
+  from signage ratios (§7 font sizes), not observed.
+- The 2 g pass-over data (n=16) must be **re-run, not extended**.
+- Frame rate drops 30 → 15 fps with no hand in frame. Cause unknown.
+- Camera elevation angle — measure it. Open since stage 1, and the
+  height-dependent drift in §3 caps how accurate any halo can be.
+- **reComputer exact model and GPU capability — biggest unresolved risk.**
 - Hand id is the tracker's per-frame detection index, so two hands can swap ids
-  and therefore colours. Needs a real identity before ids mean anything
-- FBO layering test: fluid → black tray rects → scrim → UI
+  and therefore colours. Needs a real identity before ids mean anything.
+- FBO layering test, once fluid exists: fluid → cutout treatment (§8) → scrim → UI
 - Bench test: does the bowl-holding hand false-trigger bin hover zones?
 - Bench test: do tongs in hand degrade MediaPipe palm confidence?
 - Bench test: do thermocol cubes clear the load cell detection floor?
 - Rotating hint line ("say show veg") for filter discoverability — undecided
-- Put-back handling: weight *increase* should refund, not be ignored
 - Order finalisation: how does "diner is done" get signalled?
 - Kitchen hand-off: how does the finished list reach staff?
 - Broth selection: one-time at session start, or changeable mid-session?
