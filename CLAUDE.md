@@ -625,7 +625,65 @@ Python services: `requirements.txt` + venv is sufficient.
 
 ---
 
-## 21. Open questions
+## 21. CRITICAL — the room must be lit
+
+**Ambient light is a hard requirement of the build, not a preference about
+how the demo looks.** Turning the room lights off breaks three subsystems at
+once, for three unrelated reasons. It was observed on the rig: lights off,
+hand tracking stopped completely.
+
+This has its own section rather than a line in §8, §10 or §16 because no one
+of those owns it. Each of them fails on its own, and reading any one of them
+alone makes this look like a tracking problem, which it is not.
+
+| Subsystem | Why a dark room breaks it |
+|---|---|
+| Hand tracking (§16) | `track_hands.py` sets a **fixed** manual exposure of −4. Fixed means the camera does not compensate when the room dims — the frame collapses toward the 27/255 average that MediaPipe finds nothing in. |
+| Food classification (§10) | The classifier was trained on plain ingredients under ambient light. Unlit food is out of distribution. |
+| The black rectangles (§8) | The projector paints solid black over every cutout *on purpose*, so it can put near-zero light into the bins. **The projector therefore cannot be the light source for the food.** That is the design working, not a gap in it. |
+
+The third is the one that closes the trap. Brightening the UI cannot rescue
+the other two, because the one place light is needed is the one place the
+projector is deliberately forbidden from lighting.
+
+### The exposure is fixed on purpose — do not "fix" it with auto
+§16 explains why: auto-exposure works in a still room but hunts once the
+projector starts painting bright UI, and a hunting exposure changes the image
+mid-pick. Manual is the decision.
+
+If a dimmer room is genuinely wanted, the lever is `--exposure` (−4 → −3
+or −2), re-checking that the reported mean grey stays above 60. The cost is
+sensor noise and motion blur at 30 fps. Auto is not the lever.
+
+### The mean-grey warning goes stale the moment it prints
+`track_hands.py` samples mean grey **once, during warmup**, prints it, and
+never looks again:
+
+```
+exposure         : mean grey 117.3/255
+```
+
+So a room dimmed *after* startup — someone killing the lights for the
+projector mid-demo — fails completely silently. The startup line still says
+117, FPS stays a healthy 30, and the tracker reports zero hands forever.
+That is §16's "looks like a broken tracker" failure mode with its own
+warning disarmed.
+
+**Fix owed:** re-sample mean grey every few seconds and warn on crossing the
+floor, rather than trusting one warmup reading for the whole session.
+
+### Python buffers the warning away when logged to a file
+Unrelated but found the same way, and it hides everything above. Python
+block-buffers stdout when it is not a tty, so `python track_hands.py > log`
+holds the entire startup banner — including the mean-grey line and its
+warning — in an unflushed buffer, while MediaPipe's C++ stderr goes straight
+through. The log looks like the tracker printed nothing but warnings.
+
+**Always run it as `python -u track_hands.py` when redirecting to a file.**
+
+---
+
+## 22. Open questions
 
 - reComputer exact model and GPU capability — **biggest unresolved risk**
 - Camera elevation angle — measure it. Stage 1 showed visible height-dependent
