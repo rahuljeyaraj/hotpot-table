@@ -33,6 +33,11 @@ namespace {
 	// Lives in bin/data/ alongside the other rig state.
 	const char * kOffsetsFile = "bin_offsets.json";
 
+	// Marks the line being moved. This is a setup overlay, not the diner-facing
+	// UI, so it is outside the "colour is reserved for progress" rule in §9 -
+	// and green stays clear of both hand-dot colours.
+	const ofColor kSelectionColour(0, 255, 120);
+
 	// --- hand tracking -------------------------------------------------------
 	// Must match --osc-port in tools/tracker/track_hands.py.
 	const int kOscPort = 12345;
@@ -156,14 +161,71 @@ void ofApp::receiveOsc(){
 }
 
 //--------------------------------------------------------------
-void ofApp::nudgeOffset(float dxMM, float dyMM){
-	offsetXMM += dxMM;
-	offsetYMM += dyMM;
+// Where each grid line starts before any correction: the edges of the
+// margin-grown CAD rects. Column c owns vertical lines 2c (left) and 2c+1
+// (right); row r owns horizontal lines 2r (far) and 2r+1 (near).
+float ofApp::vLineMM(int i) const {
+	const BinRect f = binFillRectMM(BINS[i / 2]);
+	const float cad = (i % 2 == 0) ? f.xMM : f.xMM + f.wMM;
+	return cad + offsetXMM + vLineDeltaMM[i];
+}
 
-	// Logged as well as drawn: the on-screen readout is on the projector, which
-	// is across the room from whoever is holding the arrow keys.
-	ofLogNotice("ofApp") << "bin offset (" << ofToString(offsetXMM, 1) << ", "
-		<< ofToString(offsetYMM, 1) << ") mm - unsaved, press s to keep it";
+float ofApp::hLineMM(int i) const {
+	// BINS is row-major, so the first bin of row r is at index r * kCols.
+	const BinRect f = binFillRectMM(BINS[(i / 2) * kCols]);
+	const float cad = (i % 2 == 0) ? f.yMM : f.yMM + f.hMM;
+	return cad + offsetYMM + hLineDeltaMM[i];
+}
+
+//--------------------------------------------------------------
+std::string ofApp::selectionLabel() const {
+	if(selection == 0){
+		return "ALL";
+	}
+	if(selection <= kVLines){
+		const int i = selection - 1;
+		// 1-based for the person at the table, counting left to right
+		return "V" + ofToString(i + 1) + " (col " + ofToString(i / 2 + 1)
+			+ (i % 2 == 0 ? " left)" : " right)");
+	}
+	const int i = selection - kVLines - 1;
+	return "H" + ofToString(i + 1) + " (row " + ofToString(i / 2 + 1)
+		+ (i % 2 == 0 ? " far)" : " near)");
+}
+
+//--------------------------------------------------------------
+void ofApp::cycleSelection(int dir){
+	const int count = 1 + kVLines + kHLines;
+	selection = (selection + dir + count) % count;
+
+	ofLogNotice("ofApp") << "selected " << selectionLabel();
+}
+
+//--------------------------------------------------------------
+void ofApp::nudgeSelection(float dxMM, float dyMM){
+	if(selection == 0){
+		offsetXMM += dxMM;
+		offsetYMM += dyMM;
+	}
+	else if(selection <= kVLines){
+		// A vertical line only has somewhere to go along x. Up and down are
+		// ignored rather than remapped - moving a line off its own axis is
+		// meaningless, and quietly doing something else would be worse.
+		vLineDeltaMM[selection - 1] += dxMM;
+	}
+	else {
+		hLineDeltaMM[selection - kVLines - 1] += dyMM;
+	}
+
+	// Logged as well as drawn: the readout is on the projector, which is across
+	// the room from whoever is holding the arrow keys.
+	ofLogNotice("ofApp") << selectionLabel() << " -> "
+		<< (selection == 0
+			? "(" + ofToString(offsetXMM, 1) + ", " + ofToString(offsetYMM, 1) + ") mm"
+			: ofToString(selection <= kVLines
+				? vLineMM(selection - 1)
+				: hLineMM(selection - kVLines - 1), 1) + " mm")
+		<< " - unsaved, press s to keep it";
 }
 
 //--------------------------------------------------------------
@@ -171,6 +233,12 @@ void ofApp::saveOffsets(){
 	ofJson j;
 	j["offsetXMM"] = offsetXMM;
 	j["offsetYMM"] = offsetYMM;
+	for(int i = 0; i < kVLines; i++){
+		j["vLineDeltaMM"][i] = vLineDeltaMM[i];
+	}
+	for(int i = 0; i < kHLines; i++){
+		j["hLineDeltaMM"][i] = hLineDeltaMM[i];
+	}
 
 	const std::string path = ofToDataPath(kOffsetsFile);
 	if(ofSaveJson(path, j)){
@@ -209,6 +277,28 @@ void ofApp::loadOffsets(){
 
 	offsetXMM = j["offsetXMM"].get<float>();
 	offsetYMM = j["offsetYMM"].get<float>();
+
+	// Line deltas are optional: a file written before the grid existed holds
+	// only the two offsets, and it still describes a valid alignment. Absent
+	// means zero, which is exactly what that file meant.
+	auto readDeltas = [&](const char * field, float * out, int count){
+		if(!j.contains(field) || !j[field].is_array()){
+			return;
+		}
+		if((int)j[field].size() != count){
+			ofLogWarning("ofApp") << field << " has " << j[field].size()
+				<< " entries, expected " << count << " - ignoring it";
+			return;
+		}
+		for(int i = 0; i < count; i++){
+			if(j[field][i].is_number()){
+				out[i] = j[field][i].get<float>();
+			}
+		}
+	};
+	readDeltas("vLineDeltaMM", vLineDeltaMM, kVLines);
+	readDeltas("hLineDeltaMM", hLineDeltaMM, kHLines);
+
 	ofLogNotice("ofApp") << "loaded bin offset (" << ofToString(offsetXMM, 1) << ", "
 		<< ofToString(offsetYMM, 1) << ") mm from " << path;
 }
@@ -230,33 +320,75 @@ void ofApp::drawBinCutouts(){
 	// alternative is stroking each edge separately for no real gain.
 	const float strokePx = mmToPxX(kBinOutlineMM);
 
-	for(int i = 0; i < BIN_COUNT; i++){
-		// grown by CUTOUT_MARGIN_MM, so the black covers the real cutout even
-		// with the homography's residual error and a saw cut that wandered
-		const BinRect fill = binFillRectMM(BINS[i]);
+	// Each box is a grid cell, bounded by its column's two vertical lines and
+	// its row's two horizontal ones - so a moved line resizes every box that
+	// shares it, which is the whole point of the line model.
+	for(int r = 0; r < kRows; r++){
+		for(int c = 0; c < kCols; c++){
+			const float x = mmToPxX(vLineMM(c * 2));
+			const float y = mmToPxY(hLineMM(r * 2));
+			const float w = mmToPxX(vLineMM(c * 2 + 1)) - x;
+			const float h = mmToPxY(hLineMM(r * 2 + 1)) - y;
 
-		// mmToPx* are pure scales with no offset, so they convert spans as
-		// well as positions. The nudge shifts the origin only - the cutouts do
-		// not change size just because the pattern sits a few mm off.
-		const float x = mmToPxX(fill.xMM + offsetXMM);
-		const float y = mmToPxY(fill.yMM + offsetYMM);
-		const float w = mmToPxX(fill.wMM);
-		const float h = mmToPxY(fill.hMM);
+			ofFill();
+			ofSetColor(0);
+			ofDrawRectangle(x, y, w, h);
 
-		ofFill();
-		ofSetColor(0);
-		ofDrawRectangle(x, y, w, h);
-
-		// ofPath, not ofSetLineWidth - drivers cap the latter at 1 px
-		ofPath outline;
-		outline.setFilled(false);
-		outline.setStrokeWidth(strokePx);
-		outline.setColor(ofColor::white);
-		outline.rectangle(x, y, w, h);
-		outline.draw();
+			// ofPath, not ofSetLineWidth - drivers cap the latter at 1 px
+			ofPath outline;
+			outline.setFilled(false);
+			outline.setStrokeWidth(strokePx);
+			outline.setColor(ofColor::white);
+			outline.rectangle(x, y, w, h);
+			outline.draw();
+		}
 	}
 
+	drawSelectionHighlight();
+
 	ofSetColor(255);
+}
+
+//--------------------------------------------------------------
+void ofApp::drawSelectionHighlight(){
+	// Only ever redraws an edge the white outline already occupies, never a
+	// full-width rule across the table: a line drawn through the other cells
+	// would put light straight into their cutouts.
+	if(selection == 0){
+		return;
+	}
+
+	const float strokePx = mmToPxX(kBinOutlineMM) * 2.0f;
+
+	ofPath hi;
+	hi.setFilled(false);
+	hi.setStrokeWidth(strokePx);
+	hi.setColor(kSelectionColour);
+
+	if(selection <= kVLines){
+		const int i = selection - 1;
+		const float x = mmToPxX(vLineMM(i));
+		// the same edge on both boxes in this column
+		for(int r = 0; r < kRows; r++){
+			const float y0 = mmToPxY(hLineMM(r * 2));
+			const float y1 = mmToPxY(hLineMM(r * 2 + 1));
+			hi.moveTo(x, y0);
+			hi.lineTo(x, y1);
+		}
+	}
+	else {
+		const int i = selection - kVLines - 1;
+		const float y = mmToPxY(hLineMM(i));
+		// the same edge on all four boxes in this row
+		for(int c = 0; c < kCols; c++){
+			const float x0 = mmToPxX(vLineMM(c * 2));
+			const float x1 = mmToPxX(vLineMM(c * 2 + 1));
+			hi.moveTo(x0, y);
+			hi.lineTo(x1, y);
+		}
+	}
+
+	hi.draw();
 }
 
 //--------------------------------------------------------------
@@ -370,7 +502,20 @@ void ofApp::draw(){
 		ss << "  (no tracker yet)";
 	}
 	ss << "\nbin offset " << ofToString(offsetXMM, 1) << ", "
-	   << ofToString(offsetYMM, 1) << " mm  (arrows 1mm, shift 5mm, s saves)";
+	   << ofToString(offsetYMM, 1) << " mm";
+	ss << "\ntarget " << selectionLabel();
+	if(selection > 0){
+		const bool vertical = selection <= kVLines;
+		ss << "  at " << ofToString(vertical ? vLineMM(selection - 1)
+		                                     : hLineMM(selection - kVLines - 1), 1)
+		   << " mm  (moves " << (vertical ? "left/right)" : "up/down)");
+	}
+	ss << "\n[ ] selects line, 0 selects all, arrows 1mm, shift 5mm, s saves";
+
+	// Box sizes follow from where the lines sit, so show what they currently
+	// are - the number to compare against a tape measure on the plywood.
+	ss << "\nbox " << ofToString(vLineMM(1) - vLineMM(0), 1) << " x "
+	   << ofToString(hLineMM(1) - hLineMM(0), 1) << " mm (col1/far)";
 	ofDrawBitmapString(ss.str(), 10, 20);
 }
 
@@ -384,10 +529,26 @@ void ofApp::keyPressed(int key){
 	// Screen directions, not table directions - whoever is nudging is looking at
 	// the projected rectangles. +y runs towards the diner, so up is negative.
 	switch(key){
-		case OF_KEY_LEFT:  nudgeOffset(-step, 0.0f); return;
-		case OF_KEY_RIGHT: nudgeOffset( step, 0.0f); return;
-		case OF_KEY_UP:    nudgeOffset( 0.0f, -step); return;
-		case OF_KEY_DOWN:  nudgeOffset( 0.0f,  step); return;
+		case OF_KEY_LEFT:  nudgeSelection(-step, 0.0f); return;
+		case OF_KEY_RIGHT: nudgeSelection( step, 0.0f); return;
+		case OF_KEY_UP:    nudgeSelection( 0.0f, -step); return;
+		case OF_KEY_DOWN:  nudgeSelection( 0.0f,  step); return;
+	}
+
+	// Bracket keys rather than tab: plain printable keys, and tab is close
+	// enough to the arrows to be hit by accident while nudging.
+	if(key == ']'){
+		cycleSelection(1);
+		return;
+	}
+	if(key == '['){
+		cycleSelection(-1);
+		return;
+	}
+	if(key == '0'){
+		selection = 0;
+		ofLogNotice("ofApp") << "selected " << selectionLabel();
+		return;
 	}
 
 	if(key == 's' || key == 'S'){

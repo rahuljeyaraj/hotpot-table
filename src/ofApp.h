@@ -2,6 +2,7 @@
 
 #include "ofMain.h"
 #include "ofxOsc.h"
+#include "TableGeometry.h"
 
 class ofApp : public ofBaseApp{
 
@@ -30,21 +31,49 @@ class ofApp : public ofBaseApp{
 		void drawHands();
 		void drawBinCutouts();
 
-		void nudgeOffset(float dxMM, float dyMM);
+		float vLineMM(int i) const;
+		float hLineMM(int i) const;
+		void nudgeSelection(float dxMM, float dyMM);
+		void cycleSelection(int dir);
+		std::string selectionLabel() const;
+		void drawSelectionHighlight();
 		void saveOffsets();
 		void loadOffsets();
 
-		// Whole-pattern nudge in table mm, applied to every bin. Exists because
-		// the eight tray modules are independent with no shared rigid base, so
-		// the real cutouts sit where the build put them rather than where CAD
-		// says. This corrects the part of that error common to all eight; a bin
-		// that is off on its own needs a per-bin offset, which does not exist yet.
+		// The eight boxes are not eight independent rectangles - they are the
+		// cells of a grid, cut by 8 vertical and 4 horizontal lines. Each column
+		// owns two vertical lines (its left and right edge), each row two
+		// horizontal ones. Two boxes in a column share both vertical lines;
+		// four boxes in a row share both horizontal ones.
+		//
+		// Moving a line is therefore how the boxes are both positioned AND
+		// sized: shifting one edge of a cell resizes it, so there is no separate
+		// size control and none is wanted.
+		static constexpr int kCols = 4;
+		static constexpr int kRows = 2;
+		static constexpr int kVLines = kCols * 2;
+		static constexpr int kHLines = kRows * 2;
+
+		// Per-line corrections in table mm, on top of the CAD positions in
+		// TableGeometry.h. Deltas rather than absolute positions so the CAD
+		// chain stays the source of truth and its layout asserts keep meaning
+		// something.
+		float vLineDeltaMM[kVLines] = {};
+		float hLineDeltaMM[kHLines] = {};
+
+		// Whole-pattern nudge, applied on top of every line. Kept as its own
+		// target because sliding all twelve lines together is the common first
+		// move, and doing it one line at a time would be twelve times the work.
 		//
 		// Deliberately NOT applied to the calibration dots: those are the
 		// reference the homography was solved against, and moving them would
 		// invalidate it.
 		float offsetXMM = 0.0f;
 		float offsetYMM = 0.0f;
+
+		// 0 = the whole pattern, 1..kVLines = a vertical line,
+		// kVLines+1 .. kVLines+kHLines = a horizontal line.
+		int selection = 0;
 
 		// nine calibration points in table mm, row-major, top row first
 		std::vector<glm::vec2> calibDotsMM;
