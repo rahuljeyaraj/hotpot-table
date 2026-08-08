@@ -113,6 +113,31 @@ Google's copy is authoritative; vendoring it only adds a binary to clone.
 - Add addons via projectGenerator, not by hand
 - Addon examples must be copied into `apps/myApps/` and re-imported via
   projectGenerator's Import tab before they will build
+
+### projectGenerator CLI — the platform is `vs`, NOT `winvs`
+The GUI is not needed; the CLI can re-import a project. It lives at
+`C:\openframeworks\projectGenerator\resources\app\app\projectGenerator.exe`
+(the top-level `projectGenerator.exe` is the Electron wrapper).
+
+**A wrong `-p` value makes it segfault with no error message.** It prints as far
+as `project path is: [...]` and dies — exit `0xC0000005` / 139. It looks
+identical to a broken install, and it fails the same way on a brand-new empty
+project, which sends you hunting in the wrong place. `-p"winvs"` is the wrong
+value even though it is the platform name used elsewhere in oF. The correct
+value is `vs`, as in `resources/app/settings.json`'s `defaultPlatform`.
+
+Paths must be relative to the exe's own directory, and the exe must run from
+there:
+```
+cd C:/openframeworks/projectGenerator/resources/app/app
+./projectGenerator.exe -p"vs" -o"../../../../" \
+    -a"ofxFlowTools,ofxGui,ofxOsc" "../../../../apps/myApps/hotpot-table"
+```
+Absolute Windows paths get mangled by the argument parser.
+
+**Every re-import resets `PlatformToolset` to `v143`.** Re-apply `v145` in all
+configurations afterwards or the next build fails with MSB8020. This is not a
+one-time fix — it is the cost of every addon change.
 - VS 2026 retarget is **manual**: Solution Explorer right-click, or the Setup
   assistant's "Retarget all". No automatic prompt appears.
 - Build from a Developer Command Prompt for VS so compiler paths are inherited
@@ -120,9 +145,10 @@ Google's copy is authoritative; vendoring it only adds a binary to clone.
   `MSBuild\Microsoft\VC\v180\`.
 - projectGenerator emits `v143`, which fails with **MSB8020** on a
   VS 2026-only machine.
-- Fix applied: `hotpot-table.vcxproj` was hand-edited from `v143` to `v145`
-  in all configurations, and that edit is committed. `openframeworksLib.vcxproj`
-  was already retargeted separately and is outside this repo.
+- Fix applied: `hotpot-table.vcxproj` was edited from `v143` to `v145`
+  in all configurations, and that edit is committed. It must be re-applied after
+  every projectGenerator run — see above. `openframeworksLib.vcxproj` was
+  already retargeted separately and is outside this repo.
 - Build command, from a Developer Command Prompt for VS 2026:
   ```
   msbuild hotpot-table.sln /p:Configuration=Debug /p:Platform=x64 /m

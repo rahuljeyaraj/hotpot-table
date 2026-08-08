@@ -18,6 +18,32 @@ namespace {
 	// tray cutout. Do not move these without re-measuring the cutouts.
 	const float kCalibXMM[] = { 44.0f, 762.0f, 1480.0f };
 	const float kCalibYMM[] = { 86.0f, 457.0f, 828.0f };
+
+	// --- hand tracking -------------------------------------------------------
+	// Must match --osc-port in tools/tracker/track_hands.py.
+	const int kOscPort = 12345;
+
+	const float kHandRadiusPx = 40.0f;
+
+	// A hand that has not been heard from in this long is dropped rather than
+	// left frozen on the table. Covers both the tracker losing the hand and the
+	// tracker not running at all.
+	//
+	// 500 ms is roughly 15 frames of a 30 fps tracker, so a one- or two-frame
+	// detection dropout - which is common and means nothing - does not blink
+	// the dot out. Deliberately not a smoothing filter: stage 1 shows raw
+	// positions so the true jitter stays visible.
+	const uint64_t kHandTimeoutMS = 500;
+
+	// One colour per hand id, purely so two hands can be told apart while the
+	// loop is being evaluated. This is NOT the blob cursor of stage 4, whose
+	// colour is fixed and reserved exclusively for progress indication.
+	const ofColor kHandColours[] = {
+		ofColor(0, 200, 255),   // id 0, cyan
+		ofColor(255, 160, 0),   // id 1, amber
+	};
+	const size_t kHandColourCount =
+		sizeof(kHandColours) / sizeof(kHandColours[0]);
 }
 
 //--------------------------------------------------------------
@@ -59,11 +85,78 @@ void ofApp::setup(){
 	}
 
 	ofSetCircleResolution(64);
+
+	oscReceiver.setup(kOscPort);
+	ofLogNotice("ofApp") << "listening for hand positions on OSC port " << kOscPort;
+}
+
+//--------------------------------------------------------------
+void ofApp::receiveOsc(){
+	// Drain the queue every frame. The tracker sends one message per hand per
+	// frame and may well run faster than this app draws, so leaving anything
+	// buffered would mean drawing a stale position.
+	ofxOscMessage m;
+	while(oscReceiver.getNextMessage(m)){
+		uint64_t now = ofGetElapsedTimeMillis();
+
+		if(m.getAddress() == "/hand"){
+			if(m.getNumArgs() < 3){
+				ofLogWarning("ofApp") << "/hand with " << m.getNumArgs()
+					<< " args, expected 3";
+				continue;
+			}
+
+			// Already projector pixels - the tracker owns the homography, so
+			// nothing here needs to know the camera exists.
+			int id = m.getArgAsInt(0);
+			Hand & hand = hands[id];
+			hand.posPx = glm::vec2(m.getArgAsFloat(1), m.getArgAsFloat(2));
+			hand.lastSeenMS = now;
+
+			lastMessageMS = now;
+			everReceived = true;
+		}
+		else if(m.getAddress() == "/hand/none"){
+			// Deliberately not an instant clear. This is a liveness beat: it
+			// says the tracker is alive and currently sees nothing. Existing
+			// hands are left to time out on their own, so a single dropped
+			// detection frame does not blink the dot.
+			lastMessageMS = now;
+			everReceived = true;
+		}
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::drawHands(){
+	// Nothing at all until the tracker has been heard from. A table that has
+	// never had a tracker attached stays black rather than showing a stale dot.
+	if(!everReceived){
+		return;
+	}
+
+	uint64_t now = ofGetElapsedTimeMillis();
+
+	for(auto it = hands.begin(); it != hands.end(); ){
+		if(now - it->second.lastSeenMS > kHandTimeoutMS){
+			it = hands.erase(it);  // gone: tracker lost it, or stopped
+			continue;
+		}
+
+		// abs() because the id comes off the wire and C++ modulo of a negative
+		// is negative, which would index off the front of the palette
+		size_t colour = (size_t)std::abs(it->first) % kHandColourCount;
+		ofSetColor(kHandColours[colour]);
+		ofDrawCircle(it->second.posPx.x, it->second.posPx.y, kHandRadiusPx);
+		++it;
+	}
+
+	ofSetColor(255);
 }
 
 //--------------------------------------------------------------
 void ofApp::update(){
-
+	receiveOsc();
 }
 
 //--------------------------------------------------------------
@@ -78,7 +171,7 @@ void ofApp::draw(){
 	ofBackground(0);
 
 	// calibration pattern owns the whole screen - the camera must see the dots
-	// and nothing else
+	// and nothing else, so no hand dot here either
 	if(showCalibration){
 		ofSetColor(255);
 		for(size_t i = 0; i < calibDotsMM.size(); i++){
@@ -127,10 +220,17 @@ void ofApp::draw(){
 	border.rectangle(1, 1, w - 2, h - 2);
 	border.draw();
 
+	// hands on top of the test pattern, under nothing yet
+	drawHands();
+
 	// top-left readout
 	ofSetColor(255);
 	std::stringstream ss;
 	ss << (int)w << " x " << (int)h << "\n" << ofGetFrameRate();
+	ss << "\nhands " << hands.size();
+	if(!everReceived){
+		ss << "  (no tracker yet)";
+	}
 	ofDrawBitmapString(ss.str(), 10, 20);
 }
 

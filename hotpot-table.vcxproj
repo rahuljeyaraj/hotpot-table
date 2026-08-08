@@ -1,4 +1,4 @@
-<?xml version="1.0"?>
+﻿<?xml version="1.0"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 	<ItemGroup Label="ProjectConfigurations">
 		<ProjectConfiguration Include="Debug|x64">
@@ -79,10 +79,10 @@
 		<ClCompile>
 			<Optimization>Disabled</Optimization>
 			<BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
-			<PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<PreprocessorDefinitions>%(PreprocessorDefinitions);OSC_HOST_LITTLE_ENDIAN</PreprocessorDefinitions>
 			<RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
 			<WarningLevel>Level3</WarningLevel>
-			<AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);..\..\..\addons\ofxFlowTools\src;..\..\..\addons\ofxFlowTools\src\core;..\..\..\addons\ofxFlowTools\src\core\bridge;..\..\..\addons\ofxFlowTools\src\core\bridge\shaders;..\..\..\addons\ofxFlowTools\src\core\fluid;..\..\..\addons\ofxFlowTools\src\core\fluid\shaders;..\..\..\addons\ofxFlowTools\src\core\opticalflow;..\..\..\addons\ofxFlowTools\src\core\shaders;..\..\..\addons\ofxFlowTools\src\core\shaders\blend;..\..\..\addons\ofxFlowTools\src\core\shaders\blur;..\..\..\addons\ofxFlowTools\src\core\shaders\color;..\..\..\addons\ofxFlowTools\src\core\shaders\velocity;..\..\..\addons\ofxFlowTools\src\core\visualization;..\..\..\addons\ofxFlowTools\src\core\visualization\shaders;..\..\..\addons\ofxFlowTools\src\extensions;..\..\..\addons\ofxFlowTools\src\extensions\average;..\..\..\addons\ofxFlowTools\src\extensions\mouse;..\..\..\addons\ofxFlowTools\src\extensions\particles;..\..\..\addons\ofxFlowTools\src\extensions\shaders;..\..\..\addons\ofxFlowTools\src\extensions\splitvelocity;..\..\..\addons\ofxGui\src</AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);src;..\..\..\addons\ofxFlowTools\src;..\..\..\addons\ofxFlowTools\src\core;..\..\..\addons\ofxFlowTools\src\core\bridge;..\..\..\addons\ofxFlowTools\src\core\bridge\shaders;..\..\..\addons\ofxFlowTools\src\core\fluid;..\..\..\addons\ofxFlowTools\src\core\fluid\shaders;..\..\..\addons\ofxFlowTools\src\core\opticalflow;..\..\..\addons\ofxFlowTools\src\core\shaders;..\..\..\addons\ofxFlowTools\src\core\shaders\blend;..\..\..\addons\ofxFlowTools\src\core\shaders\blur;..\..\..\addons\ofxFlowTools\src\core\shaders\color;..\..\..\addons\ofxFlowTools\src\core\shaders\velocity;..\..\..\addons\ofxFlowTools\src\core\visualization;..\..\..\addons\ofxFlowTools\src\core\visualization\shaders;..\..\..\addons\ofxFlowTools\src\extensions;..\..\..\addons\ofxFlowTools\src\extensions\average;..\..\..\addons\ofxFlowTools\src\extensions\mouse;..\..\..\addons\ofxFlowTools\src\extensions\particles;..\..\..\addons\ofxFlowTools\src\extensions\shaders;..\..\..\addons\ofxFlowTools\src\extensions\splitvelocity;..\..\..\addons\ofxGui\src;..\..\..\addons\ofxOsc\libs;..\..\..\addons\ofxOsc\libs\oscpack;..\..\..\addons\ofxOsc\libs\oscpack\src;..\..\..\addons\ofxOsc\libs\oscpack\src\ip;..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32;..\..\..\addons\ofxOsc\libs\oscpack\src\osc;..\..\..\addons\ofxOsc\src</AdditionalIncludeDirectories>
 			<CompileAs>CompileAsCpp</CompileAs>
 			<MultiProcessorCompilation>true</MultiProcessorCompilation>
 			<ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
@@ -98,6 +98,7 @@
 			<RandomizedBaseAddress>true</RandomizedBaseAddress>
 			<AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
 			<AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+			<ForceFileOutput>MultiplyDefinedSymbolOnly</ForceFileOutput>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
@@ -107,6 +108,7 @@
 			<RandomizedBaseAddress>true</RandomizedBaseAddress>
 			<AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
 			<AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+			<ForceFileOutput>MultiplyDefinedSymbolOnly</ForceFileOutput>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64EC'">
@@ -116,15 +118,16 @@
 			<RandomizedBaseAddress>true</RandomizedBaseAddress>
 			<AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
 			<AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+			<ForceFileOutput>MultiplyDefinedSymbolOnly</ForceFileOutput>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64' or '$(Configuration)|$(Platform)'=='Release|ARM64' or '$(Configuration)|$(Platform)'=='Release|ARM64EC'">
 		<ClCompile>
 			<WholeProgramOptimization>false</WholeProgramOptimization>
-			<PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<PreprocessorDefinitions>%(PreprocessorDefinitions);OSC_HOST_LITTLE_ENDIAN</PreprocessorDefinitions>
 			<RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
 			<WarningLevel>Level3</WarningLevel>
-			<AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);..\..\..\addons\ofxFlowTools\src;..\..\..\addons\ofxFlowTools\src\core;..\..\..\addons\ofxFlowTools\src\core\bridge;..\..\..\addons\ofxFlowTools\src\core\bridge\shaders;..\..\..\addons\ofxFlowTools\src\core\fluid;..\..\..\addons\ofxFlowTools\src\core\fluid\shaders;..\..\..\addons\ofxFlowTools\src\core\opticalflow;..\..\..\addons\ofxFlowTools\src\core\shaders;..\..\..\addons\ofxFlowTools\src\core\shaders\blend;..\..\..\addons\ofxFlowTools\src\core\shaders\blur;..\..\..\addons\ofxFlowTools\src\core\shaders\color;..\..\..\addons\ofxFlowTools\src\core\shaders\velocity;..\..\..\addons\ofxFlowTools\src\core\visualization;..\..\..\addons\ofxFlowTools\src\core\visualization\shaders;..\..\..\addons\ofxFlowTools\src\extensions;..\..\..\addons\ofxFlowTools\src\extensions\average;..\..\..\addons\ofxFlowTools\src\extensions\mouse;..\..\..\addons\ofxFlowTools\src\extensions\particles;..\..\..\addons\ofxFlowTools\src\extensions\shaders;..\..\..\addons\ofxFlowTools\src\extensions\splitvelocity;..\..\..\addons\ofxGui\src</AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);src;..\..\..\addons\ofxFlowTools\src;..\..\..\addons\ofxFlowTools\src\core;..\..\..\addons\ofxFlowTools\src\core\bridge;..\..\..\addons\ofxFlowTools\src\core\bridge\shaders;..\..\..\addons\ofxFlowTools\src\core\fluid;..\..\..\addons\ofxFlowTools\src\core\fluid\shaders;..\..\..\addons\ofxFlowTools\src\core\opticalflow;..\..\..\addons\ofxFlowTools\src\core\shaders;..\..\..\addons\ofxFlowTools\src\core\shaders\blend;..\..\..\addons\ofxFlowTools\src\core\shaders\blur;..\..\..\addons\ofxFlowTools\src\core\shaders\color;..\..\..\addons\ofxFlowTools\src\core\shaders\velocity;..\..\..\addons\ofxFlowTools\src\core\visualization;..\..\..\addons\ofxFlowTools\src\core\visualization\shaders;..\..\..\addons\ofxFlowTools\src\extensions;..\..\..\addons\ofxFlowTools\src\extensions\average;..\..\..\addons\ofxFlowTools\src\extensions\mouse;..\..\..\addons\ofxFlowTools\src\extensions\particles;..\..\..\addons\ofxFlowTools\src\extensions\shaders;..\..\..\addons\ofxFlowTools\src\extensions\splitvelocity;..\..\..\addons\ofxGui\src;..\..\..\addons\ofxOsc\libs;..\..\..\addons\ofxOsc\libs\oscpack;..\..\..\addons\ofxOsc\libs\oscpack\src;..\..\..\addons\ofxOsc\libs\oscpack\src\ip;..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32;..\..\..\addons\ofxOsc\libs\oscpack\src\osc;..\..\..\addons\ofxOsc\src</AdditionalIncludeDirectories>
 			<CompileAs>CompileAsCpp</CompileAs>
 			<ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
 			<LanguageStandard>stdcpplatest</LanguageStandard>
@@ -142,6 +145,7 @@
 			<RandomizedBaseAddress>true</RandomizedBaseAddress>
 			<AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
 			<AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+			<ForceFileOutput>MultiplyDefinedSymbolOnly</ForceFileOutput>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
@@ -154,6 +158,7 @@
 			<RandomizedBaseAddress>true</RandomizedBaseAddress>
 			<AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
 			<AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+			<ForceFileOutput>MultiplyDefinedSymbolOnly</ForceFileOutput>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64EC'">
@@ -166,6 +171,7 @@
 			<RandomizedBaseAddress>true</RandomizedBaseAddress>
 			<AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
 			<AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+			<ForceFileOutput>MultiplyDefinedSymbolOnly</ForceFileOutput>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemDefinitionGroup Condition="'$(Platform)'=='x64'">
@@ -176,12 +182,12 @@
 		</PostBuildEvent>
 		<ClCompile>
 			<LanguageStandard_C Condition="'$(Configuration)|$(Platform)'=='Release|x64'">stdc17</LanguageStandard_C>
-			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</BuildStlModules>
+			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</BuildStlModules>
 			<DebugInformationFormat Condition="'$(Configuration)|$(Platform)'=='Release|x64'">OldStyle</DebugInformationFormat>
 		</ClCompile>
 		<ClCompile>
 			<LanguageStandard_C Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">stdc17</LanguageStandard_C>
-			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</BuildStlModules>
+			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</BuildStlModules>
 			<DebugInformationFormat Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">OldStyle</DebugInformationFormat>
 		</ClCompile>
 	</ItemDefinitionGroup>
@@ -193,12 +199,12 @@
 		</PostBuildEvent>
 		<ClCompile>
 			<LanguageStandard_C Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">stdc17</LanguageStandard_C>
-			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">false</BuildStlModules>
+			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</BuildStlModules>
 			<DebugInformationFormat Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">OldStyle</DebugInformationFormat>
 		</ClCompile>
 		<ClCompile>
 			<LanguageStandard_C Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">stdc17</LanguageStandard_C>
-			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">false</BuildStlModules>
+			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</BuildStlModules>
 			<DebugInformationFormat Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">OldStyle</DebugInformationFormat>
 		</ClCompile>
 	</ItemDefinitionGroup>
@@ -210,12 +216,12 @@
 		</PostBuildEvent>
 		<ClCompile>
 			<LanguageStandard_C Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64EC'">stdc17</LanguageStandard_C>
-			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64EC'">false</BuildStlModules>
+			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64EC'">true</BuildStlModules>
 			<DebugInformationFormat Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64EC'">OldStyle</DebugInformationFormat>
 		</ClCompile>
 		<ClCompile>
 			<LanguageStandard_C Condition="'$(Configuration)|$(Platform)'=='Release|ARM64EC'">stdc17</LanguageStandard_C>
-			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Release|ARM64EC'">false</BuildStlModules>
+			<BuildStlModules Condition="'$(Configuration)|$(Platform)'=='Release|ARM64EC'">true</BuildStlModules>
 			<DebugInformationFormat Condition="'$(Configuration)|$(Platform)'=='Release|ARM64EC'">OldStyle</DebugInformationFormat>
 		</ClCompile>
 	</ItemDefinitionGroup>
@@ -239,9 +245,22 @@
 		<ClCompile Include="..\..\..\addons\ofxGui\src\ofxSlider.cpp" />
 		<ClCompile Include="..\..\..\addons\ofxGui\src\ofxSliderGroup.cpp" />
 		<ClCompile Include="..\..\..\addons\ofxGui\src\ofxToggle.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscBundle.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscMessage.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscParameterSync.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscReceiver.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscSender.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\IpEndpointName.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32\NetworkingUtils.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32\UdpSocket.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscOutboundPacketStream.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscPrintReceivedElements.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscReceivedElements.cpp" />
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscTypes.cpp" />
 	</ItemGroup>
 	<ItemGroup>
 		<ClInclude Include="src\ofApp.h" />
+		<ClInclude Include="src\TableGeometry.h" />
 		<ClInclude Include="..\..\..\addons\ofxFlowTools\src\core\bridge\ftBridgeFlow.h" />
 		<ClInclude Include="..\..\..\addons\ofxFlowTools\src\core\bridge\ftCombinedBridgeFlow.h" />
 		<ClInclude Include="..\..\..\addons\ofxFlowTools\src\core\bridge\ftDensityBridgeFlow.h" />
@@ -334,6 +353,26 @@
 		<ClInclude Include="..\..\..\addons\ofxGui\src\ofxSlider.h" />
 		<ClInclude Include="..\..\..\addons\ofxGui\src\ofxSliderGroup.h" />
 		<ClInclude Include="..\..\..\addons\ofxGui\src\ofxToggle.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOsc.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscArg.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscBundle.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscMessage.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscParameterSync.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscReceiver.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscSender.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\IpEndpointName.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\NetworkingUtils.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\PacketListener.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\TimerListener.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\UdpSocket.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\MessageMappingOscPacketListener.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscException.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscHostEndianness.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscOutboundPacketStream.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscPacketListener.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscPrintReceivedElements.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscReceivedElements.h" />
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscTypes.h" />
 	</ItemGroup>
 	<ItemGroup>
 		<ProjectReference Include="$(OF_ROOT)\libs\openFrameworksCompiled\project\vs\openframeworksLib.vcxproj">

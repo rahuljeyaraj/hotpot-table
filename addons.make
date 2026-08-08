@@ -1,2 +1,3 @@
 ofxFlowTools
 ofxGui
+ofxOsc

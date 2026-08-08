@@ -58,86 +58,149 @@
 		<ClCompile Include="..\..\..\addons\ofxGui\src\ofxToggle.cpp">
 			<Filter>addons\ofxGui\src</Filter>
 		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscBundle.cpp">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscMessage.cpp">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscParameterSync.cpp">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscReceiver.cpp">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\src\ofxOscSender.cpp">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\IpEndpointName.cpp">
+			<Filter>addons\ofxOsc\libs\oscpack\src\ip</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32\NetworkingUtils.cpp">
+			<Filter>addons\ofxOsc\libs\oscpack\src\ip\win32</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32\UdpSocket.cpp">
+			<Filter>addons\ofxOsc\libs\oscpack\src\ip\win32</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscOutboundPacketStream.cpp">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscPrintReceivedElements.cpp">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscReceivedElements.cpp">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscTypes.cpp">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClCompile>
 	</ItemGroup>
 	<ItemGroup>
 		<Filter Include="src">
 			<UniqueIdentifier>{d8376475-7454-4a24-b08a-aac121d3ad6f}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons">
-			<UniqueIdentifier>{CCFAF85D--F43-5-4C-EA-B-0E5-CB8B25E53634}</UniqueIdentifier>
+			<UniqueIdentifier>{2FCAD7AC--370-9-40-CA-A-BCD-E687D1A7EE40}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools">
-			<UniqueIdentifier>{61F52EB4--FB6-F-47-97-9-FF4-0CE0F190EE43}</UniqueIdentifier>
+			<UniqueIdentifier>{68EB45A5--3C5-E-47-CD-9-CF1-B5FCFB54BF56}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src">
-			<UniqueIdentifier>{1F242E7E--097-A-40-34-A-552-4C159E8EB2DA}</UniqueIdentifier>
+			<UniqueIdentifier>{38FFAFD4--60B-F-4C-F0-9-E75-8A1C0DF4914E}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core">
-			<UniqueIdentifier>{A6A16E0E--5E3-4-42-FF-9-E3F-81EA882A3C5B}</UniqueIdentifier>
+			<UniqueIdentifier>{7917859C--D90-C-4A-9F-9-3D3-435E6BEEED42}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\bridge">
-			<UniqueIdentifier>{07934053--2DB-C-42-33-9-DBE-EF56ED5338B6}</UniqueIdentifier>
+			<UniqueIdentifier>{FD4D63FB--8FA-F-47-1D-A-09B-0499F57B9C4E}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\bridge\shaders">
-			<UniqueIdentifier>{CF291289--199-B-49-C4-B-ABF-8A0368590D97}</UniqueIdentifier>
+			<UniqueIdentifier>{0CA753FD--AE0-A-49-3C-9-254-1C9EF49A8384}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\fluid">
-			<UniqueIdentifier>{1B16EAB7--EAF-5-4A-C3-9-97E-F8F76AE5B5AD}</UniqueIdentifier>
+			<UniqueIdentifier>{75499A0F--FBF-0-49-2C-B-3EF-3383509884A3}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\fluid\shaders">
-			<UniqueIdentifier>{C0CDB1FC--05B-B-45-A2-8-ED5-841297950BD3}</UniqueIdentifier>
+			<UniqueIdentifier>{B62039DF--112-3-4A-E4-B-B4A-E20777814BD9}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\opticalflow">
-			<UniqueIdentifier>{5927526C--A12-6-49-11-9-6C8-24C3C062653F}</UniqueIdentifier>
+			<UniqueIdentifier>{E1404E3D--DEB-E-4A-52-9-852-6E69B0677C1D}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\shaders">
-			<UniqueIdentifier>{25B9D4F0--F07-F-41-0A-B-A3D-56278D9CF916}</UniqueIdentifier>
+			<UniqueIdentifier>{E6BD989D--31C-7-42-81-B-C14-DBB505F0922D}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\shaders\blend">
-			<UniqueIdentifier>{033FFAD2--874-8-4E-19-A-703-B9F183667BCF}</UniqueIdentifier>
+			<UniqueIdentifier>{A4A1A1EF--ED5-8-47-B4-9-266-EDE1EF3A1F5E}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\shaders\blur">
-			<UniqueIdentifier>{BED41895--41E-F-4D-37-B-0F1-9DD1CB557958}</UniqueIdentifier>
+			<UniqueIdentifier>{B6E3DE2D--5B0-E-4C-84-A-225-42D38923EB68}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\shaders\color">
-			<UniqueIdentifier>{3392AD5F--814-7-41-A0-9-D90-6B9E75B03E5D}</UniqueIdentifier>
+			<UniqueIdentifier>{B8DA932B--099-9-47-DE-8-3B9-BF2F9AD0952F}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\shaders\velocity">
-			<UniqueIdentifier>{DB6B472D--BFE-F-46-7A-A-4AC-1650DBFAD9DF}</UniqueIdentifier>
+			<UniqueIdentifier>{0F6D7D67--E4F-4-4D-38-A-6CF-A81B6C3266CF}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\visualization">
-			<UniqueIdentifier>{E88874D1--D9C-6-47-AC-A-8AE-5B0715FF1D81}</UniqueIdentifier>
+			<UniqueIdentifier>{81338ADD--25E-4-4C-09-9-3CB-634E8BA8A44D}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\core\visualization\shaders">
-			<UniqueIdentifier>{65D34D43--D3E-3-4B-44-9-FC6-F25F9A931B17}</UniqueIdentifier>
+			<UniqueIdentifier>{474F8117--4D6-D-4E-71-8-749-5F856EBC689B}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\extensions">
-			<UniqueIdentifier>{0B676498--F7B-E-4F-C1-8-3D5-956D3CE4474E}</UniqueIdentifier>
+			<UniqueIdentifier>{DB817466--0B7-2-46-D4-A-34C-0AAB4E5420D0}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\extensions\average">
-			<UniqueIdentifier>{78EE22D7--D07-B-40-0F-9-861-2F5CB626A03B}</UniqueIdentifier>
+			<UniqueIdentifier>{828AF197--3A5-1-4B-0F-B-41F-EE906ECCADD0}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\extensions\mouse">
-			<UniqueIdentifier>{C910332B--CBB-C-4E-96-8-F8A-DF3CFEF6920D}</UniqueIdentifier>
+			<UniqueIdentifier>{C9D6EA9B--E0E-8-40-F4-B-4B4-21189A32591C}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\extensions\particles">
-			<UniqueIdentifier>{7B720ACC--1FA-4-4F-AC-8-172-A1A1470C1D4B}</UniqueIdentifier>
+			<UniqueIdentifier>{52DA7098--282-3-47-08-8-E13-5713A38B00F3}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\extensions\shaders">
-			<UniqueIdentifier>{5EA81828--D93-7-49-3A-9-DFF-C81DDCF93BA4}</UniqueIdentifier>
+			<UniqueIdentifier>{4EBDBABE--A37-A-49-B3-9-A3A-F1C5CFDE0C07}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxFlowTools\src\extensions\splitvelocity">
-			<UniqueIdentifier>{8898323B--EBB-5-44-D9-8-8AC-8756E1E1F8DC}</UniqueIdentifier>
+			<UniqueIdentifier>{50750496--09D-6-4E-72-9-8AE-0B74BF8DFBCB}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxGui">
-			<UniqueIdentifier>{944D70AC--E08-D-42-E4-9-1FF-1DA8EFE3FAA0}</UniqueIdentifier>
+			<UniqueIdentifier>{339E6454--A02-2-4D-AB-B-518-C8059D2B0557}</UniqueIdentifier>
 		</Filter>
 		<Filter Include="addons\ofxGui\src">
-			<UniqueIdentifier>{C8903ABB--5B1-3-4A-F0-8-0D6-6C0EB3368AD9}</UniqueIdentifier>
+			<UniqueIdentifier>{B0AB0AEC--CC4-0-4E-35-A-8A0-83DB126919BC}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxOsc">
+			<UniqueIdentifier>{359D6DF9--9CC-3-44-A7-B-60D-656871108A16}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxOsc\src">
+			<UniqueIdentifier>{DFC6BAC6--316-8-40-47-B-B4A-505AE1989E76}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxOsc\libs">
+			<UniqueIdentifier>{6ED1F9E5--7D3-6-40-56-9-C80-F60410AD3409}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxOsc\libs\oscpack">
+			<UniqueIdentifier>{E6DD4B21--C66-E-41-9B-8-73F-44584181A8B9}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxOsc\libs\oscpack\src">
+			<UniqueIdentifier>{9444F987--B00-F-4F-26-A-8F7-9C4784601045}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxOsc\libs\oscpack\src\ip">
+			<UniqueIdentifier>{4C55E8FA--912-1-4A-0D-B-7C3-51DAE81CFD2A}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxOsc\libs\oscpack\src\ip\win32">
+			<UniqueIdentifier>{58DFEA6B--E83-1-46-7F-8-8AE-B0B14EC03832}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxOsc\libs\oscpack\src\osc">
+			<UniqueIdentifier>{BAF69F0F--F50-3-43-D1-B-3F9-981D8E411BAC}</UniqueIdentifier>
 		</Filter>
 	</ItemGroup>
 	<ItemGroup>
 		<ClInclude Include="src\ofApp.h">
+			<Filter>src</Filter>
+		</ClInclude>
+		<ClInclude Include="src\TableGeometry.h">
 			<Filter>src</Filter>
 		</ClInclude>
 		<ClInclude Include="..\..\..\addons\ofxFlowTools\src\core\bridge\ftBridgeFlow.h">
@@ -415,6 +478,66 @@
 		</ClInclude>
 		<ClInclude Include="..\..\..\addons\ofxGui\src\ofxToggle.h">
 			<Filter>addons\ofxGui\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOsc.h">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscArg.h">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscBundle.h">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscMessage.h">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscParameterSync.h">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscReceiver.h">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\src\ofxOscSender.h">
+			<Filter>addons\ofxOsc\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\IpEndpointName.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\ip</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\NetworkingUtils.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\ip</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\PacketListener.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\ip</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\TimerListener.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\ip</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\ip\UdpSocket.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\ip</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\MessageMappingOscPacketListener.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscException.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscHostEndianness.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscOutboundPacketStream.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscPacketListener.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscPrintReceivedElements.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscReceivedElements.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\addons\ofxOsc\libs\oscpack\src\osc\OscTypes.h">
+			<Filter>addons\ofxOsc\libs\oscpack\src\osc</Filter>
 		</ClInclude>
 	</ItemGroup>
 	<ItemGroup>
