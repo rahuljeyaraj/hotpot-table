@@ -9,8 +9,15 @@ The output matrix H maps CAMERA pixels -> PROJECTOR pixels, on the raw
 the camera image becomes a projector coordinate to draw a halo at.
 
 Camera orientation is not assumed. Detection always runs on the raw frame; the
-four 90-degree rotations are only hypotheses about which detected dot is which,
-and the one that reprojects best wins.
+four 90-degree rotations are only hypotheses about which detected dot is which.
+
+Orientation is settled by the marker dot, not by reprojection error. The nine
+centres are evenly spaced on both axes, so the pattern is symmetric under a
+180-degree rotation and the flipped homography reprojects exactly as well - by
+construction, not by coincidence. Neither the error nor the annotated overlay
+can break that tie. ofApp therefore draws dot 0, the top-left target, at radius
+30 against 20 for the other eight, and the hypothesis that puts the largest blob
+at index 0 is the right one.
 """
 
 import argparse
@@ -131,7 +138,8 @@ def preprocess(frame, tophat_size):
 
 
 def find_blobs(prepared, threshold, args):
-    """Centroids of every small round bright blob at one threshold."""
+    """Centroids and contour areas of every small round bright blob at one
+    threshold. Areas are what identify the oversized marker dot later."""
     h, w = prepared.shape
     _, binary = cv2.threshold(prepared, threshold, 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(
@@ -139,6 +147,7 @@ def find_blobs(prepared, threshold, args):
     )
 
     centroids = []
+    areas = []
     for c in contours:
         area = cv2.contourArea(c)
         if area < args.min_area or area > args.max_area:
@@ -162,8 +171,10 @@ def find_blobs(prepared, threshold, args):
         if m["m00"] == 0:
             continue
         centroids.append((m["m10"] / m["m00"], m["m01"] / m["m00"]))
+        areas.append(area)
 
-    return np.array(centroids, dtype=np.float64).reshape(-1, 2)
+    return (np.array(centroids, dtype=np.float64).reshape(-1, 2),
+            np.array(areas, dtype=np.float64))
 
 
 def candidate_sets(prepared, args):
@@ -185,10 +196,10 @@ def candidate_sets(prepared, args):
     sets = []
     attempts = []
     for t in levels:
-        pts = find_blobs(prepared, t, args)
+        pts, areas = find_blobs(prepared, t, args)
         attempts.append((t, len(pts)))
         if len(pts) == EXPECTED_DOTS:
-            sets.append((t, pts))
+            sets.append((t, pts, areas))
 
     if not sets:
         counts = ", ".join(f"t={t}:{n}" for t, n in attempts)
@@ -204,7 +215,7 @@ def candidate_sets(prepared, args):
         )
 
     print(f"{len(sets)} threshold level(s) yielded exactly {EXPECTED_DOTS} "
-          f"blobs: {[t for t, _ in sets]}")
+          f"blobs: {[t for t, _, _ in sets]}")
     return sets
 
 
@@ -219,7 +230,38 @@ def projector_targets():
     return np.array(pts, dtype=np.float64)
 
 
-# --- 4. correspondence by brute force --------------------------------------
+# --- 4. correspondence, fixed by the marker dot ----------------------------
+
+def identify_marker(areas, min_ratio):
+    """Index of the oversized marker dot among the nine blobs.
+
+    ofApp draws dot 0 at radius 30 and the rest at radius 20, so the marker
+    should come back at roughly (30/20)^2 = 2.25x the area of its neighbours.
+    The ratio is checked against the median of the other eight rather than the
+    mean, so one fat or thin blob cannot drag the baseline.
+    """
+    marker = int(np.argmax(areas))
+    others = np.delete(areas, marker)
+    median_other = float(np.median(others))
+
+    if median_other <= 0:
+        raise CalibrationError("the eight non-marker blobs have no area")
+
+    ratio = areas[marker] / median_other
+    if ratio < min_ratio:
+        raise CalibrationError(
+            f"no dot stands out as the marker: largest blob is "
+            f"{areas[marker]:.0f} px2, median of the other eight is "
+            f"{median_other:.0f} px2, ratio {ratio:.2f} < {min_ratio}.\n"
+            f"  all areas: {np.sort(areas)[::-1].round(0).tolist()}\n"
+            f"  check: is the oF app the build that draws dot 0 at radius 30?\n"
+            f"  check: is the marker dot overexposed and blooming into the\n"
+            f"         others, or clipped by a tray cutout?\n"
+            f"  orientation cannot be resolved without it - see --min-marker-ratio"
+        )
+
+    return marker, float(areas[marker]), median_other
+
 
 def rotate_points(pts, quarter_turns):
     """Rotate a point set about the origin by k * 90 degrees.
@@ -259,32 +301,39 @@ def reprojection_error(H, camera_pts, target_pts):
     return np.linalg.norm(mapped - target_pts, axis=1)
 
 
-def solve_best(sets, targets, ransac_thresh, tie_tol=0.01):
-    """Try every candidate set against all four 90-degree hypotheses.
+def solve_best(sets, targets, args):
+    """Fit each candidate set at the one orientation its marker dot allows.
 
-    Watch the tie warning. The nine targets are evenly spaced on both axes
-    (718 mm and 371 mm steps), so the pattern maps onto itself under a 180-degree
-    rotation. Both the 0 and 180 hypotheses therefore fit it equally well, to the
-    last decimal, and reprojection error cannot tell them apart - only one of the
-    two is physically right, and picking it needs the annotated overlay or an
-    asymmetric dot pattern. This is a property of the pattern, not of the search.
+    Orientation is decided geometrically, not by error. Projector dot 0 is the
+    top-left target and is drawn oversized, so the correct hypothesis is the one
+    whose row-major sort puts the marker at index 0. Exactly one of the four
+    rotations can do that for a given set, since each puts a different corner
+    first - which is what makes this immune to the 180-degree symmetry of the
+    grid. Error still chooses between thresholds, so a set containing a stray
+    blob is still rejected by how badly it fits.
     """
     best = None
-    scores = []
-    for threshold, detected in sets:
+    for threshold, detected, areas in sets:
+        marker, marker_area, median_other = identify_marker(
+            areas, args.min_marker_ratio
+        )
+
         for k in range(4):
             # The rotation decides the ORDER only. The homography is always
             # fitted against the raw, unrotated camera coordinates, so H
             # consumes frames exactly as the camera delivers them.
             order = row_major_order(rotate_points(detected, k))
+            if order[0] != marker:
+                # marker did not land top-left, so this orientation is wrong
+                continue
             ordered = detected[order]
 
             H, mask = cv2.findHomography(
-                ordered, targets, cv2.RANSAC, ransac_thresh
+                ordered, targets, cv2.RANSAC, args.ransac_thresh
             )
             if H is None:
                 print(f"  t={threshold:3d}  rotation {k * 90:3d} deg: "
-                      f"no homography found")
+                      f"marker at index 0, but no homography found")
                 continue
 
             errors = reprojection_error(H, ordered, targets)
@@ -292,10 +341,10 @@ def solve_best(sets, targets, ransac_thresh, tie_tol=0.01):
             print(
                 f"  t={threshold:3d}  rotation {k * 90:3d} deg: "
                 f"mean {errors.mean():9.2f} px  max {errors.max():9.2f} px  "
-                f"inliers {inliers}/{EXPECTED_DOTS}"
+                f"inliers {inliers}/{EXPECTED_DOTS}  "
+                f"marker {marker_area:.0f} px2 vs median {median_other:.0f} px2"
             )
 
-            scores.append((errors.mean(), k * 90))
             if best is None or errors.mean() < best["errors"].mean():
                 best = {
                     "quarter_turns": k,
@@ -305,25 +354,16 @@ def solve_best(sets, targets, ransac_thresh, tie_tol=0.01):
                     "ordered": ordered,
                     "errors": errors,
                     "inliers": inliers,
+                    "marker_area": marker_area,
+                    "median_other_area": median_other,
                 }
 
     if best is None:
         raise CalibrationError(
-            "no homography could be fitted for any rotation - the detected "
-            "blobs are probably not the nine calibration dots"
+            "no orientation put the marker dot top-left with a solvable "
+            "homography - the detected blobs are probably not the nine "
+            "calibration dots"
         )
-
-    winner = best["errors"].mean()
-    tied = sorted({deg for mean, deg in scores
-                   if abs(mean - winner) <= tie_tol and deg != best["quarter_turns"] * 90})
-    best["tied_rotations"] = tied
-    if tied:
-        print()
-        print(f"WARNING: rotation {best['quarter_turns'] * 90} deg ties with "
-              f"{tied} to within {tie_tol} px.")
-        print("  The dot grid is evenly spaced, so it is symmetric under those")
-        print("  rotations and the fit cannot choose between them. Confirm the")
-        print("  winner against capture_annotated.png before trusting it.")
     return best
 
 
@@ -376,6 +416,9 @@ def main():
     p.add_argument("--min-area", type=float, default=40.0)
     p.add_argument("--max-area", type=float, default=20000.0)
     p.add_argument("--min-circularity", type=float, default=0.65)
+    p.add_argument("--min-marker-ratio", type=float, default=1.6,
+                   help="how much bigger the marker dot must be than the "
+                        "median of the other eight; nominal is 2.25")
     p.add_argument("--ransac-thresh", type=float, default=5.0,
                    help="RANSAC inlier threshold in projector px")
     p.add_argument("--out-dir", type=Path, default=HERE)
@@ -405,19 +448,23 @@ def main():
     # 3. projector-pixel targets
     targets = projector_targets()
 
-    # 4. brute-force the correspondence
-    print("searching candidate sets x four camera orientations:")
-    best = solve_best(sets, targets, args.ransac_thresh)
+    # 4. orientation from the marker dot, threshold from the fit
+    print("searching candidate sets, marker dot fixes the orientation:")
+    best = solve_best(sets, targets, args)
 
     rotation_deg = best["quarter_turns"] * 90
     H = best["H"]
     errors = best["errors"]
+    ratio = best["marker_area"] / best["median_other_area"]
 
     # 5. report
     print()
-    print(f"winning rotation : {rotation_deg} deg")
+    print(f"chosen rotation  : {rotation_deg} deg")
     print(f"mean error       : {errors.mean():.2f} px")
     print(f"max error        : {errors.max():.2f} px")
+    print(f"marker blob area : {best['marker_area']:.0f} px2")
+    print(f"median other 8   : {best['median_other_area']:.0f} px2  "
+          f"(ratio {ratio:.2f}, nominal 2.25)")
     print("homography (camera px -> projector px):")
     for row in H:
         print("  [{:14.6f} {:14.6f} {:14.6f}]".format(*row))
@@ -427,7 +474,7 @@ def main():
         "description": "maps raw camera pixels to projector pixels",
         "matrix": H.tolist(),
         "rotation_deg": rotation_deg,
-        "tied_rotations_deg": best["tied_rotations"],
+        "rotation_source": "marker dot at projector target 0",
         "errors_px": {
             "mean": float(errors.mean()),
             "max": float(errors.max()),
@@ -440,6 +487,9 @@ def main():
             "tophat": int(args.tophat),
             "threshold": int(best["threshold"]),
             "inliers": best["inliers"],
+            "marker_area_px2": best["marker_area"],
+            "median_other_area_px2": best["median_other_area"],
+            "marker_area_ratio": ratio,
             "camera_points": best["ordered"].tolist(),
             "projector_points": targets.tolist(),
         },

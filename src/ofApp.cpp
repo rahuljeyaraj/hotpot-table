@@ -5,6 +5,15 @@ namespace {
 	// calibration dot appearance
 	const float kDotRadiusPx = 20.0f;
 
+	// Dot 0 is drawn oversized so the solver can tell it from the other eight.
+	// The nine centres are evenly spaced on both axes, so the pattern maps onto
+	// itself under a 180 degree rotation and a flipped homography reprojects
+	// perfectly - error cannot break the tie, and neither can looking at it.
+	// One physically larger dot can. Radius only: the centre does not move, so
+	// the geometry every other step depends on is unchanged.
+	const float kMarkerDotRadiusPx = 30.0f;
+	const size_t kMarkerDotIndex = 0;
+
 	// dot centres in table mm - all nine sit on solid plywood, clear of every
 	// tray cutout. Do not move these without re-measuring the cutouts.
 	const float kCalibXMM[] = { 44.0f, 762.0f, 1480.0f };
@@ -27,7 +36,8 @@ void ofApp::logCalibrationDots(){
 		ofLogNotice("ofApp") << "dot " << i
 			<< ": table (" << ofToString(mm.x, 1) << ", " << ofToString(mm.y, 1) << ") mm"
 			<< " -> proj (" << (int)roundf(mmToPxX(mm.x))
-			<< ", " << (int)roundf(mmToPxY(mm.y)) << ") px";
+			<< ", " << (int)roundf(mmToPxY(mm.y)) << ") px"
+			<< (i == kMarkerDotIndex ? "  [marker]" : "");
 	}
 }
 
@@ -71,8 +81,10 @@ void ofApp::draw(){
 	// and nothing else
 	if(showCalibration){
 		ofSetColor(255);
-		for(const glm::vec2 & mm : calibDotsMM){
-			ofDrawCircle(roundf(mmToPxX(mm.x)), roundf(mmToPxY(mm.y)), kDotRadiusPx);
+		for(size_t i = 0; i < calibDotsMM.size(); i++){
+			const glm::vec2 & mm = calibDotsMM[i];
+			float r = (i == kMarkerDotIndex) ? kMarkerDotRadiusPx : kDotRadiusPx;
+			ofDrawCircle(roundf(mmToPxX(mm.x)), roundf(mmToPxY(mm.y)), r);
 		}
 		return;
 	}
