@@ -240,8 +240,12 @@ dissipation, viscosity, vorticity, buoyancy. Steam rings here = high vorticity,
   **Never `ofSetLineWidth()`** — drivers cap it at 1 px.
 - `ofTrueTypeFont` must be loaded at final display size. Never scale up.
 - Buttons are rect regions + a dwell timer fed by hand coords. No widget library.
-- Bind key `s` to save a screenshot, so a Claude Code instance can inspect
-  visual output.
+- Key `p` saves a timestamped screenshot to `bin/data/screenshots/` (git
+  ignored), so a Claude Code instance can inspect visual output. **Not `s`** —
+  that saves the bin alignment, and a mistyped screenshot must not cost a
+  dialled-in alignment.
+- Grab the screen at the end of `draw()`, never from `keyPressed` — after the
+  buffer swap the back buffer holds an undefined frame.
 
 ### Layer order
 ```

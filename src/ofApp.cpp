@@ -33,6 +33,10 @@ namespace {
 	// Lives in bin/data/ alongside the other rig state.
 	const char * kOffsetsFile = "bin_offsets.json";
 
+	// Under bin/data/ so ofSaveScreen finds it without path games, but git
+	// ignored - these are output to look at, not data the app loads.
+	const char * kScreenshotDir = "screenshots";
+
 	// Marks the line being moved. This is a setup overlay, not the diner-facing
 	// UI, so it is outside the "colour is reserved for progress" rule in §9 -
 	// and green stays clear of both hand-dot colours.
@@ -252,6 +256,29 @@ void ofApp::saveOffsets(){
 }
 
 //--------------------------------------------------------------
+void ofApp::savePendingScreenshot(){
+	// No-op unless a key asked for one, so draw() can call this at each of its
+	// exits without having to know which one it is taking.
+	if(!screenshotPending){
+		return;
+	}
+	screenshotPending = false;
+
+	const std::string dir = ofToDataPath(kScreenshotDir);
+	if(!ofDirectory::doesDirectoryExist(dir)){
+		ofDirectory::createDirectory(dir, true, true);
+	}
+
+	// Timestamped rather than a fixed name: the point of a screenshot here is
+	// usually to compare before against after, which one file cannot do.
+	const std::string name = std::string(kScreenshotDir) + "/hotpot-"
+		+ ofGetTimestampString("%Y%m%d-%H%M%S") + ".png";
+	ofSaveScreen(name);
+
+	ofLogNotice("ofApp") << "screenshot saved to " << ofToDataPath(name);
+}
+
+//--------------------------------------------------------------
 void ofApp::loadOffsets(){
 	const std::string path = ofToDataPath(kOffsetsFile);
 
@@ -445,6 +472,7 @@ void ofApp::draw(){
 			float r = (i == kMarkerDotIndex) ? kMarkerDotRadiusPx : kDotRadiusPx;
 			ofDrawCircle(roundf(mmToPxX(mm.x)), roundf(mmToPxY(mm.y)), r);
 		}
+		savePendingScreenshot();
 		return;
 	}
 
@@ -517,6 +545,9 @@ void ofApp::draw(){
 	ss << "\nbox " << ofToString(vLineMM(1) - vLineMM(0), 1) << " x "
 	   << ofToString(hLineMM(1) - hLineMM(0), 1) << " mm (col1/far)";
 	ofDrawBitmapString(ss.str(), 10, 20);
+
+	// Last thing in the frame, so the capture includes everything above.
+	savePendingScreenshot();
 }
 
 //--------------------------------------------------------------
@@ -553,6 +584,13 @@ void ofApp::keyPressed(int key){
 
 	if(key == 's' || key == 'S'){
 		saveOffsets();
+		return;
+	}
+
+	// p, not s - s saves the alignment, and losing a dialled-in alignment to a
+	// mistyped screenshot would be a bad trade.
+	if(key == 'p' || key == 'P'){
+		screenshotPending = true;
 		return;
 	}
 

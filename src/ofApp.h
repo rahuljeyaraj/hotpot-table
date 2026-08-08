@@ -39,6 +39,12 @@ class ofApp : public ofBaseApp{
 		void drawSelectionHighlight();
 		void saveOffsets();
 		void loadOffsets();
+		void savePendingScreenshot();
+
+		// Set by the key, acted on at the end of draw(). Grabbing the screen
+		// from the key handler would read the back buffer after its swap, when
+		// what it holds is undefined.
+		bool screenshotPending = false;
 
 		// The eight boxes are not eight independent rectangles - they are the
 		// cells of a grid, cut by 8 vertical and 4 horizontal lines. Each column

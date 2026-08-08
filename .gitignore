@@ -9,6 +9,10 @@ obj/
 bin/*
 !bin/data/
 
+# ...except screenshots, which are output to look at rather than data the app
+# loads. Key `p` writes them here.
+bin/data/screenshots/
+
 # Object and library files
 *.o
 *.obj
