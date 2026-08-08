@@ -38,18 +38,38 @@ DETECTION LOGGING
     up with the measurement. To sweep, invoke the script once per value; each
     run is then a separate file that names its own setting.
 
+EXPOSURE - AUTO BY DEFAULT, WHICH SECTIONS 16 AND 21 DO NOT DESCRIBE
+    Those sections say the exposure is pinned to -4 and that auto is not the
+    lever. That was the decision, and it is still the decision for a table under
+    a projector painting bright UI: auto hunts, and a hunting exposure changes
+    the image mid-pick.
+
+    The default is auto anyway because the rig is not there yet. A fixed -4
+    collapses to mean grey ~20 in the room this is being developed in, which
+    detects nothing at all, and a tracker nobody can develop against is worse
+    than one that drifts. --no-auto-exposure restores the pinned behaviour and
+    is what the built rig should run.
+
+    Passing --exposure without --no-auto-exposure is refused rather than
+    silently ignored - see main().
+
     It exists because "the tracker sees nothing" has two very different causes
     that look identical while running: the frame went dark (section 21 of
     CLAUDE.md), or the pose itself is hard for the model. One line of CSV
     separates them after the fact. The startup mean-grey reading cannot - it is
     sampled once during warmup and is stale the moment it prints.
 
-DEBUG VIEW
-    --debug opens one window showing the frame EXACTLY as handed to MediaPipe -
-    after rotation, colour conversion and any resize - never the raw grab. It
-    answers a question the CSV cannot: the Windows Camera app shows a usable,
-    grainy hand in the same dark room where this logs mean grey ~20 and detects
+DEBUG VIEW - ON BY DEFAULT
+    One window showing the frame EXACTLY as handed to MediaPipe - after
+    rotation, colour conversion and any resize - never the raw grab. It answers
+    a question the CSV cannot: the Windows Camera app shows a usable, grainy
+    hand in the same dark room where this logs mean grey ~20 and detects
     nothing, so the image the model actually receives has to be looked at.
+
+    Default because this is a rig being brought up, and a tracking run whose
+    output nobody can see is how the dark-frame problem went unnoticed in the
+    first place. --no-debug turns it off for a headless or unattended run. It
+    opens on the primary monitor, not the projector; see --debug-display.
 
     THE WINDOW IS EVIDENCE, SO NOTHING MAY IMPROVE THE PIXELS. No brightening,
     no histogram equalisation, no denoise, no gamma. Only landmarks, a box and
@@ -104,6 +124,10 @@ PALM_LANDMARK = 9
 # means manual, 0.75 means auto. Nothing in between does anything.
 AUTO_EXPOSURE_MANUAL = 0.25
 AUTO_EXPOSURE_AUTO = 0.75
+
+# What --no-auto-exposure pins the camera to when no --exposure is given. Only
+# reachable in manual mode; in auto mode nothing is written to the property.
+DEFAULT_EXPOSURE = -4.0
 
 # The 21-landmark skeleton, copied from MediaPipe's own HAND_CONNECTIONS.
 #
@@ -320,8 +344,10 @@ def open_camera(args):
     # did not take and both runs are the same measurement.
     reported = cap.get(cv2.CAP_PROP_EXPOSURE)
     if args.auto_exposure:
-        print(f"exposure set     : AUTO (--auto-exposure), device reports "
-              f"{reported:g} - the camera is free to change it while running")
+        print(f"exposure set     : AUTO (the default), device reports "
+              f"{reported:g} - the camera is free to change it while running."
+              f"\n                   --no-auto-exposure pins it, which is what "
+              f"CLAUDE.md 16/21 describe")
     else:
         print(f"exposure set     : requested {args.exposure}, device reports "
               f"{reported:g}"
@@ -426,16 +452,14 @@ def exposure_tag(args):
     setting, so two sweep points can never be told apart only by their
     timestamps, and a stray copied file still says what it is.
 
-    An --auto-exposure run is tagged "auto" rather than with the number that was
-    not applied. Filing it under exp-4 would put a run the camera chose the
-    exposure for in the same bucket as the runs that pinned it, and the whole
-    point of the sweep is that one file means one setting.
+    An auto-exposure run is tagged "auto" rather than with a number nobody
+    applied. Filing it under exp-4 would put a run the camera chose the exposure
+    for in the same bucket as the runs that pinned it, and the whole point of
+    the sweep is that one file means one setting. Auto being the default now
+    makes that more important, not less: expauto is the common case, so the
+    files that DO name a number are the ones that mean something.
     """
-    if args.auto_exposure:
-        return "auto"
-    if args.exposure is None:
-        return "none"
-    return f"{args.exposure:g}"
+    return "auto" if args.auto_exposure else f"{args.exposure:g}"
 
 
 class DetectionLog:
@@ -776,9 +800,8 @@ class DebugView:
                    self.BOX)
 
     def _draw_status(self, img, mean_grey):
-        asked = ("driver default" if self.args.exposure is None
-                 else f"{self.args.exposure:g}")
-        exposure = "AUTO" if self.args.auto_exposure else f"{asked} fixed"
+        auto = self.args.auto_exposure
+        exposure = "AUTO" if auto else f"{self.args.exposure:g} fixed"
         gain_req = "not set" if self.args.gain is None else f"{self.args.gain}"
 
         grey_ok = mean_grey >= self.args.min_mean_grey
@@ -807,8 +830,8 @@ class DebugView:
         banner, colour = (
             ("AUTO EXPOSURE - camera is choosing, values will drift",
              self.WARN)
-            if self.args.auto_exposure else
-            (f"EXPOSURE FIXED at {asked}", self.OK)
+            if auto else
+            (f"EXPOSURE FIXED at {self.args.exposure:g}", self.OK)
         )
         self._text(img, banner, (14, self.LINE_H * (len(lines) + 1) + 10),
                    colour)
@@ -914,10 +937,21 @@ def run(args):
                        exposure_tag(args))
     print(f"detection log    : {log.path}")
 
-    view = DebugView(cap, args) if args.debug else None
-    if view is not None:
-        print("debug window     : showing the frame as handed to MediaPipe, "
-              "unmodified - q or esc to stop")
+    # A window is now the default, so it must never be what stops a run. A
+    # headless box, an SSH session or an OpenCV built without HighGUI all fail
+    # here, and none of them is a reason to lose the tracking and the CSV -
+    # which are the parts that were working before any window existed.
+    view = None
+    if args.debug:
+        try:
+            view = DebugView(cap, args)
+            print("debug window     : showing the frame as handed to "
+                  "MediaPipe, unmodified - q or esc to stop")
+        except cv2.error as e:
+            first = str(e).strip().splitlines()[0]
+            print(f"debug window     : could not open ({first})\n"
+                  f"                   continuing headless - tracking, OSC "
+                  f"and the CSV are unaffected", file=sys.stderr)
 
     frames = 0
     last_report = time.perf_counter()
@@ -1016,30 +1050,37 @@ def main():
     p.add_argument("--height", type=int, default=1080)
     p.add_argument("--warmup", type=int, default=20,
                    help="frames to discard before tracking starts")
-    p.add_argument("--exposure", type=float, default=-4.0,
-                   help="CAP_PROP_EXPOSURE; less negative is brighter. The "
-                        "driver default is far too dark for detection")
+    p.add_argument("--exposure", type=float, default=None,
+                   help=f"CAP_PROP_EXPOSURE; less negative is brighter. "
+                        f"Implies --no-auto-exposure is wanted and is refused "
+                        f"without it, so a sweep cannot silently measure the "
+                        f"same auto-exposed frame six times. Manual runs "
+                        f"without this use {DEFAULT_EXPOSURE:g}")
     p.add_argument("--gain", type=int, default=None,
                    help="CAP_PROP_GAIN. Left alone if not given. Read-back is "
                         "unreliable on MSMF (CLAUDE.md section 16), so judge "
                         "it by mean grey, not by the value printed at startup")
-    p.add_argument("--auto-exposure", action="store_true",
-                   help="let the camera run auto-exposure instead of pinning "
-                        "it. DIAGNOSTIC ONLY - section 21 says auto is not the "
-                        "fix for a dark room, it hunts under projector light. "
-                        "Logs are tagged expauto, and the --debug window says "
-                        "so in red")
+    p.add_argument("--auto-exposure", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="let the camera choose its own exposure. ON BY "
+                        "DEFAULT. --no-auto-exposure pins it instead, which is "
+                        "what CLAUDE.md sections 16 and 21 describe and what "
+                        "the projector-lit table will eventually need. Auto "
+                        "runs are tagged expauto and the debug window says so "
+                        "in red")
     p.add_argument("--auto-exposure-value", type=float,
                    default=AUTO_EXPOSURE_MANUAL,
                    help="raw CAP_PROP_AUTO_EXPOSURE value used for MANUAL "
                         "mode; 0.25 on this driver. Only for a camera that "
                         "spells manual differently")
-    p.add_argument("--debug", action="store_true",
-                   help="open a window showing the frame exactly as handed to "
+    p.add_argument("--debug", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="window showing the frame exactly as handed to "
                         "MediaPipe, with all 21 landmarks, the skeleton, "
                         "handedness, the detection box and live "
-                        "grey/exposure/gain/rate/fps. Changes nothing else: "
-                        "the CSV is still written and OSC is still sent")
+                        "grey/exposure/gain/rate/fps. ON BY DEFAULT; pass "
+                        "--no-debug for a headless run. Either way the CSV is "
+                        "written and OSC is sent")
     p.add_argument("--debug-display", type=int, default=None,
                    help="which monitor the --debug window opens on, indexed "
                         "into the list printed at startup. Defaults to the "
@@ -1075,6 +1116,23 @@ def main():
             f"--label {args.label!r} must be non-empty and contain only "
             f"letters, digits, dash or underscore - it names the log file"
         )
+
+    # Asking for an exposure while the camera is choosing its own is not a
+    # preference to resolve, it is two contradictory instructions. Honouring
+    # auto and dropping the number would be the damaging way to guess: a sweep
+    # over six --exposure values would run six times, write six differently
+    # named files, and measure the same auto-exposed camera every time. Say so
+    # instead. After this, exposure is None if and only if auto is on.
+    if args.auto_exposure and args.exposure is not None:
+        raise TrackerError(
+            f"--exposure {args.exposure:g} needs --no-auto-exposure.\n"
+            f"  auto-exposure is the default now, and in auto mode the camera "
+            f"picks the exposure and this value would be ignored.\n"
+            f"  for a fixed frame:  --no-auto-exposure --exposure "
+            f"{args.exposure:g}"
+        )
+    if not args.auto_exposure and args.exposure is None:
+        args.exposure = DEFAULT_EXPOSURE
 
     run(args)
 
