@@ -2,6 +2,7 @@
 #include "TableGeometry.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace {
 	// calibration dot appearance
@@ -164,6 +165,40 @@ namespace {
 	// ignored - these are output to look at, not data the app loads.
 	const char * kScreenshotDir = "screenshots";
 
+	// --- mock bin weights ----------------------------------------------------
+	// What every bin is assumed to hold at startup, in grams. A plausible full
+	// tray, NOT a measurement - the real number arrives with the load cells, and
+	// the only job this one has is to be large enough that a demo can make a run
+	// of picks before a bin bottoms out and starts clamping.
+	const float kMockFullBinGrams = 500.0f;
+
+	// How much one keypress moves a bin, in grams, walked in order and wrapped.
+	//
+	// A CYCLING SET RATHER THAN ONE CONSTANT, and that is the entire reason it
+	// exists. Everything the pricing FSM does next is a decision about the size
+	// of a weight change, so a mock that only ever produced one size would let
+	// each of those be written and none of them be exercised - and the way to
+	// find out would be to edit this file, which is exactly the edit nobody makes
+	// under demo pressure. The set therefore straddles every threshold section 11
+	// already commits to:
+	//
+	//   3, 6      below the ~10 g detection deadband - must be ignored, and a
+	//             deadband that never sees one is a deadband nobody has tested
+	//   25        exactly one 25 g quantiser step, so it lands ON a step boundary,
+	//             which is where hysteresis either works or flickers
+	//   45, 80    a step and a bit, and three steps and a bit - ordinary picks
+	//   120       nearly five steps at once, a whole handful in one event
+	//
+	// Six entries against eight bins deliberately: the counts are coprime, so
+	// each bin gets a different phase through the set instead of all eight
+	// marching in step.
+	const float kMockDeltaGrams[] = { 45.0f, 6.0f, 120.0f, 3.0f, 25.0f, 80.0f };
+	const int kMockDeltaCount = sizeof(kMockDeltaGrams) / sizeof(kMockDeltaGrams[0]);
+
+	// Put-back keys, one per bin, in bin order - see keyPressed for why this row
+	// and not shift-plus-a-number.
+	const std::string kPutBackKeys = "qwertyui";
+
 	// Marks the line being moved. This is a setup overlay, not the diner-facing
 	// UI, so it is outside the "colour is reserved for progress" rule in §9 -
 	// and green stays clear of both hand-dot colours. Brought down from value
@@ -317,6 +352,15 @@ void ofApp::setup(){
 	loadOffsets();
 
 	loadIngredients();
+
+	// Every bin starts full. Set here rather than in the header so the number
+	// stays with the other tuned constants at the top of this file.
+	for(int i = 0; i < BIN_COUNT; i++){
+		binWeightGrams[i] = kMockFullBinGrams;
+	}
+	ofLogNotice("ofApp") << "mock bin weights: all " << BIN_COUNT << " bins at "
+		<< ofToString(kMockFullBinGrams, 1) << " g"
+		<< " (stand-in for a tared load cell reading)";
 
 	// Loaded ONCE, at the size they are drawn at. mmToPxY rather than a literal
 	// so the sizes stay the physical heights argued for at the top of this file
@@ -484,6 +528,79 @@ void ofApp::cycleFieldLevel(){
 	// keyboard looking at the camera's view of the table, not at the projected
 	// readout across the room - the same reason the nudge keys log.
 	ofLogNotice("ofApp") << "field brightness " << kFieldLevels[fieldLevel] << "%";
+}
+
+//--------------------------------------------------------------
+// Hands out the next event size from kMockDeltaGrams and advances the cursor.
+//
+// Magnitude only, never a sign. Which direction a keypress means is the
+// keyboard's business, not this function's, and returning an unsigned size
+// keeps the pick and the put-back reading from one shared sequence - so the
+// amount put back is a different amount from the one taken, which is what a
+// diner actually does and what the FSM has to survive.
+float ofApp::nextMockDeltaGrams(){
+	const float g = kMockDeltaGrams[mockDeltaIndex];
+	mockDeltaIndex = (mockDeltaIndex + 1) % kMockDeltaCount;
+	return g;
+}
+
+//--------------------------------------------------------------
+// Applies one mock weight event to one bin and reports the settled delta.
+//
+// THE `binweight` LINE BELOW IS AN INTERFACE, NOT A DEBUG PRINT. The pricing
+// FSM is the next thing built and this is what it consumes: which bin moved,
+// how far and in which direction, and what the bin holds now. It is written as
+// key=value with a fixed leading token so it can be grepped out of a log that
+// also carries OSC, calibration and font chatter, and so that reading it back
+// does not depend on word order in a sentence.
+//
+// Signed delta AND new absolute weight, deliberately both. Either alone would
+// do arithmetic somewhere: with only deltas a reader has to accumulate to know
+// the bin's state, and with only absolutes it has to remember the previous line
+// to know what happened. Printing both also means the two can be checked
+// against each other, which is how a dropped or duplicated event gets caught.
+void ofApp::applyBinWeightDelta(int bin, float deltaGrams){
+	if(bin < 0 || bin >= BIN_COUNT){
+		ofLogError("ofApp") << "mock weight event for bin " << bin
+			<< ", outside 0.." << (BIN_COUNT - 1) << " - ignored";
+		return;
+	}
+
+	const float before = binWeightGrams[bin];
+	float after = before + deltaGrams;
+
+	// A bin cannot hold less than nothing. Clamped rather than refused: the
+	// keyboard has no idea what is really in a bin, so an overrunning pick is
+	// the mock running out of ingredient, not bad input. A real load cell hits
+	// the same floor for the same reason, which is why the clamp belongs here
+	// and not in the keyboard handler.
+	bool clamped = false;
+	if(after < 0.0f){
+		after = 0.0f;
+		clamped = true;
+	}
+
+	binWeightGrams[bin] = after;
+
+	// The delta that ACTUALLY happened, not the one that was asked for. On a
+	// clamp those differ, and reporting the requested figure would let the FSM's
+	// running total walk away from the eight numbers actually on the table -
+	// silently, and in the direction of overcharging.
+	const float applied = after - before;
+
+	if(clamped){
+		ofLogWarning("ofApp") << "bin " << bin << " clamped at 0 g: asked for "
+			<< ofToString(deltaGrams, 1) << " g with " << ofToString(before, 1)
+			<< " g in the bin, so only " << ofToString(applied, 1)
+			<< " g was applied";
+	}
+
+	// The '+' is forced on. ofToString prints the '-' and nothing for positives,
+	// which would make the sign - the one thing separating a pick from a refund -
+	// readable only by its absence.
+	ofLogNotice("ofApp") << "binweight bin=" << bin
+		<< " delta_g=" << (applied >= 0.0f ? "+" : "") << ofToString(applied, 1)
+		<< " current_g=" << ofToString(after, 1);
 }
 
 //--------------------------------------------------------------
@@ -903,11 +1020,19 @@ void ofApp::drawSelectionHighlight(){
 // right and glyph tops away from them - the orientation of a page laid flat on
 // the table in front of them.
 void ofApp::drawBinLabels(){
-	// Nothing loaded is not an error here - loadIngredients already said so,
-	// once, with a reason. Repeating it 60 times a second would bury it.
-	if(!fontsLoaded || (int)ingredients.size() != BIN_COUNT){
+	if(!fontsLoaded){
 		return;
 	}
+
+	// Nothing loaded is not an error here - loadIngredients already said so,
+	// once, with a reason. Repeating it 60 times a second would bury it.
+	//
+	// This gates the name and the price only, not the whole function. The mock
+	// weight below is not menu data - it stands in for a load cell - so a
+	// missing or malformed ingredients.json must not take the weight readout
+	// down with the labels. Coupling them would mean a bad menu file makes the
+	// weight mock look broken too, which is two faults to chase for one cause.
+	const bool haveIngredients = ((int)ingredients.size() == BIN_COUNT);
 
 	// ofxFlowTools leaves OF_BLENDMODE_ADD set (CLAUDE.md section 7). No fluid
 	// yet, but text drawn under ADD washes out to nothing against the grid, and
@@ -937,13 +1062,52 @@ void ofApp::drawBinLabels(){
 	ofSetColor(0);
 
 	for(int i = 0; i < BIN_COUNT; i++){
-		const Ingredient & ing = ingredients[i];
-
 		// The CORRECTED rect, offsets and all - the same one the black is drawn
 		// from. Placing against raw BINS[] would clear the drawing while the
 		// black sits somewhere else, and section 17 puts those up to ~5 mm per
 		// edge apart on top of a global offset.
 		const ofRectangle box = binRectPx(i);
+
+		// The mock weight, centred INSIDE the bin, in the price face.
+		//
+		// KNOWINGLY BREAKS THE RULE THE FIT CHECK BELOW ENFORCES. Everything
+		// else in this function exists to keep ink out of a cutout, because ink
+		// on food is what contaminates the classifier's input (section 8) - and
+		// this draws straight into one. It earns that for exactly as long as the
+		// mock lasts: the point of a keyboard weight source is to be watched on
+		// the table, and a number that can only be read in a console makes the
+		// person driving the demo look at a terminal instead of at the surface
+		// the whole project is about. The bin itself is also the only place the
+		// number is unambiguous - eight readouts elsewhere would need labelling
+		// to say which bin each belongs to.
+		//
+		// IT MUST BE GONE BEFORE THE RETRAIN CAPTURE (section 22 item 1). Real
+		// load cells make it redundant, and capturing a dataset with a grey
+		// number burnt across the food is exactly the failure section 8 was
+		// written about. Drawn before the fit check on purpose, so the check
+		// keeps guarding what it was written to guard - the name and the price -
+		// rather than being loosened to let this through.
+		//
+		// Whole grams: tenths would be reporting precision the load cells have
+		// not been shown to have, and it is being read off plywood from 1.4 m.
+		const std::string weightStr = ofToString(binWeightGrams[i], 0) + " g";
+		const ofRectangle weightBox =
+			priceFont.getStringBoundingBox(weightStr, 0.0f, 0.0f);
+		const float binCX = box.getCenter().x;
+		const float binCY = box.getCenter().y;
+
+		// Ink box, not advance width, and the same on both axes: subtracting the
+		// box's own origin turns a baseline-relative measurement into a centred
+		// one without assuming anything about the font's bearings.
+		priceFont.drawString(weightStr,
+			binCX - weightBox.getWidth() * 0.5f - weightBox.x,
+			binCY - weightBox.getHeight() * 0.5f - weightBox.y);
+
+		if(!haveIngredients){
+			continue;
+		}
+
+		const Ingredient & ing = ingredients[i];
 
 		// Row 0 is the far row, so its strip is the one beyond it, towards the
 		// far edge of the table. Row 1 is the near row and its strip is between
@@ -1364,6 +1528,44 @@ void ofApp::keyPressed(int key){
 		ofLogNotice("ofApp") << "calibration pattern " << (showCalibration ? "on" : "off");
 		if(showCalibration){
 			logCalibrationDots();
+		}
+		return;
+	}
+
+	// --- mock weight input ---------------------------------------------------
+	// 1-8 is a diner PICKING from bins 0-7, which makes the bin lighter.
+	// q w e r t y u i is the same eight bins PUT BACK, which makes it heavier.
+	//
+	// THE PUT-BACK ROW IS UNSHIFTED ON PURPOSE, AND SHIFT+1..8 WAS REJECTED.
+	// oF does not hand keyPressed a key code here - ofAppGLFWWindow's default
+	// branch sets `key = keycodeToUnicode(scancode, mods)`, i.e. the character
+	// the layout produces WITH the modifier already applied. Shift+1 therefore
+	// arrives as '!' on a US layout, and as a different symbol on every layout
+	// that punctuates its number row differently, so `key == '1' && shift` never
+	// matches and a shifted-number mapping would have to spell out one set of
+	// symbols per keyboard. The row physically above the number row is typed
+	// unshifted, so its codepoint is the letter itself, and it sits one key up
+	// from the pick key for the same bin - which is the mapping a hand at the
+	// keyboard already has.
+	//
+	// Uppercase is accepted too, matching s/p/b/c above, so caps lock does not
+	// quietly disable half the mock.
+	//
+	// Clear of everything the alignment uses: arrows, [ ], 0, s, p, b, c.
+	if(key >= '1' && key <= '8'){
+		// A pick REMOVES ingredient, so it subtracts. The sign lives here, at
+		// the one place that knows what the key meant.
+		applyBinWeightDelta(key - '1', -nextMockDeltaGrams());
+		return;
+	}
+
+	// Guarded to ASCII before the cast: OF_KEY_* codes are far above 255 and
+	// truncating one into a char could alias a letter in the row below.
+	if(key > 0 && key < 128){
+		const size_t bin = kPutBackKeys.find((char)std::tolower(key));
+		if(bin != std::string::npos){
+			applyBinWeightDelta((int)bin, nextMockDeltaGrams());
+			return;
 		}
 	}
 }

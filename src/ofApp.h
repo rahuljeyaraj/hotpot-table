@@ -35,6 +35,14 @@ class ofApp : public ofBaseApp{
 		void loadIngredients();
 		void cycleFieldLevel();
 
+		// Moves one bin's mock weight and emits the settled delta line. Signed:
+		// negative is a pick, positive is a put-back. One function for both, so
+		// there is exactly one place a weight change can be reported from.
+		void applyBinWeightDelta(int bin, float deltaGrams);
+
+		// Magnitude of the next mock event, walking the cycling set in the .cpp.
+		float nextMockDeltaGrams();
+
 		// The one definition of where bin i is on screen. The outline, the label
 		// clearance and the hover hit test all read it, so they cannot drift
 		// apart: a hit test against raw BINS[] would be testing the CAD drawing
@@ -150,6 +158,29 @@ class ofApp : public ofBaseApp{
 		// keys move the rects the labels are placed against. They must not
 		// print every frame. One line per run is enough to act on.
 		bool labelPlacementLogged = false;
+
+		// --- mock bin weights ----------------------------------------------
+		// The CURRENT weight sitting in each bin, in grams.
+		//
+		// A MOCK STAND-IN FOR A TARED LOAD CELL READING. At stage 3 these eight
+		// floats are replaced by the numbers arriving from the eight HX711s
+		// over USB serial, and nothing downstream may be able to tell the
+		// difference. So this deliberately holds the same quantity a tared load
+		// cell reports - what is in the bin right now - and NOT "how much has
+		// been taken", which is a derived running figure the pricing FSM will
+		// keep for itself. Storing the derived one here would put the mock and
+		// the real sensor on different sides of a subtraction, which is the one
+		// difference a swap is not allowed to have.
+		//
+		// Filled in setup() rather than here so the starting value can live in
+		// the .cpp beside the other tuned constants.
+		float binWeightGrams[BIN_COUNT] = {};
+
+		// Cursor into the cycling set of event sizes in the .cpp. ONE cursor for
+		// the whole table, not one per bin: what the set exists to vary is the
+		// size of SUCCESSIVE events, and a per-bin cursor would hand every bin
+		// the same first pick.
+		int mockDeltaIndex = 0;
 
 		// --- hand tracking, fed by tools/tracker/track_hands.py ------------
 		// Positions arrive already in projector pixels; the Python side owns
