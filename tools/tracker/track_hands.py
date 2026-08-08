@@ -28,9 +28,15 @@ TWO THINGS HERE ARE EASY TO GET WRONG AND LOOK ALMOST RIGHT
     check_homography_direction(), check_round_trip() and rotated_to_raw().
 
 DETECTION LOGGING
-    Every run writes logs/detect_<label>_<stamp>.csv, one row per frame:
-    brightness in, hands out. --label says what the operator was doing, and is
-    recorded verbatim - nothing here infers a gesture from the landmarks.
+    Every run writes logs/detect_<label>_exp<exposure>_<stamp>.csv, one row per
+    frame: brightness in, hands out, at a stated exposure. --label says what
+    the operator was doing, and is recorded verbatim - nothing here infers a
+    gesture from the landmarks.
+
+    ONE EXPOSURE PER RUN, deliberately. Sweeping inside the loop would put
+    several settings in one file and leave the camera's settling time tangled
+    up with the measurement. To sweep, invoke the script once per value; each
+    run is then a separate file that names its own setting.
 
     It exists because "the tracker sees nothing" has two very different causes
     that look identical while running: the frame went dark (section 21 of
@@ -242,6 +248,25 @@ def open_camera(args):
     print(f"camera           : index {args.camera}, {args.backend}, "
           f"{actual_w}x{actual_h}")
 
+    # MSMF is free to clamp a requested exposure to something the sensor
+    # actually supports, or to ignore it, and the capture keeps running either
+    # way. A sweep point that never changed would otherwise look like a real
+    # measurement of a flat detection rate.
+    #
+    # READ THIS BEFORE TRUSTING THE NUMBER. CLAUDE.md section 16 records that
+    # this driver keeps REPORTING -4 whatever it was asked for. So agreement
+    # between the two figures below is not evidence the setting took, and
+    # disagreement is not evidence it failed - the property is simply not a
+    # reliable channel here.
+    #
+    # The mean grey line underneath is the evidence. Across two runs at
+    # different --exposure values, grey MUST move. If it does not, the setting
+    # did not take and both runs are the same measurement.
+    reported = cap.get(cv2.CAP_PROP_EXPOSURE)
+    print(f"exposure set     : requested {args.exposure}, device reports "
+          f"{reported:g}"
+          + ("" if reported == args.exposure else "   <- differ, see below"))
+
     # A too-dark frame is the failure that looks like a broken tracker: the
     # pipeline runs, the FPS is fine, and it just reports zero hands forever.
     # Say so at startup instead of leaving it to be discovered with a hand
@@ -334,17 +359,24 @@ class DetectionLog:
     second costs nothing next to MediaPipe.
     """
 
-    def __init__(self, directory, label, window_s):
+    def __init__(self, directory, label, window_s, exposure):
         self.label = label
         self.window_s = window_s
 
+        # %g so -4.0 becomes "-4" and -3.5 stays "-3.5" - the filename carries
+        # the setting, so two sweep points can never be told apart only by
+        # their timestamps, and a stray copied file still says what it is.
+        self.exposure = "none" if exposure is None else f"{exposure:g}"
+
         directory.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.path = directory / f"detect_{label}_{stamp}.csv"
+        self.path = directory / f"detect_{label}_exp{self.exposure}_{stamp}.csv"
 
         self._fh = self.path.open("w", newline="", encoding="utf-8")
         self._writer = csv.writer(self._fh)
-        self._writer.writerow(["iso_time", "frame_idx", "mean_grey", "hands"])
+        self._writer.writerow(
+            ["iso_time", "frame_idx", "mean_grey", "hands", "exposure"]
+        )
         self._fh.flush()
 
         self.frame_idx = 0
@@ -363,6 +395,7 @@ class DetectionLog:
             self.frame_idx,
             f"{mean_grey:.2f}",
             hands,
+            self.exposure,
         ])
         self._fh.flush()
 
@@ -381,9 +414,9 @@ class DetectionLog:
         grey = self._window_grey / frames
         rate = self._window_detected / frames
         print(
-            f"[{self.label}] {self.window_s:.0f}s  mean grey {grey:6.1f}/255  "
-            f"detected {rate * 100:5.1f}%  ({self._window_detected}/{frames} "
-            f"frames)",
+            f"[{self.label} exp{self.exposure}] {self.window_s:.0f}s  "
+            f"mean grey {grey:6.1f}/255  detected {rate * 100:5.1f}%  "
+            f"({self._window_detected}/{frames} frames)",
             file=sys.stderr,
         )
         self._reset_window(now)
@@ -435,7 +468,8 @@ def run(args):
     landmarker = make_landmarker(args)
     cap = open_camera(args)
 
-    log = DetectionLog(args.log_dir, args.label, args.report_interval)
+    log = DetectionLog(args.log_dir, args.label, args.report_interval,
+                       args.exposure)
     print(f"detection log    : {log.path}")
 
     frames = 0
