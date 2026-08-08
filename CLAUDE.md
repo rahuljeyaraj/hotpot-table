@@ -364,6 +364,31 @@ annotation (206 images) was both faster and more accurate.
 - Hysteresis at step boundaries to stop flicker
 - ~10 g detection deadband
 
+### `bin/data/ingredients.json` is the menu, and it is an object not an array
+This is **DATA, not rig state** — unlike `bin_offsets.json` (§17) it describes
+the menu, not this particular table, and it is edited by hand rather than by
+nudge keys. It is the **only** place names, prices and the currency live; there
+is deliberately no hardcoded fallback in C++, because a fallback is a second
+source of truth that silently wins exactly when the first is broken. A blank
+label strip is a visible fault; the wrong price is not.
+
+```json
+{ "currency": "$", "ingredients": [ { "bin": 0, "name": "...", "price_per_100g": 0.0 }, ... ] }
+```
+
+**Currency is one top-level field, never per-ingredient.** A table cannot be
+priced in two currencies at once, so eight copies would be eight chances to
+disagree — invisible until someone reads two bins side by side — and a
+per-entry field reads as permission to vary the one thing that must not vary.
+
+The file was a bare top-level array until step 2k; it was wrapped in an object
+to give the currency somewhere to live that is not inside one of the entries.
+Any loader written against the old shape needs updating.
+
+**All prices are 0.00 pending a real menu.** The two decimals are load-bearing
+anyway: the label layout is sized against the string real prices will produce,
+not against the shorter one zeros happen to make.
+
 ---
 
 ## 12. Physical build

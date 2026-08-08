@@ -1,10 +1,13 @@
-[
-	{ "bin": 0, "name": "Curly Noodles", "price_per_100g": 0.0 },
-	{ "bin": 1, "name": "Long Noodles",  "price_per_100g": 0.0 },
-	{ "bin": 2, "name": "Dried Prawns",  "price_per_100g": 0.0 },
-	{ "bin": 3, "name": "Egg",           "price_per_100g": 0.0 },
-	{ "bin": 4, "name": "Mushroom",      "price_per_100g": 0.0 },
-	{ "bin": 5, "name": "Soya Chunks",   "price_per_100g": 0.0 },
-	{ "bin": 6, "name": "Tofu",          "price_per_100g": 0.0 },
-	{ "bin": 7, "name": "Baby Corn",     "price_per_100g": 0.0 }
-]
+{
+	"currency": "$",
+	"ingredients": [
+		{ "bin": 0, "name": "Curly Noodles", "price_per_100g": 0.0 },
+		{ "bin": 1, "name": "Long Noodles",  "price_per_100g": 0.0 },
+		{ "bin": 2, "name": "Dried Prawns",  "price_per_100g": 0.0 },
+		{ "bin": 3, "name": "Egg",           "price_per_100g": 0.0 },
+		{ "bin": 4, "name": "Mushroom",      "price_per_100g": 0.0 },
+		{ "bin": 5, "name": "Soya Chunks",   "price_per_100g": 0.0 },
+		{ "bin": 6, "name": "Tofu",          "price_per_100g": 0.0 },
+		{ "bin": 7, "name": "Baby Corn",     "price_per_100g": 0.0 }
+	]
+}

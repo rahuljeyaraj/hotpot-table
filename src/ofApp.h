@@ -123,6 +123,22 @@ class ofApp : public ofBaseApp{
 		// or unusable. Empty means nothing is drawn - see above.
 		std::vector<Ingredient> ingredients;
 
+		// The symbol in front of every price. ONE field for the whole file, not
+		// one per ingredient, because a table cannot be priced in two currencies
+		// at once - eight copies of "$" would be eight chances to disagree, and
+		// the disagreement would be invisible until someone read two bins side
+		// by side. A per-ingredient field would also read as permission to vary
+		// it, which is exactly the thing that must not vary.
+		//
+		// A string rather than a char: it has to survive being "R$" or "kr" or a
+		// multi-byte symbol, and ofTrueTypeFont takes UTF-8 either way.
+		//
+		// Empty until a successful load, and never defaulted to "$" - same rule
+		// as the names and prices above. A number the diner reads as dollars
+		// because the app assumed dollars is the wrong-price failure, just
+		// arriving through the units instead of through the digits.
+		std::string currency;
+
 		// Two sizes, both loaded at their final display size. Scaling a font up
 		// at draw time blurs it (CLAUDE.md section 7), and this text is being
 		// read off plywood by a projector that has no resolution to spare.

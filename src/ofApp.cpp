@@ -595,6 +595,7 @@ void ofApp::loadOffsets(){
 // strip is a visible fault; "Mushroom" over a bin of prawns is not.
 void ofApp::loadIngredients(){
 	ingredients.clear();
+	currency.clear();
 
 	const std::string path = ofToDataPath(kIngredientsFile);
 
@@ -605,13 +606,43 @@ void ofApp::loadIngredients(){
 		return;
 	}
 
-	ofJson j = ofLoadJson(path);
+	ofJson root = ofLoadJson(path);
 
-	if(!j.is_array()){
-		ofLogError("ofApp") << path << " is not a JSON array of bin entries"
+	// The file used to BE the array. It is now an object wrapping it, so that
+	// the currency has somewhere to live that is not inside one of the eight
+	// entries - see the field's comment in ofApp.h for why it must not be.
+	if(!root.is_object()){
+		ofLogError("ofApp") << path << " is not a JSON object with \"currency\""
+			<< " and \"ingredients\" - bin labels will not be drawn";
+		return;
+	}
+
+	if(!root.contains("currency") || !root["currency"].is_string()){
+		ofLogError("ofApp") << path << " needs a top-level string \"currency\""
 			<< " - bin labels will not be drawn";
 		return;
 	}
+
+	const std::string cur = root["currency"].get<std::string>();
+	if(cur.empty()){
+		// Not the same as "no currency". A price with no symbol in front of it
+		// is a bare number on a table, and the diner supplies the units from
+		// wherever they happen to be standing. If a symbol is genuinely not
+		// wanted, that is a decision to make in this code, visibly, not one to
+		// arrive by leaving a string blank.
+		ofLogError("ofApp") << path << " has an empty \"currency\""
+			<< " - bin labels will not be drawn";
+		return;
+	}
+
+	if(!root.contains("ingredients") || !root["ingredients"].is_array()){
+		ofLogError("ofApp") << path << " needs a top-level \"ingredients\" array"
+			<< " of bin entries - bin labels will not be drawn";
+		return;
+	}
+
+	const ofJson & j = root["ingredients"];
+
 	if((int)j.size() < BIN_COUNT){
 		ofLogError("ofApp") << path << " has " << j.size() << " entries, need "
 			<< BIN_COUNT << " (one per bin) - bin labels will not be drawn";
@@ -672,8 +703,12 @@ void ofApp::loadIngredients(){
 		}
 	}
 
+	// Both together or neither, so `ingredients` non-empty always means there is
+	// a symbol to put in front of the numbers.
 	ingredients = loaded;
-	ofLogNotice("ofApp") << "loaded " << ingredients.size() << " ingredients from " << path;
+	currency = cur;
+	ofLogNotice("ofApp") << "loaded " << ingredients.size() << " ingredients from "
+		<< path << ", prices in \"" << currency << "\"";
 }
 
 //--------------------------------------------------------------
@@ -943,10 +978,18 @@ void ofApp::drawBinLabels(){
 			continue;
 		}
 
-		// Two decimals with no currency symbol, because CLAUDE.md does not name
-		// a currency and this is not the place to invent one. Add it to the
-		// JSON when it is decided, not here.
-		const std::string priceStr = ofToString(ing.pricePer100g, 2) + " / 100g";
+		// Symbol, then two decimals, then the unit the number is per. The symbol
+		// comes from the file rather than from here for the reason the names and
+		// prices do: this code must not be a second place the menu is written
+		// down. It leads rather than trails because that is where every price
+		// this table's "$" belongs to is read, and because it is what tells the
+		// diner at a glance that the line is money at all and not a weight.
+		//
+		// Two decimals stays. Prices are all 0.00 today, but the width of this
+		// string is what the strip has to fit, and sizing the layout against a
+		// shorter string than the one real prices will produce would move the
+		// overflow to the day the numbers arrive.
+		const std::string priceStr = currency + ofToString(ing.pricePer100g, 2) + " / 100g";
 
 		// Ink boxes, not advance widths: centring on the advance leaves the
 		// string visibly off-centre for anything with side bearings, and these
