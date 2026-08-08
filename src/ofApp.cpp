@@ -41,6 +41,13 @@ namespace {
 	// takes the cursor's colour on hover.
 	const ofColor kBinHoverColour(0, 200, 255);
 
+	// Floor for the pass-over instrumentation below. A hand clipping the corner
+	// of a bin rect on its way somewhere else banks a few tens of ms, and those
+	// are not pass-overs - they are the edge of the rect being touched at all.
+	// Logging them would bury the crossings that actually inform the threshold
+	// under a much larger number of meaningless ones.
+	const float kPassOverLogFloorMS = 100.0f;
+
 	// Lives in bin/data/ alongside the other rig state.
 	const char * kOffsetsFile = "bin_offsets.json";
 
@@ -559,6 +566,11 @@ void ofApp::updateHover(){
 		}
 
 		if(!inside){
+			// Read before the reset - the accumulated time is the whole point
+			// of the instrumentation below, and zeroing first would throw it
+			// away.
+			const float dwelledMS = binDwellMS[i];
+
 			// Reset, not decay. A hand that left a bin has not partly chosen
 			// it, and a decay would let a hand oscillating over two bins earn
 			// both. Pass-over is rejected by never letting it bank anything.
@@ -567,6 +579,23 @@ void ofApp::updateHover(){
 			if(binHover[i] == HoverState::HOVERED){
 				ofLogNotice("hover") << "bin " << i << " HOVERED -> IDLE after "
 					<< (now - binHoveredSinceMS[i]) << " ms held";
+			}
+			else if(binHover[i] == HoverState::DWELLING
+				&& dwelledMS >= kPassOverLogFloorMS){
+				// INSTRUMENTATION, NOT DIAGNOSTICS. This exists to set
+				// HOVER_DWELL_MS from measurement instead of the guess it
+				// currently is, and it should come out once that number is
+				// settled.
+				//
+				// A rejected pass-over is otherwise completely silent - it
+				// writes nothing, because nothing happened. That makes a clean
+				// log the expected shape of success AND the expected shape of a
+				// hover that never fires, which are not the same thing. This is
+				// the only line that reports the durations the threshold has to
+				// sit above: cross the bins at natural reaching speed, take the
+				// longest number this prints, and leave headroom over it.
+				ofLogNotice("hover") << "bin " << i << " DWELLING -> IDLE after "
+					<< ofToString(dwelledMS, 0) << " ms (pass-over, no hover)";
 			}
 			binHover[i] = HoverState::IDLE;
 			continue;
