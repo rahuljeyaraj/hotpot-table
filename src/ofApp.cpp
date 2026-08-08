@@ -32,9 +32,25 @@ namespace {
 	const float kNudgeStepMM = 1.0f;
 	const float kNudgeFastStepMM = 5.0f;
 
-	// Section 9 puts two different claims on this one outline, and they must not
-	// be read as the same thing.
+	// --- outline colours, on the white field ---------------------------------
+	// The three outline states below are EQUILUMINANT on white, deliberately.
+	// Their WCAG relative luminances are 0.102, 0.123 and 0.123, so all three
+	// sit near a 6:1 contrast ratio against the field and none of them is the
+	// "bright" or the "dim" one. What changes between them is hue and
+	// saturation only.
 	//
+	// That is section 9's rule taken literally rather than approximately. If the
+	// states differed in brightness, the thing telling them apart would be the
+	// one channel the projector and the room are already fighting over - which
+	// is exactly how the dim cyan below failed on the rig. Equal luminance means
+	// the distinction cannot be washed out without washing out all three, i.e.
+	// without the failure being obvious rather than silent.
+	//
+	// Grey, not white: this is a dark line on a light field now. Idle is the
+	// hueless member of the set, so grey to red reads as colour arriving on an
+	// unchanged line, and red to green as that colour changing.
+	const ofColor kBinIdleColour(98, 98, 98);
+
 	// Red is the instant one: the outline turns the moment a hand is inside,
 	// before any dwell exists. Section 9 allows that precisely because it
 	// commits to nothing - the load cell confirms the actual pick, so a halo
@@ -42,12 +58,12 @@ namespace {
 	// anything.
 	//
 	// MEASURED ON THE RIG, NOT A PREFERENCE: this started as a dim cyan and was
-	// rejected at the table for being very difficult to see. A near-white hue
-	// at low value is exactly the wrong choice against a white outline on white
-	// plywood under a projector - it differs from the idle state mostly in
-	// brightness, which is the thing projector light and ambient light are
-	// already fighting over. Red differs in hue at full value and survives both.
-	const ofColor kBinEnterColour(255, 40, 40);
+	// rejected at the table for being very difficult to see. That lesson is
+	// about brightness carrying the meaning, and it survives the inversion
+	// unchanged - only its direction flips. On black the failure was a
+	// near-white hue at low value; on white it would be a light hue at full
+	// value, which is why the green below had to come down from 255.
+	const ofColor kBinEnterColour(200, 0, 0);
 
 	// Green is the earned one, and it does not sit next to the red - it REPLACES
 	// it, running along the same line. That makes the leftover red the work
@@ -57,11 +73,30 @@ namespace {
 	//
 	// Red to green also carries the meaning for free, with no legend to learn.
 	//
+	// 115, not 255. Green carries 0.72 of luminance against red's 0.21, so a
+	// full-value green on white is very nearly invisible - about 1.4:1, worse
+	// than the cyan that was already rejected once. 115 is the value that puts
+	// it at the same luminance as the red it replaces, so the two differ purely
+	// in hue and the walk does not appear to brighten as it completes.
+	//
 	// This is close to the alignment overlay's green further down, which is a
 	// known and accepted collision: that one only ever appears on the single
 	// line the arrow keys are moving, at double width, during setup - and
 	// nobody is dwelling on bins while nudging the grid.
-	const ofColor kBinProgressColour(0, 255, 60);
+	const ofColor kBinProgressColour(0, 115, 0);
+
+	// --- the white field -----------------------------------------------------
+	// Percentages of full projector output, brightest first so index 0 is the
+	// default and the key dims as it cycles.
+	//
+	// This exists because the field is an ILLUMINANT, not a background. Section
+	// 8's black rects assume a lit room and keep projector light off the food;
+	// in a dark room there is no ambient to fall back on and the same rects
+	// leave the food unlit, so the field becomes the only light the classifier
+	// gets. That makes its level a rig parameter to be swept against the camera
+	// like an exposure, not a look to be chosen once in code.
+	const int kFieldLevels[] = { 100, 75, 50, 25, 0 };
+	const int kFieldLevelCount = sizeof(kFieldLevels) / sizeof(kFieldLevels[0]);
 
 	// Floor for the pass-over instrumentation below. A hand clipping the corner
 	// of a bin rect on its way somewhere else banks a few tens of ms, and those
@@ -131,8 +166,10 @@ namespace {
 
 	// Marks the line being moved. This is a setup overlay, not the diner-facing
 	// UI, so it is outside the "colour is reserved for progress" rule in §9 -
-	// and green stays clear of both hand-dot colours.
-	const ofColor kSelectionColour(0, 255, 120);
+	// and green stays clear of both hand-dot colours. Brought down from value
+	// 255 for the same reason the progress green was: a light green does not
+	// survive a white field.
+	const ofColor kSelectionColour(0, 150, 70);
 
 	// --- hand tracking -------------------------------------------------------
 	// Must match --osc-port in tools/tracker/track_hands.py.
@@ -153,9 +190,14 @@ namespace {
 	// One colour per hand id, purely so two hands can be told apart while the
 	// loop is being evaluated. This is NOT the blob cursor of stage 4, whose
 	// colour is fixed and reserved exclusively for progress indication.
+	//
+	// Both dropped in value along with everything else on the white field. The
+	// old 200/255 cyan and 255 amber were chosen against black and land at
+	// about 2:1 on white, which is a filled circle you have to look for. Hues
+	// are unchanged, so which id is which reads the same as it did.
 	const ofColor kHandColours[] = {
-		ofColor(0, 200, 255),   // id 0, cyan
-		ofColor(255, 160, 0),   // id 1, amber
+		ofColor(0, 110, 160),   // id 0, teal
+		ofColor(200, 90, 0),    // id 1, amber
 	};
 	const size_t kHandColourCount =
 		sizeof(kHandColours) / sizeof(kHandColours[0]);
@@ -429,6 +471,22 @@ void ofApp::nudgeSelection(float dxMM, float dyMM){
 }
 
 //--------------------------------------------------------------
+// Steps the field down one notch, wrapping 0% back to 100%.
+//
+// Down rather than up because the key is a dimmer: the app boots at full output
+// and every press takes light off the table, which is the direction anyone at
+// the rig is actually working in. Wrapping means one key can reach every level
+// without a second one for the other direction, and there are only five.
+void ofApp::cycleFieldLevel(){
+	fieldLevel = (fieldLevel + 1) % kFieldLevelCount;
+
+	// To the console as well as the readout: whoever is pressing this is at the
+	// keyboard looking at the camera's view of the table, not at the projected
+	// readout across the room - the same reason the nudge keys log.
+	ofLogNotice("ofApp") << "field brightness " << kFieldLevels[fieldLevel] << "%";
+}
+
+//--------------------------------------------------------------
 void ofApp::saveOffsets(){
 	ofJson j;
 	j["offsetXMM"] = offsetXMM;
@@ -623,15 +681,19 @@ void ofApp::loadIngredients(){
 // column's two vertical lines and its row's two horizontal ones, so it carries
 // the offsets from bin_offsets.json as well as the CAD chain.
 //
-// Every consumer goes through here. The black fill is drawn from it and the
-// hover hit test is done against it, which is the only way those two can be
-// guaranteed to be the same rectangle. Hit testing raw BINS[] instead would
-// test the drawing while the black sits on the as-built cutouts, and CLAUDE.md
-// section 17 puts those up to ~5 mm apart per edge on top of a 4 mm global
-// offset - enough to hover a bin whose black the hand is not over.
+// Every consumer goes through here: the outline, the label clearance and the
+// hover hit test, which is the only way those can be guaranteed to be the same
+// rectangle. Hit testing raw BINS[] instead would test the drawing while the
+// outline sits on the as-built cutouts, and CLAUDE.md section 17 puts those up
+// to ~5 mm apart per edge on top of a 4 mm global offset - enough to hover a
+// bin whose outline the hand is not inside.
+//
+// Losing the black fill changed nothing here. bin_offsets.json still says where
+// the openings are, and the outline and the labels are still placed against
+// them; only the fill that used to sit inside them is gone.
 ofRectangle ofApp::binRectPx(int i) const {
 	// BINS is row-major with kCols per row, so bin i is at row i / kCols,
-	// column i % kCols - the same walk drawBinCutouts makes.
+	// column i % kCols - the same walk drawBinOutlines makes.
 	const int r = i / kCols;
 	const int c = i % kCols;
 
@@ -643,15 +705,24 @@ ofRectangle ofApp::binRectPx(int i) const {
 }
 
 //--------------------------------------------------------------
-void ofApp::drawBinCutouts(){
-	// Section 8 of CLAUDE.md: the projector must put near-zero light into the
-	// bins. Projected colour landing on the food contaminates the classifier's
-	// input, which was trained on plain ingredients under ambient light.
+void ofApp::drawBinOutlines(){
+	// THE BLACK FILL IS GONE ON PURPOSE. Section 8 of CLAUDE.md says the
+	// projector must put near-zero light into the bins, and that is right for
+	// the lit room section 21 requires - there, ambient light is what the
+	// classifier sees by, and projector light on top of it is pure
+	// contamination.
 	//
-	// So these are unconditional - no toggle. Anything that can be seen inside
-	// a cutout is a bug, which is why this runs after the background content
-	// rather than before it: drawing black first and a test pattern second
-	// would put the grid straight back into the bins.
+	// The demo is shot in a DARK room, where that argument inverts. With no
+	// ambient there is no "leave the food alone" option: a black rect over a
+	// cutout is not neutral, it is the food in total darkness, which starves
+	// the classifier rather than protecting it. The choice is projector light
+	// or no light. So the whole table is a flat white field and the cutouts are
+	// simply part of it - a constant, controlled illuminant, and one that lights
+	// the back of the hand exactly when the hand is over a bin.
+	//
+	// What section 8 actually observed was a COLOURED, PATTERNED image washing
+	// pink and white over the food. Flat white is neither, and the level is
+	// swept from the table with the brightness key rather than fixed here.
 	//
 	// One stroke width has to serve both axes, and the axes do not scale
 	// equally (3 mm is 3.78 px across, 3.54 px down). Taking X makes the
@@ -665,13 +736,10 @@ void ofApp::drawBinCutouts(){
 	for(int i = 0; i < BIN_COUNT; i++){
 		const ofRectangle box = binRectPx(i);
 
-		ofFill();
-		ofSetColor(0);
-		ofDrawRectangle(box);
-
-		// Only ever the colour changes. Width stays put: a thicker stroke would
-		// grow inwards over the cutout and put light into the food, which
-		// section 8 rules out no matter what the UI wants to say.
+		// Only ever the colour changes. Width stays put: the stroke straddles
+		// the cutout edge, so a thicker one puts more coloured light down onto
+		// the rim of the food, and the outline is a UI element rather than
+		// something the classifier should have to see around.
 		const bool handInside = (binHover[i] != HoverState::IDLE);
 		const bool hovered = (binHover[i] == HoverState::HOVERED);
 
@@ -681,7 +749,7 @@ void ofApp::drawBinCutouts(){
 		outline.setStrokeWidth(strokePx);
 		outline.setColor(hovered ? kBinProgressColour
 			: handInside ? kBinEnterColour
-			: ofColor::white);
+			: kBinIdleColour);
 		outline.rectangle(box);
 		outline.draw();
 
@@ -783,7 +851,14 @@ void ofApp::drawSelectionHighlight(){
 // label confined to its own strip cannot land in a cutout no matter how wide it
 // is, because there is no cutout anywhere along that band. Horizontal overflow
 // past a bin's own width spills into the 50 mm and 440 mm gaps between columns,
-// which are plywood too. Section 8 is satisfied by the band, not by the string.
+// which are plywood too.
+//
+// Keeping the text out of the cutouts still matters even though the black fill
+// is gone and section 8 is deliberately reversed. The reason changed, not the
+// rule: the field is now the classifier's only light source, and black glyphs
+// laid across the food would be shadows cut into that illuminant - patterned
+// darkness on the ingredients, which is the same contamination section 8
+// observed, arriving from the other direction.
 //
 // ORIENTATION
 // Drawn upright in screen space, with no rotation, and that already reads from
@@ -815,11 +890,16 @@ void ofApp::drawBinLabels(){
 
 	const float clearancePx = mmToPxY(kLabelClearanceMM);
 
-	// Full white for both lines. Size is the only hierarchy, deliberately:
-	// section 9 reserves colour for progress indication, and the dim-cyan bin
-	// outline further up is the measured proof that dropping the value of a
-	// near-white on white plywood is how projected UI disappears.
-	ofSetColor(255);
+	// Black for both lines, at every field level - including 0%, where the text
+	// therefore disappears along with the field. That is correct rather than a
+	// gap: at 0% the projector is deliberately emitting nothing, and text that
+	// stayed readable there would be light going onto the table during the one
+	// setting whose whole purpose is to measure the table without any.
+	//
+	// Size is the only hierarchy, deliberately: section 9 reserves colour for
+	// progress indication, and the dim-cyan bin outline further up is the
+	// measured proof that separating UI by brightness is how it disappears.
+	ofSetColor(0);
 
 	for(int i = 0; i < BIN_COUNT; i++){
 		const Ingredient & ing = ingredients[i];
@@ -973,7 +1053,7 @@ void ofApp::updateHover(){
 	lastDetectionMS = now;
 
 	for(int i = 0; i < BIN_COUNT; i++){
-		// The same rect the black fill is drawn from, offsets and all.
+		// The same rect the outline is drawn from, offsets and all.
 		const ofRectangle box = binRectPx(i);
 
 		bool inside = false;
@@ -1057,12 +1137,17 @@ void ofApp::draw(){
 		logWindowState("frame " + ofToString(frame));
 	}
 
-	ofBackground(0);
-
-	// calibration pattern is otherwise alone on the screen - the camera must see
-	// the dots and little else, so no hand dot here either
+	// CALIBRATION IS NOT INVERTED, AND MUST NOT BE. Sections 15 and 16 are
+	// explicit: the dots are solved for against a dark frame, because they have
+	// to stay separable from a white table top, and solve_homography.py runs the
+	// camera at a dark exposure to keep them that way. A white field here would
+	// put the dots on a background as bright as they are and the solve would
+	// find nothing. This branch keeps its black background and its white dots
+	// whatever the rest of the app is doing, so it returns before the field
+	// below is ever drawn.
 	if(showCalibration){
-		drawBinCutouts();
+		ofBackground(0);
+		drawBinOutlines();
 
 		ofSetColor(255);
 		for(size_t i = 0; i < calibDotsMM.size(); i++){
@@ -1074,11 +1159,27 @@ void ofApp::draw(){
 		return;
 	}
 
+	// The field. One flat grey covering the whole projected surface, cutouts
+	// included - in a dark room this is the illuminant, not a backdrop.
+	const int fieldGrey = (int)roundf(255.0f * kFieldLevels[fieldLevel] / 100.0f);
+	ofBackground(fieldGrey);
+
 	float w = ofGetWidth();
 	float h = ofGetHeight();
 
-	// 100px grid, dark grey
-	ofSetColor(60, 60, 60);
+	// Test pattern, inverted along with everything else so it stays a working
+	// test pattern rather than white-on-white. Same geometry, same weights,
+	// values mirrored: the grid was 60 on black and is 195 on white, the rest
+	// was 255 and is now 0.
+	//
+	// KNOWN CONFLICT, LEFT IN DELIBERATELY: the diagonals and the grid cross
+	// four of the eight cutouts, and dark lines over a cutout are exactly the
+	// patterned shadow the flat field exists to avoid. The black rects used to
+	// absorb this - they were drawn after the pattern for precisely that reason
+	// - and nothing absorbs it now. This is scaffolding due to come out, so it
+	// is not worth a clipping path; it is worth knowing about before judging a
+	// classifier result taken with it on.
+	ofSetColor(195);
 	for(float x = 0; x <= w; x += 100){
 		ofDrawLine(x, 0, x, h);
 	}
@@ -1086,7 +1187,7 @@ void ofApp::draw(){
 		ofDrawLine(0, y, w, y);
 	}
 
-	ofSetColor(255);
+	ofSetColor(0);
 
 	// diagonals corner to corner
 	ofDrawLine(0, 0, w, h);
@@ -1104,28 +1205,28 @@ void ofApp::draw(){
 	ofDrawCircle(0, h, 10);
 	ofDrawCircle(w, h, 10);
 
-	// 2px white rectangle inset 1px from the very edge
+	// 2px black rectangle inset 1px from the very edge
 	ofPath border;
 	border.setFilled(false);
 	border.setStrokeWidth(2);
-	border.setColor(ofColor::white);
+	border.setColor(ofColor::black);
 	border.rectangle(1, 1, w - 2, h - 2);
 	border.draw();
 
-	// black over the cutouts last of the table-fixed layers, so the grid and
-	// diagonals above cannot put light into a bin
-	drawBinCutouts();
+	// Outlines over the pattern, so a diagonal cannot cut across the one line
+	// that reports hover state.
+	drawBinOutlines();
 
-	// UI text goes after the black, per the layer order in section 7. Before
-	// the hand dot rather than after it, so the dot - which is what stage 1 is
-	// still being judged on - stays the topmost thing on the table.
+	// UI text last of the table-fixed layers, per the layer order in section 7.
+	// Before the hand dot rather than after it, so the dot - which is what
+	// stage 1 is still being judged on - stays the topmost thing on the table.
 	drawBinLabels();
 
 	// hands on top of the bins, under nothing yet
 	drawHands();
 
-	// top-left readout
-	ofSetColor(255);
+	// top-left readout, black on the field like the labels
+	ofSetColor(0);
 	std::stringstream ss;
 	ss << (int)w << " x " << (int)h << "\n" << ofGetFrameRate();
 	ss << "\nhands " << hands.size();
@@ -1141,7 +1242,8 @@ void ofApp::draw(){
 		                                     : hLineMM(selection - kVLines - 1), 1)
 		   << " mm  (moves " << (vertical ? "left/right)" : "up/down)");
 	}
-	ss << "\n[ ] selects line, 0 selects all, arrows 1mm, shift 5mm, s saves";
+	ss << "\nfield " << kFieldLevels[fieldLevel] << "%";
+	ss << "\n[ ] selects line, 0 selects all, arrows 1mm, shift 5mm, s saves, b dims";
 
 	// Box sizes follow from where the lines sit, so show what they currently
 	// are - the number to compare against a tape measure on the plywood.
@@ -1194,6 +1296,13 @@ void ofApp::keyPressed(int key){
 	// mistyped screenshot would be a bad trade.
 	if(key == 'p' || key == 'P'){
 		screenshotPending = true;
+		return;
+	}
+
+	// b for brightness. Clear of c, s and p, and clear of the bracket and arrow
+	// keys the alignment uses.
+	if(key == 'b' || key == 'B'){
+		cycleFieldLevel();
 		return;
 	}
 

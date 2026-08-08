@@ -29,16 +29,17 @@ class ofApp : public ofBaseApp{
 
 		void receiveOsc();
 		void drawHands();
-		void drawBinCutouts();
+		void drawBinOutlines();
 		void drawBinLabels();
 		void updateHover();
 		void loadIngredients();
+		void cycleFieldLevel();
 
-		// The one definition of where bin i is on screen. Both the black fill
-		// and the hover hit test read it, so they cannot drift apart: a hit
-		// test against raw BINS[] would be testing the CAD drawing while the
-		// black is drawn on the as-built plywood, and the two are up to a
-		// centimetre apart (CLAUDE.md section 17).
+		// The one definition of where bin i is on screen. The outline, the label
+		// clearance and the hover hit test all read it, so they cannot drift
+		// apart: a hit test against raw BINS[] would be testing the CAD drawing
+		// while the outline is drawn on the as-built plywood, and the two are up
+		// to a centimetre apart (CLAUDE.md section 17).
 		ofRectangle binRectPx(int i) const;
 
 		float vLineMM(int i) const;
@@ -94,6 +95,15 @@ class ofApp : public ofBaseApp{
 		// nine calibration points in table mm, row-major, top row first
 		std::vector<glm::vec2> calibDotsMM;
 		bool showCalibration = false;
+
+		// --- the white field -----------------------------------------------
+		// How bright the illuminating field is, as an index into kFieldLevels.
+		// That array runs 100 down to 0 so index 0 is full output and the key
+		// dims as it cycles. Starting anywhere else would be wrong rather than
+		// merely different: in a dark room this field IS the light the camera
+		// and the classifier get, so less than full output is a choice somebody
+		// makes at the table, never a state the app boots into.
+		int fieldLevel = 0;
 
 		// --- ingredient labels ---------------------------------------------
 		// What is in each bin and what it costs. This is DATA, not rig state:
