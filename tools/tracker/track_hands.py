@@ -26,13 +26,26 @@ TWO THINGS HERE ARE EASY TO GET WRONG AND LOOK ALMOST RIGHT
     The homography direction and the rotated/raw coordinate order. Both are
     asserted at startup rather than left to eyeballing - see
     check_homography_direction(), check_round_trip() and rotated_to_raw().
+
+DETECTION LOGGING
+    Every run writes logs/detect_<label>_<stamp>.csv, one row per frame:
+    brightness in, hands out. --label says what the operator was doing, and is
+    recorded verbatim - nothing here infers a gesture from the landmarks.
+
+    It exists because "the tracker sees nothing" has two very different causes
+    that look identical while running: the frame went dark (section 21 of
+    CLAUDE.md), or the pose itself is hard for the model. One line of CSV
+    separates them after the fact. The startup mean-grey reading cannot - it is
+    sampled once during warmup and is stale the moment it prints.
 """
 
 import argparse
+import csv
 import json
 import sys
 import time
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -44,6 +57,10 @@ from pythonosc.udp_client import SimpleUDPClient
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_HOMOGRAPHY = HERE.parent / "calibration" / "homography.json"
+
+# Beside the script, not beside the caller's cwd - the logs of a run belong
+# with the tool that made them regardless of where it was launched from.
+DEFAULT_LOG_DIR = HERE / "logs"
 
 # The "lite" bundle, i.e. the old model_complexity=0. Google's own copy is the
 # authoritative one, so it is fetched rather than vendored.
@@ -302,6 +319,79 @@ def camera_to_projector(H, x_cam, y_cam):
     return float(mapped[0][0][0]), float(mapped[0][0][1])
 
 
+# --- detection log ---------------------------------------------------------
+
+class DetectionLog:
+    """One CSV row per frame, plus a rolling summary on stderr.
+
+    The summary goes to stderr, not stdout, for the reason in CLAUDE.md section
+    21: Python block-buffers stdout when it is redirected to a file, so a
+    stdout summary would sit unflushed for minutes - exactly when it is being
+    logged, i.e. exactly when it matters. stderr is unbuffered and arrives.
+
+    Rows are flushed as they are written. A run that ends with the process
+    killed rather than ctrl-c is still worth reading, and 30 small writes a
+    second costs nothing next to MediaPipe.
+    """
+
+    def __init__(self, directory, label, window_s):
+        self.label = label
+        self.window_s = window_s
+
+        directory.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.path = directory / f"detect_{label}_{stamp}.csv"
+
+        self._fh = self.path.open("w", newline="", encoding="utf-8")
+        self._writer = csv.writer(self._fh)
+        self._writer.writerow(["iso_time", "frame_idx", "mean_grey", "hands"])
+        self._fh.flush()
+
+        self.frame_idx = 0
+        self._reset_window(time.perf_counter())
+
+    def _reset_window(self, now):
+        self._window_start = now
+        self._window_frames = 0
+        self._window_detected = 0
+        self._window_grey = 0.0
+
+    def record(self, mean_grey, hands):
+        """Log this frame, and report if the window has closed."""
+        self._writer.writerow([
+            datetime.now().isoformat(timespec="milliseconds"),
+            self.frame_idx,
+            f"{mean_grey:.2f}",
+            hands,
+        ])
+        self._fh.flush()
+
+        self.frame_idx += 1
+        self._window_frames += 1
+        self._window_grey += mean_grey
+        if hands > 0:
+            self._window_detected += 1
+
+        now = time.perf_counter()
+        if now - self._window_start >= self.window_s:
+            self._report(now)
+
+    def _report(self, now):
+        frames = self._window_frames
+        grey = self._window_grey / frames
+        rate = self._window_detected / frames
+        print(
+            f"[{self.label}] {self.window_s:.0f}s  mean grey {grey:6.1f}/255  "
+            f"detected {rate * 100:5.1f}%  ({self._window_detected}/{frames} "
+            f"frames)",
+            file=sys.stderr,
+        )
+        self._reset_window(now)
+
+    def close(self):
+        self._fh.close()
+
+
 # --- main loop -------------------------------------------------------------
 
 def make_landmarker(args):
@@ -345,6 +435,9 @@ def run(args):
     landmarker = make_landmarker(args)
     cap = open_camera(args)
 
+    log = DetectionLog(args.log_dir, args.label, args.report_interval)
+    print(f"detection log    : {log.path}")
+
     frames = 0
     last_report = time.perf_counter()
     started = time.perf_counter()
@@ -358,6 +451,18 @@ def run(args):
                 continue
 
             height, width = frame.shape[:2]
+
+            # Every frame, not once at warmup. A room dimmed after startup is
+            # the silent failure in CLAUDE.md section 21, and one warmup
+            # reading cannot see it.
+            #
+            # This is luma grey. The startup exposure line above averages the
+            # three BGR channels instead, so the two run a few units apart on
+            # the same frame - compare a CSV row against another CSV row, not
+            # against the banner.
+            mean_grey = float(
+                cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean()
+            )
 
             # Rotate a COPY, for MediaPipe only. cv2.rotate returns a new
             # array, so `frame` stays raw and nothing downstream can pick up
@@ -393,6 +498,8 @@ def run(args):
             else:
                 client.send_message("/hand/none", [])
 
+            log.record(mean_grey, len(hands))
+
             frames += 1
             now = time.perf_counter()
             elapsed = now - last_report
@@ -403,12 +510,20 @@ def run(args):
     except KeyboardInterrupt:
         print("\nstopped")
     finally:
+        log.close()
+        print(f"detection log    : {log.frame_idx} frames written to "
+              f"{log.path}")
         landmarker.close()
         cap.release()
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--label", required=True,
+                   help="what the operator is doing this run, e.g. open or "
+                        "fist. Written verbatim into every CSV row and into "
+                        "the log filename - it is never inferred from the "
+                        "landmarks")
     p.add_argument("--camera", type=int, default=0, help="camera index")
     p.add_argument("--backend", choices=("msmf", "dshow", "any"),
                    default="msmf" if sys.platform == "win32" else "any")
@@ -423,6 +538,11 @@ def main():
                    help="CAP_PROP_AUTO_EXPOSURE; 0.25 manual, 0.75 auto")
     p.add_argument("--min-mean-grey", type=float, default=60.0,
                    help="warn below this average frame brightness")
+    p.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR,
+                   help="where the per-frame detection CSV is written")
+    p.add_argument("--report-interval", type=float, default=5.0,
+                   help="seconds per rolling mean grey / detection rate "
+                        "summary on stderr")
     p.add_argument("--homography", type=Path, default=DEFAULT_HOMOGRAPHY)
     p.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     p.add_argument("--osc-host", default="127.0.0.1")
@@ -436,6 +556,15 @@ def main():
                    help="allowance on top of the recorded reprojection error "
                         "when confirming the matrix direction")
     args = p.parse_args()
+
+    # The label goes into a filename as well as into every row, so a slash or a
+    # colon in it would fail at file-open time with an OS error that says
+    # nothing about the label. Say it here instead.
+    if not args.label or not all(c.isalnum() or c in "-_" for c in args.label):
+        raise TrackerError(
+            f"--label {args.label!r} must be non-empty and contain only "
+            f"letters, digits, dash or underscore - it names the log file"
+        )
 
     run(args)
 

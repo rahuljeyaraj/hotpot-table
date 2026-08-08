@@ -2,3 +2,8 @@
 # from Google's own URL, which is the authoritative copy - vendoring it here
 # would only add a binary to clone and a second thing to keep current.
 hand_landmarker.task
+
+# Per-frame detection CSVs. Measurements of one session on one rig, written
+# every run - they are evidence for a question being asked now, not state the
+# repo has to carry, unlike homography.json or bin_offsets.json.
+logs/
