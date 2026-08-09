@@ -1286,10 +1286,12 @@ void ofApp::drawBinLabels(){
 		// this table's "$" belongs to is read, and because it is what tells the
 		// diner at a glance that the line is money at all and not a weight.
 		//
-		// Two decimals stays. Prices are all 0.00 today, but the width of this
-		// string is what the strip has to fit, and sizing the layout against a
-		// shorter string than the one real prices will produce would move the
-		// overflow to the day the numbers arrive.
+		// Two decimals, always, including on a whole number. The width of this
+		// string is what the strip has to fit, so a price that dropped its
+		// trailing zeros would make the layout depend on the digits in the
+		// menu - fine until someone prices something at 3.05 and the column
+		// jumps. The prices in the file are placeholders, not a real menu, so
+		// the widest one it has today is not the widest one it will have.
 		const std::string priceStr = currency + ofToString(ing.pricePer100g, 2) + " / 100g";
 
 		// Ink boxes, not advance widths: centring on the advance leaves the
@@ -1412,10 +1414,11 @@ void ofApp::drawCart(){
 		}
 
 		// Whole grams, two decimals on the money. The two decimals are
-		// load-bearing for the same reason they are on the bin labels: every
-		// price is 0.00 until a real menu lands, and sizing this strip against
-		// the narrow string zeros happen to make would move the overflow to the
-		// day the numbers arrive.
+		// load-bearing for the same reason they are on the bin labels: the
+		// column width is measured off these strings, so letting a price drop
+		// its trailing zeros would let the menu's digits move the layout. The
+		// prices in the file are placeholders, so the widest string it can
+		// produce today is not the widest it will ever produce.
 		lines.push_back({
 			ingredients[i].name,
 			ofToString(removed, 0) + " g",
