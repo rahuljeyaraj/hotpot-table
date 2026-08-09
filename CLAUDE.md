@@ -5,6 +5,145 @@ Ground truth for any Claude Code instance starting without context.
 
 ---
 
+## 0. ARCHITECTURE — the Python core owns state, oF renders
+
+> **This section supersedes the "openFrameworks is the hub" assumption that runs
+> through the rest of this file.** Sections written before it — §2, §4, §10,
+> §11, §14, §17, §22 — still describe *behaviour* correctly and were written
+> against observed results, but several of them attribute that behaviour to the
+> wrong process. **Where a section and this one disagree about which process
+> owns a thing, this one wins. Where they disagree about what the thing does,
+> the older section wins.**
+>
+> Numbered §0 rather than inserted as a new §2 so that the ~44 existing `§n`
+> cross-references elsewhere in this file stay valid.
+
+### 0.1 The split
+
+openFrameworks is no longer the hub. A single **Python core process** owns all
+state and all logic. openFrameworks becomes a **renderer**.
+
+| Process | Owns |
+|---|---|
+| **Python core** — one process | MediaPipe hand tracking, the food classifier, and **all session truth**: start weights, current weights, removed grams, the cart, prices, the bin map |
+| **openFrameworks** | pixels on the table, and nothing else |
+| **XIAO ESP32S3** | reads 8 load cells and prints raw counts. Nothing more (§0.7) |
+
+**One Python process, not three.** Hand tracking and the classifier sit inside
+the core rather than beside it because both feed decisions the core has to make:
+the classifier is gated on a settled-weight signal, and that signal comes out of
+the same loop that owns the weights. Splitting them would mean shipping the
+weights back out to whoever owned the gate.
+
+### 0.2 What oF receives, and what it is allowed to keep
+
+oF receives **semantic state** — per bin: item name, price, weight, highlight
+state; plus the cart total — and turns it into pixels. It does not compute any
+of those values and does not know how they were derived.
+
+The only state oF may hold is **frame-to-frame tweening**: highlight fades,
+cursor easing, the fluid sim. Every item on that list exists to smooth this
+frame into the next and is meaningless to anyone else.
+
+**The rule: oF holds no state with memory that another consumer would want to
+read.** The test is not "is it small" or "is it cheap to recompute" — it is
+"would a second reader ever ask for this value". A cart total, a start weight, a
+deadbanded reading all fail that test, because the staff view (§0.5) is exactly
+that second reader. A halo's current alpha passes it.
+
+### 0.3 The 10 g display deadband MOVES to Python
+
+The deadband described in §14 is unchanged in *behaviour*. It changes *process*.
+
+**Why it has to move:** the staff view shows the true weight while the projector
+shows the deadbanded value. Those are two renderings of one number, so the
+number must have one owner. With the deadband living in oF, the projector would
+hold the only copy of the deadbanded value and the staff view would have no way
+to ask what the diner is currently being shown.
+
+Everything §14 says about it still holds and still gets broken the same way:
+
+- It is **display only**. It never enters the price arithmetic.
+- It gates *when* the displayed value catches up, and **snaps to the current
+  true weight** — never to the threshold, never to the old value plus a step.
+- Nothing is discarded, only delayed, so **small picks accumulate**: two 6 g
+  picks hold at 6, then cross at 12, and the display snaps the full 12 g.
+
+### 0.4 Table geometry in mm is shared truth, owned by neither side
+
+The bin layout in millimetres is the one thing both processes need and neither
+owns. Each side owns its own mapping out of it:
+
+| Owner | Artefact |
+|---|---|
+| openFrameworks | the **projector** homography, and `bin_offsets.json` (§17) |
+| Python core | the **camera** homography (`tools/calibration/homography.json`, §16) |
+| neither — shared | the table geometry in mm (`BINS[]` in `TableGeometry.h`, §17) |
+
+**Camera-space bin rectangles serve two consumers at once**: the classifier's
+ROI crops (§10) and the staff view's overlay (§0.5). That is one derivation
+inside Python, used twice — not two independent guesses at where a bin is.
+
+§17's rules are untouched by this. `BINS[]` is still CAD and still must never be
+edited to fix physical alignment; `bin_offsets.json` is still as-built rig state
+on the projector side, and re-solving the projector homography still invalidates
+it from scratch.
+
+### 0.5 The staff view — a browser page served by the Python core
+
+A web page served by the core, opened on a normal screen. It is both the
+operator's window into the table and the control surface for staff mode.
+
+**Video:** raw camera **MJPEG at full resolution and full frame rate**, with an
+HTML `<canvas>` overlay drawn client-side on top. Nothing is composited
+server-side — the core sends frames and sends state, and the browser draws the
+overlay.
+
+**The canvas must be sized to the camera resolution and scaled with CSS. Never
+size it to display pixels.** The overlay is drawn in camera coordinates, which
+is what the bin rectangles in §0.4 are already in. Sizing the canvas to the
+element's on-screen size makes every overlay coordinate depend on the browser
+window, so the boxes drift off the bins when the window is resized — and it
+looks like a calibration fault, not a layout bug.
+
+Shows:
+- per-bin **item name** and **current weight**
+- **cart contents**
+- **low stock alerts**
+- toggles for **hand tracking output** and **classifier output**
+- the **training capture button** (§10)
+
+### 0.6 Staff mode no longer needs projected UI
+
+Staff mode now lives on the staff view, so the projector does not need a staff
+interface at all. **The projector's entire staff-mode obligation is a "closed,
+please wait" state.**
+
+This is a straight reduction in the deferred staff mode scope: no projected
+menus, no dwell-timer admin buttons, no second UI mode to lay out on the table.
+
+### 0.7 Load cell firmware is one-directional and as dumb as possible
+
+XIAO ESP32S3 over USB serial. It **reads 8 cells and prints raw counts,
+continuously.** That is the whole firmware.
+
+**Not in the firmware, deliberately:** no tare, no command handling, no NVS, no
+calibration factors, no settled detection.
+
+**Nothing ever sends anything to the XIAO.** The link is one-directional. A
+firmware with no input has no command parser to get out of sync with the host,
+no stored state to go stale against a reflash, and no mode the host can put it
+into and then forget about.
+
+- **Per-cell calibration factors live in a JSON on the Python side**, next to
+  `bin_map.json` (§11). Recalibrating is editing a file the host already reads,
+  not reflashing a microcontroller.
+- **Python decides what counts as settled**, because Python also owns the
+  classifier gate that consumes that signal (§0.1, §10). Settled detection in
+  the firmware would put the trigger in one process and its consumer in another.
+
+---
+
 ## 1. What this project is
 
 A self-serve hotpot ingredient table for the Seeed Interactive Signage Contest 2026.
@@ -26,11 +165,11 @@ Contest judging axes: Technology, Interaction, Materials, Function.
 
 | Part | Role |
 |---|---|
-| Host PC (dev) / reComputer x86 (target) | Everything: UI, fluid sim, hand tracking, vision, voice |
-| 1× USB camera, mounted vertically overhead | Hand tracking AND food classification AND mic |
+| Host PC (dev) / reComputer x86 (target) | Everything: Python core (state, tracking, vision, voice, staff view) + oF renderer (§0) |
+| 1× USB camera, mounted vertically overhead | Hand tracking AND food classification AND staff view video AND mic |
 | 8× CZL-611N 1 kg cantilever load cells | Weight per bin |
 | 8× HX711 amplifier boards | Load cell ADC |
-| XIAO ESP32S3 | Load cell aggregator → USB serial to host |
+| XIAO ESP32S3 | Load cell aggregator → raw counts over USB serial to host, one-directional (§0.7) |
 | Overhead projector | UI output |
 
 **One camera only.** No Grove Vision AI modules — they were dropped from the
@@ -80,13 +219,21 @@ light, a camera beside it can see.
 
 ## 4. Software stack
 
-- **openFrameworks 0.12.1** — main app, C++
+- **Python core** — one process, owns all state and logic (§0)
+- **openFrameworks 0.12.1** — renderer, C++
 - **ofxFlowTools** — GPU fluid simulation
 - **ofxGui** — required, ofxFlowTools references it
-- **MediaPipe Hands** (Python) — two hands, lightest model
-- **OSC** — MediaPipe → openFrameworks
-- **JSONL over USB CDC** — XIAO → host
+- **MediaPipe Hands** (inside the Python core) — two hands, lightest model
+- **OSC** — Python core → openFrameworks. It now carries **semantic state**
+  (§0.2), not just hand coordinates
+- **HTTP + MJPEG** — Python core → staff view browser page (§0.5)
+- **JSONL over USB CDC** — XIAO → host, raw counts, one-directional (§0.7)
 - Voice: openWakeWord or Porcupine on host, using the webcam's own mic
+
+**MediaPipe is no longer a separate service talking to oF over OSC.** It is a
+component of the core, and the core is what talks to oF. `track_hands.py` (§16,
+§21) is where that code and its exposure rules live today; folding it into the
+core does not change any of the camera rules in §16.
 
 ### `mediapipe.solutions.hands` does not exist any more
 Every tutorial, and an earlier version of this file, says to use
@@ -325,15 +472,16 @@ it into the main app.
 
 ---
 
-## 10. Food classification — event-driven only
+## 10. Food classification — per-bin, event-driven only
 
-Vision runs on the host CPU/GPU shared with the fluid sim and MediaPipe.
+Vision runs inside the Python core (§0.1), on the host CPU/GPU shared with
+MediaPipe, and on a host that is also running the fluid sim in the oF process.
 **Never run per-frame inference across the whole table.**
 
 Pattern:
 ```
-load cell reports settled weight change on bin N
-  → crop bin N's ROI from the latest camera frame
+load cells report a settled weight change on bin N   (settled decided in Python, §0.7)
+  → crop bin N's ROI from the latest camera frame    (camera-space bin rect, §0.4)
   → run ONE inference
 ```
 
@@ -341,20 +489,67 @@ Roughly one 224×224 inference per pick, instead of 30/sec across 8 bins.
 
 Resolution is sufficient: at 1080p each tray occupies ~145 × 215 px.
 
-### Model
+### It is CLASSIFICATION now, not object detection
+
+**The model gets 8 separate cropped images and answers "what is in this
+picture". It does not draw bounding boxes and is never asked where anything is.**
+
+Bin positions are already known geometrically (§0.4, §17) to within a few mm.
+A detector spends its capacity re-deriving a location the table has measured,
+on a crop where there is only ever one thing to find — and then that derived box
+becomes a second, worse answer to a question `bin_offsets.json` has already
+answered. Localisation is geometry here, not vision.
+
+**A confidence floor gates billing.** Below the floor the bin is treated as
+**unresolved**: it draws empty and it never bills. That lands it in exactly the
+existing unresolved path in §11 — no name, no price, no cart line — which is
+already the behaviour for a `null` map entry and for an unknown id. A low
+confidence guess is the same category of thing as an empty bin, and both must
+cost the diner nothing.
+
+### Classes
+
 Roboflow project `tray-detector`, workspace `rahuls-workspace-mqtgo`.
 
 8 classes: `bowl`, `curly_noodle`, `long_noodle`, `dried_prawns`, `mushroom`,
 `egg`, `soya_chunks`, `tray` (= empty bin).
 
-A `tongs` class was tried and **removed** — pickup and put-back are detected by
-load cell weight change, not vision.
+- **`tray` stays.** It is not a leftover from the detector — an empty tray is
+  how a bin reads as unresolved, so the model needs a way to say "nothing here"
+  that is not a low-confidence guess at food.
+- **`bowl` likely drops.** The bowl never appears inside a bin crop, so under
+  per-bin classification it is a class that can never be the right answer.
+- A `tongs` class was tried and **removed** — pickup and put-back are detected by
+  load cell weight change, not vision.
 
-Training history:
+### The existing 206 images convert, they do not need recapturing
+
+The annotated set (206 images, §10 *Annotation*) becomes a classification
+dataset by **cropping each bounding box out into a class folder**. The boxes
+that are being thrown away as an output are still perfectly good as a *cropping
+instruction* for building the new dataset.
+
+Detector training history, kept because it is what the conversion inherits:
 - Run 1 (25 epochs, YOLO Small, COCO pretrained): mAP@50 46.9%, P 29.2%, R 55.5%
 - Run 2 (~100 effective epochs, early-stopped): mAP@50 88.9%, P 100%, R 86.5%, F1 90%
 
-Next: retrain after tongs deletion; `tray` class is the weak one.
+### Training capture, from the staff view
+
+The staff view (§0.5) carries a **training capture button**. One press saves
+**all 8 bin crops to a single flat folder**, with the bin index and a timestamp
+in each filename.
+
+**The crops are NOT auto-labelled from `bin_map.json`.** Ingredients get
+rearranged during a capture run — that is the point of a capture run — so the
+bin map is **stale by definition** at exactly the moment the button is useful.
+Auto-labelling would produce a dataset that is confidently wrong in a way
+nothing downstream can detect. Sorting into class folders is manual, afterwards.
+
+Flat folder, not per-bin subfolders, for the same reason: bin index is capture
+provenance, not a label, and a directory tree that looks like a label invites
+someone to treat it as one.
+
+**Blocked on the in-bin weight text coming out first — see §22 CARRIED DEBT.**
 
 ### Annotation
 SAM3 Auto-Label **failed** — it matches shape and texture, not identity, so
@@ -387,11 +582,25 @@ annotation (206 images) was both faster and more accurate.
 - Each of the 8 modules is **fully independent** — no shared rigid base — so
   real plywood cutout positions can deviate from CAD. Use slotted mounting holes.
 
+### Firmware — see §0.7
+The XIAO reads the 8 cells and prints **raw counts**, continuously, and does
+nothing else. No tare, no commands, no NVS, no calibration factors, no settled
+detection, and nothing is ever sent *to* it.
+
+**Per-cell calibration factors are a JSON on the Python side, next to
+`bin_map.json`.** Counts → grams is a host-side multiply, so recalibration is a
+file edit, never a reflash. Taring is likewise host-side: it is an assignment
+into `startWeightGrams[]` (§14), which is why that array is named separately.
+
+**Python decides settled**, because Python owns the classifier gate that
+consumes the signal (§10).
+
 ### Pricing
 - Priced per gram, displayed rounded to 25 g steps
 - Quantise **cumulative removed weight**, not individual picks
 - Hysteresis at step boundaries to stop flicker
-- ~10 g detection deadband
+- ~10 g display deadband — **owned by Python** (§0.3), display only, never in
+  the price arithmetic
 
 ### The menu is TWO files: a catalogue and a bin map
 
@@ -408,6 +617,14 @@ as `bin_offsets.json`. It says what is in each bin *right now*.
 | `bin/data/ingredients.json` | catalogue: everything the table can price | yes | hand |
 | `bin/data/bin_map.default.json` | the seed for the live map | yes | hand |
 | `bin/data/bin_map.json` | the live map | **no, gitignored** | seeded from the default on first run; the classifier from stage 3 |
+| load cell calibration JSON, alongside `bin_map.json` | counts → grams, per cell | as-built rig state, same category as `bin_offsets.json` | hand, from a calibration run (§0.7) |
+
+**Under §0 the catalogue, the map and the calibration file are all read by the
+Python core.** Prices and resolved names reach oF as semantic state (§0.2); oF
+no longer loads or reasons about any of the three. §11's rules below describe
+the loading behaviour that must survive that move — the no-fallback rule and the
+unresolved-bin path are about *what happens on bad data*, not about which
+process reads the file, and both still stand verbatim in Python.
 
 ```json
 // ingredients.json — order carries NO bin meaning, length is NOT 8
@@ -529,6 +746,12 @@ mocked — the whole question is whether the camera/projector loop feels right.
 Fluid comes **last**. If the halo lands 30 mm off the bin, you need to already
 know it isn't calibration.
 
+**§0 lands inside stage 3.** Stage 3 was always the stage that adds the load
+cells and the classifier; it now also moves session truth out of oF into the
+Python core (§22 CARRIED DEBT B) and adds the staff view (§0.5). The demoability
+rule is unchanged and is the constraint on how that move is sequenced: the table
+must still price a pick at every point during it.
+
 ### Stage 1 result (complete)
 Real hand, real dot, closed loop. Tracker 30 fps (camera-capped), oF 60 fps,
 both running together. Two hands tracked and told apart correctly.
@@ -610,9 +833,14 @@ running total instead of a weight, and that is the bug.
 `startWeightGrams[]` is its own named array precisely because it is what a tare
 overwrites: with real load cells, taring is an assignment into it, not an edit.
 
+**This logic is scheduled to move to Python (§0.1, §22 CARRIED DEBT).** The
+behaviour below is settled and observed on the table; only its home changes.
+Nothing in the pricing model changes with the move — cumulative, linear, no
+put-back branch.
+
 ### The 10 g deadband is DISPLAY ONLY, and this is the part that gets broken
 
-It gates *when* `displayedWeightGrams[]` catches up to the true weight. It never
+**Moving to Python — see §0.3 for why.** It gates *when* `displayedWeightGrams[]` catches up to the true weight. It never
 enters the price arithmetic. The version it keeps getting "simplified" into:
 
 ```cpp
@@ -803,13 +1031,13 @@ surround the UI needs.
 hotpot-table/
 ├── CLAUDE.md
 ├── README.md
-├── src/                    oF app
-├── bin/data/               fonts, shaders, calibration.json
+├── src/                    oF renderer
+├── bin/data/               fonts, shaders, calibration.json, menu + rig JSON
 ├── services/
-│   ├── hands/              MediaPipe → OSC
-│   ├── vision/             classifier, event-driven
+│   ├── hands/              MediaPipe — folds into the core (§0.1)
+│   ├── vision/             classifier, event-driven, per-bin (§10)
 │   └── voice/              keyword spotting
-├── firmware/loadcells/     PlatformIO, XIAO ESP32S3
+├── firmware/loadcells/     PlatformIO, XIAO ESP32S3 — raw counts only (§0.7)
 ├── calibration/
 ├── experiments/            one folder per experiment, dated
 ├── models/
@@ -969,16 +1197,42 @@ and writing the branch would be the bug.
   still exists and still reaches `HOVERED`; nothing consumes it.
 
 **New debt this work created, both known and deliberate:**
-- **The in-bin weight readout draws ink inside the cutouts**, which is the one
-  thing §8 forbids. It is there because a keyboard mock nobody can read off the
-  table is useless, and it **must come out before the retrain capture** (item 1)
-  — a dataset captured with a number burnt across the food is precisely the §8
-  contamination failure.
+- **The in-bin weight readout draws ink inside the cutouts** — see CARRIED DEBT
+  below, where this item now has a second and harder deadline.
 - **Holding a put-back key inflates a bin past its start weight.** oF fires
   `keyPressed` on key auto-repeat, so a held `q` puts back dozens of times;
   Curly Noodles was driven to ~2827 g this way. The cart correctly drops the
   line (removed clamps to 0), so nothing is mispriced — but it is worth knowing
   before demoing, and a real load cell cannot be pumped this way.
+
+### CARRIED DEBT
+
+Work that is owed, accepted, and not yet done. Both items below are consequences
+of §0 or gate something in it.
+
+**A. The in-bin weight text must come out before the training capture button
+exists.** The weight readout draws ink inside the tray cutouts, which is the one
+thing §8 forbids. It already owed removal before the retrain capture (item 1
+above); §10's capture button makes that deadline harder and earlier, because the
+button saves the bin crops *as they appear*. Ship the button first and every
+image in the folder has a number burnt across the food — permanently, in the
+dataset, discoverable only after training. **Order is: remove the text, then
+build the button.** Not the reverse, and not the same commit.
+
+**B. Stage 2 pricing logic currently in oF is scheduled to move to Python.**
+`startWeightGrams[]`, `removedGrams`, the 10 g display deadband and the cart all
+live in `src/ofApp.cpp` today (§14). Under §0 they are session truth and belong
+in the core. **The rework is accepted and is not yet done.** It is real work
+being knowingly deferred, not an oversight, and it is not a rewrite of the
+model — the arithmetic moves across unchanged:
+
+> `removed = startWeight - currentWeight`, clamped at 0;
+> `price = (removed / 100.0) * pricePer100g`.
+> **Cumulative and linear. No put-back branch, no refund branch.**
+
+If the move ever appears to need a refund branch, the port has started tracking
+a running total instead of two absolute weights, and that is the bug — §14 says
+so about the original and it is equally true of the translation.
 
 ### Still unresolved (not blocking)
 
@@ -1001,8 +1255,9 @@ and writing the branch would be the bug.
   neither has been edited to agree with the other. This is one decision that
   settles §8, §21 and the retrain capture conditions together, so it should be
   made deliberately rather than absorbed into whichever section is edited next.
-- **Classifier retrain is mandatory** — ambient-lit weights plus the tongs
-  deletion (§10). Capture under projector white, *after* item 1 above.
+- **Classifier retrain is mandatory** — ambient-lit weights, the tongs deletion,
+  and now the move from detection to per-bin classification (§10). Capture under
+  projector white, *after* item 1 above and *after* CARRIED DEBT A.
 - Brightness floor is 50%. 25% has not been measured.
 - MediaPipe takes ~1 s to acquire a hand, against `HOVER_DWELL_MS` of 1000 ms.
   Those two numbers are the same size, which makes the dwell threshold
@@ -1022,5 +1277,8 @@ and writing the branch would be the bug.
 - Bench test: do thermocol cubes clear the load cell detection floor?
 - Rotating hint line ("say show veg") for filter discoverability — undecided
 - Order finalisation: how does "diner is done" get signalled?
-- Kitchen hand-off: how does the finished list reach staff?
+- Kitchen hand-off: how does the finished list reach staff? The staff view (§0.5)
+  is now the obvious place, but nothing about the hand-off itself is decided.
+- Confidence floor value for the classification gate (§10) — the *rule* is
+  settled, the *number* is not, and it cannot be picked before the retrain.
 - Broth selection: one-time at session start, or changeable mid-session?
