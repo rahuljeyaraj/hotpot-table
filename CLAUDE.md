@@ -419,10 +419,20 @@ The file was a bare top-level array until step 2k; it was wrapped in an object
 to give the currency somewhere to live that is not inside one of the entries.
 Any loader written against the old shape needs updating.
 
-**All eight prices are still 0.0 pending a real menu.** The price line is
-`currency + price + " / 100g"` with two decimals, and the two decimals are
-load-bearing: the label strip is sized against the width real prices will
-produce, not the narrower one zeros happen to make.
+**All eight prices are PLACEHOLDERS, not a priced menu.** They were 0.0 until
+step 3b needed something to multiply — every line and every total read $0.00,
+so the grams were exercised and the multiply was not. The current numbers
+(0.80–3.20 per 100 g) exist to make the arithmetic visible and are not costed
+against anything. **Overwrite them before anyone reads a price off the table.**
+
+The price line is `currency + price + " / 100g"` with two decimals, and the two
+decimals are load-bearing: the label strip and the cart's price column are both
+sized off these strings, so a price allowed to drop its trailing zeros would let
+the menu's digits move the layout.
+
+**The currency is still `"$"` while the table is being built in Kerala.** Nobody
+has decided whether the demo prices in rupees or dollars; the field takes either
+and only the one field has to change.
 
 ---
 
@@ -466,7 +476,7 @@ The system must be demoable at stage 2, and stay demoable through every later sw
 | Stage | Hand | Weight | Ingredient ID | Visuals |
 |---|---|---|---|---|
 | 1 Loop ✅ | real | — | — | one dot |
-| 2 Mocks — UI substrate ✅, weight mocks next | real | keyboard 1–8 | hardcoded | flat bins |
+| 2 Mocks ✅ | real | keyboard 1–8 | hardcoded | flat bins |
 | 3 Sensors | real | load cells | classifier | flat bins |
 | 4 Polish | real | load cells | classifier | fluid, blob, voice |
 
@@ -523,6 +533,67 @@ uncommenting it cannot silently put a diagonal back across the hover line.
 
 **Verified in the framebuffer only.** The projected surface has NOT been
 inspected by eye — see §22 item 1 for everything that check still owes.
+
+### Stage 2 weight mocks and pricing (complete) — `dc4fc55` → `0c30ab2`
+
+| commit | what |
+|---|---|
+| `dc4fc55` | keyboard mock weight source, one current weight per bin |
+| `0c30ab2` | pricing from cumulative removed weight, 10 g display deadband, cart |
+
+**Verified on the projected surface**, not just the framebuffer — the first
+thing in this project that has been.
+
+Keys: `1`–`8` pick from bins 0–7, `q w e r t y u i` put back into the same
+eight. Unshifted on purpose — oF hands `keyPressed` the layout-translated
+codepoint, so `Shift+1` arrives as `!` on a US layout and as something else
+elsewhere, and a shifted-number mapping would need one symbol table per
+keyboard.
+
+**Event sizes cycle through 45, 6, 120, 3, 25, 80 g** rather than being one
+constant, because every pricing decision is about the size of a weight change.
+3 and 6 sit under the deadband, 25 lands exactly on a future quantiser step,
+120 is nearly five steps at once. Six sizes against eight bins so the phases
+differ. A single-constant mock lets all of that be written and none of it
+exercised.
+
+**The model is cumulative and there is no put-back branch.** `removedGrams` is
+`startWeightGrams[i] - weight`, clamped at 0 — two absolute weights subtracted,
+so a dropped or doubled event cannot bake in. A put-back raises the weight,
+lowers the difference, lowers the total. The refund IS the arithmetic. If a
+refund branch ever looks necessary, something upstream has started tracking a
+running total instead of a weight, and that is the bug.
+
+`startWeightGrams[]` is its own named array precisely because it is what a tare
+overwrites: with real load cells, taring is an assignment into it, not an edit.
+
+### The 10 g deadband is DISPLAY ONLY, and this is the part that gets broken
+
+It gates *when* `displayedWeightGrams[]` catches up to the true weight. It never
+enters the price arithmetic. The version it keeps getting "simplified" into:
+
+```cpp
+if(fabs(delta) < 10) ignore the event      // WRONG
+```
+
+throws small movements away. The real one only makes them **wait**. Two 6 g
+picks: the per-event version discards both and charges nothing; the real one
+holds at a 6 g gap, then the second makes it 12 g, which crosses, and the
+display snaps to the full 12 g. Nothing is discarded — it arrives late.
+
+The snap is to the **current true weight**, never to the threshold or to the old
+value plus a step. That is what keeps every stored value a weight that really
+existed, so pricing off it is exact arithmetic on a slightly old reading rather
+than approximate arithmetic on a reading nobody ever took.
+
+**Observed on the table:** Dried Prawns read 452 g in the bin while the cart
+said 45 g removed, i.e. 500 − 455. Three grams of true movement being held. That
+is the deadband doing its job, and it is the only way to see it working.
+
+**It has no visible upside yet.** With a keyboard there is no noise, so it only
+ever looks like lag. It earns itself when the HX711s arrive and the alternative
+is a total twitching at 60 fps on sensor jitter. 10 g is §11's guess and is owed
+a measurement of the real noise floor.
 
 ---
 
@@ -838,12 +909,33 @@ bin's width until it must trip, confirm the log line appears, revert. Owed
 before labels move and before the dataset is captured — the failure it catches
 is black text landing on food, which contaminates the capture directly.
 
-**3. Keyboard 1–8 fake picks → settled weight delta.** Then the pricing FSM:
-10 g deadband, 25 g quantise on *cumulative* weight, hysteresis at the step
-boundaries, and put-back handling (a weight *increase* must refund, not be
-ignored). Then cart render in the centre column's back half, and a popup on
-`HOVERED`. This is the actual stage 2 mock work; §14's substrate is only what
-it draws onto.
+**3. ~~Keyboard fake picks, cumulative pricing, deadband, cart.~~ DONE** —
+`dc4fc55`, `0c30ab2`, written up in §14. Note the framing in the old version of
+this item was wrong in one place and it is worth keeping the correction: it said
+put-back "must refund, not be ignored", which reads as a branch to write. It is
+not. Under a cumulative model the refund is what the subtraction already does,
+and writing the branch would be the bug.
+
+**What is left of the original item:**
+- **25 g quantiser on the displayed cumulative figure.** Deliberately not built.
+  Price is linear in weight today, and the quantiser is a change to what is
+  *shown*, never to the arithmetic — same rule the deadband follows.
+- **Hysteresis at the step boundaries.** Only meaningful once the quantiser
+  exists; there are no step boundaries to sit on before then.
+- **Hover popup on `HOVERED`, and order finalisation.** Untouched. `HoverState`
+  still exists and still reaches `HOVERED`; nothing consumes it.
+
+**New debt this work created, both known and deliberate:**
+- **The in-bin weight readout draws ink inside the cutouts**, which is the one
+  thing §8 forbids. It is there because a keyboard mock nobody can read off the
+  table is useless, and it **must come out before the retrain capture** (item 1)
+  — a dataset captured with a number burnt across the food is precisely the §8
+  contamination failure.
+- **Holding a put-back key inflates a bin past its start weight.** oF fires
+  `keyPressed` on key auto-repeat, so a held `q` puts back dozens of times;
+  Curly Noodles was driven to ~2827 g this way. The cart correctly drops the
+  line (removed clamps to 0), so nothing is mispriced — but it is worth knowing
+  before demoing, and a real load cell cannot be pumped this way.
 
 ### Still unresolved (not blocking)
 
