@@ -4,6 +4,10 @@
 #include "ofxOsc.h"
 #include "TableGeometry.h"
 
+#include <map>
+#include <string>
+#include <vector>
+
 class ofApp : public ofBaseApp{
 
 	public:
@@ -144,14 +148,49 @@ class ofApp : public ofBaseApp{
 		// fallback is a second source of truth that silently wins whenever the
 		// file is wrong, and a table showing the wrong price is worse than a
 		// table showing none.
+		//
+		// TWO FILES, TWO DIFFERENT KINDS OF FACT. ingredients.json is the
+		// CATALOGUE: every item the table knows how to price, keyed by id,
+		// in no particular order and with no idea where anything is. bin_map
+		// .json says which of those ids is in which bin, and that is the part
+		// that changes - by hand today, by the classifier at stage 3. Keeping
+		// them apart is what lets a bin's contents change without touching a
+		// price, and a price change without touching the table's layout.
 		struct Ingredient {
+			// The catalogue key, and the same string the classifier reports.
+			// Empty on an unresolved bin, along with everything else here.
+			std::string id;
 			std::string name;
 			float pricePer100g = 0.0f;
+
+			// False means this bin has NOTHING in it as far as the app is
+			// concerned - its map entry was null, or named an id the
+			// catalogue does not have. Not an error state and not a partial
+			// load: an empty bin is a thing a real table has. It draws no
+			// name and no price, and it must never appear in the cart. Given
+			// its own flag rather than inferred from an empty name so that
+			// "we do not know what is in here" cannot be confused with a
+			// catalogue entry that happens to be badly filled in.
+			bool resolved = false;
 		};
 
-		// Exactly BIN_COUNT entries once loaded, empty if the file was missing
-		// or unusable. Empty means nothing is drawn - see above.
+		// Exactly BIN_COUNT entries once loaded, empty if either file was
+		// missing or unusable. Empty means nothing is drawn - see above. An
+		// individual unresolved bin does NOT empty this: it is one bin drawn
+		// blank, not a broken menu.
 		std::vector<Ingredient> ingredients;
+
+		// The two halves of that load. Both return false and log the reason on
+		// any structural fault, which leaves `ingredients` empty and every
+		// label undrawn - the section 11 rule, unchanged. What they do NOT
+		// treat as a fault is a bin with nothing in it; that is resolution's
+		// business, above.
+		bool readCatalogue(std::map<std::string, Ingredient> & byId,
+			std::string & currencyOut) const;
+
+		// One id per bin, index = bin number, "" for a null entry. Seeds
+		// bin_map.json from bin_map.default.json if it does not exist yet.
+		bool readBinMap(std::vector<std::string> & binIds) const;
 
 		// The symbol in front of every price. ONE field for the whole file, not
 		// one per ingredient, because a table cannot be priced in two currencies

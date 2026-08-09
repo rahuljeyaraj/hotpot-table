@@ -393,22 +393,65 @@ annotation (206 images) was both faster and more accurate.
 - Hysteresis at step boundaries to stop flicker
 - ~10 g detection deadband
 
-### `bin/data/ingredients.json` is the menu, and it is an object not an array
-This is **DATA, not rig state** — unlike `bin_offsets.json` (§17) it describes
-the menu, not this particular table, and it is edited by hand rather than by
-nudge keys. It is the **only** place names, prices and the currency live.
+### The menu is TWO files: a catalogue and a bin map
 
-**The loader is `loadIngredients()` at `src/ofApp.cpp:596`, and it has no C++
-fallback. Do not add a default.** Every failure path — missing file, wrong
-shape, missing or empty `currency`, a bad or duplicated entry — leaves all
-eight labels undrawn and logs the reason. A fallback is a second source of
-truth that silently wins exactly when the first is broken, which is exactly
-when nobody is watching. A blank label strip is a visible fault; the wrong
-price is not.
+`ingredients.json` is **DATA, not rig state** — unlike `bin_offsets.json` (§17)
+it describes the menu, not this particular table, and it is edited by hand
+rather than by nudge keys. It is the **only** place names, prices and the
+currency live.
+
+`bin_map.json` is the opposite: it is **as-built state**, in the same category
+as `bin_offsets.json`. It says what is in each bin *right now*.
+
+| file | is | committed? | written by |
+|---|---|---|---|
+| `bin/data/ingredients.json` | catalogue: everything the table can price | yes | hand |
+| `bin/data/bin_map.default.json` | the seed for the live map | yes | hand |
+| `bin/data/bin_map.json` | the live map | **no, gitignored** | seeded from the default on first run; the classifier from stage 3 |
 
 ```json
-{ "currency": "$", "ingredients": [ { "bin": 0, "name": "...", "price_per_100g": 0.0 }, ... ] }
+// ingredients.json — order carries NO bin meaning, length is NOT 8
+{ "currency": "$", "items": [ { "id": "curly_noodle", "name": "...", "pricePer100g": 0.0 }, ... ] }
+
+// bin_map.json — index IS the bin number, exactly 8 entries, null = empty bin
+{ "bins": ["curly_noodle", null, ...] }
 ```
+
+**Split so that a bin's contents can change without touching a price.** Before
+step 2a one array did both jobs: entry order was the menu *and* the bin
+assignment, so the classifier could not say "bin 3 now holds mushroom" without
+rewriting the prices alongside it. The catalogue is now the thing that changes
+rarely and by hand; the map is the thing a machine overwrites.
+
+**Ids match the Roboflow class names** (§10) wherever a class exists —
+`curly_noodle`, `long_noodle`, `dried_prawns`, `mushroom`, `egg`,
+`soya_chunks`. That is what lets the stage 3 classifier write a bare class
+string into the map and have it resolve with no translation table in between,
+and a translation table is exactly the thing that would let the model and the
+menu drift apart unnoticed. Tofu and Baby Corn have no class yet, so they carry
+plain ids in the same style — nothing in the file marks them as different, so
+the day those classes are trained the ids are already right.
+
+**`bin_map.json` is gitignored on purpose.** Committing it would make every run
+of the table produce a diff, and a merge would be two machines disagreeing
+about what was in a bin. The default is committed; it is the seed, and it is
+the only one of the pair anybody edits.
+
+**The loader is `loadIngredients()` in `src/ofApp.cpp`, over `readCatalogue()`
+and `readBinMap()`, and it has no C++ fallback. Do not add a default.** Every
+*structural* failure — missing file, wrong shape, missing or empty `currency`,
+a bad or duplicated id, a map that is not exactly 8 entries — leaves all eight
+labels undrawn and logs the reason. A fallback is a second source of truth that
+silently wins exactly when the first is broken, which is exactly when nobody is
+watching. A blank label strip is a visible fault; the wrong price is not.
+
+**An unresolved bin is NOT a structural failure.** A `null` map entry, or an id
+the catalogue does not have, means that one bin draws no name and no price,
+prices at zero, and never reaches the cart — `Ingredient::resolved` is false and
+both `drawBinLabels()` and `drawCart()` skip it. An empty bin is a thing a real
+table has. One log line per unresolved bin at startup, and only at startup.
+The weight readout still draws: there is a load cell under an empty bin too, and
+what it reads is not menu data.
 
 **Currency is one top-level field, never per-ingredient.** A table cannot be
 priced in two currencies at once, so eight copies would be eight chances to
@@ -942,6 +985,12 @@ and writing the branch would be the bug.
 - **Bins 6 and 7 are Tofu and Baby Corn.** Neither survives weeks at room
   temperature in Kerala, and neither has a Roboflow class (§10 lists eight
   classes, and these are not among them). The menu and the model disagree.
+  Step 2a made the disagreement *addressable* rather than fixing it: the two
+  now carry catalogue ids (`tofu`, `baby_corn`) in the Roboflow style, so
+  either the classes get trained under those names or the bins get mapped to
+  something else in `bin_map.json` — and neither move touches a price. Until
+  then a classifier reporting a class the catalogue lacks lands a bin in the
+  unresolved path (§11), which draws empty rather than guessing.
 - **§8 needs rewriting, not deleting.** The surviving rule is that bins need a
   known constant illuminant. Black was correct for a lit room, flat white is
   correct for a dark one, and the section currently states only the first as

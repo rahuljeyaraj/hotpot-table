@@ -111,7 +111,22 @@ namespace {
 	const char * kOffsetsFile = "bin_offsets.json";
 
 	// --- ingredient labels ---------------------------------------------------
-	const char * kIngredientsFile = "ingredients.json";
+	// The CATALOGUE. Every item this table knows how to price, keyed by id. It
+	// is not eight things and it is not in bin order - see readCatalogue().
+	// Still called ingredients.json because the file did not move; only its
+	// shape changed.
+	const char * kCatalogueFile = "ingredients.json";
+
+	// Which catalogue id is in which bin, right now. THE LIVE FILE: hand-edited
+	// today, overwritten by the classifier from stage 3, and git ignored for
+	// exactly that reason. It is a statement about this table this minute, the
+	// way bin_offsets.json is - not menu data.
+	const char * kBinMapFile = "bin_map.json";
+
+	// The seed, and the only one of the pair anybody edits deliberately. Copied
+	// to kBinMapFile on first run so a fresh clone comes up with the eight bins
+	// it has always had rather than with eight empty ones.
+	const char * kBinMapDefaultFile = "bin_map.default.json";
 
 	// DejaVu Sans Bold, committed to bin/data/fonts/ rather than pulled from a
 	// system path. The reComputer is Linux and the dev machine is Windows, and a
@@ -680,12 +695,18 @@ float ofApp::removedGrams(int bin, float weightGrams) const {
 // What `removedG` grams out of bin i costs.
 //
 // PRICES IN ingredients.json ARE PER 100 GRAMS. The field is called
-// price_per_100g and the label under every bin says "/ 100g", so the hundred
+// pricePer100g and the label under every bin says "/ 100g", so the hundred
 // below is the units of the file, not a scale factor anybody chose here.
 //
 // Linear in weight, deliberately: no quantiser, no step, no rounding to 25 g.
 // Section 11 wants the DISPLAYED figure stepped eventually, and that will be a
 // change to what is shown, not to this.
+//
+// An unresolved bin prices at zero here without a branch, because its
+// pricePer100g is the struct's own 0.0f and nothing ever wrote over it. The
+// caller skips it anyway - see drawCart - and this is the second of the two
+// places that have to agree, so that a bin with no ingredient cannot be charged
+// for through some path that forgot to ask.
 float ofApp::binPrice(int bin, float removedG) const {
 	if(bin < 0 || bin >= BIN_COUNT || (int)ingredients.size() != BIN_COUNT){
 		return 0.0f;
@@ -827,42 +848,62 @@ void ofApp::loadOffsets(){
 }
 
 //--------------------------------------------------------------
-// Reads bin/data/ingredients.json into `ingredients`, or leaves it empty.
+// Reads bin/data/ingredients.json - the CATALOGUE - into an id -> item lookup.
 //
-// EVERY failure path leaves it empty and logs an error. There is no partial
-// load and no default name, on purpose: the file is the single source of truth
-// for what is in the bins, and a C++ fallback would be a second one. A second
-// source only ever shows up when the first is broken, which is exactly when
-// nobody is watching for it - the table would look fine and read wrong. A blank
-// strip is a visible fault; "Mushroom" over a bin of prawns is not.
-void ofApp::loadIngredients(){
-	ingredients.clear();
-	currency.clear();
+// THE CATALOGUE IS NOT THE TABLE. It is the list of everything this table knows
+// how to price, and it says nothing at all about where any of it is. Its length
+// is not BIN_COUNT and must never be checked against it: an item can sit in the
+// catalogue for months before a bin holds it, and an item pulled from every bin
+// stays in the catalogue with its price intact. Its ORDER carries no meaning
+// either - nothing here or anywhere else may read position in this array as a
+// bin number. bin_map.json is the only thing that knows where anything is.
+//
+// EVERY failure path here returns false, leaving `ingredients` empty and every
+// label undrawn, with the reason logged. There is no partial load and no
+// default name, on purpose: the file is the single source of truth for what
+// things cost, and a C++ fallback would be a second one. A second source only
+// ever shows up when the first is broken, which is exactly when nobody is
+// watching for it - the table would look fine and read wrong. A blank strip is
+// a visible fault; "Mushroom" over a bin of prawns is not.
+//
+// IDS MATCH THE ROBOFLOW CLASS NAMES (CLAUDE.md section 10) wherever a class
+// exists: curly_noodle, long_noodle, dried_prawns, mushroom, egg, soya_chunks.
+// That is what lets the stage 3 classifier write a bare class string into
+// bin_map.json and have it resolve here with no translation table in between -
+// and a translation table is precisely the thing that would let the model and
+// the menu drift apart without anybody noticing. Tofu and Baby Corn have no
+// class yet (section 22 has that as an open item), so their ids are plain
+// lowercase names in the same style. Nothing distinguishes them in this file,
+// deliberately: the day those classes are trained, the ids are already right.
+bool ofApp::readCatalogue(std::map<std::string, Ingredient> & byId,
+		std::string & currencyOut) const {
+	byId.clear();
+	currencyOut.clear();
 
-	const std::string path = ofToDataPath(kIngredientsFile);
+	const std::string path = ofToDataPath(kCatalogueFile);
 
 	if(!ofFile::doesFileExist(path)){
 		ofLogError("ofApp") << "no " << path
 			<< " - bin labels will not be drawn. This file is the only place"
 			<< " ingredient names and prices live.";
-		return;
+		return false;
 	}
 
 	ofJson root = ofLoadJson(path);
 
-	// The file used to BE the array. It is now an object wrapping it, so that
-	// the currency has somewhere to live that is not inside one of the eight
-	// entries - see the field's comment in ofApp.h for why it must not be.
+	// The file used to BE the array. It is an object wrapping one so that the
+	// currency has somewhere to live that is not inside one of the entries -
+	// see the field's comment in ofApp.h for why it must not be.
 	if(!root.is_object()){
 		ofLogError("ofApp") << path << " is not a JSON object with \"currency\""
-			<< " and \"ingredients\" - bin labels will not be drawn";
-		return;
+			<< " and \"items\" - bin labels will not be drawn";
+		return false;
 	}
 
 	if(!root.contains("currency") || !root["currency"].is_string()){
 		ofLogError("ofApp") << path << " needs a top-level string \"currency\""
 			<< " - bin labels will not be drawn";
-		return;
+		return false;
 	}
 
 	const std::string cur = root["currency"].get<std::string>();
@@ -874,65 +915,61 @@ void ofApp::loadIngredients(){
 		// arrive by leaving a string blank.
 		ofLogError("ofApp") << path << " has an empty \"currency\""
 			<< " - bin labels will not be drawn";
-		return;
+		return false;
 	}
 
-	if(!root.contains("ingredients") || !root["ingredients"].is_array()){
-		ofLogError("ofApp") << path << " needs a top-level \"ingredients\" array"
-			<< " of bin entries - bin labels will not be drawn";
-		return;
+	if(!root.contains("items") || !root["items"].is_array()){
+		ofLogError("ofApp") << path << " needs a top-level \"items\" array"
+			<< " of catalogue entries - bin labels will not be drawn";
+		return false;
 	}
 
-	const ofJson & j = root["ingredients"];
+	const ofJson & j = root["items"];
 
-	if((int)j.size() < BIN_COUNT){
-		ofLogError("ofApp") << path << " has " << j.size() << " entries, need "
-			<< BIN_COUNT << " (one per bin) - bin labels will not be drawn";
-		return;
+	if(j.empty()){
+		// No length check against BIN_COUNT - see the top of this function. An
+		// empty catalogue is still a fault, because then no bin can resolve and
+		// the map has nothing to point at.
+		ofLogError("ofApp") << path << " has no items"
+			<< " - bin labels will not be drawn";
+		return false;
 	}
-
-	// Filled by the entry's own "bin" field rather than by array position. The
-	// field is in the file precisely so the order in it does not matter, and
-	// honouring position instead would make the field decorative - and wrong
-	// the first time someone sorts the file alphabetically.
-	std::vector<Ingredient> loaded(BIN_COUNT);
-	std::vector<bool> seen(BIN_COUNT, false);
 
 	for(size_t e = 0; e < j.size(); e++){
 		const ofJson & entry = j[e];
 
-		if(!entry.is_object() || !entry.contains("bin") || !entry["bin"].is_number_integer()
+		if(!entry.is_object() || !entry.contains("id") || !entry["id"].is_string()
 			|| !entry.contains("name") || !entry["name"].is_string()
-			|| !entry.contains("price_per_100g") || !entry["price_per_100g"].is_number()){
-			ofLogError("ofApp") << path << " entry " << e
-				<< " needs an integer bin, a string name and a numeric"
-				<< " price_per_100g - bin labels will not be drawn";
-			return;
+			|| !entry.contains("pricePer100g") || !entry["pricePer100g"].is_number()){
+			ofLogError("ofApp") << path << " item " << e
+				<< " needs a string id, a string name and a numeric"
+				<< " pricePer100g - bin labels will not be drawn";
+			return false;
 		}
 
-		const int bin = entry["bin"].get<int>();
-		if(bin < 0 || bin >= BIN_COUNT){
-			ofLogError("ofApp") << path << " entry " << e << " has bin " << bin
-				<< ", outside 0.." << (BIN_COUNT - 1)
-				<< " - bin labels will not be drawn";
-			return;
-		}
-		if(seen[bin]){
-			// Two entries claiming one bin has no right answer, and picking
-			// either would be a guess about which price to charge.
-			ofLogError("ofApp") << path << " has more than one entry for bin "
-				<< bin << " - bin labels will not be drawn";
-			return;
-		}
+		Ingredient item;
+		item.id = entry["id"].get<std::string>();
+		item.name = entry["name"].get<std::string>();
 
-		const std::string name = entry["name"].get<std::string>();
-		if(name.empty()){
-			ofLogError("ofApp") << path << " bin " << bin
-				<< " has an empty name - bin labels will not be drawn";
-			return;
+		if(item.id.empty()){
+			ofLogError("ofApp") << path << " item " << e
+				<< " has an empty id - bin labels will not be drawn";
+			return false;
 		}
-
-		loaded[bin].name = name;
+		if(item.name.empty()){
+			ofLogError("ofApp") << path << " item \"" << item.id
+				<< "\" has an empty name - bin labels will not be drawn";
+			return false;
+		}
+		if(byId.count(item.id)){
+			// Two items under one id has no right answer, and picking either
+			// would be a guess about which price to charge. It is also the one
+			// fault the classifier could not survive: it writes an id, and an
+			// ambiguous id would resolve differently depending on file order.
+			ofLogError("ofApp") << path << " has more than one item with id \""
+				<< item.id << "\" - bin labels will not be drawn";
+			return false;
+		}
 
 		// PRICE PER 100 GRAMS. Not per gram, not per pick, not per bin. The
 		// field name says so, the label under the bin says "/ 100g", and
@@ -945,24 +982,179 @@ void ofApp::loadIngredients(){
 		// price is a second source of truth that wins silently at exactly the
 		// moment the file is broken, and a table that charges a made-up price
 		// is worse than a table that shows none.
-		loaded[bin].pricePer100g = entry["price_per_100g"].get<float>();
-		seen[bin] = true;
+		item.pricePer100g = entry["pricePer100g"].get<float>();
+
+		// Everything in the catalogue is by definition a real item. `resolved`
+		// is about bins, not about items - it goes false only when a bin fails
+		// to find one of these.
+		item.resolved = true;
+
+		byId[item.id] = item;
+	}
+
+	currencyOut = cur;
+	ofLogNotice("ofApp") << "loaded " << byId.size() << " catalogue items from "
+		<< path << ", prices in \"" << cur << "\"";
+	return true;
+}
+
+//--------------------------------------------------------------
+// Reads bin/data/bin_map.json into one catalogue id per bin, "" where the entry
+// is null. Index IS the bin number - this is the one file where position means
+// something, which is why it is a bare array and not a list of {bin, id}
+// objects: eight slots that must all be present cannot be half-filled by a
+// file that simply stops early.
+//
+// SEEDS ITSELF. bin_map.json is git ignored because from stage 3 the classifier
+// owns it, so a fresh clone does not have one. Rather than come up with eight
+// empty bins, the first run copies the committed bin_map.default.json across
+// and reads that. The copy happens once and never overwrites: after the first
+// run the live file is the truth, and re-seeding it every boot would throw away
+// whatever the classifier last wrote.
+bool ofApp::readBinMap(std::vector<std::string> & binIds) const {
+	binIds.assign(BIN_COUNT, std::string());
+
+	const std::string livePath = ofToDataPath(kBinMapFile);
+	const std::string defaultPath = ofToDataPath(kBinMapDefaultFile);
+
+	if(!ofFile::doesFileExist(livePath)){
+		if(!ofFile::doesFileExist(defaultPath)){
+			ofLogError("ofApp") << "no " << livePath << " and no " << defaultPath
+				<< " to seed it from - bin labels will not be drawn";
+			return false;
+		}
+
+		// relativeToData false: both paths have already been through
+		// ofToDataPath. overwrite false is belt and braces - the file does not
+		// exist, and if it somehow appeared between the check and here, the
+		// copy must lose rather than clobber it.
+		if(!ofFile::copyFromTo(defaultPath, livePath, false, false)){
+			ofLogError("ofApp") << "could not copy " << defaultPath << " to "
+				<< livePath << " - bin labels will not be drawn";
+			return false;
+		}
+
+		ofLogNotice("ofApp") << "no " << livePath << " - seeded it from "
+			<< defaultPath;
+	}
+
+	ofJson root = ofLoadJson(livePath);
+
+	if(!root.is_object() || !root.contains("bins") || !root["bins"].is_array()){
+		ofLogError("ofApp") << livePath << " is not a JSON object with a"
+			<< " \"bins\" array - bin labels will not be drawn";
+		return false;
+	}
+
+	const ofJson & j = root["bins"];
+
+	// Exactly BIN_COUNT, not at least. A short map is not "the rest are empty" -
+	// it is a file that disagrees with the table about how many bins there are,
+	// and guessing which end the missing ones belong to would put ingredients
+	// under the wrong labels.
+	if((int)j.size() != BIN_COUNT){
+		ofLogError("ofApp") << livePath << " has " << j.size() << " entries, need"
+			<< " exactly " << BIN_COUNT << " (one per bin, index = bin number)"
+			<< " - bin labels will not be drawn";
+		return false;
 	}
 
 	for(int i = 0; i < BIN_COUNT; i++){
-		if(!seen[i]){
-			ofLogError("ofApp") << path << " has no entry for bin " << i
-				<< " - bin labels will not be drawn";
-			return;
+		const ofJson & entry = j[i];
+
+		// null is how the file says "this bin is empty". It is the deliberate
+		// answer, not a missing one, so it is not an error and does not get a
+		// message here - resolution logs it once, below.
+		if(entry.is_null()){
+			continue;
 		}
+
+		if(!entry.is_string()){
+			ofLogError("ofApp") << livePath << " entry " << i << " is neither a"
+				<< " string id nor null - bin labels will not be drawn";
+			return false;
+		}
+
+		binIds[i] = entry.get<std::string>();
+
+		// An empty string is a typo, not an empty bin. There is already a way
+		// to say empty, and accepting both would mean the file had two spellings
+		// for one state - which is how a truncated write starts reading as an
+		// intentional change.
+		if(binIds[i].empty()){
+			ofLogError("ofApp") << livePath << " entry " << i << " is an empty"
+				<< " string - use null for an empty bin"
+				<< " - bin labels will not be drawn";
+			return false;
+		}
+	}
+
+	return true;
+}
+
+//--------------------------------------------------------------
+// Resolves the two files into `ingredients`, one entry per bin, or leaves it
+// empty if either file is unusable.
+//
+// The whole job is a lookup: the catalogue gives id -> item, the map gives bin
+// -> id, and this walks one through the other. Nothing here knows what any
+// ingredient is; it only knows how to follow the arrow.
+//
+// A BIN THAT DOES NOT RESOLVE IS EMPTY, NOT BROKEN. Its map entry was null, or
+// named an id the catalogue does not have - a bin taken out of service, or a
+// classifier that reported a class nobody has priced yet. Either way the answer
+// is the same and it is not a fault: the bin draws no name and no price, it
+// prices at zero, and it never reaches the cart. That is the only honest
+// rendering, because the one thing the app does not know is what is in there,
+// and every other option involves showing a number that came from somewhere
+// else. It is logged once per bin at startup, and once is enough - the state is
+// static until somebody rewrites the map.
+void ofApp::loadIngredients(){
+	ingredients.clear();
+	currency.clear();
+
+	std::map<std::string, Ingredient> byId;
+	std::string cur;
+	if(!readCatalogue(byId, cur)){
+		return;
+	}
+
+	std::vector<std::string> binIds;
+	if(!readBinMap(binIds)){
+		return;
+	}
+
+	std::vector<Ingredient> loaded(BIN_COUNT);
+	int resolvedCount = 0;
+
+	for(int i = 0; i < BIN_COUNT; i++){
+		if(binIds[i].empty()){
+			ofLogNotice("ofApp") << "bin " << i << " is empty (null in "
+				<< kBinMapFile << ") - no label, no price, not in the cart";
+			continue;
+		}
+
+		const auto it = byId.find(binIds[i]);
+		if(it == byId.end()){
+			// A warning rather than a notice: null was somebody's decision,
+			// this is somebody's mistake - a renamed id, or a class the
+			// classifier knows and the menu does not.
+			ofLogWarning("ofApp") << "bin " << i << " maps to id \"" << binIds[i]
+				<< "\", which is not in " << kCatalogueFile
+				<< " - drawing it empty, nothing billed";
+			continue;
+		}
+
+		loaded[i] = it->second;
+		resolvedCount++;
 	}
 
 	// Both together or neither, so `ingredients` non-empty always means there is
 	// a symbol to put in front of the numbers.
 	ingredients = loaded;
 	currency = cur;
-	ofLogNotice("ofApp") << "loaded " << ingredients.size() << " ingredients from "
-		<< path << ", prices in \"" << currency << "\"";
+	ofLogNotice("ofApp") << "resolved " << resolvedCount << " of " << BIN_COUNT
+		<< " bins from " << ofToDataPath(kBinMapFile);
 }
 
 //--------------------------------------------------------------
@@ -1246,6 +1438,15 @@ void ofApp::drawBinLabels(){
 
 		const Ingredient & ing = ingredients[i];
 
+		// An empty bin gets no name and no price - see loadIngredients for why
+		// that is the only honest rendering. The weight readout above still
+		// draws: there is a load cell under an empty bin too, and what it reads
+		// is not menu data. Nothing is logged here; loadIngredients said it
+		// once at startup, and repeating it 60 times a second would bury it.
+		if(!ing.resolved){
+			continue;
+		}
+
 		// Row 0 is the far row, so its strip is the one beyond it, towards the
 		// far edge of the table. Row 1 is the near row and its strip is between
 		// it and the diner. Either way the block hugs its own bin: bottom-
@@ -1404,6 +1605,17 @@ void ofApp::drawCart(){
 	float total = 0.0f;
 
 	for(int i = 0; i < BIN_COUNT; i++){
+		// A bin with no ingredient in it CANNOT BILL A PICK. Weight still
+		// leaves it - a hand resting on the tray, a bin being cleared - and
+		// that weight is real, but there is nothing to charge it as. Skipped
+		// before the arithmetic rather than filtered out of the rows
+		// afterwards, so it cannot reach the total either: a nameless line at
+		// $0.00 and a total that moved without a line to explain it are both
+		// worse than a bin the cart simply does not mention.
+		if(!ingredients[i].resolved){
+			continue;
+		}
+
 		const float removed = removedGrams(i, displayedWeightGrams[i]);
 		const float price = binPrice(i, removed);
 

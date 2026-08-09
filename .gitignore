@@ -13,6 +13,15 @@ bin/*
 # loads. Key `p` writes them here.
 bin/data/screenshots/
 
+# ...and except bin_map.json, which says which catalogue item is in which bin
+# RIGHT NOW. It is machine-written state, not source: the app seeds it from the
+# committed bin_map.default.json on first run, and from stage 3 the classifier
+# overwrites it. Committing it would mean every run of the table produced a
+# diff, and a merge would be two machines disagreeing about what was in a bin.
+# The default IS committed - it is the seed, and it is the only one anybody
+# edits by hand.
+bin/data/bin_map.json
+
 # Object and library files
 *.o
 *.obj

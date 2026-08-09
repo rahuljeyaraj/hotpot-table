@@ -1,13 +1,13 @@
 {
 	"currency": "$",
-	"ingredients": [
-		{ "bin": 0, "name": "Curly Noodles", "price_per_100g": 0.80 },
-		{ "bin": 1, "name": "Long Noodles",  "price_per_100g": 0.95 },
-		{ "bin": 2, "name": "Dried Prawns",  "price_per_100g": 3.20 },
-		{ "bin": 3, "name": "Egg",           "price_per_100g": 1.25 },
-		{ "bin": 4, "name": "Mushroom",      "price_per_100g": 1.60 },
-		{ "bin": 5, "name": "Soya Chunks",   "price_per_100g": 0.90 },
-		{ "bin": 6, "name": "Tofu",          "price_per_100g": 1.10 },
-		{ "bin": 7, "name": "Baby Corn",     "price_per_100g": 1.45 }
+	"items": [
+		{ "id": "curly_noodle", "name": "Curly Noodles", "pricePer100g": 0.80 },
+		{ "id": "long_noodle",  "name": "Long Noodles",  "pricePer100g": 0.95 },
+		{ "id": "dried_prawns", "name": "Dried Prawns",  "pricePer100g": 3.20 },
+		{ "id": "egg",          "name": "Egg",           "pricePer100g": 1.25 },
+		{ "id": "mushroom",     "name": "Mushroom",      "pricePer100g": 1.60 },
+		{ "id": "soya_chunks",  "name": "Soya Chunks",   "pricePer100g": 0.90 },
+		{ "id": "tofu",         "name": "Tofu",          "pricePer100g": 1.10 },
+		{ "id": "baby_corn",    "name": "Baby Corn",     "pricePer100g": 1.45 }
 	]
 }
