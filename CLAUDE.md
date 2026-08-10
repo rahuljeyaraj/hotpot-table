@@ -12,7 +12,8 @@ It is authoritative. This file is only status + rules.
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
 Current milestone: M0 (scaffold, launcher, transport).
-Last completed step: M0.0.
+Last completed step: M0.2 (common/wire.py).
+Next step: M0.3, common/health.py.
 
 ## HOW TO WORK HERE
 - One step at a time. Commit. Stop and report back.
@@ -77,3 +78,5 @@ msbuild hotpot-table.sln /p:Configuration=Debug
 Deploy: Linux x86_64. Makefile and config.make must
 be generated on the board itself. Never copied.
 Firmware: PlatformIO, firmware/loadcells/. Do not touch.
+Python tests: python -m unittest discover -s python/tests
+Run them before every commit that touches python/.
