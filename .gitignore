@@ -1,26 +1,36 @@
 # ---------------------------------------------------------------------------
-# openFrameworks build output
+# Runtime state — machine-written, never committed (v3 doc section 8)
+# ---------------------------------------------------------------------------
+# The hard rule: config is committed and human-edited, state is gitignored and
+# machine-written. Committing state/ would make every run of the table produce
+# a diff, and a merge would be two machines disagreeing about what a load cell
+# read or what was in a bin.
+state/
+
+# The live config, seeded from config/system.default.json on first run. The
+# default IS committed - it is the seed, and it is the only one anybody edits.
+config/system.json
+
+# Merged process logs from run.py, rotated per day.
+logs/
+
+# Captured training images. They go to Edge Impulse, not into git.
+datasets/
+
+# ---------------------------------------------------------------------------
+# openFrameworks build output — of/hotpot-table/
 # ---------------------------------------------------------------------------
 # Intermediates
-obj/
+of/hotpot-table/obj/
 
-# Compiled app + shipped DLLs live in bin/, but bin/data/ is tracked
-# (fonts, shaders, calibration.json). Ignore everything in bin/ except data/.
-bin/*
-!bin/data/
+# The compiled app and its shipped DLLs live in bin/, but bin/data/ is tracked
+# (fonts, audio, keystone.json). Ignore everything in bin/ except data/.
+of/hotpot-table/bin/*
+!of/hotpot-table/bin/data/
 
 # ...except screenshots, which are output to look at rather than data the app
-# loads. Key `p` writes them here.
-bin/data/screenshots/
-
-# ...and except bin_map.json, which says which catalogue item is in which bin
-# RIGHT NOW. It is machine-written state, not source: the app seeds it from the
-# committed bin_map.default.json on first run, and from stage 3 the classifier
-# overwrites it. Committing it would mean every run of the table produced a
-# diff, and a merge would be two machines disagreeing about what was in a bin.
-# The default IS committed - it is the seed, and it is the only one anybody
-# edits by hand.
-bin/data/bin_map.json
+# loads.
+of/hotpot-table/bin/data/screenshots/
 
 # Object and library files
 *.o
@@ -59,7 +69,7 @@ ipch/
 # but committing them keeps the addon list and build settings reproducible.
 
 # ---------------------------------------------------------------------------
-# Python (services/hands, services/vision, services/voice, calibration)
+# Python — python/hotpot/
 # ---------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
@@ -76,12 +86,12 @@ env/
 .pio/
 
 # ---------------------------------------------------------------------------
-# Model weights
+# Model files
 # ---------------------------------------------------------------------------
-# Weights are NOT in git and NOT in Git LFS. Roboflow already versions them;
-# duplicating that here costs quota and breaks clones made without LFS.
-# Provenance for every file that lands in models/ is logged in models/README.md.
-# Scoped to models/ on purpose — a repo-wide *.bin would swallow firmware images.
+# Edge Impulse .eim files and any other trained weights. No Git LFS. Provenance
+# for every file that lands in models/ is logged in models/README.md (v3 doc
+# section 19.5).
+models/**/*.eim
 models/**/*.pt
 models/**/*.onnx
 models/**/*.tflite
