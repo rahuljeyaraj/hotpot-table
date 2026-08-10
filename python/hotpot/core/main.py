@@ -37,7 +37,10 @@ CONTROL_PORT = 8765            # doc 4.1: core.control_port default
 # loopback. Binding to loopback would work on the dev machine and fail
 # silently on the rig.
 WEB_HOST = "0.0.0.0"
-WEB_PORT = 8080                # doc 4.1: core.web_port default
+WEB_PORT = 8090                # doc 4.1: core.web_port default (was 8080;
+                                # moved off it — Windows dev machines keep
+                                # squatting it via a stale WSL2 portproxy
+                                # relay to a stopped distro, see CLAUDE.md)
 
 STATIC_ROOT = Path(__file__).resolve().parent / "web" / "static"
 

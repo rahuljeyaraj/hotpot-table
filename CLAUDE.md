@@ -24,9 +24,12 @@ Next step: M0's human acceptance test (doc section 21) — run
 `python run.py`, confirm six pips green in the browser within 5s,
 kill a child and confirm its pip goes red then green again, Ctrl-C
 and confirm every process exits with no orphan (`tasklist` clean).
-Not yet run: needs the human on the dev machine, and needs a port
-free on 8080 (an unrelated svchost was squatting on it during a
-dev-machine smoke test — check `netstat -ano | findstr 8080` first).
+Not yet run: needs the human on the dev machine.
+`core.web_port` moved from 8080 to 8090 (2026-08-10): on this dev
+machine 8080 is perpetually claimed by a stale WSL2 portproxy relay
+(`netsh interface portproxy show v4tov4`) to the Ubuntu distro's IP,
+left behind by `iphlpsvc` even when that distro is stopped — not a
+one-off squatter, so routing around it beats trying to clear it.
 
 ## KNOWN ISSUE — run.py pidfile race on Windows
 Starting 3+ children in the same tier concurrently (e.g.

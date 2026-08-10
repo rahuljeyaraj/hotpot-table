@@ -208,7 +208,7 @@ Three traffic classes with different failure needs. This was argued out and is s
 | Name | Default | Owner |
 |---|---|---|
 | `core.control_port` | 8765 | core (TCP server) |
-| `core.web_port` | 8080 | core (HTTP + WebSocket) |
+| `core.web_port` | 8090 | core (HTTP + WebSocket) |
 | `camera.mjpeg_port` | 8081 | camera (HTTP) |
 | `cursor.of_port` | 8770 | of (UDP listener) |
 | `cursor.core_port` | 8771 | core (UDP listener) |
@@ -638,7 +638,7 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
 
 ```json
 {
-  "core":   {"control_port":8765,"web_port":8080,"locale":"en","conf_floor":0.65,
+  "core":   {"control_port":8765,"web_port":8090,"locale":"en","conf_floor":0.65,
              "deadband_g":10.0,"settle_ms":300},
   "camera": {"device":"/dev/video0","capture":[1920,1080],"fps":30,
              "mjpeg_port":8081,"mjpeg_width":1920,"mjpeg_fps":8,
@@ -1378,7 +1378,7 @@ SELECTING ──"done"──► BROTH ──► SPICE ──► RECAP ──"con
 
 ### 18.2 The payment mock — make it real enough to scan
 
-The QR encodes a URL served by core: `http://<host>:8080/r/<order_code>`.
+The QR encodes a URL served by core: `http://<host>:8090/r/<order_code>`.
 
 Scanning it on a phone opens a mobile-friendly receipt page — itemised, in the diner's chosen locale, with a **Pay ₹41.20** button that shows a success state and marks the order `paid` in the database. The table sees the payment land (via the WebSocket) and plays `order_done`.
 
