@@ -1054,31 +1054,17 @@ void ofApp::draw(){
 	// hands on top of the bins, under nothing yet
 	drawHands();
 
-	// top-left readout, black on the field like the labels
-	ofSetColor(0);
-	std::stringstream ss;
-	ss << (int)w << " x " << (int)h << "\n" << ofGetFrameRate();
-	ss << "\nhands " << hands.size();
-	if(!everReceived){
-		ss << "  (no tracker yet)";
-	}
-	ss << "\nbin offset " << ofToString(offsetXMM, 1) << ", "
-	   << ofToString(offsetYMM, 1) << " mm";
-	ss << "\ntarget " << selectionLabel();
-	if(selection > 0){
-		const bool vertical = selection <= kVLines;
-		ss << "  at " << ofToString(vertical ? vLineMM(selection - 1)
-		                                     : hLineMM(selection - kVLines - 1), 1)
-		   << " mm  (moves " << (vertical ? "left/right)" : "up/down)");
-	}
-	ss << "\nfield " << kFieldLevels[fieldLevel] << "%";
-	ss << "\n[ ] selects line, 0 selects all, arrows 1mm, shift 5mm, s saves, b dims";
-
-	// Box sizes follow from where the lines sit, so show what they currently
-	// are - the number to compare against a tape measure on the plywood.
-	ss << "\nbox " << ofToString(vLineMM(1) - vLineMM(0), 1) << " x "
-	   << ofToString(hLineMM(1) - hLineMM(0), 1) << " mm (col1/far)";
-	ofDrawBitmapString(ss.str(), 10, 20);
+	// The alignment readout (resolution, fps, bin offset, selected line, key
+	// hints, box dims) used to draw here, top-left, straight onto the field.
+	// That put developer-only text on the projected table - visible to
+	// whoever is standing there, not just whoever is calibrating. Per the v3
+	// doc (§12, "the staff view is... the calibration surface" and the M0.1
+	// note that the keyboard mock "moves to the staff view as real buttons"),
+	// developer info belongs in the staff view's developer panel, not on the
+	// projector. Removed rather than gated: nudgeSelection() and
+	// cycleFieldLevel() already ofLogNotice() every change to the console,
+	// so alignment by keyboard still has feedback until the staff view grows
+	// this panel for real (v3 doc §12.8).
 
 	// Last thing in the frame, so the capture includes everything above.
 	savePendingScreenshot();
