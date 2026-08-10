@@ -12,11 +12,20 @@ It is authoritative. This file is only status + rules.
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
 Current milestone: M0 (scaffold, launcher, transport).
-Last completed step: M0.6 (stub main.py for camera, tracker,
-classifier, voice; shared as common/stub.py, per doc section 10 item 6).
-Next step: M0.7, core/main.py — control server, client registry,
-and a minimal staff view serving only the header with six status
-pips over a WebSocket.
+Last completed step: M0.7 (core/main.py — control server, client
+registry, minimal staff view; doc section 21 build item 7). Control
+server and registry are hotpot.common.wire/health, reused as-is.
+Staff view is core/web/server.py (stdlib http.server + a hand-rolled
+RFC 6455 WebSocket, no new dependency) serving core/web/static/index.html
+— header only, six pips pushed live, dark UI per doc 12.1.
+All 7 M0 build items are now code-complete.
+Next step: M0's human acceptance test (doc section 21) — run
+`python run.py`, confirm six pips green in the browser within 5s,
+kill a child and confirm its pip goes red then green again, Ctrl-C
+and confirm every process exits with no orphan (`tasklist` clean).
+Not yet run: needs the human on the dev machine, and needs a port
+free on 8080 (an unrelated svchost was squatting on it during a
+dev-machine smoke test — check `netstat -ano | findstr 8080` first).
 
 ## KNOWN ISSUE — run.py pidfile race on Windows
 Starting 3+ children in the same tier concurrently (e.g.

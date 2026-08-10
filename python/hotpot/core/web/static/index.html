@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Hot Pot — Staff View</title>
+<style>
+  /* Dark UI (doc section 12.1): this is the operator's tablet in a dim
+     room, not the projected field — a white page here is a flashlight
+     in someone's face. */
+  :root {
+    color-scheme: dark;
+    --bg: #16171a;
+    --panel: #1e2024;
+    --text: #e8e8ea;
+    --muted: #9a9ca3;
+    --green: #3ecf6e;
+    --amber: #e8b33d;
+    --red: #e05d5d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 1;
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid #2a2c31;
+  }
+  .title { font-size: 20px; font-weight: 500; white-space: nowrap; }
+  .mode, .order {
+    font-size: 14px; font-weight: 400; color: var(--muted);
+    white-space: nowrap;
+  }
+  .spacer { flex: 1; }
+  .pips { display: flex; gap: 10px; }
+  .pip {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px;              /* header chrome, not a tap
+                                                target — the tappable
+                                                44px version arrives with
+                                                the detail view (§12.2) */
+    border-radius: 50%;
+    font-size: 12px; font-weight: 500;
+    color: #10110f;
+    background: var(--red);                  /* never-connected = red,
+                                                 doc section 12.2 / health.py */
+    transition: background-color 200ms ease;
+  }
+  .pip[data-colour="green"] { background: var(--green); }
+  .pip[data-colour="amber"] { background: var(--amber); color: #2a1f00; }
+  .pip[data-colour="red"]   { background: var(--red); color: #2a0000; }
+  main {
+    padding: 24px 16px; color: var(--muted); font-size: 14px;
+  }
+  .conn-banner {
+    display: none;
+    padding: 8px 16px; font-size: 14px;
+    background: #402626; color: #ffd7d7;
+  }
+  .conn-banner.show { display: block; }
+</style>
+</head>
+<body>
+  <div id="connBanner" class="conn-banner">Not connected to core — retrying…</div>
+  <header>
+    <div class="title">称重火锅</div>
+    <div class="mode" id="mode">—</div>
+    <div class="order" id="order">—</div>
+    <div class="spacer"></div>
+    <div class="pips" id="pips"></div>
+  </header>
+  <main>
+    <!-- M0 build item 7 (doc section 21): this header and its six pips
+         are the whole staff view for now. Live tab, Bins, Orders, Setup
+         and Capture (doc section 12) arrive with M1 onward, each once
+         there is something real behind it to show. -->
+    M0 scaffold — tabs arrive with later milestones.
+  </main>
+
+<script>
+(function () {
+  "use strict";
+
+  // Doc section 12.2 draw order and one-letter codes. The order also
+  // seeds a red pip for a process this build has never heard from, which
+  // is the honest thing to show (doc section 4.2 / common/health.py).
+  var PIPS = [
+    { who: "camera",     label: "camera",     code: "C" },
+    { who: "tracker",    label: "tracker",    code: "T" },
+    { who: "classifier", label: "classifier", code: "S" },
+    { who: "voice",      label: "voice",      code: "V" },
+    { who: "core",       label: "core",       code: "O" },
+    { who: "of",         label: "table",      code: "B" },
+  ];
+
+  var pipsEl = document.getElementById("pips");
+  var banner = document.getElementById("connBanner");
+  var elByWho = {};
+
+  PIPS.forEach(function (p) {
+    var el = document.createElement("div");
+    el.className = "pip";
+    el.dataset.colour = "red";
+    el.textContent = p.code;
+    el.title = p.label + ": down";
+    pipsEl.appendChild(el);
+    elByWho[p.who] = { el: el, label: p.label };
+  });
+
+  function applyPips(pips) {
+    pips.forEach(function (p) {
+      var entry = elByWho[p.who];
+      if (!entry) return;   // an unexpected process name; nowhere to draw it
+      entry.el.dataset.colour = p.colour;
+      var age = p.age === null ? "never" : p.age.toFixed(1) + "s ago";
+      entry.el.title = entry.label + ": " + p.status + " (last beat " + age + ")";
+    });
+  }
+
+  // Reconnect with the same shape of backoff as every other client in
+  // this system (doc section 20.2) — a tablet left on overnight should
+  // recover on its own, not need a page reload.
+  var BACKOFF_START = 1000, BACKOFF_MAX = 10000;
+  var backoff = BACKOFF_START;
+
+  function connect() {
+    var scheme = location.protocol === "https:" ? "wss:" : "ws:";
+    var ws = new WebSocket(scheme + "//" + location.host + "/ws");
+
+    ws.onopen = function () {
+      backoff = BACKOFF_START;
+      banner.classList.remove("show");
+    };
+    ws.onmessage = function (ev) {
+      var msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.t === "pips") applyPips(msg.pips);
+    };
+    ws.onclose = function () {
+      banner.classList.add("show");
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, BACKOFF_MAX);
+    };
+    ws.onerror = function () { ws.close(); };
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>
