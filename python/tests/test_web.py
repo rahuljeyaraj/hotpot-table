@@ -1,27 +1,26 @@
 """Tests for core/web/server.py.
 
-Run from the repo root:
+Run from the repo root (after `pip install -r python/requirements.txt`):
 
     python -m unittest discover -s python/tests -v
 
-No WebSocket library exists on either side of this on purpose (see the
-module docstring in core/web/server.py), so the test client is hand-rolled
-too: real loopback sockets, a real HTTP upgrade handshake, real RFC 6455
-framing. A mocked WebSocket would only prove the mock was self-consistent.
+The WebSocket half uses the real `websockets` client library rather than
+hand-rolled framing — the whole point of building server.py on top of it
+instead of reimplementing RFC 6455 is that both sides get to be real.
 """
 
-import base64
 import http.client
 import json
 import os
 import socket
-import struct
 import sys
-import threading
 import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from websockets.exceptions import ConnectionClosed  # noqa: E402
+from websockets.sync.client import connect  # noqa: E402
 
 from hotpot.core.web import server as web  # noqa: E402
 
@@ -40,101 +39,6 @@ def wait_for(pred, timeout=DEADLINE, tick=0.01):
     return False
 
 
-class _WSClient:
-    """A minimal hand-rolled WebSocket client: handshake plus framing,
-    nothing else. Mirrors core/web/server.py's own framing so a bug shared
-    by both sides is still visible to a real browser — which is the one
-    thing that matters here.
-    """
-
-    def __init__(self, host, port, path="/ws", timeout=DEADLINE):
-        self.sock = socket.create_connection((host, port), timeout=timeout)
-        self.sock.settimeout(timeout)
-        self._buf = b""
-        key = base64.b64encode(os.urandom(16)).decode("ascii")
-        req = (
-            f"GET {path} HTTP/1.1\r\n"
-            f"Host: {host}:{port}\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            f"Sec-WebSocket-Key: {key}\r\n"
-            "Sec-WebSocket-Version: 13\r\n"
-            "\r\n"
-        )
-        self.sock.sendall(req.encode("ascii"))
-        head = self._read_until(b"\r\n\r\n")
-        self.status_line = head.split(b"\r\n", 1)[0].decode("ascii")
-        if " 101 " not in self.status_line:
-            raise ConnectionError(f"handshake refused: {self.status_line!r}")
-
-    # -- raw io --------------------------------------------------------
-
-    def _read_until(self, sep):
-        while sep not in self._buf:
-            chunk = self.sock.recv(4096)
-            if not chunk:
-                raise ConnectionError("peer closed during handshake")
-            self._buf += chunk
-        idx = self._buf.index(sep) + len(sep)
-        head, self._buf = self._buf[:idx], self._buf[idx:]
-        return head
-
-    def _recv_exact(self, n):
-        while len(self._buf) < n:
-            chunk = self.sock.recv(4096)
-            if not chunk:
-                return None
-            self._buf += chunk
-        data, self._buf = self._buf[:n], self._buf[n:]
-        return data
-
-    # -- frames ----------------------------------------------------------
-
-    def recv_frame(self):
-        head = self._recv_exact(2)
-        if head is None:
-            return None
-        b0, b1 = head
-        opcode = b0 & 0x0F
-        length = b1 & 0x7F
-        if length == 126:
-            length = struct.unpack("!H", self._recv_exact(2))[0]
-        elif length == 127:
-            length = struct.unpack("!Q", self._recv_exact(8))[0]
-        payload = self._recv_exact(length) if length else b""
-        return opcode, payload
-
-    def recv_json(self):
-        opcode, payload = self.recv_frame()
-        assert opcode == 0x1, f"expected a text frame, got opcode {opcode}"
-        return json.loads(payload.decode("utf-8"))
-
-    def send_frame(self, opcode, payload=b""):
-        # Client->server frames must be masked (RFC 6455 5.1); the server
-        # rejects nothing unmasked, it just always expects a mask key here.
-        mask = os.urandom(4)
-        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-        n = len(payload)
-        header = bytes([0x80 | opcode])
-        if n < 126:
-            header += bytes([0x80 | n])
-        elif n < (1 << 16):
-            header += bytes([0x80 | 126]) + struct.pack("!H", n)
-        else:
-            header += bytes([0x80 | 127]) + struct.pack("!Q", n)
-        self.sock.sendall(header + mask + masked)
-
-    def close(self):
-        try:
-            self.send_frame(0x8, b"")
-        except OSError:
-            pass
-        try:
-            self.sock.close()
-        except OSError:
-            pass
-
-
 class ServerCase(unittest.TestCase):
     """A real web.Server on an ephemeral loopback port, torn down after."""
 
@@ -148,13 +52,19 @@ class ServerCase(unittest.TestCase):
 
     def tearDown(self):
         for c in self._clients:
-            c.close()
+            try:
+                c.close()
+            except Exception:
+                pass
         self.srv.stop()
 
-    def ws(self, path="/ws"):
-        c = _WSClient("127.0.0.1", self.port, path)
+    def ws(self):
+        c = connect(f"ws://127.0.0.1:{self.port}/ws", open_timeout=DEADLINE)
         self._clients.append(c)
         return c
+
+    def recv_json(self, c, timeout=DEADLINE):
+        return json.loads(c.recv(timeout=timeout))
 
 
 # ---------------------------------------------------------------------------
@@ -201,23 +111,24 @@ class TestStatic(ServerCase):
 class TestHandshake(ServerCase):
 
     def test_upgrades_and_connects(self):
-        c = self.ws()
-        self.assertIn(" 101 ", c.status_line)
+        self.ws()
         self.assertTrue(wait_for(lambda: len(self.srv.hub) == 1))
 
-    def test_close_frame_removes_it_from_the_hub(self):
+    def test_close_removes_it_from_the_hub(self):
         c = self.ws()
         self.assertTrue(wait_for(lambda: len(self.srv.hub) == 1))
         c.close()
         self.assertTrue(wait_for(lambda: len(self.srv.hub) == 0),
-                        "connection stayed in the hub after a close frame")
+                        "connection stayed in the hub after close()")
 
-    def test_ping_is_answered_with_pong(self):
+    def test_ping_gets_a_pong(self):
+        """The library answers pings at the protocol layer, before our
+        handler ever sees them — this just checks process_request letting
+        `/ws` through does not somehow break that.
+        """
         c = self.ws()
-        c.send_frame(0x9, b"hello")
-        opcode, payload = c.recv_frame()
-        self.assertEqual(opcode, 0xA)
-        self.assertEqual(payload, b"hello")
+        pong_received = c.ping()
+        self.assertTrue(pong_received.wait(DEADLINE))
 
 
 class TestOnJoin(ServerCase):
@@ -225,7 +136,7 @@ class TestOnJoin(ServerCase):
 
     def test_new_connection_gets_the_seed_message_immediately(self):
         c = self.ws()
-        self.assertEqual(c.recv_json(), {"t": "seed", "n": 6})
+        self.assertEqual(self.recv_json(c), {"t": "seed", "n": 6})
 
 
 class TestBroadcast(ServerCase):
@@ -235,8 +146,8 @@ class TestBroadcast(ServerCase):
         self.assertTrue(wait_for(lambda: len(self.srv.hub) == 2))
         n = self.srv.broadcast({"t": "pips", "pips": []})
         self.assertEqual(n, 2)
-        self.assertEqual(a.recv_json(), {"t": "pips", "pips": []})
-        self.assertEqual(b.recv_json(), {"t": "pips", "pips": []})
+        self.assertEqual(self.recv_json(a), {"t": "pips", "pips": []})
+        self.assertEqual(self.recv_json(b), {"t": "pips", "pips": []})
 
     def test_does_not_count_a_connection_that_already_closed(self):
         a = self.ws()
@@ -252,15 +163,13 @@ class TestStop(unittest.TestCase):
     def test_stop_closes_open_connections_and_the_listener(self):
         srv = web.Server("127.0.0.1", 0, STATIC_ROOT)
         port = srv.start()
-        c = _WSClient("127.0.0.1", port)
+        c = connect(f"ws://127.0.0.1:{port}/ws", open_timeout=DEADLINE)
         self.assertTrue(wait_for(lambda: len(srv.hub) == 1))
 
         srv.stop()
 
-        # The peer socket must observe the close, not merely time out.
-        c.sock.settimeout(DEADLINE)
-        frame = c.recv_frame()
-        self.assertTrue(frame is None or frame[0] == 0x8)
+        with self.assertRaises(ConnectionClosed):
+            c.recv(timeout=DEADLINE)
 
         with self.assertRaises(OSError):
             socket.create_connection(("127.0.0.1", port), timeout=1.0)

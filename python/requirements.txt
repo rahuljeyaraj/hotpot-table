@@ -1,0 +1,16 @@
+# Everything under python/hotpot — run.py and all six processes. Install
+# once for the whole tree:
+#
+#     pip install -r python/requirements.txt
+#
+# websockets backs core/web/server.py's staff view (doc section 12): the
+# sync flavour (websockets.sync.server / .client), not the more commonly
+# documented asyncio one, because the rest of this codebase is threaded
+# and the sync API matches that model directly. See that file's docstring.
+#
+# Lower-bounded at the version this was built and tested against (16.1),
+# not pinned exactly: core/web/server.py relies on the Request/Response
+# based process_request() hook, which is the part of the API most likely
+# to differ across versions, so an untested older release is a real risk
+# rather than a formality.
+websockets>=16.1

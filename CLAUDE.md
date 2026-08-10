@@ -15,9 +15,10 @@ Current milestone: M0 (scaffold, launcher, transport).
 Last completed step: M0.7 (core/main.py — control server, client
 registry, minimal staff view; doc section 21 build item 7). Control
 server and registry are hotpot.common.wire/health, reused as-is.
-Staff view is core/web/server.py (stdlib http.server + a hand-rolled
-RFC 6455 WebSocket, no new dependency) serving core/web/static/index.html
-— header only, six pips pushed live, dark UI per doc 12.1.
+Staff view is core/web/server.py, built on the `websockets` package
+(python/requirements.txt — first Python dependency in the repo) rather
+than hand-rolled RFC 6455, serving core/web/static/index.html — header
+only, six pips pushed live, dark UI per doc 12.1.
 All 7 M0 build items are now code-complete.
 Next step: M0's human acceptance test (doc section 21) — run
 `python run.py`, confirm six pips green in the browser within 5s,
@@ -101,5 +102,6 @@ msbuild hotpot-table.sln /p:Configuration=Debug
 Deploy: Linux x86_64. Makefile and config.make must
 be generated on the board itself. Never copied.
 Firmware: PlatformIO, firmware/loadcells/. Do not touch.
+Python deps: pip install -r python/requirements.txt (once per machine).
 Python tests: python -m unittest discover -s python/tests
 Run them before every commit that touches python/.
