@@ -76,6 +76,17 @@ class Catalogue:
     def __len__(self) -> int:
         return len(self._by_id)
 
+    def ids(self) -> List[str]:
+        """Every item id, in the order catalogue.json listed them.
+
+        Doc section 21 build item 2 didn't need this — build item 3's mock
+        bin seed (core/main.py) does: it pairs bins with catalogue items
+        one-to-one and needs a stable order to do it from, and dict
+        insertion order (preserved since `_by_id` is built from the raw
+        item list) is the least surprising source of one.
+        """
+        return list(self._by_id.keys())
+
 
 def bin_price(removed_g: float, price_per_100g: float) -> float:
     """Doc section 9.2, line 2, exactly."""

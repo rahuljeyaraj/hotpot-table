@@ -40,9 +40,27 @@ core/i18n.py (doc 17's flat locale strings and per-locale currency
 conversion), core/fsm.py (doc 9.1, deliberately scoped to BOOT / IDLE /
 SELECTING only, per the build item — every other state arrives with
 the milestone that needs it). All five are unit-tested (69 new tests,
-python/tests/test_{pricing,cart,binmap,i18n,fsm}.py) and not yet wired
-into core/main.py — that wiring is build item 3, the 60Hz state
-broadcaster. Last completed step: M1.2.
+python/tests/test_{pricing,cart,binmap,i18n,fsm}.py).
+M1.3 (2026-08-10) is build item 3: wired all five into core/main.py and
+added the 60Hz `state` broadcaster (doc section 4.3), sent to `of` only.
+Core.__init__ now loads data/catalogue.json and data/locales/ (English
+only, per build item 4), hand-seeds an 8-bin BinMap one-to-one from
+Catalogue.ids() (new method — build item 2 didn't need enumeration
+order, this does) at conf 1.0, and hand-seeds Cart with every bin at
+MOCK_SEED_GRAMS (500g) so the mock pick/put-back cycle (build item 5,
+not built yet) has weight to remove. Fsm.boot_complete() fires
+immediately in start() since M1's BOOT always succeeds. The state
+message's `fluid` and `widgets`/`overlay` fields are sent per the doc
+4.3 shape but inert — style "mala" with enabled:false, empty widgets,
+overlay "none" — since M8's renderer and M6's checkout states don't
+exist yet to give them real content. 8 new tests
+(python/tests/test_core_main.py's TestStateBroadcast, plus two in
+test_pricing.py for the new ids() method) drive Cart/BinMap directly
+(the developer-panel mock controls that will do this for real are build
+item 4/5) and check the message shape, the seeded bins, seq monotonicity,
+a mock pick reaching the next broadcast correctly priced, and that only
+`of` receives it. Last completed step: M1.3. Next: build item 4, the oF
+renderer rewrite (StateLink/Stage/UiLayer) — the first C++ work in M1.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

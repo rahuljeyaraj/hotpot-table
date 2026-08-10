@@ -1,11 +1,12 @@
-"""Core process — M0 scope (doc section 21, build item 7).
+"""Core process — M0 scope (doc section 21, build item 7), plus M1 build
+item 3: the domain modules wired in and broadcasting `state` at 60Hz.
 
 What exists here: the one control server every other process dials into,
 the client registry that turns hellos and heartbeats into the six status
-pips, and a minimal staff view that pushes those pips to the browser over
-a WebSocket. Everything else in doc section 9 — the FSM, cart, pricing,
-scale — arrives with the milestone that needs it. M0 only has to prove
-six processes can find each other and that a human can watch it happen.
+pips, a minimal staff view that pushes those pips to the browser over a
+WebSocket, and — new in M1 — the five pure domain modules from build item
+2 (pricing, cart, binmap, i18n, fsm) held as Core's state and serialised
+into doc section 4.3's `state` message, sent to `of` at a fixed 60Hz.
 
 **Do NOT** (M0 build list, doc section 21): open the camera, open the
 serial port, touch MediaPipe, or write any oF code. This file does none
@@ -20,10 +21,12 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from hotpot.common import health, log, wire
+from hotpot.core import binmap, cart, fsm, i18n, pricing
 from hotpot.core.web import server as web
 
 _log = logging.getLogger("hotpot.core")
@@ -44,6 +47,50 @@ WEB_PORT = 8090                # doc 4.1: core.web_port default (was 8080;
 
 STATIC_ROOT = Path(__file__).resolve().parent / "web" / "static"
 
+# core/main.py -> core -> hotpot -> python -> repo root. Same hardcoded-
+# until-something-needs-config-loading rationale as the ports above.
+DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+
+# Doc section 4.3: "sent at a fixed 60Hz, whether or not anything
+# changed" — a fixed-rate stream is what lets oF's tweener trust silence
+# never means "core is dead" (of/main.py checks staleness, not gaps).
+STATE_HZ = 60.0
+STATE_INTERVAL = 1.0 / STATE_HZ
+
+# M1 has no load cells (M2) and no classifier (M6): every bin starts full
+# of a fixed placeholder weight so the mock pick/put-back cycle (doc
+# section 12.8) has something to remove grams from. Overwritten for real
+# once core/scale.py's median-of-5 reading exists — see cart.py's
+# docstring ("Where live_g comes from is not this module's business").
+MOCK_SEED_GRAMS = 500.0
+
+
+def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
+    """M1's fixed hand-built bin map (binmap.py's docstring, doc section
+    21 build item 2): no classifier and no Setup-tab wizard exist yet to
+    populate this for real, so every bin is paired with a catalogue item
+    in catalogue.json's order, one-to-one, at conf 1.0 — comfortably
+    clear of DEFAULT_CONF_FLOOR — so bins are billable from boot.
+    """
+    bm = binmap.BinMap()
+    ids = catalogue.ids()
+    for i in range(binmap.NUM_BINS):
+        if i < len(ids):
+            bm.set_bin(i, item_id=ids[i], conf=1.0, source="mock")
+    return bm
+
+
+def _seed_cart() -> cart.Cart:
+    """Every bin starts at MOCK_SEED_GRAMS, then reset_session() (I6's
+    re-baseline) sets start_g to match — so removed grams is 0 at boot,
+    not a negative clamp from an empty tray. See MOCK_SEED_GRAMS above.
+    """
+    c = cart.Cart()
+    for i in range(cart.NUM_BINS):
+        c.set_live_grams(i, MOCK_SEED_GRAMS)
+    c.reset_session()
+    return c
+
 
 class Core:
     """Everything M0 wires up, held together so tests and main() can start
@@ -57,6 +104,7 @@ class Core:
         web_host: str = WEB_HOST,
         web_port: int = WEB_PORT,
         static_root: Path = STATIC_ROOT,
+        data_dir: Path = DATA_DIR,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -73,6 +121,19 @@ class Core:
         # makes it show up red instead of hiding behind the other five.
         self._self_beat = health.Heartbeat(self._beat_self, who="core")
 
+        # -- M1 build item 3: the domain state the broadcaster sends ----
+        data_dir = Path(data_dir)
+        self.catalogue = pricing.Catalogue.load(data_dir / "catalogue.json")
+        self.locale = i18n.DEFAULT_LOCALE   # build item 4: English only, for now
+        self.locales = i18n.Locales.load(data_dir / "locales", locales=(self.locale,))
+        self.binmap = _seed_binmap(self.catalogue)
+        self.cart = _seed_cart()
+        self.fsm = fsm.Fsm(self.cart)
+
+        self._state_seq = 0
+        self._state_stop = threading.Event()
+        self._state_thread: Optional[threading.Thread] = None
+
     # -- lifecycle -----------------------------------------------------
 
     def start(self) -> None:
@@ -80,8 +141,17 @@ class Core:
         self.control.start()
         self.web.start()
         self._self_beat.start()
+        # BOOT -> IDLE always succeeds until M4 adds the UNCALIBRATED
+        # check (fsm.py's docstring); M1 has nothing to wait on.
+        self.fsm.boot_complete()
+        self._state_thread = threading.Thread(
+            target=self._state_loop, name="core-state", daemon=True)
+        self._state_thread.start()
 
     def stop(self) -> None:
+        self._state_stop.set()
+        if self._state_thread is not None and self._state_thread.is_alive():
+            self._state_thread.join(2.0)
         self._self_beat.stop()
         self.web.stop()
         self.control.stop()
@@ -131,6 +201,82 @@ class Core:
 
     def _on_pip_change(self, who: str, old: str, new: str) -> None:
         self.web.broadcast(self._pips_msg())
+
+    # -- state broadcaster (doc section 4.3) --------------------------------
+
+    def _state_loop(self) -> None:
+        # Absolute deadlines, resynchronised rather than caught up — same
+        # rationale as health.Heartbeat._run: if this thread was starved
+        # for a while, firing a burst of queued-up state messages proves
+        # nothing and just spends the send queue's budget (wire.py's
+        # DEFAULT_SEND_QUEUE) for no benefit to `of`, which only ever
+        # wants the latest one.
+        due = time.monotonic()
+        while not self._state_stop.is_set():
+            self._broadcast_state()
+            due += STATE_INTERVAL
+            now = time.monotonic()
+            if due <= now:
+                due = now + STATE_INTERVAL
+            if self._state_stop.wait(due - now):
+                return
+
+    def _broadcast_state(self) -> None:
+        self.control.broadcast(self._state_msg(), only=["of"])
+
+    def _state_msg(self) -> Dict[str, Any]:
+        msg = {
+            "t": "state",
+            "seq": self._state_seq,
+            "ts": time.time(),
+            "mode": "diner",   # STAFF isn't a state this milestone's Fsm has
+            "locale": self.locale,
+            # M8 hasn't built the fluid renderer yet; the shape is correct
+            # per doc section 4.3, "mala" is the documented diner default,
+            # and enabled:False is the honest statement that nothing is
+            # rendering it yet.
+            "fluid": {"style": "mala", "enabled": False, "intensity": 0.6},
+            "bins": [self._bin_msg(i) for i in range(binmap.NUM_BINS)],
+            "total": self.locales.currency(
+                pricing.total(self.cart, self.binmap, self.catalogue), self.locale),
+            "widgets": [],      # no widget exists before BROTH/SPICE/etc. (M6)
+            "overlay": {"kind": "none"},
+        }
+        self._state_seq += 1
+        return msg
+
+    def _bin_msg(self, i: int) -> Dict[str, Any]:
+        b = self.binmap.bins[i]
+        item = self.catalogue.item(b.item_id)
+        # Doc section 9.3: unresolved <=> no item_id, low conf, or (belt
+        # and braces, matching pricing.total()'s own check) a stale
+        # item_id the catalogue no longer has.
+        resolved = item is not None and self.binmap.resolved(i)
+        picked = round(self.cart.shown_g[i])
+        if resolved:
+            label = item.names.get(self.locale, item.id)
+            per_100g = self.locales.currency(item.price_per_100g, self.locale)
+            sub = f"{per_100g['text']}/100g"
+            price = self.locales.currency(
+                pricing.bin_price(self.cart.removed_grams(i), item.price_per_100g),
+                self.locale,
+            )["amount"]
+        else:
+            label, sub, price = "", "", 0.0
+        return {
+            "i": i,
+            "label": label,
+            "sub": sub,
+            "grams": round(self.cart.live_g[i]),
+            "picked": picked,
+            "price": price,
+            # hover/dwell (hl in {hover,disabled}) is M5's tracker; low
+            # stock (lowstock) needs a threshold nothing sets yet (doc
+            # section 22, P3). M1 only ever says picked or none.
+            "hl": "picked" if picked > 0 else "none",
+            "stock": "ok",
+            "resolved": resolved,
+        }
 
 
 def start(**kwargs: Any) -> Core:

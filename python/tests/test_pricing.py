@@ -67,6 +67,13 @@ class TestCatalogue(unittest.TestCase):
     def test_len(self):
         self.assertEqual(len(self.cat), 2)
 
+    def test_ids_preserve_load_order(self):
+        """core/main.py's mock bin seed (M1 build item 3) pairs bins with
+        catalogue items by this order — it has to match the file, not an
+        arbitrary dict iteration.
+        """
+        self.assertEqual(self.cat.ids(), ["mushroom", "dried_prawns"])
+
 
 class TestCatalogueLoad(unittest.TestCase):
 
@@ -102,6 +109,14 @@ class TestCatalogueLoad(unittest.TestCase):
         self.assertIn("en", it.names)
         self.assertIn("zh", it.names)
         self.assertIsInstance(it.price_per_100g, float)
+
+    def test_real_catalogue_has_exactly_eight_ids_for_the_mock_bin_seed(self):
+        """core/main.py's mock bin seed needs one id per bin — see
+        test_core_main.py's TestStateBroadcast for the pairing itself.
+        """
+        cat = Catalogue.load(CATALOGUE_PATH)
+        self.assertEqual(len(cat.ids()), 8)
+        self.assertEqual(len(set(cat.ids())), 8)   # no duplicate ids
 
 
 class TestTotal(unittest.TestCase):

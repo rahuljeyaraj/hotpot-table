@@ -1,4 +1,5 @@
-"""Tests for core/main.py — M0 build item 7.
+"""Tests for core/main.py — M0 build item 7, plus M1 build item 3 (the
+five domain modules wired in and broadcasting `state` at 60Hz).
 
 Run from the repo root (after `pip install -r python/requirements.txt`):
 
@@ -9,12 +10,17 @@ sibling process, a real WebSocket client (the `websockets` library, same
 as core/web/server.py uses on the server side) stands in for a staff
 tablet, and the assertion is that a hello/heartbeat/disconnect on one
 side shows up as a pip transition pushed out the other — the actual thing
-M0.7 has to prove, not just that each half works in isolation.
+M0.7 has to prove, not just that each half works in isolation. The M1
+classes below do the same thing for `state`: a wire.Client named `of`
+stands in for the renderer and the assertion is that core's Cart/BinMap
+mutations show up in the next broadcast, not just that pricing.total()
+is right in isolation (test_pricing.py already covers that).
 """
 
 import json
 import os
 import sys
+import threading
 import time
 import unittest
 
@@ -70,8 +76,8 @@ class CoreCase(unittest.TestCase):
                 pass
         self.core.stop()
 
-    def wire_client(self, who):
-        c = wire.Client("127.0.0.1", self.core.control_port, who)
+    def wire_client(self, who, on_message=None):
+        c = wire.Client("127.0.0.1", self.core.control_port, who, on_message=on_message)
         self._wire_clients.append(c)
         c.start()
         return c
@@ -152,6 +158,135 @@ class TestSelfHeartbeat(CoreCase):
         loop with a live web thread must still show up red.
         """
         self.assertTrue(wait_for(lambda: self.core.registry.status("core") == "up"))
+
+
+class TestStateBroadcast(CoreCase):
+    """M1 build item 3 (doc section 21): pricing/cart/binmap/i18n/fsm
+    wired into Core, serialised as doc section 4.3's `state` message and
+    sent to `of` at a fixed rate.
+    """
+
+    def of_client(self, timeout=DEADLINE):
+        """A wire.Client named `of`, plus the list of `state` messages it
+        has received so far and the lock guarding that list.
+        """
+        msgs = []
+        lock = threading.Lock()
+
+        def on_msg(m):
+            if m.get("t") == "state":
+                with lock:
+                    msgs.append(m)
+
+        c = self.wire_client("of", on_message=on_msg)
+        self.assertTrue(c.wait_connected(timeout), "of never got a welcome")
+        return c, msgs, lock
+
+    def wait_for_n(self, msgs, lock, n, timeout=DEADLINE):
+        def enough():
+            with lock:
+                return len(msgs) >= n
+        self.assertTrue(wait_for(enough, timeout), f"never received {n} state message(s)")
+
+    def test_shape_matches_doc_4_3(self):
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            msg = msgs[0]
+        self.assertEqual(msg["t"], "state")
+        self.assertEqual(msg["mode"], "diner")
+        self.assertEqual(msg["locale"], "en")
+        self.assertEqual(len(msg["bins"]), 8)
+        self.assertEqual(msg["widgets"], [])
+        self.assertEqual(msg["overlay"], {"kind": "none"})
+        self.assertIn("style", msg["fluid"])
+        self.assertIn("amount", msg["total"])
+        self.assertIn("text", msg["total"])
+
+    def test_bins_are_seeded_from_the_catalogue_in_order_and_billable(self):
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            msg = msgs[0]
+        ids = self.core.catalogue.ids()
+        for i, b in enumerate(msg["bins"]):
+            self.assertTrue(b["resolved"], f"bin {i} not resolved")
+            item = self.core.catalogue.item(ids[i])
+            self.assertEqual(b["label"], item.names["en"])
+            self.assertEqual(b["grams"], 500)   # MOCK_SEED_GRAMS, nothing picked yet
+            self.assertEqual(b["picked"], 0)
+            self.assertEqual(b["hl"], "none")
+            self.assertEqual(b["stock"], "ok")
+
+    def test_total_starts_at_zero(self):
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            amount = msgs[0]["total"]["amount"]
+        self.assertEqual(amount, 0.0)
+
+    def test_a_mock_pick_shows_up_in_the_next_broadcast(self):
+        """Bypasses the developer panel (build item 5, not built yet) and
+        pokes Cart directly — the same entry point mock controls will
+        call. Doc section 12.8's cycle includes 45g.
+        """
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+
+        self.core.cart.mock_pick(3, 45)
+
+        def bin3_picked_45():
+            with lock:
+                return any(m["bins"][3]["picked"] == 45 for m in msgs)
+        self.assertTrue(wait_for(bin3_picked_45), "bin 3's pick never appeared in a broadcast")
+
+        with lock:
+            last = msgs[-1]
+        item = self.core.catalogue.item(self.core.catalogue.ids()[3])
+        expected_price = round(45 / 100.0 * item.price_per_100g, 2)
+        self.assertEqual(last["bins"][3]["grams"], 455)      # 500 seeded - 45
+        self.assertEqual(last["bins"][3]["price"], expected_price)
+        self.assertEqual(last["bins"][3]["hl"], "picked")
+        self.assertEqual(last["total"]["amount"], expected_price)
+
+    def test_seq_increases_message_to_message(self):
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 5)
+        with lock:
+            seqs = [m["seq"] for m in msgs[:5]]
+        self.assertEqual(seqs, sorted(seqs))
+        self.assertEqual(len(seqs), len(set(seqs)))   # no repeats
+        self.assertGreater(seqs[-1], seqs[0])
+
+    def test_flows_faster_than_an_accidental_1hz_bug_would(self):
+        """Not a precise 60Hz measurement — timer coarseness on a dev
+        machine makes that flaky — just a floor high enough to catch the
+        loop firing at the wrong order of magnitude.
+        """
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 30, timeout=3.0)
+
+    def test_only_of_gets_state_not_a_sibling_process(self):
+        # tracker is a real process name (health.PROCESSES) but doc
+        # section 4.3 is core -> of specifically.
+        tracker_msgs = []
+        tracker_lock = threading.Lock()
+
+        def on_msg(m):
+            with tracker_lock:
+                tracker_msgs.append(m)
+
+        tracker = self.wire_client("tracker", on_message=on_msg)
+        self.assertTrue(tracker.wait_connected(DEADLINE))
+
+        # Proof the broadcaster is genuinely running during this window,
+        # not merely quiet for everyone.
+        _, of_msgs, of_lock = self.of_client()
+        self.wait_for_n(of_msgs, of_lock, 3)
+
+        with tracker_lock:
+            state_msgs = [m for m in tracker_msgs if m.get("t") == "state"]
+        self.assertEqual(state_msgs, [])
 
 
 class TestStop(unittest.TestCase):
