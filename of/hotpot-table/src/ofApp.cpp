@@ -41,12 +41,14 @@ namespace {
 	// "bright" or the "dim" one. What changes between them is hue and
 	// saturation only.
 	//
-	// That is section 9's rule taken literally rather than approximately. If the
-	// states differed in brightness, the thing telling them apart would be the
-	// one channel the projector and the room are already fighting over - which
-	// is exactly how the dim cyan below failed on the rig. Equal luminance means
-	// the distinction cannot be washed out without washing out all three, i.e.
-	// without the failure being obvious rather than silent.
+	// That is v3 doc I8 taken literally rather than approximately. If the states
+	// differed in brightness, the thing telling them apart would be the one
+	// channel that is not available for signalling: brightness is spent on
+	// illumination (I9), so everything on this table already sits near the top
+	// of the range and a "dimmer" state reads as a fault rather than a state.
+	// That is exactly how the dim cyan below failed on the rig. Equal luminance
+	// means the distinction cannot be washed out without washing out all three,
+	// i.e. without the failure being obvious rather than silent.
 	//
 	// Grey, not white: this is a dark line on a light field now. Idle is the
 	// hueless member of the set, so grey to red reads as colour arriving on an
@@ -54,10 +56,10 @@ namespace {
 	const ofColor kBinIdleColour(98, 98, 98);
 
 	// Red is the instant one: the outline turns the moment a hand is inside,
-	// before any dwell exists. Section 9 allows that precisely because it
-	// commits to nothing - the load cell confirms the actual pick, so a halo
-	// that lights on a hand passing through cannot have been wrong about
-	// anything.
+	// before any dwell exists. v3 doc §9.4 allows that precisely because it
+	// commits to nothing - hover on a bin is feedback only and never bills,
+	// billing is weight always (I4), so a halo that lights on a hand passing
+	// through cannot have been wrong about anything.
 	//
 	// MEASURED ON THE RIG, NOT A PREFERENCE: this started as a dim cyan and was
 	// rejected at the table for being very difficult to see. That lesson is
@@ -91,12 +93,20 @@ namespace {
 	// Percentages of full projector output, brightest first so index 0 is the
 	// default and the key dims as it cycles.
 	//
-	// This exists because the field is an ILLUMINANT, not a background. Section
-	// 8's black rects assume a lit room and keep projector light off the food;
-	// in a dark room there is no ambient to fall back on and the same rects
-	// leave the food unlit, so the field becomes the only light the classifier
-	// gets. That makes its level a rig parameter to be swept against the camera
-	// like an exposure, not a look to be chosen once in code.
+	// This exists because the field is an ILLUMINANT, not a background - v3 doc
+	// I9, which the doc now states directly rather than being argued against
+	// here. In a dark room there is no ambient to fall back on, so the field is
+	// the only light the classifier gets. That makes its level a rig parameter
+	// to be swept against camera exposure (§6.6 - the two are one coupled
+	// parameter), not a look to be chosen once in code.
+	//
+	// This array is the sweep instrument. The chosen value belongs in
+	// config/system.json as of.field_level and gets mirrored into
+	// state/camera_settings.json, because it is dataset provenance as much as
+	// exposure is (§8.6). Until that config path exists, index 0 is the default.
+	//
+	// The 0 stop is for the sweep only. It is not a usable setting: at 0 the
+	// classifier is blind and the tracker has nothing lit to find.
 	const int kFieldLevels[] = { 100, 75, 50, 25, 0 };
 	const int kFieldLevelCount = sizeof(kFieldLevels) / sizeof(kFieldLevels[0]);
 
@@ -115,12 +125,13 @@ namespace {
 	// system path. The reComputer is Linux and the dev machine is Windows, and a
 	// font that resolves on one and not the other fails as a blank table.
 	//
-	// Bold, not regular, and that is not a style preference. This is white text
-	// on white plywood lit by a projector in a room that section 21 REQUIRES to
-	// stay lit - so the ambient light the classifier needs is also the light
-	// washing out the projected UI. Contrast comes from stroke width, which is
-	// the one thing a bold face has more of. Same lesson as the dim-cyan bin
-	// outline that was rejected at the table further up.
+	// Bold, not regular, and that is not a style preference. This is dark ink on
+	// a bright field: I9 makes the field an illuminant, so it is pinned near the
+	// top of the range and text can no longer win on brightness, and the scrim's
+	// dark plates behind text went with it (§13.2). Contrast has to come from
+	// stroke width instead, which is the one thing a bold face has more of.
+	// Same lesson as the dim-cyan bin outline that was rejected at the table
+	// further up. v3 doc §13.4 carries this as a rule, not a preference.
 	const char * kFontFile = "fonts/DejaVuSans-Bold.ttf";
 
 	// Font sizes as PHYSICAL heights on the plywood, converted to pixels at
@@ -132,9 +143,9 @@ namespace {
 	// (about 1.2 m across the table, about 0.85 m of eye height above it).
 	// Signage practice puts the legibility threshold near 1/200 of viewing
 	// distance and comfortable reading near 1/100. Nothing here is good
-	// conditions - projected light competing with the room lighting section 21
-	// mandates - so this takes the comfortable ratio: 1400 / 100 = 14 mm of cap
-	// height. DejaVu's cap height is 0.73 em, so 14 / 0.73 = 19 mm of em, taken
+	// conditions - dark ink on a bright field, through projector blur, at a
+	// glancing angle - so this takes the comfortable ratio: 1400 / 100 = 14 mm
+	// of cap height. DejaVu's cap height is 0.73 em, so 14 / 0.73 = 19 mm, taken
 	// up to 22 mm for headroom, since the back strip has 175 mm to spend and
 	// nothing else wants it.
 	const float kNameEmMM = 22.0f;
@@ -149,11 +160,16 @@ namespace {
 	// Gap between the name's ink and the price's ink.
 	const float kLabelLineGapMM = 4.0f;
 
-	// Clearance between the edge of a bin's black rect and the nearest label
-	// ink. The black already overshoots the physical hole by CUTOUT_MARGIN_MM,
+	// Clearance between the edge of a bin's white patch and the nearest label
+	// ink. The patch already overshoots the physical hole by CUTOUT_MARGIN_MM,
 	// so 10 mm here leaves the text about 20 mm clear of the actual opening -
 	// comfortably past both the 1 mm nudge step the alignment was dialled in
 	// with and the few mm of residual it could still be carrying.
+	//
+	// Worth more than it used to be. Under I9 the patches are stamped last
+	// (§13.2), so ink that strays inside one is not drawn badly - it is drawn
+	// and then erased. The failure mode is a label that silently disappears,
+	// which is harder to diagnose than a label that looks wrong.
 	//
 	// Not reusing CUTOUT_MARGIN_MM itself: that one is a projector-spill
 	// margin and this one is a typographic one, and tying them together would
@@ -165,10 +181,10 @@ namespace {
 	const char * kScreenshotDir = "screenshots";
 
 	// Marks the line being moved. This is a setup overlay, not the diner-facing
-	// UI, so it is outside the "colour is reserved for progress" rule in §9 -
-	// and green stays clear of both hand-dot colours. Brought down from value
-	// 255 for the same reason the progress green was: a light green does not
-	// survive a white field.
+	// UI, so it is outside the "colour is reserved for progress" rule that §9.4
+	// hover feedback follows - and green stays clear of both hand-dot colours.
+	// Brought down from value 255 for the same reason the progress green was: a
+	// light green does not survive a white field (I8).
 	const ofColor kSelectionColour(0, 150, 70);
 
 	// --- hand tracking -------------------------------------------------------
@@ -183,13 +199,15 @@ namespace {
 	//
 	// 500 ms is roughly 15 frames of a 30 fps tracker, so a one- or two-frame
 	// detection dropout - which is common and means nothing - does not blink
-	// the dot out. Deliberately not a smoothing filter: stage 1 shows raw
-	// positions so the true jitter stays visible.
+	// the dot out. Deliberately not a smoothing filter: this stage shows raw
+	// positions so the true jitter stays visible. Smoothing arrives with the
+	// real cursor at M5, not here.
 	const uint64_t kHandTimeoutMS = 500;
 
 	// One colour per hand id, purely so two hands can be told apart while the
-	// loop is being evaluated. This is NOT the blob cursor of stage 4, whose
-	// colour is fixed and reserved exclusively for progress indication.
+	// loop is being evaluated. This is NOT the M5 pointer cursor, whose colour
+	// is fixed and reserved exclusively for progress indication - and which is
+	// drawn for the pointer hand only, never for ambient hands (§11.4).
 	//
 	// Both dropped in value along with everything else on the white field. The
 	// old 200/255 cyan and 255 amber were chosen against black and land at
@@ -205,7 +223,10 @@ namespace {
 	// The bin outline itself, walked clockwise from the top centre and cut off
 	// at `frac` of its total length. This is the progress indicator - there is
 	// no ring, arc or bar anywhere, because everything inside the rect is the
-	// cutout and has to stay black (section 8). The only geometry available to
+	// cutout and has to stay flat and unmarked (I9). Note that this constraint
+	// survived the black-to-white inversion completely unchanged: what it ever
+	// required was that nothing be drawn inside a cutout, and the colour that
+	// nothing is drawn over was never the point. The only geometry available to
 	// draw on is the 3 mm line already there, so progress runs along it.
 	//
 	// Top centre rather than a corner: it is the one point on a rectangle that
@@ -319,7 +340,8 @@ void ofApp::setup(){
 	// Loaded ONCE, at the size they are drawn at. mmToPxY rather than a literal
 	// so the sizes stay the physical heights argued for at the top of this file
 	// if the projector ever changes - but still resolved here, before any
-	// drawing, so nothing is ever scaled up at draw time (section 7).
+	// drawing, so nothing is ever scaled up at draw time (v3 doc §13.4: load
+	// each font at its final display size, projected text at 3x scale is mud).
 	const int nameSizePx = (int)roundf(mmToPxY(kNameEmMM));
 	const int priceSizePx = (int)roundf(mmToPxY(kPriceEmMM));
 
@@ -590,9 +612,14 @@ void ofApp::loadOffsets(){
 // Every consumer goes through here: the outline, the label clearance and the
 // hover hit test, which is the only way those can be guaranteed to be the same
 // rectangle. Hit testing raw BINS[] instead would test the drawing while the
-// outline sits on the as-built cutouts, and CLAUDE.md section 17 puts those up
+// outline sits on the as-built cutouts, and the measured offsets put those up
 // to ~5 mm apart per edge on top of a 4 mm global offset - enough to hover a
 // bin whose outline the hand is not inside.
+//
+// Those measurements are the ones v3 §7.1 keeps: bin_offsets.json survives the
+// rewrite because it encodes real rig geometry, and becomes the seed for
+// state/bin_rects.json (§8.4) rather than the live file. When hit testing moves
+// to core at M5, this rectangle is what it must be seeded from.
 //
 // Losing the black fill changed nothing here. bin_offsets.json still says where
 // the openings are, and the outline and the labels are still placed against
@@ -612,23 +639,32 @@ ofRectangle ofApp::binRectPx(int i) const {
 
 //--------------------------------------------------------------
 void ofApp::drawBinOutlines(){
-	// THE BLACK FILL IS GONE ON PURPOSE. Section 8 of CLAUDE.md says the
-	// projector must put near-zero light into the bins, and that is right for
-	// the lit room section 21 requires - there, ambient light is what the
-	// classifier sees by, and projector light on top of it is pure
-	// contamination.
+	// THE BLACK FILL IS GONE ON PURPOSE, and the v3 doc now agrees rather than
+	// having to be argued with: I9 makes the projected field the ILLUMINANT and
+	// requires a flat pure-white patch over every cutout.
 	//
-	// The demo is shot in a DARK room, where that argument inverts. With no
-	// ambient there is no "leave the food alone" option: a black rect over a
-	// cutout is not neutral, it is the food in total darkness, which starves
-	// the classifier rather than protecting it. The choice is projector light
-	// or no light. So the whole table is a flat white field and the cutouts are
-	// simply part of it - a constant, controlled illuminant, and one that lights
-	// the back of the hand exactly when the hand is over a bin.
+	// The history is worth keeping, because the earlier rule was not stupid. It
+	// assumed a lit room, where ambient is what the classifier sees by and
+	// projector light on top of it is pure contamination. In a DARK room that
+	// argument inverts: with no ambient there is no "leave the food alone"
+	// option, and a black rect over a cutout is not neutral - it is the food in
+	// total darkness, which starves the classifier rather than protecting it.
+	// The choice is projector light or no light. So the whole table is a flat
+	// white field and the cutouts are simply part of it, a constant controlled
+	// illuminant that also lights the back of the hand exactly when the hand is
+	// over a bin.
 	//
-	// What section 8 actually observed was a COLOURED, PATTERNED image washing
-	// pink and white over the food. Flat white is neither, and the level is
-	// swept from the table with the brightness key rather than fixed here.
+	// What the old rule actually observed was a COLOURED, PATTERNED image
+	// washing pink and white over the food. Flat white is neither, and I9 keeps
+	// that half of the objection intact: nothing coloured, patterned, textured
+	// or animated may reach a cutout. The level is swept from the table with the
+	// brightness key rather than fixed here (§6.6).
+	//
+	// NOT YET BUILT, and this is the gap between this file and the doc: §13.2
+	// specifies the white patches as a LIGHT PASS stamped last, after the fluid
+	// and the UI, so nothing can draw into a cutout even by accident. Today
+	// there is no fluid and no UI layer, so a flat ofBackground plus these
+	// outlines is the same picture. It stops being the same picture at M8.
 	//
 	// One stroke width has to serve both axes, and the axes do not scale
 	// equally (3 mm is 3.78 px across, 3.54 px down). Taking X makes the
@@ -898,14 +934,21 @@ void ofApp::draw(){
 		logWindowState("frame " + ofToString(frame));
 	}
 
-	// CALIBRATION IS NOT INVERTED, AND MUST NOT BE. Sections 15 and 16 are
-	// explicit: the dots are solved for against a dark frame, because they have
-	// to stay separable from a white table top, and solve_homography.py runs the
-	// camera at a dark exposure to keep them that way. A white field here would
-	// put the dots on a background as bright as they are and the solve would
-	// find nothing. This branch keeps its black background and its white dots
-	// whatever the rest of the app is doing, so it returns before the field
-	// below is ever drawn.
+	// CALIBRATION IS NOT INVERTED, AND MUST NOT BE. This is the one exception
+	// I9 carves out: the dots are solved for against a dark frame, because they
+	// have to stay separable from a white table top, and solve_homography.py
+	// runs the camera at a dark exposure to keep them that way. A white field
+	// here would put the dots on a background as bright as they are and the
+	// solve would find nothing. This branch keeps its black background and its
+	// white dots whatever the rest of the app is doing, so it returns before the
+	// field below is ever drawn.
+	//
+	// The exception is safe because of WHEN it applies, not because it is small.
+	// Calibration and food classification are both staff-mode activities but
+	// never run at once, so the two lighting regimes never have to coexist. If
+	// something ever needs the dots and the classifier live in the same frame,
+	// that is not a rendering problem to solve here - it is I9 needing a
+	// decision, because one of the two has to lose.
 	if(showCalibration){
 		ofBackground(0);
 		drawBinOutlines();
@@ -921,7 +964,14 @@ void ofApp::draw(){
 	}
 
 	// The field. One flat grey covering the whole projected surface, cutouts
-	// included - in a dark room this is the illuminant, not a backdrop.
+	// included - in a dark room this is the illuminant, not a backdrop (I9).
+	//
+	// Flat is doing real work here and is not just the simplest thing. At M8
+	// this becomes the fluid, and the doc's answer to "how is a coloured moving
+	// field still an illuminant" is the floor lift in §13.2: every pixel outside
+	// a cutout is lifted so no channel falls below of.white_floor, keeping the
+	// hand lit whatever the fluid is doing. Cutouts skip the lift entirely -
+	// they are stamped at full white afterwards.
 	const int fieldGrey = (int)roundf(255.0f * kFieldLevels[fieldLevel] / 100.0f);
 	ofBackground(fieldGrey);
 
@@ -934,15 +984,24 @@ void ofApp::draw(){
 	// every time the projector is moved or a new machine drives it. Uncomment
 	// the block below to get it, and comment it out again afterwards.
 	//
-	// It had to go now rather than at stage 4 because of the conflict this
-	// comment used to describe as known and accepted: the diagonals and the
-	// grid crossed four of the eight cutouts, and dark lines over a cutout are
-	// exactly the patterned shadow the flat field exists to avoid. The black
-	// rects used to absorb it - they were drawn after the pattern for precisely
-	// that reason - and since they went (section 8 inverted, see
-	// drawBinOutlines) nothing has. With the field now the classifier's only
-	// illuminant in a dark room, scaffolding that stripes the food is no longer
-	// something to note and work around.
+	// It had to go now rather than later because of the conflict this comment
+	// used to describe as known and accepted: the diagonals and the grid crossed
+	// four of the eight cutouts, and dark lines over a cutout are exactly the
+	// patterned shadow I9 exists to prevent. The black rects used to absorb it -
+	// they were drawn after the pattern for precisely that reason - and when
+	// they inverted (see drawBinOutlines) nothing was left absorbing it. With
+	// the field now the classifier's only illuminant, scaffolding that stripes
+	// the food is no longer something to note and work around.
+	//
+	// This is the exact failure the §13.2 light pass exists to make impossible.
+	// Once the patches are stamped last, uncommenting this block is safe again -
+	// the pattern is drawn, the cutouts are painted over it, and the diagnostic
+	// works without touching the food. Until then, the safety is this comment,
+	// which is a considerably weaker mechanism.
+	//
+	// The same argument applies to the staff-mode 100 mm calibration grid the
+	// doc asks for at §14.5. It is specified as masked out of the bin patches,
+	// and the grid appearing to break at the cutouts is correct, not a bug.
 	//
 	// Values are the inverted set: the grid was 60 on black and is 195 on
 	// white, everything else was 255 and is now 0.

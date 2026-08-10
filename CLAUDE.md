@@ -35,6 +35,15 @@ Last completed step: M0.0.
 - The 10g deadband is display-only and SNAPS to truth.
 - Re-baseline, never re-tare.
 - Food position is not fixed. Bin map is live data.
+- The projected field is the ILLUMINANT, not a background.
+  Dark room, so the projector is the only light the
+  camera has. Every tray cutout gets a flat pure-white
+  patch at full level, stamped LAST so nothing can draw
+  into it. Never black, never coloured, never patterned.
+  Everything else stays above a white floor so the hand
+  stays trackable. Only dot calibration inverts.
+- Distinguish states by hue, never by brightness, and
+  luminance-match the hues to each other.
 
 ## TOP RISKS
 - reComputer x86 model still unidentified. Blocks M8.

@@ -71,7 +71,7 @@ These are load-bearing. Violating one is a design regression, not a style choice
 
 **I1 — Core owns all state.** Weights, cart, prices, bin map, geometry, FSM, locale, mode. No other process holds authoritative state.
 
-**I2 — openFrameworks is a dumb renderer.** It receives resolved, semantic state (a finished string, a number, a rectangle, a highlight enum) and draws it. It computes nothing it could be told. It retains exactly two things: the keystone homography and frame-to-frame tweening.
+**I2 — openFrameworks is a dumb renderer.** It receives resolved, semantic state (a finished string, a number, a rectangle, a highlight enum) and draws it. It computes nothing it could be told. It retains only **rig calibration constants** — the keystone homography, and the two I9 illuminant values `field_level` and `white_floor` (§8.6) — plus frame-to-frame tweening. These are properties of the physical installation, measured once and read at startup, not application state: core cannot resolve them because they describe the projector, not the transaction.
 
 **I3 — Core never touches a frame.** No pixel data enters the core process. Ever.
 
@@ -88,9 +88,15 @@ Never sum per-event deltas. Two absolute weights subtracted cannot bake in a dro
 
 **I7 — Food position is not fixed.** Trays get swapped mid-service. The bin→item map is live data written by the classifier, never a constant. Price follows the food, not the bin.
 
-**I8 — Distinguish states by hue at full value, not by brightness.** Projector light and ambient light already compete on the brightness axis.
+**I8 — Distinguish states by hue at full chroma, not by brightness.** Brightness is spent on illumination (I9) and is therefore not available as a signalling channel — everything on the table sits near the top of the range, so a "dimmer" state reads as a rendering fault rather than as a state. Hues must additionally be **luminance-matched to each other**, or a state change reads as the table brightening rather than as the state changing. Already measured on the rig: the dwell-progress green had to come down from 255 to 115 to sit at the same luminance as the 200-red it replaces, because a full-value green on a light field lands at about 1.4:1 — worse than the dim cyan that had already been rejected at the table.
 
-**I9 — Solid black rectangles over every tray cutout.** The projector puts near-zero light into the bins, so the camera sees food under ambient light only. This is load-bearing for classifier input quality, not an aesthetic choice.
+**I9 — The projected field is the illuminant, not a background.** The demo runs in a dark room, so the projector is the only light the camera has. Three consequences, none of them aesthetic:
+
+1. **Every tray cutout carries a flat, pure-white patch at full field level.** Not black. A black rectangle over a cutout is not "leaving the food alone" — with no ambient to fall back on it is the food in total darkness, which starves the classifier rather than protecting it. The choice is projector light or no light, and the patch also lights the back of the hand exactly when the hand is over a bin.
+2. **Nothing coloured, patterned, textured or animated ever reaches a cutout.** The objection this invariant was originally written against was real, but it was about a *coloured, patterned* image washing pink and white over the food — not about light as such. Flat white is neither. Fluid, gradients, grid lines, diagonals, text and low-stock tints are all excluded from the bin patches. §13.2 makes this structural rather than something to remember.
+3. **The rest of the table stays above a white floor**, bright enough that the back of the hand is always lit for the tracker. Colour is free above that floor; darkness is not. The floor and its mechanism are specified in §13.2.
+
+**The one exception is dot calibration** (`overlay.kind = "calibrating"`), which inverts completely: black field, white dots. The dots must stay separable from a white table top, and the solve runs the camera at a dark exposure to keep them that way — a white field there puts the dots on a background as bright as they are and the solve finds nothing. Calibration and food classification are both staff-mode activities but never run simultaneously, so the two lighting regimes never have to coexist.
 
 **I10 — Camera near-vertical.** Hand-position error = hand height ÷ tan(elevation angle). At 40° a 100mm-high hand lands 119mm off — the wrong bin. At 80° it is 18mm. **The camera elevation angle has never been measured. It must be measured before M4.**
 
@@ -385,6 +391,13 @@ Also at startup, disable anything that fights the classifier:
 
 Changing exposure between the training set and inference is a classifier accuracy bug that looks like a model problem. Lock it and record the values in `state/camera_settings.json`.
 
+**The projector field level is part of this set.** Since the field is the illuminant (I9), `field_level` and camera exposure are one coupled parameter, not two — and the coupled pair must be identical at capture time and at inference time, for exactly the reason above. Consequences:
+
+- `field_level` lives in `config/system.json` (§8.6) as a percentage of full projector output. Default **100%**.
+- It is **swept on the rig against camera exposure** during M3/M4 — projector at each level, camera exposure adjusted, look at the bin crops — and then frozen. It is a measured rig parameter, not a look chosen in code.
+- The chosen value is mirrored into `state/camera_settings.json` alongside exposure and WB, so a single file answers "under what light was this dataset taken."
+- **The bin patches are always at full level regardless of `field_level`.** `field_level` sweeps the field; the cutouts stay at the top of the range. "Fully lit" is not a level to be traded off.
+
 ---
 
 ## 7. REPOSITORY LAYOUT
@@ -577,12 +590,15 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
   "classifier":{"backend":"stub","model":"models/ingredients-x86_64.eim","live_hz":2},
   "voice":  {"backend":"stub","model":"models/keywords-x86_64.eim","threshold":0.75,
              "enabled":false},
-  "of":     {"stage":[1920,1080],"monitor_index":2,"fluid_sim_scale":4,"target_fps":60},
+  "of":     {"stage":[1920,1080],"monitor_index":2,"fluid_sim_scale":4,"target_fps":60,
+             "field_level":1.0,"white_floor":0.45},
   "dev":    {"panel_enabled":false}
 }
 ```
 
 `camera.host_for_browser` is the config value that will bite on deploy day: in development the browser and the camera process are both on localhost; on the reComputer, if the staff tablet is a different machine, this must be the reComputer's LAN address. It exists as an explicit field precisely so it is visible rather than hardcoded.
+
+`of.field_level` and `of.white_floor` are the two I9 knobs, and both are **measured on the rig, not chosen** (§6.6, §13.2). They are config rather than constants specifically so they can be swept without a rebuild. `field_level` is additionally mirrored into `state/camera_settings.json` at startup, because it belongs to the dataset's provenance as much as exposure does — config says what the rig is set to, that file says what the training images were taken under.
 
 ---
 
@@ -809,7 +825,7 @@ The staff view is not a debug page. It is the calibration surface, the diagnosti
 
 ### 12.1 Design principles
 
-- **Dark UI.** The environment is dim; a white page is a flashlight in the operator's face and destroys their dark adaptation for reading the table.
+- **Dark UI.** The environment is dim; a white page is a flashlight in the operator's face. **This is the operator's screen, not the projected field** — it is not a contradiction of I9, which governs light landing on the table. The two surfaces have opposite jobs: the tablet is read by a human eye in a dark room, the table is read by a camera that has no other light source.
 - **Touch first.** Assume a tablet. Minimum touch target 44×44 CSS px. No hover-only affordances.
 - **One primary action per screen.** An untrained operator should never have to choose between two similarly-weighted buttons.
 - **State is always visible.** Mode, order total, and the six process pips are in a header that never scrolls away.
@@ -892,10 +908,16 @@ This exists so that training data can be gathered from the real rig under the re
 - **Capture all** — saves 8 crops with their assigned labels in one tap.
 - **Burst** — N frames over M seconds (default 10 over 5s), so the operator can nudge the tray between frames and get pose variation.
 - Session counter per label, so the operator can see they have 40 mushrooms and 6 prawns and go collect more prawns.
-- Files: `datasets/captures/<label>/<unixms>_bin<i>.jpg`, plus a sidecar `.json` with bin index, rect, timestamp, and the exposure/WB values from `state/camera_settings.json`.
+- Files: `datasets/captures/<label>/<unixms>_bin<i>.jpg`, plus a sidecar `.json` with bin index, rect, timestamp, and the exposure/WB **and `field_level`** values from `state/camera_settings.json`.
 - **Export for Edge Impulse** — runs `tools/export_edgeimpulse.py`, producing a folder-per-label tree ready for `edge-impulse-uploader`.
 
-Deliberate design note: **do not vary the lighting deliberately and do not measure the illuminant.** The dataset spans varied conditions naturally across sessions, so the model learns to ignore illumination on its own. Illuminant measurement is only needed for a single-illuminant dataset, which this is not. This was analysed and dropped in an earlier session; it stays dropped.
+Deliberate design note, **revised under I9**: an earlier session concluded "do not vary the lighting and do not measure the illuminant," on the reasoning that the dataset spans varied conditions naturally across sessions so the model learns to ignore illumination, and that illuminant measurement only matters for a single-illuminant dataset — "which this is not."
+
+That premise no longer holds. In a dark room with the projector as the only light, this **is** a single-illuminant dataset, and the illuminant is one this system controls exactly. The conclusion changes accordingly:
+
+- **Do not vary the lighting** — still right, and now for a stronger reason. There is nothing to vary; the field is a constant.
+- **Do not measure the illuminant** — still right, but not because measurement is unnecessary. It is unnecessary because the illuminant is *known*: it is a flat white patch at a recorded `field_level`. Record it (above); do not go photometering it.
+- **New and load-bearing:** capture must run with the bin patches lit exactly as diner mode lights them. A capture session taken with a different `field_level`, with the fluid or the staff grid bleeding into a cutout, or during calibration's black-field inversion, produces a training set the live rig will never reproduce. The Capture tab must therefore drive the same bin-patch path as diner mode, not its own.
 
 ### 12.8 Developer panel
 
@@ -932,18 +954,32 @@ Receive state, tween it, draw it, warp it, play sounds. Nothing else (I2).
 
 ### 13.2 FBO stack
 
-Three FBOs composited in this order, warped once at the end:
+Two FBOs and two full-stage passes, warped once at the end. The order is what enforces I9:
 
 ```
 1. fluidFBO    — the fluid simulation, upscaled to stage size
-2. scrimFBO    — solid black rectangles over every tray cutout (I9), plus dark
-                 plates behind text for contrast
-3. uiFBO       — plates, labels, prices, widgets, cursor, overlays
+2. uiFBO       — labels, prices, widgets, cursor, overlays, bin outlines
    ─────────────────────────────────────────────────────────────
-   composite → keystone warp → screen
+3. FLOOR LIFT  — applied to the composite of 1+2, per pixel:
+                     out = k + (1 - k) * in          (k = white_floor)
+4. LIGHT PASS  — flat pure-white patches stamped over every tray cutout,
+                 at full field level, after everything else
+   ─────────────────────────────────────────────────────────────
+   → keystone warp → screen
 ```
 
+**Step 4 is last on purpose, and that is the entire safety property.** I9's rule is not "remember not to draw into a cutout" — it is "you cannot." Any layer that misbehaves, any overlay added later, any uncommented test pattern, any fluid splash: all of it is overwritten by the light pass before the frame reaches the projector. A rule enforced by drawing order cannot be forgotten by a future change. This has already been proven necessary — the Stage 1a test pattern's grid and diagonals crossed four of the eight cutouts, and were only survivable while black rects were drawn after them to absorb the damage.
+
+**Step 3, the floor lift**, is what makes "bright and vibrant" and "trackable" compatible. Rather than restricting every palette to pale tints, the styles keep their full hue and chroma relationships and the composite is lifted toward white by a constant:
+
+- `white_floor` (`k`) is a config value in `config/system.json`, **default 0.45**, meaning no channel of any pixel outside a cutout ever falls below 45% of full output.
+- The floor is on the **minimum RGB channel, not on luminance** — and that distinction is the point. A fully saturated red has a relative luminance of at most 0.21, so a luminance floor of any useful height would ban saturated colour outright and force the whole table into pastels. A per-channel floor guarantees every channel carries light — so skin still reads as skin to MediaPipe — while leaving the chroma *between* channels free. Vivid colour above a guaranteed white base.
+- It is unconditional and per-frame. There is no style exemption and no "only when a hand is near" optimisation; intermittent hand tracking is a worse failure than a compromised palette.
+- **VERIFY on the rig at M5, with the tracker running:** sweep `k` downward from 0.45 and find where hand detection starts dropping frames over the darkest part of the field. Set it with margin above that. This is a measured number, not a chosen one — 0.45 is a starting point.
+
 **VERIFY, and this has bitten before:** `ofxFlowTools` leaves the blend mode as `OF_BLENDMODE_ADD`. Call `ofEnableAlphaBlending()` explicitly before drawing the UI layer, every frame. Do not assume the state you left it in.
+
+**The scrim layer is gone.** It had two jobs and both are obsolete: black rects over cutouts are now the light pass, inverted; and dark plates behind text are unnecessary on a light field, where contrast comes from dark ink and heavy stroke weight instead (§13.4).
 
 ### 13.3 Tweening
 
@@ -971,6 +1007,7 @@ Chinese is set **15% larger than English at equal cap height** because CJK glyph
 Fonts: `Inter` for `en`, `Noto Sans SC` for `zh`. Two `ofTrueTypeFont` instances per size, selected by `state.locale`.
 
 Rules that are not style preferences:
+- **Dark ink on a light field, and set bold.** The field is bright by requirement (I9), so text can no longer win on brightness and there is no dark plate to sit on. Contrast has to come from stroke width, which is the one thing a bold face has more of — already the reason the bin labels use DejaVu Sans Bold rather than the regular cut. Halos and outline rings invert with it: dark rings on light ground, never light-on-light.
 - **Load each font at its final display size.** Never load small and scale up — projected text at 3× scale is mud.
 - **VERIFY the CJK range API before use.** oF 0.12's `ofTrueTypeFontSettings` supports adding Unicode ranges, but the exact enum name has changed across versions. Check the installed header. Loading the full CJK range at 42 px produces a very large atlas; if load time or VRAM becomes a problem, generate the exact glyph set from `data/locales/zh.json` and add only those ranges.
 - Halo and outline rings: `ofPath` with `setStrokeWidth()`. **Never `ofSetLineWidth()`** — drivers cap it at 1 px and the ring vanishes on the reComputer while looking fine on the dev machine.
@@ -1009,6 +1046,12 @@ The relevant knobs, in the standard GPU-fluid sense:
 
 Three, with genuinely different colour and behaviour, so the table does not become one animation the judges have already seen by minute two. Cycled per session, or set by staff, or by voice.
 
+**All three run on a light field, and this is a change from the first draft of this section.** Every palette below was originally specified against a near-black base — the fluid was a glowing thing in a dark room. That is incompatible with I9: a dark field blankets the table in exactly the light the tracker needs, and a saturated moving field over a cutout is exactly the coloured, patterned wash the classifier must never see. So:
+
+- **The base of every palette is the paper**, near-white. Density does not add glow to darkness; it adds **colour and depth to paper**, like oil pooling on broth or ink spreading in water. This is a better read from directly above anyway — a top-down pot is a coloured surface, not a light source.
+- **The stops below are pre-lift values.** They are composited and then lifted by `k` (§13.2), so a stop that looks near-black here lands as a mid tone on the table. Palettes are authored at full chroma and the floor handles trackability; do not pre-pale them by hand and then lift them twice.
+- **No style touches a cutout.** The light pass covers all eight regardless of what the fluid is doing (§13.2), so styles need no per-bin masking logic of their own.
+
 ---
 
 **Style 1 — 麻辣 `mala` (default, diner mode)**
@@ -1017,12 +1060,14 @@ The signature Chongqing red-oil surface. <cite index="2-1">The beef tallow base 
 
 | Property | Setting |
 |---|---|
-| Palette | base `#2A0A08` deep oxblood → mid `#C0341D` chilli red → highlight `#F2A11C` oil gold |
+| Palette | paper `#FFF4EA` warm white → mid `#FFB020` oil gold → peak `#E8442A` chilli red |
 | Vorticity | **high** (~0.7 of range) — curling, rolling, alive |
 | Viscosity | low-mid — oil, not syrup |
 | Dissipation | **low** — trails linger, the table stays warm-looking between diners |
 | Buoyancy | positive; injections rise slowly |
 | Particles | chilli flakes and Sichuan peppercorn specks advected by the velocity field, ~200 sprites, respawned at the edges |
+
+Density ramps paper → gold → red, so denser means *redder and deeper*, not brighter. The peppercorn and chilli-flake sprites become genuinely legible here in a way they never were on oxblood — dark specks on a warm field, which is what they actually look like in a pot.
 
 Reads as: a simmering red-oil pot seen from directly above. This is the one that must look right, because it is on screen 90% of the time.
 
@@ -1032,12 +1077,14 @@ Reads as: a simmering red-oil pot seen from directly above. This is the one that
 
 | Property | Setting |
 |---|---|
-| Palette | base `#141A18` → mid `#D9C98E` pale broth gold → highlight `#FFF6E0` cream |
+| Palette | paper `#FFFBF2` cream → mid `#EBDCA8` pale broth gold → peak `#C9A227` amber |
 | Vorticity | **low** |
 | Viscosity | **high** — slow, silky, ink-in-water ribbons |
 | Dissipation | mid |
 | Buoyancy | near zero; motion comes almost entirely from the hand |
 | Particles | goji berries and jujube slices, ~40 sprites, large and slow |
+
+The narrowest palette of the three and the brightest overall, which makes it the safest style under the floor: it sits well above `k` almost everywhere, so the lift barely touches it. The red goji sprites are the only strong chroma on the table.
 
 Reads as: a clear bone broth, barely moving. This is the style to use when the UI is dense — a full cart with eight labelled bins and a recap card needs a quiet background, and switching to this automatically when the cart exceeds ~6 items is a good adaptive touch.
 
@@ -1054,9 +1101,16 @@ Reads as: a clear bone broth, barely moving. This is the style to use when the U
 | Buoyancy | slight negative; ink sinks and spreads |
 | Particles | none — the density field is the whole image |
 
-Reads as 水墨画, Chinese ink-wash painting. Culturally legible to the judges at a glance, and visually the opposite of the other two: light background, dark fluid. It is also the cheapest of the three (no particles), so it is the safe fallback if the reComputer GPU disappoints.
+Reads as 水墨画, Chinese ink-wash painting. Culturally legible to the judges at a glance. It is also the cheapest of the three (no particles), so it is the safe fallback if the reComputer GPU disappoints.
 
-**Note the inversion:** in `shuimo` the background is light. The scrim rectangles over the tray cutouts (I9) must stay black regardless of style — they exist for the camera, not for the eye. Verify this looks deliberate rather than broken.
+**This style used to be the exception and is now the model.** It was the only one already built on paper, and the earlier draft of this section flagged it as an awkward inversion to be worked around. Under I9 it is the other two that moved to meet it, and the note that used to live here — "the scrim rectangles must stay black regardless of style" — is deleted, not amended. It is exactly backwards.
+
+**The cost `shuimo` pays, stated honestly:** its ink is `#14100E`, near-black, and the floor lift (§13.2) takes that to roughly a mid grey at `k = 0.45`. Ink wash with grey ink is a weaker image than ink wash with black ink. Two things follow, and the order matters:
+
+- The fix is **not** a style exemption from the floor. A style that goes dark is a style during which hand tracking degrades, and an intermittently-responsive table in front of judges is worse than a muted one.
+- The fix is to buy contrast elsewhere: sharper tendrils, more coverage, and the vermillion accent doing more work. If that is still not enough on the rig, lower `k` globally with the tracker running and confirm detection holds (§13.2) — a measurement, not an exception.
+
+This makes `shuimo` the style most sensitive to where `k` lands, so sweep it against this style rather than against `qingtang`, which will pass at any value.
 
 ### 14.4 Event-driven fluid moments
 
@@ -1070,16 +1124,23 @@ The fluid must not just respond to hands. It must respond to the *transaction*. 
 | **Put back** (weight rises) | the same stream, reversed, in a cooler hue. No refund logic anywhere — this is decoration over arithmetic that already works (I4). |
 | **Done pressed** | full-field radial impulse from the table centre; all three palettes converge toward gold over ~1.5s, then settle |
 | **Order complete** | one bright bloom, then the field calms to near-still for 3s while the order code is displayed |
-| **Low stock** | a cool desaturated patch parked over that bin, slowly pulsing |
+| **Low stock** | a cool desaturated patch parked **around** that bin, slowly pulsing — an annulus outside the cutout, never over it (I9) |
 | **Idle attract** | slow automated velocity injections along a Lissajous path, one every ~4s, so the table breathes when nobody is there. Stops the instant a hand appears. |
 
 ### 14.5 Staff mode — the visible difference
 
 **In staff mode the fluid is off entirely.** Not dimmed — off.
 
-Staff mode look: flat dark slate `#0E1114` background, a visible 100 mm calibration grid, amber UI chrome instead of red, a persistent banner strip along the top edge reading **STAFF MODE / 员工模式**, and every bin plate showing its numeric grams and raw confidence.
+**Staff mode cannot go dark, and this is the correction that matters most in this section.** The earlier specification here was a flat dark slate `#0E1114` background. That is precisely backwards: per §3, **the classifier runs in staff mode and sleeps in diner mode.** Staff mode is the only time food is being classified at all, so it is the one mode where the illuminant requirement is not merely active but critical. A dark slate field would starve the classifier at the exact moment it is working — while diner mode, which needs no classification, sat brightly lit doing nothing with the light.
 
-The difference is unmissable from across the room, which is exactly the point: nobody should ever be unsure which mode the table is in.
+Staff mode look, corrected:
+
+- **The field and the bin patches are identical to diner mode.** Same white, same `field_level`, same light pass. This is not negotiable and is not a look.
+- The mode difference is carried entirely by **hue and chrome**, per I8: amber UI chrome instead of red, a persistent banner strip along the top edge reading **STAFF MODE / 员工模式**, and every bin plate showing its numeric grams and raw confidence.
+- The 100 mm calibration grid is drawn as **dark lines on the light field**, and is **masked out of the bin patches** — the light pass (§13.2) does this for free, but it is worth knowing why the grid appears to break at the cutouts. Dark lines crossing a cutout are exactly the patterned shadow I9 exists to prevent; that is not a rendering bug and must not be "fixed."
+- Fluid off plus a visible grid plus amber chrome plus a banner is still unmissable from across the room, which was the actual goal. Darkness was only ever one way to achieve it, and it was the one way that broke the classifier.
+
+**Dot calibration remains the exception** and inverts the field to black with white dots (I9). That is a distinct overlay state within staff mode, it never coincides with food classification, and it is the only time the table goes dark.
 
 ### 14.6 Adaptive quality — using the GPU fully without gambling
 
@@ -1478,6 +1539,8 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 - Drag the 8 rects on the feed, save, press Verify → the projected outlines sit on the real trays. Answer honestly.
 - Nudge the keystone → the staff view raises "calibration stale — keystone changed."
 - Capture 20 images per class and export → a folder-per-label tree ready to upload.
+- **Sweep `field_level` against camera exposure (§6.6), pick the pair, freeze it, and confirm it is written to `state/camera_settings.json`.** Then look at a bin crop and confirm the food is evenly lit with no colour cast and no visible edge from a UI element — physical observation of the projected surface, not a framebuffer capture.
+- **Every capture is taken with the bin patches lit exactly as diner mode lights them** (§12.7). If the Capture tab has its own lighting path, that is a bug to fix before collecting a single image, not after.
 - **Start EI training now.** M5 and M6 do not depend on the model.
 
 ---
@@ -1504,6 +1567,7 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 - Left hand over bin 3 → **nothing happens to the UI.** Try hard to make it select. It must not.
 - Dwell on Done → the ring fills over 1.2s and fires.
 - Move a hand quickly across the table → the cursor tracks without visible replay-through-history. This is the check that UDP drain-to-latest is working.
+- **Sweep `white_floor` with the tracker running (§13.2)** and record two numbers: the value chosen, and the value at which detection began dropping frames. A single number here is a chosen number; two numbers are a measured one. Do this in the dark, with the room as it will be on demo day.
 
 ---
 
@@ -1565,7 +1629,7 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 3. `FluidLayer` — density and velocity FBO injection per §14.1. Delete the `opticalFlow + combinedBridgeFlow` chain entirely.
 4. The three styles (§14.3) as named parameter presets plus palette LUTs.
 5. Event-driven injections (§14.4). Ambient hands inject; they still select nothing.
-6. Staff mode visual (§14.5) — fluid off, flat slate, grid, amber chrome, banner.
+6. Staff mode visual (§14.5) — fluid off, **field and bin patches unchanged from diner mode**, grid masked out of the cutouts, amber chrome, banner.
 7. Adaptive quality controller (§14.6), reported in `stat`.
 8. `AudioBus` and the full sound set (§15.2). Odometer ticks paired with the total roll.
 
@@ -1573,7 +1637,8 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 - Each of the three styles runs at ≥55 FPS with the full UI drawn. Record the achieved `sim_scale` for each.
 - A big pick produces a visibly bigger splash than a small pick.
 - The price stream visibly connects the bin to the total.
-- Entering staff mode is unmistakable from three metres away.
+- Entering staff mode is unmistakable from three metres away — **and the field does not darken when it happens** (§14.5). If the table dims on entering staff mode, the classifier has just been starved.
+- **Run all three styles at full intensity and watch the cutouts.** Not one frame of colour, texture or shadow reaches a bin, in any style, during any event burst, including the full-field `Done` impulse. Physical observation of the projected surface. If this can fail, the light pass is not last (§13.2).
 - Left hand stirs the fluid and selects nothing — verify again here, because this is where the temptation to let ambient hands "just also count" appears.
 
 ---
@@ -1609,7 +1674,7 @@ If time runs out, cut from the bottom.
 **P2 — differentiators.** M9 voice. Chinese locale. The scannable payment mock. The Orders tab.
 
 **P3 — good to have, cut without regret.**
-- Low-stock pulse and sold-out dim
+- Low-stock pulse and sold-out marking — both as treatments *around* a bin, never as light removed from it (I9)
 - Idle attract mode
 - Combo suggestion popups
 - Dietary filter
@@ -1632,6 +1697,9 @@ Note that several P3 items are nearly free once P1 exists — low-stock pulse is
 | oF build on Linux | High — the Makefile and `config.make` must be generated **on the reComputer itself**, and the ofxFlowTools patches must be in the submodule or they will be rediscovered at the worst moment | Do a throwaway "hello world" oF build on the reComputer the day it is available, long before M8. |
 | MediaPipe confidence with tongs | Medium — could break the whole hand interaction | Bench test in M5. Fallback: increase the bin hover zones and lean on weight for confirmation, which already is the source of truth. |
 | Classifier accuracy on visually similar items | Medium — soya chunks, prawns and mushrooms are the known-hard set | Confidence floor already protects billing (§9.3). Collect more data on exactly those three. |
+| **The projector is the only illuminant (I9)** | **High** — `field_level` and camera exposure are one coupled parameter, so anything that changes the light on a cutout silently invalidates the training set. A projector bulb dimming with age does this slowly and invisibly. | Sweep and freeze the pair at M3/M4, record both in `state/camera_settings.json`, and re-capture rather than re-tune if the projector is ever changed. The light pass (§13.2) structurally prevents the *rendering* half of this class of bug; the hardware half needs the record. |
+| Venue will not go dark | Medium — I9 assumes a dark room, and a contest hall may be brightly lit or have windows | The design does not invert: a white field is still correct under ambient, it just stops being the *only* light. What breaks is the dataset, since ambient is uncontrolled. Mitigation is to capture on-site during setup if the hall light differs materially from the build room, which the Capture tab already supports (§12.7). Decide by looking, not in advance. |
+| `white_floor` set too low for the tracker | Medium — shows up as intermittent hand detection over dark parts of the fluid, which looks like a tracker bug and will be debugged as one | Sweep `k` at M5 against `shuimo`, the worst case (§13.2, §14.3). Record the value at which detection starts dropping, not just the value chosen. |
 | Model files missing on demo day | Medium | The stub backends stay forever and are selectable in config (§19.4). |
 | Egg and potato spoiling | Low but certain | Placeholders during development; the real items only on demo day, as already planned. |
 

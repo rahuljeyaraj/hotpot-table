@@ -40,8 +40,9 @@ class ofApp : public ofBaseApp{
 		// The one definition of where bin i is on screen. The outline, the label
 		// clearance and the hover hit test all read it, so they cannot drift
 		// apart: a hit test against raw BINS[] would be testing the CAD drawing
-		// while the outline is drawn on the as-built plywood, and the two are up
-		// to a centimetre apart (CLAUDE.md section 17).
+		// while the outline is drawn on the as-built plywood, and the measured
+		// offsets put the two up to a centimetre apart. Those measurements are
+		// bin_offsets.json, kept deliberately by v3 §7.1.
 		ofRectangle binRectPx(int i) const;
 
 		float vLineMM(int i) const;
@@ -103,13 +104,18 @@ class ofApp : public ofBaseApp{
 		// That array runs 100 down to 0 so index 0 is full output and the key
 		// dims as it cycles. Starting anywhere else would be wrong rather than
 		// merely different: in a dark room this field IS the light the camera
-		// and the classifier get, so less than full output is a choice somebody
-		// makes at the table, never a state the app boots into.
+		// and the classifier get (v3 I9), so less than full output is a choice
+		// somebody makes at the table, never a state the app boots into.
+		//
+		// Temporary in this form. The swept value belongs in config/system.json
+		// as of.field_level and mirrored into state/camera_settings.json, since
+		// it is dataset provenance alongside exposure (§6.6, §8.6). The key stays
+		// as the sweep instrument.
 		int fieldLevel = 0;
 
 		// Two sizes, both loaded at their final display size. Scaling a font up
-		// at draw time blurs it (CLAUDE.md section 7), and this text is being
-		// read off plywood by a projector that has no resolution to spare.
+		// at draw time blurs it (v3 §13.4), and this text is being read off
+		// plywood by a projector that has no resolution to spare.
 		ofTrueTypeFont nameFont;
 		ofTrueTypeFont priceFont;
 		bool fontsLoaded = false;
