@@ -20,11 +20,10 @@ Staff view is core/web/server.py, built on the `websockets` package
 than hand-rolled RFC 6455, serving core/web/static/index.html — header
 only, six pips pushed live, dark UI per doc 12.1.
 All 7 M0 build items are now code-complete.
-Next step: M0's human acceptance test (doc section 21) — run
-`python run.py`, confirm six pips green in the browser within 5s,
-kill a child and confirm its pip goes red then green again, Ctrl-C
-and confirm every process exits with no orphan (`tasklist` clean).
-Not yet run: needs the human on the dev machine.
+M0's human acceptance test (doc section 21) passed on the dev machine
+2026-08-10, including Ctrl-C exiting every process with no orphan —
+the two bugs blocking that (pidfile race, Ctrl-C not stopping the
+launcher) are in the FIXED section below. M0 is done; next is M1.
 `core.web_port` moved from 8080 to 8090 (2026-08-10): on this dev
 machine 8080 is perpetually claimed by a stale WSL2 portproxy relay
 (`netsh interface portproxy show v4tov4`) to the Ubuntu distro's IP,
@@ -54,8 +53,10 @@ stop it):
   didn't catch, aborting the whole shutdown loop before later children
   got touched; and the launcher had no SIGBREAK handler, so a
   CTRL_BREAK_EVENT that did land killed it outright instead of running
-  _shutdown(), orphaning every child. Both fixed; `--stop` now verified
-  end-to-end (6/6 processes exit, pidfile removed, no orphans).
+  _shutdown(), orphaning every child. Both fixed; `--stop` verified
+  end-to-end (6/6 processes exit, pidfile removed, no orphans), and the
+  human then confirmed real Ctrl-C in an interactive terminal also
+  exits clean — the thing neither of the above could stand in for.
 
 ## HOW TO WORK HERE
 - One step at a time. Commit. Stop and report back.
