@@ -11,10 +11,10 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: M0 (scaffold, launcher, transport).
-Last completed step: M0.7 (core/main.py — control server, client
-registry, minimal staff view; doc section 21 build item 7). Control
-server and registry are hotpot.common.wire/health, reused as-is.
+Current milestone: M1 (core domain + oF renderer + mock picks).
+M0's last completed step was M0.7 (core/main.py — control server,
+client registry, minimal staff view; doc section 21 build item 7).
+Control server and registry are hotpot.common.wire/health, reused as-is.
 Staff view is core/web/server.py, built on the `websockets` package
 (python/requirements.txt — first Python dependency in the repo) rather
 than hand-rolled RFC 6455, serving core/web/static/index.html — header
@@ -29,6 +29,20 @@ machine 8080 is perpetually claimed by a stale WSL2 portproxy relay
 (`netsh interface portproxy show v4tov4`) to the Ubuntu distro's IP,
 left behind by `iphlpsvc` even when that distro is stopped — not a
 one-off squatter, so routing around it beats trying to clear it.
+M1.1 (2026-08-10) added data/catalogue.json and data/locales/en.json
+(doc section 21 build item 1). M1.2 (2026-08-10) added the five pure
+domain modules build item 2 calls for: core/pricing.py (Catalogue,
+loaded from catalogue.json, plus the doc 9.2 bin_price/total formulas),
+core/cart.py (start/live/shown grams per bin, I6's reset_session, the
+doc 9.2 display deadband — snaps, never creeps), core/binmap.py (doc
+8.2's 8-bin state and doc 9.3's resolved() confidence-floor check),
+core/i18n.py (doc 17's flat locale strings and per-locale currency
+conversion), core/fsm.py (doc 9.1, deliberately scoped to BOOT / IDLE /
+SELECTING only, per the build item — every other state arrives with
+the milestone that needs it). All five are unit-tested (69 new tests,
+python/tests/test_{pricing,cart,binmap,i18n,fsm}.py) and not yet wired
+into core/main.py — that wiring is build item 3, the 60Hz state
+broadcaster. Last completed step: M1.2.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
