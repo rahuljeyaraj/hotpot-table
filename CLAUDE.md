@@ -88,9 +88,31 @@ distribution; UiLayer uses the already-bundled DejaVuSans-Bold.ttf
 until the real font file shows up — one line to swap.
 Builds clean (msbuild, 0 errors, 0 warnings from any of the new files).
 Not yet run against a live core — that's the acceptance test, on the
-projected surface, still owed. Last completed step: M1.4. Next: build
-item 5, the staff view Live tab + developer-panel mock pick/put-back
-controls.
+projected surface, still owed.
+M1.5 (2026-08-10) is build item 5, the last of M1: the staff view's Live
+tab shell (doc §12.3 — the MJPEG/canvas slot and the rects/labels/
+weights/hands/dots toggle chips, all inert: no camera until M3, no bin
+rects on the wire until M4) and the developer panel's mock pick/put-back
+controls (doc §12.8), which is the piece M1's acceptance test actually
+needs to be runnable by a human before load cells exist. web/server.py
+gained `on_message` (incoming WS frames were discarded outright through
+M1.4 — its own docstring said so); core/main.py wires it to
+cart.mock_pick/mock_putback, the exact entry point
+test_core_main.py's TestStateBroadcast already poked directly and said
+outright it was bypassing. Bin index and grams are validated (bad input
+logged and dropped, never crashes the link — same tolerance wire.py
+gives a malformed line). The {45,6,120,3,25,80} g cycle is one shared
+pointer across all 16 buttons (8 bins × pick/put-back), matching the
+doc's singular "the cycle" and the acceptance test's own example.
+Developer-panel toggle lives on the tab bar for now, not inside Setup
+(§12.8's spec'd home) — Setup doesn't exist until M4; move it then.
+14 new tests (test_web.py's TestOnMessage, test_core_main.py's
+TestDeveloperPanelMockControls — WS-driven pick/put-back, the full
+cycle in sequence, bad bin, negative grams), all passing, 228/228 total.
+Manually confirmed core serves the updated index.html over real HTTP
+with the new markup and UTF-8 title intact.
+Last completed step: M1.5. **M1 build items 1-5 are all code-complete.**
+Next: M1's human acceptance test (doc §21) on the physical rig, then M2.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

@@ -107,6 +107,31 @@ class CoreCase(unittest.TestCase):
                 return msg
         return None
 
+    def of_client(self, timeout=DEADLINE):
+        """A wire.Client named `of`, plus the list of `state` messages it
+        has received so far and the lock guarding that list. Shared by
+        every case that needs to observe a broadcast rather than poke
+        Cart/BinMap directly — TestStateBroadcast (build item 3) and
+        TestDeveloperPanelMockControls (build item 5) both do.
+        """
+        msgs = []
+        lock = threading.Lock()
+
+        def on_msg(m):
+            if m.get("t") == "state":
+                with lock:
+                    msgs.append(m)
+
+        c = self.wire_client("of", on_message=on_msg)
+        self.assertTrue(c.wait_connected(timeout), "of never got a welcome")
+        return c, msgs, lock
+
+    def wait_for_n(self, msgs, lock, n, timeout=DEADLINE):
+        def enough():
+            with lock:
+                return len(msgs) >= n
+        self.assertTrue(wait_for(enough, timeout), f"never received {n} state message(s)")
+
 
 class TestBinding(CoreCase):
 
@@ -166,28 +191,6 @@ class TestStateBroadcast(CoreCase):
     sent to `of` at a fixed rate.
     """
 
-    def of_client(self, timeout=DEADLINE):
-        """A wire.Client named `of`, plus the list of `state` messages it
-        has received so far and the lock guarding that list.
-        """
-        msgs = []
-        lock = threading.Lock()
-
-        def on_msg(m):
-            if m.get("t") == "state":
-                with lock:
-                    msgs.append(m)
-
-        c = self.wire_client("of", on_message=on_msg)
-        self.assertTrue(c.wait_connected(timeout), "of never got a welcome")
-        return c, msgs, lock
-
-    def wait_for_n(self, msgs, lock, n, timeout=DEADLINE):
-        def enough():
-            with lock:
-                return len(msgs) >= n
-        self.assertTrue(wait_for(enough, timeout), f"never received {n} state message(s)")
-
     def test_shape_matches_doc_4_3(self):
         c, msgs, lock = self.of_client()
         self.wait_for_n(msgs, lock, 1)
@@ -226,9 +229,10 @@ class TestStateBroadcast(CoreCase):
         self.assertEqual(amount, 0.0)
 
     def test_a_mock_pick_shows_up_in_the_next_broadcast(self):
-        """Bypasses the developer panel (build item 5, not built yet) and
-        pokes Cart directly — the same entry point mock controls will
-        call. Doc section 12.8's cycle includes 45g.
+        """Pokes Cart directly rather than through the developer panel's
+        WebSocket path — TestDeveloperPanelMockControls (build item 5)
+        covers that path; this one isolates the broadcaster itself from
+        it. Doc section 12.8's cycle includes 45g.
         """
         c, msgs, lock = self.of_client()
         self.wait_for_n(msgs, lock, 1)
@@ -287,6 +291,95 @@ class TestStateBroadcast(CoreCase):
         with tracker_lock:
             state_msgs = [m for m in tracker_msgs if m.get("t") == "state"]
         self.assertEqual(state_msgs, [])
+
+
+class TestDeveloperPanelMockControls(CoreCase):
+    """doc section 21 build item 5: the staff view's mock pick/put-back
+    buttons, over the real WebSocket this time — TestStateBroadcast's
+    mock-pick test pokes Cart directly and says outright that it bypasses
+    this path because it "isn't built yet". It is now.
+    """
+
+    def test_mock_pick_over_the_websocket_reaches_cart(self):
+        _, of_msgs, of_lock = self.of_client()
+        self.wait_for_n(of_msgs, of_lock, 1)
+
+        w = self.ws()
+        self.recv_json(w)   # the pips seed
+        w.send(json.dumps({"t": "mock_pick", "bin": 3, "grams": 45}))
+
+        def bin3_picked_45():
+            with of_lock:
+                return any(m["bins"][3]["picked"] == 45 for m in of_msgs)
+        self.assertTrue(wait_for(bin3_picked_45),
+                         "a WS mock_pick never showed up in a state broadcast")
+
+    def test_mock_putback_over_the_websocket_reaches_cart(self):
+        _, of_msgs, of_lock = self.of_client()
+        self.wait_for_n(of_msgs, of_lock, 1)
+        self.core.cart.mock_pick(5, 80)
+
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "mock_putback", "bin": 5, "grams": 25}))
+
+        def bin5_picked_55():
+            with of_lock:
+                return any(m["bins"][5]["picked"] == 55 for m in of_msgs)   # 80 - 25
+        self.assertTrue(wait_for(bin5_picked_55),
+                         "a WS mock_putback never showed up in a state broadcast")
+
+    def test_the_doc_12_8_cycle_values_all_work_in_sequence(self):
+        """{45,6,120,3,25,80} — doc section 12.8's exact cycle, applied to
+        one bin in order, same as the M1 acceptance test (doc section 21)
+        checks by arithmetic on the table.
+        """
+        _, of_msgs, of_lock = self.of_client()
+        self.wait_for_n(of_msgs, of_lock, 1)
+        w = self.ws()
+        self.recv_json(w)
+
+        cycle = [45, 6, 120, 3, 25, 80]
+        for g in cycle:
+            w.send(json.dumps({"t": "mock_pick", "bin": 2, "grams": g}))
+
+        expected_total = sum(cycle)
+
+        def done():
+            with of_lock:
+                return any(m["bins"][2]["picked"] == expected_total for m in of_msgs)
+        self.assertTrue(wait_for(done), "the full cycle never landed on bin 2")
+
+    def test_bad_bin_index_is_ignored_not_a_crash(self):
+        _, of_msgs, of_lock = self.of_client()
+        self.wait_for_n(of_msgs, of_lock, 1)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "mock_pick", "bin": 99, "grams": 45}))
+        # >= cart.DEFAULT_DEADBAND_G (10g) — otherwise this pick alone
+        # would never snap `shown_g`/`picked` at all (doc section 9.2's
+        # deadband, I5), and the test would be checking the wrong thing.
+        w.send(json.dumps({"t": "mock_pick", "bin": 1, "grams": 45}))
+
+        def bin1_picked_45():
+            with of_lock:
+                return any(m["bins"][1]["picked"] == 45 for m in of_msgs)
+        self.assertTrue(wait_for(bin1_picked_45),
+                         "a valid message after a bad one never went through")
+
+    def test_negative_grams_is_ignored_not_a_crash(self):
+        _, of_msgs, of_lock = self.of_client()
+        self.wait_for_n(of_msgs, of_lock, 1)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "mock_pick", "bin": 4, "grams": -45}))
+        w.send(json.dumps({"t": "mock_pick", "bin": 4, "grams": 45}))
+
+        def bin4_picked_45():
+            with of_lock:
+                return any(m["bins"][4]["picked"] == 45 for m in of_msgs)
+        self.assertTrue(wait_for(bin4_picked_45),
+                         "a valid message after a bad one never went through")
 
 
 class TestStop(unittest.TestCase):

@@ -14,6 +14,7 @@ import json
 import os
 import socket
 import sys
+import threading
 import time
 import unittest
 
@@ -43,10 +44,12 @@ class ServerCase(unittest.TestCase):
     """A real web.Server on an ephemeral loopback port, torn down after."""
 
     on_join = None
+    on_message = None
 
     def setUp(self):
         self.srv = web.Server("127.0.0.1", 0, STATIC_ROOT,
-                              on_join=type(self).on_join)
+                              on_join=type(self).on_join,
+                              on_message=type(self).on_message)
         self.port = self.srv.start()
         self._clients = []
 
@@ -156,6 +159,60 @@ class TestBroadcast(ServerCase):
         self.assertTrue(wait_for(lambda: len(self.srv.hub) == 0))
         n = self.srv.broadcast({"t": "noop"})
         self.assertEqual(n, 0)
+
+
+class TestOnMessage(ServerCase):
+    """doc section 12.8: the developer panel's mock controls are the first
+    thing the staff view ever sends core. Before this, incoming frames
+    were discarded outright (M0 through M1 build item 4's docstring said
+    so directly) — these confirm the replacement plumbing, not core's
+    reaction to any particular message (that's test_core_main.py's job).
+    """
+
+    def setUp(self):
+        self.received = []
+        self.lock = threading.Lock()
+
+        def on_message(msg):
+            with self.lock:
+                self.received.append(msg)
+
+        type(self).on_message = staticmethod(on_message)
+        super().setUp()
+
+    def _wait_received(self, n=1, timeout=DEADLINE):
+        end = time.time() + timeout
+        while time.time() < end:
+            with self.lock:
+                if len(self.received) >= n:
+                    return list(self.received)
+            time.sleep(0.01)
+        return list(self.received)
+
+    def test_a_json_object_frame_reaches_the_callback(self):
+        c = self.ws()
+        c.send(json.dumps({"t": "mock_pick", "bin": 3, "grams": 45}))
+        got = self._wait_received(1)
+        self.assertEqual(got, [{"t": "mock_pick", "bin": 3, "grams": 45}])
+
+    def test_unparseable_frame_is_dropped_not_raised(self):
+        """The connection must survive a garbled frame — a hostile or
+        buggy tablet must not take core's staff view down for everyone
+        else attached to it (wire.py's decode() sets the same bar for the
+        sibling-process link).
+        """
+        c = self.ws()
+        c.send("not json")
+        c.send(json.dumps({"t": "ok"}))
+        got = self._wait_received(1)
+        self.assertEqual(got, [{"t": "ok"}])
+
+    def test_non_object_frame_is_dropped_not_raised(self):
+        c = self.ws()
+        c.send(json.dumps([1, 2, 3]))
+        c.send(json.dumps({"t": "ok"}))
+        got = self._wait_received(1)
+        self.assertEqual(got, [{"t": "ok"}])
 
 
 class TestStop(unittest.TestCase):

@@ -119,14 +119,25 @@ class Server:
     WebSocket connection and its return value is sent immediately — so a
     tablet that opens the page a minute into the run sees the current pip
     row at once rather than waiting for the next transition.
+
+    `on_message`, if given, is called with the decoded JSON object for
+    every text frame a tablet sends — doc section 12.8's mock controls are
+    the first thing that needs this (M0 through M1 build item 4 had
+    nothing incoming to handle, hence the discard loop this replaces).
+    A frame that is not valid JSON, or not a JSON object, is logged and
+    dropped rather than raised — the same tolerance wire.decode() gives
+    the sibling-process link, for the same reason: a malformed line from
+    a tablet must not kill everyone else's connection to the hub.
     """
 
     def __init__(self, host: str, port: int, static_root: Path, *,
-                 on_join: Optional[Callable[[], Any]] = None) -> None:
+                 on_join: Optional[Callable[[], Any]] = None,
+                 on_message: Optional[Callable[[Dict[str, Any]], Any]] = None) -> None:
         self.host = host
         self._port = port
         self._static_root = Path(static_root)
         self._on_join = on_join
+        self._on_message = on_message
         self.hub = Hub()
         self._server: Optional[_WSServer] = None
         self._thread: Optional[threading.Thread] = None
@@ -198,8 +209,21 @@ class Server:
             if self._on_join is not None:
                 connection.send(json.dumps(self._on_join(), separators=(",", ":"),
                                            ensure_ascii=False))
-            for _ in connection:
-                pass   # nothing expected from the staff view in M0; discard
+            for frame in connection:
+                if self._on_message is None:
+                    continue   # nothing wired up to want it; discard
+                try:
+                    msg = json.loads(frame)
+                except (TypeError, ValueError):
+                    log.warning("web: dropped an unparseable frame (%d bytes)", len(frame))
+                    continue
+                if not isinstance(msg, dict):
+                    log.warning("web: dropped a non-object frame")
+                    continue
+                try:
+                    self._on_message(msg)
+                except Exception:
+                    log.exception("web: on_message raised for %r", msg.get("t"))
         except ConnectionClosed:
             pass
         finally:

@@ -114,7 +114,8 @@ class Core:
             on_disconnect=self._on_disconnect,
             name="core",
         )
-        self.web = web.Server(web_host, web_port, static_root, on_join=self._pips_msg)
+        self.web = web.Server(web_host, web_port, static_root,
+                              on_join=self._pips_msg, on_message=self._on_web_message)
         # Core beats its own pip from its own loop rather than being
         # hardcoded green (common/health.py's rationale): a wedged main
         # loop with a live web thread is a real failure and this is what
@@ -201,6 +202,37 @@ class Core:
 
     def _on_pip_change(self, who: str, old: str, new: str) -> None:
         self.web.broadcast(self._pips_msg())
+
+    # -- developer-panel mock controls (doc section 12.8, build item 5) -----
+
+    def _on_web_message(self, msg: Dict[str, Any]) -> None:
+        """Everything the staff view can send. M1 has exactly one pair:
+        the mock pick/put-back buttons that stand in for load cells until
+        M2 wires up core/scale.py. Both go through cart.py's mock_pick/
+        mock_putback — the same entry point test_core_main.py's
+        TestStateBroadcast pokes directly, closing the gap that test's
+        docstring calls out ("bypasses the developer panel, not built
+        yet").
+        """
+        t = msg.get("t")
+        if t == "mock_pick" or t == "mock_putback":
+            self._handle_mock(t, msg)
+            return
+        _log.debug("web: unhandled message type %r from a tablet", t)
+
+    def _handle_mock(self, t: str, msg: Dict[str, Any]) -> None:
+        i = msg.get("bin")
+        grams = msg.get("grams")
+        if not isinstance(i, int) or not (0 <= i < binmap.NUM_BINS):
+            _log.warning("web: %s with bad bin %r — ignored", t, i)
+            return
+        if not isinstance(grams, (int, float)) or grams <= 0:
+            _log.warning("web: %s bin %d with bad grams %r — ignored", t, i, grams)
+            return
+        if t == "mock_pick":
+            self.cart.mock_pick(i, float(grams))
+        else:
+            self.cart.mock_putback(i, float(grams))
 
     # -- state broadcaster (doc section 4.3) --------------------------------
 
