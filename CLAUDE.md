@@ -12,8 +12,22 @@ It is authoritative. This file is only status + rules.
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
 Current milestone: M0 (scaffold, launcher, transport).
-Last completed step: M0.5 (run.py, per doc section 10).
-Next step: M0.6, stub main.py for camera, tracker, classifier, voice.
+Last completed step: M0.6 (stub main.py for camera, tracker,
+classifier, voice; shared as common/stub.py, per doc section 10 item 6).
+Next step: M0.7, core/main.py — control server, client registry,
+and a minimal staff view serving only the header with six status
+pips over a WebSocket.
+
+## KNOWN ISSUE — run.py pidfile race on Windows
+Starting 3+ children in the same tier concurrently (e.g.
+`--only camera,tracker,classifier,voice`, all tier 3 apart from
+camera) throws PermissionError from atomicio.write_json inside
+_write_pidfile: each child's supervisor thread writes state/run.pid
+independently and os.replace collides with a sibling's .tmp on
+Windows. Processes still start, print ready, and shut down clean
+with no orphans — only the pidfile write races. Not fixed here;
+out of scope for M0.6 (stub main.py only). Worth a lock or a
+single-writer queue in run.py before M0's own acceptance test.
 
 ## HOW TO WORK HERE
 - One step at a time. Commit. Stop and report back.
