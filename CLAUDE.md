@@ -12,8 +12,8 @@ It is authoritative. This file is only status + rules.
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
 Current milestone: M0 (scaffold, launcher, transport).
-Last completed step: M0.3 (common/health.py).
-Next step: M0.4, common/atomicio.py and common/log.py.
+Last completed step: M0.4 (common/atomicio.py, common/log.py).
+Next step: M0.5, run.py per doc section 10.
 
 ## HOW TO WORK HERE
 - One step at a time. Commit. Stop and report back.
