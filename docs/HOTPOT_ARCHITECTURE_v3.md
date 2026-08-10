@@ -63,6 +63,63 @@ The naming claim was wrong. The operational details are correct under any of the
 | The order ends with a **numbered handoff** | <cite index="40-1">The real flow ends with an order number and a collection.</cite> |
 | Ingredient names in Chinese must be the specific real names | 香菇 for shiitake, not a generic 蘑菇. This is where a Chinese judge actually looks. |
 
+### 1.4 The machine it ships on — RESOLVED
+
+This lives in section 1 rather than in a hardware appendix because it is now a fixed input to almost every downstream number in this document, and it should be read before §10.4, §11.2 and §14.6 rather than after.
+
+The deploy target is the **Seeed ODYSSEY-X86J4125800 v2** (SKU 102110767, ~$218). It replaces "reComputer, model unidentified" everywhere that phrase appears.
+
+| | |
+|---|---|
+| SoC | Intel Celeron **J4125**, Gemini Lake Refresh, Goldmont Plus |
+| Cores | **4 cores / 4 threads — no hyper-threading** |
+| Clocks | 2.0 GHz base, 2.4 GHz all-core turbo, 2.7 GHz single-core turbo |
+| TDP | 10 W |
+| Vector ISA | **SSE4.2 only — no AVX, no AVX2** |
+| iGPU | Intel UHD Graphics 600, **12 EUs**, 250–750 MHz (~144 GFLOPS FP32) |
+| RAM | **8 GB LPDDR4, soldered, not upgradeable**, shared with the iGPU (~38.4 GB/s total) |
+| Storage | 64 GB eMMC on board, microSD, M.2 Key M 2242/2280 (PCIe 2.0 ×4, NVMe), M.2 Key B (SATA III / USB 2.0 / SIM), 1× SATA III |
+| Video | HDMI 2.0a 4K@60 + DisplayPort 1.2 over USB-C 4K@60, two displays |
+| USB | **1× USB 3.1 Type-A, 1× USB 3.1 Type-C, 2× USB 2.0 Type-A** |
+| Network | Dual **2.5 GbE**, Wi-Fi 5 dual-band, Bluetooth 5.0 |
+| Co-processor | **RP2040**, Arduino-programmable (v1 had a SAMD21 — v2 does not) |
+| Headers | 40-pin Raspberry-Pi-compatible, 4-pin PWM fan, RTC battery |
+| Power | 12–19 V via 5.5/2.1 mm barrel jack, or 5–12 V USB-C PD |
+| Size | 110 × 110 mm |
+
+**No feature in this document is cut to fit this board.** Everything specified still ships. What changes is where the adaptive controllers *start*, what gets measured rather than assumed, and a short list of parts to order alongside the board. The four facts below are the ones that actually propagate.
+
+**(a) Exactly 4 cores, no SMT.** §10.4's affinity plan was written speculatively and happens to fit precisely — four cores, four assignments. That is now finalised there, with the caveat that "fits precisely" means zero headroom for the OS.
+
+**(b) No AVX2.** This is the least obvious fact on the list and the most dangerous. Goldmont Plus stops at SSE4.2. Every x86 inference path we depend on — MediaPipe's XNNPACK backend, TFLite, and whatever Edge Impulse compiles into a `.eim` — has AVX2 fast paths and will either fall back to much slower SSE code or, in the bad case, be built AVX2-only and die with SIGILL on first inference. **A binary that runs on the development machine proves nothing about this board.** New VERIFY items in §11.2 and §19.1.
+
+**(c) The iGPU is small and shares memory with the CPU.** 12 EUs at 750 MHz is roughly 144 GFLOPS, somewhere between 15× and 30× less than the Arc part the 60 FPS figure in §14.6 came from. The sharper limit is bandwidth, not shader math: a GPU fluid solver is a chain of full-frame ping-pong passes, and it is drawing on the same ~38.4 GB/s that four busy CPU cores are already using. A 20-iteration Jacobi pressure solve at 480×270 RGBA32F moves on the order of 120 MB per frame — about 7 GB/s at 60 fps, before advection, vorticity, particles or the light pass. This is why §14.6 now starts at the bottom of the ladder and climbs, and why RGBA16F is worth trying: it halves every one of those numbers.
+
+**(d) One USB 3 Type-A port.** The peripheral set fills the board exactly, so the allocation is not free choice:
+
+| Device | Port | Why |
+|---|---|---|
+| Camera | **USB 3.1 Type-A** | The only port with the bandwidth. Never behind a hub, never sharing with the others. §5.4 and §6.6 assume this. |
+| XIAO load cells | USB 2.0 Type-A | Serial at 115200 needs nothing more (§4.9). |
+| Microphone, *if* the webcam has no capture device | USB 2.0 Type-A | The open VERIFY at §3. If the webcam does expose one, this port stays free — that is the only spare port in the build. |
+| Projector | HDMI | 2.0a, 4K@60 capable. |
+| Power | **Barrel jack, not USB-C** | Powering over USB-C consumes the Type-C port. Use 12 V on the barrel jack and keep Type-C free. |
+
+There is no port left for a keyboard and mouse at deploy time. **Bring a powered USB hub for bring-up**, and do not leave it in the build — staff operation is the browser view over LAN (§12), which is exactly why that design is right.
+
+**Parts to order with the board:**
+
+1. **An NVMe SSD in the M.2 Key M slot.** 64 GB of eMMC has to hold Ubuntu, an openFrameworks tree plus build artifacts, the models, `orders.sqlite3`, logs, and the dataset that §12.7 captures image-by-image. It will not fit comfortably, and eMMC random write is poor enough that SQLite commits and dataset capture will both feel it. Cheapest risk removal available on this project. Put the OS on it; failing that, at minimum `datasets/`, `logs/` and `state/`.
+2. **The 4-pin PWM fan.** See below.
+3. **12 V barrel-jack PSU**, 3 A or better.
+
+**Thermals are a real risk here, not a formality.** This workload pins four cores and the iGPU simultaneously and indefinitely, which is the worst case for a 10 W passively-cooled part, and it does so *next to a hot pot* — elevated ambient, steam, and airborne grease. Passive cooling that is fine on a bench will throttle in that environment, and a throttled J4125 loses clock across all four cores at once, which will present as the fluid degrading and the tracker slowing at the same time and will be debugged as a software problem. Mount the board away from the burner in a ventilated enclosure, fit the fan, and add package temperature and the throttle flag to the developer panel (§12.8) so the failure is legible when it happens.
+
+**Two things the board offers that this design does not currently use**, recorded so the decision is deliberate rather than forgotten:
+
+- **The onboard RP2040.** The load cells are already working on a XIAO over USB serial with frozen firmware (§4.9, §9.5). Moving them to the onboard RP2040 would remove a device and a cable and would be a genuinely good story for a Seeed contest, since it uses the board's distinguishing feature. It also means rewriting working firmware near a deadline. **Decision: keep the XIAO.** Revisit only if a USB port becomes the binding constraint.
+- **The second 2.5 GbE port.** A contest hall's Wi-Fi is hostile and the staff tablet depends on the network (§12, and `camera.host_for_browser` in §8.6). Put one NIC on the venue LAN and hang a small travel router off the other as a private network for the tablet, or use the board's own Wi-Fi as an AP. Either way the staff view stops depending on the venue. Decide during M9 setup.
+
 ---
 
 ## 2. INVARIANTS
@@ -144,7 +201,7 @@ Three traffic classes with different failure needs. This was argued out and is s
 
 **Receiver rule for UDP: drain to latest.** Read the socket non-blocking until it is empty, keep the highest `seq`, discard the rest. Never process a backlog.
 
-**Why not ZeroMQ for everything:** it is a new build dependency on both sides, and the side that is risky is oF on an unidentified reComputer. `ofxNetwork` ships with openFrameworks and has both UDP and TCP in the box — zero new dependencies on the Linux build. The one thing ZMQ would genuinely buy is automatic reconnect, and §19 provides that in ~40 lines.
+**Why not ZeroMQ for everything:** it is a new build dependency on both sides, and the side that is risky is the oF build on the ODYSSEY (§1.4) — a board with 64 GB of eMMC where every added dependency is also disk and build time. `ofxNetwork` ships with openFrameworks and has both UDP and TCP in the box — zero new dependencies on the Linux build. The one thing ZMQ would genuinely buy is automatic reconnect, and §19 provides that in ~40 lines.
 
 ### 4.1 Ports and names (defaults, all in `config/system.json`)
 
@@ -596,7 +653,7 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
 }
 ```
 
-`camera.host_for_browser` is the config value that will bite on deploy day: in development the browser and the camera process are both on localhost; on the reComputer, if the staff tablet is a different machine, this must be the reComputer's LAN address. It exists as an explicit field precisely so it is visible rather than hardcoded.
+`camera.host_for_browser` is the config value that will bite on deploy day: in development the browser and the camera process are both on localhost; on the ODYSSEY, if the staff tablet is a different machine, this must be the board's LAN address. It exists as an explicit field precisely so it is visible rather than hardcoded. Note that the board has two 2.5 GbE ports and Wi-Fi, so "the LAN address" is genuinely ambiguous on this hardware — write the address of whichever interface the tablet is actually on, and see §1.4 on giving the tablet its own network rather than trusting a venue's.
 
 `of.field_level` and `of.white_floor` are the two I9 knobs, and both are **measured on the rig, not chosen** (§6.6, §13.2). They are config rather than constants specifically so they can be swept without a rebuild. `field_level` is additionally mirrored into `state/camera_settings.json` at startup, because it belongs to the dataset's provenance as much as exposure does — config says what the rig is set to, that file says what the training images were taken under.
 
@@ -724,7 +781,7 @@ Requirement: everything starts with one call and dies with one call.
 
 ### 10.1 Why a Python launcher and not systemd
 
-systemd is the production-correct answer on Linux but it does not exist on the Windows development machine, and having two different launch paths for dev and deploy is exactly how "works on my machine" happens. A small Python supervisor runs identically on both. For the reComputer, a systemd unit is provided that does nothing but `ExecStart=/usr/bin/python3 /opt/hotpot/run.py` — one launch path, optionally wrapped.
+systemd is the production-correct answer on Linux but it does not exist on the Windows development machine, and having two different launch paths for dev and deploy is exactly how "works on my machine" happens. A small Python supervisor runs identically on both. For the ODYSSEY, a systemd unit is provided that does nothing but `ExecStart=/usr/bin/python3 /opt/hotpot/run.py` — one launch path, optionally wrapped.
 
 ### 10.2 Behaviour
 
@@ -755,14 +812,24 @@ Because every client reconnects with backoff (§19), tier order is an optimisati
 
 ### 10.4 CPU affinity — using the hardware fully
 
+**Now finalised against the J4125: 4 cores, 4 threads, no SMT (§1.4).** The plan below was written before the board was known and happens to fit it exactly — four cores, four assignments. "Exactly" is the important word: there is no spare core, so the details of what is *not* pinned matter as much as what is.
+
 On Linux, after all children are up, the launcher pins processes with `os.sched_setaffinity`:
 
-- `of` gets a **dedicated core, exclusive**. Everything else is excluded from it. This is the whole reason for the process split.
-- `tracker` gets its own core.
-- `classifier` shares with `voice` — they never run hot at the same time (classifier is staff-mode, voice is diner-mode).
-- `camera` and `core` share the remainder.
+| Core | Process | Notes |
+|---|---|---|
+| 0 | `of` | **Dedicated, exclusive.** Everything else is excluded from it. This is the whole reason for the process split. |
+| 1 | `tracker` | MediaPipe inference, single-threaded by configuration so it cannot spill. |
+| 2 | `classifier`, `voice` | They never run hot at the same time — classifier is staff-mode, voice is diner-mode. |
+| 3 | `camera`, `core` | Plus the launcher, plus everything the OS does. |
 
-If the machine has fewer than 4 cores, log a warning and skip pinning entirely rather than pinning badly. **The reComputer model is still unidentified — this is the largest open risk in the project and this section cannot be finalised until the core count is known.**
+Because there is no fifth core, three rules follow that were optional on a bigger machine and are not here:
+
+- **The launcher does not pin itself.** It stays on the default mask, or explicitly on core 3. A supervisor that has claimed a core is a supervisor competing with the thing it supervises.
+- **Set `OMP_NUM_THREADS=1` and the equivalent TFLite/OpenCV thread counts to 1** for `tracker` and `classifier` before spawning them. These libraries default to spawning one worker per visible core. Four workers inside a one-core affinity mask is strictly worse than one worker — it is the same work plus scheduler thrash — and it is invisible until you look for it.
+- **Interrupts still land on core 0.** USB completion for the camera in particular. Pinning `of` exclusively excludes *processes*, not IRQs. If M8 shows frame-time spikes on the table that correlate with camera activity, move USB IRQ affinity off core 0 (`/proc/irq/*/smp_affinity`) before touching anything in the renderer. Do not reach for this pre-emptively; know it exists so it is a ten-minute fix rather than a lost day.
+
+If the machine has fewer than 4 cores, log a warning and skip pinning entirely rather than pinning badly. That branch is now unreachable on the deploy target but stays for the development machines.
 
 ---
 
@@ -780,7 +847,11 @@ camera→stage homography → role assignment → UDP to of and core
 
 Use the **middle-finger MCP joint (landmark 9)**, not the wrist and not the index tip. The wrist sits far from where a person feels their hand is; the index tip moves wildly as fingers flex and while holding tongs. Landmark 9 is the palm centre and is stable whether the hand is open, closed, or gripping.
 
-`model_complexity`: start at 1 (full). The reComputer x86 is far stronger than the Pi 4B the old 8-FPS figure came from. Measure at startup; if the measured rate is below 25fps, drop to 0 and log it. Auto-probe rather than hardcode.
+`model_complexity`: **start at 0 (lite), probe upward.** This reverses the previous instruction, which said to start at 1 on the grounds that "the reComputer x86 is far stronger than the Pi 4B the old 8-FPS figure came from." Now that the board is known (§1.4) that reasoning does not survive: a J4125 is roughly 2× a Pi 4B in both single- and multi-core terms, not an order of magnitude, and **it has no AVX2**, which is precisely the instruction set MediaPipe's x86 inference leans on. The honest expectation is that complexity 1 does not hold 25 fps on this board.
+
+So: start at 0, measure for 5 seconds, and if the measured rate is above 45 fps try 1 and keep it only if it stays above 25. Auto-probe rather than hardcode, and log which rung it settled on. Probing upward from a rung that works is safe; probing downward from one that does not means the first seconds of every run are janky.
+
+**VERIFY at M0, before any tracker work (§1.4b):** run one MediaPipe Hands inference on the board and confirm it neither crashes with `SIGILL` nor silently falls back to a path that cannot hold 25 fps at complexity 0. An illegal-instruction crash on demo day from an AVX2-only wheel is a foreseeable failure with a cheap check. If the stock `mediapipe` wheel is AVX2-only, the fallback is building it for this target or dropping to a plain TFLite hand model — that is a hardware-driven porting task to discover in M0, not in M5.
 
 ### 11.3 Two hands, two roles — pointer and ambient
 
@@ -923,7 +994,8 @@ That premise no longer holds. In a dark room with the projector as the only ligh
 
 Hidden behind a toggle in Setup, off by default, persisted in `localStorage`. When on, a collapsible strip appears at the bottom of every tab:
 
-- Per-process: PID, uptime, restart count, last heartbeat age, CPU%.
+- Per-process: PID, uptime, restart count, last heartbeat age, CPU%, **pinned core**.
+- **Machine: package temperature, current core clock, and a throttle flag.** Not decoration. §1.4 explains why: this workload saturates four cores and the iGPU beside a heat source, and a throttled J4125 loses clock on all four cores at once. That presents as the fluid degrading and the tracker slowing *simultaneously*, which looks exactly like a software regression and will be debugged as one for hours. Read `/sys/class/thermal/thermal_zone*/temp` and the `package_throttle_count` under `/sys/devices/system/cpu/cpu0/thermal_throttle/`. Surface the flag in red — it is the one telemetry line that turns a mystery into a five-second diagnosis.
 - Camera: capture resolution, actual FPS, frame_id, shm slot in use, dropped frames.
 - Tracker: inference ms, hands tracked, ids and roles, emit rate.
 - oF: FPS, GPU ms, fluid sim resolution, keystone fingerprint.
@@ -1010,7 +1082,7 @@ Rules that are not style preferences:
 - **Dark ink on a light field, and set bold.** The field is bright by requirement (I9), so text can no longer win on brightness and there is no dark plate to sit on. Contrast has to come from stroke width, which is the one thing a bold face has more of — already the reason the bin labels use DejaVu Sans Bold rather than the regular cut. Halos and outline rings invert with it: dark rings on light ground, never light-on-light.
 - **Load each font at its final display size.** Never load small and scale up — projected text at 3× scale is mud.
 - **VERIFY the CJK range API before use.** oF 0.12's `ofTrueTypeFontSettings` supports adding Unicode ranges, but the exact enum name has changed across versions. Check the installed header. Loading the full CJK range at 42 px produces a very large atlas; if load time or VRAM becomes a problem, generate the exact glyph set from `data/locales/zh.json` and add only those ranges.
-- Halo and outline rings: `ofPath` with `setStrokeWidth()`. **Never `ofSetLineWidth()`** — drivers cap it at 1 px and the ring vanishes on the reComputer while looking fine on the dev machine.
+- Halo and outline rings: `ofPath` with `setStrokeWidth()`. **Never `ofSetLineWidth()`** — drivers cap it at 1 px and the ring vanishes on the ODYSSEY while looking fine on the dev machine. Mesa on Intel is exactly the driver family that caps it, so treat this as certain rather than defensive.
 
 ### 13.5 Text orientation
 
@@ -1028,7 +1100,7 @@ The counter is approached from one side. All text has a single fixed orientation
   - Draw the hand position as a white filled circle into a density FBO → `addDensity(fbo.getTexture())`.
   - Compute the per-frame position delta, encode it as colour `ofFloatColor(d.x*2.0, d.y*2.0, 0)` with `OF_BLENDMODE_DISABLED` into a `GL_RG32F` velocity FBO → `addVelocity(fbo.getTexture())`.
   - **Density alone gives a static blob. Velocity is what makes it flow.** Both are required.
-- Routing point input through `ftOpticalFlow` **does not work** — optical flow only resolves small frame-to-frame displacements in real video. The entire `opticalFlow + combinedBridgeFlow` chain can be deleted, which also frees GPU budget on the reComputer.
+- Routing point input through `ftOpticalFlow` **does not work** — optical flow only resolves small frame-to-frame displacements in real video. The entire `opticalFlow + combinedBridgeFlow` chain can be deleted, which also frees GPU budget on the ODYSSEY — where, per §14.6, it is a memory-bandwidth refund rather than merely tidier code.
 - Two C++17 patches are required in the addon: `ftPixelFlow.h` lines 50–51 `min()` → `std::min()`, and `ftAverageFlow.cpp` line 186 `std::bind2nd` → a lambda. Carry these as a **fork added as a git submodule** so the Linux build does not rediscover them at the worst possible moment.
 
 **VERIFY at the start of M8:** enumerate `ftFluidFlow`'s actual `ofParameterGroup` at runtime and log every parameter name. The names below are the standard Stam-solver vocabulary and are almost certainly right, but "almost certainly right" is how the `addTemporalForce` hour was lost. Print the real list, then map the styles onto it.
@@ -1101,7 +1173,7 @@ Reads as: a clear bone broth, barely moving. This is the style to use when the U
 | Buoyancy | slight negative; ink sinks and spreads |
 | Particles | none — the density field is the whole image |
 
-Reads as 水墨画, Chinese ink-wash painting. Culturally legible to the judges at a glance. It is also the cheapest of the three (no particles), so it is the safe fallback if the reComputer GPU disappoints.
+Reads as 水墨画, Chinese ink-wash painting. Culturally legible to the judges at a glance. It is also the cheapest of the three (no particles), so it is the safe fallback if the UHD 600 disappoints — and on a 12-EU iGPU sharing memory with four busy cores (§1.4c), "cheapest" has stopped being a tiebreaker and become a real argument for shipping it first.
 
 **This style used to be the exception and is now the model.** It was the only one already built on paper, and the earlier draft of this section flagged it as an awkward inversion to be worked around. Under I9 it is the other two that moved to meet it, and the note that used to live here — "the scrim rectangles must stay black regardless of style" — is deleted, not amended. It is exactly backwards.
 
@@ -1144,13 +1216,14 @@ Staff mode look, corrected:
 
 ### 14.6 Adaptive quality — using the GPU fully without gambling
 
-The 60 FPS figure came from Arc integrated graphics on the development machine. It may not hold on the reComputer.
+The 60 FPS figure came from Arc integrated graphics on the development machine. **It will not hold at 480×270 on the deploy board**, and now that the board is known (§1.4) that can be said plainly rather than hedged. UHD 600 is 12 EUs at 750 MHz — roughly 144 GFLOPS against the Arc part's several TFLOPS — and, more to the point, its memory is the same LPDDR4 the four CPU cores are using. A ping-pong fluid solver is bandwidth-bound: the pressure solve alone at 480×270 RGBA32F is on the order of 7 GB/s at 60 fps, out of ~38.4 GB/s shared with everything else.
 
-Build an adaptive quality controller in oF:
+The controller does not change. **What changes is that it starts at the bottom and climbs, instead of starting in the middle and falling.**
 
 ```
 sim_scale ∈ {8, 6, 4, 3, 2}      # stage_size / sim_scale = simulation grid
-start at config value (default 4 → 480×270)
+start at config value (default 8 → 240×135 on the deploy board;
+                       4 on the dev machine, set in config/system.json)
 every 2s:
   if avg_fps > 58 and sim_scale > 2:  sim_scale -= 1   # step up quality
   if avg_fps < 50:                    sim_scale += 1   # step down, immediately
@@ -1158,7 +1231,16 @@ every 2s:
   if still < 40:                      fall back to style `shuimo` and report it
 ```
 
+Starting at 4 on this board means the table stutters visibly for the first several seconds of every run while the controller steps down one rung at a time — the diner sees the worst frame of the session first. Starting at 8 means it looks correct immediately and quietly improves. The ceiling found is identical either way. Make the start value a config field per machine rather than a constant, so the dev machine keeps starting at 4.
+
+Two levers to try before accepting whatever rung it lands on, both cheap and both bandwidth rather than shader work:
+
+- **RGBA16F instead of RGBA32F** for the ping-pong targets, wherever ofxFlowTools allows it. This halves every byte moved above, and half-float is more than enough precision for a velocity field that is being rendered, not integrated over minutes. Try this first; it is likely worth a full rung or more.
+- **Deleting the `opticalFlow + combinedBridgeFlow` chain**, which §14.1 already establishes does not work for point input. On the dev machine that was free cleanup. Here it is a direct bandwidth refund.
+
 Report the current `sim_scale` in `stat` so the developer panel shows it. This satisfies "use the hardware at its maximum" honestly: it finds the maximum rather than assuming it, and it degrades in a defined order instead of stuttering.
+
+**Run the projector output at 1920×1080, not 4K.** The board will happily drive 4K@60 over HDMI 2.0a and the fill rate cost of doing so is not recoverable. Nothing in this design — fluid, plate rendering, type — resolves anything a projector shows at 1080p.
 
 ---
 
@@ -1319,6 +1401,10 @@ Edge Impulse replaces Roboflow, for both models. Two EI projects, one workflow, 
 
 <cite index="29-1">Edge Impulse's Linux Python SDK runs models on Linux devices; you build a `.eim` file from the project's deployment page — selecting x86 as the deployment option for a general-purpose CPU without AI acceleration — and load it from Python.</cite> <cite index="36-1">The model file contains all signal-processing code and the neural network, and is downloaded with `edge-impulse-linux-runner --download modelfile.eim`.</cite> <cite index="38-1">The same SDK provides an `AudioImpulseRunner` for real-time microphone classification</cite>, so the keyword spotter uses the identical toolchain as the food classifier. One vendor, one workflow, two models — a far better story for Edge Impulse than a single project would be.
 
+**Select the plain x86 target, and VERIFY the `.eim` actually runs on the board (§1.4b).** The J4125 is a Goldmont Plus part with **no AVX2**, which is an unusual thing for an x86 deploy target to lack and therefore exactly the kind of assumption a build pipeline makes silently. EI's x86 option is described as being for a general-purpose CPU without AI acceleration, which is right in intent, but "no accelerator" and "no AVX2" are different claims and only one of them is being promised.
+
+So the check is not optional and cannot be done anywhere but on the board: download the `.eim`, run **one real inference of each model** on it, and confirm it neither aborts with `SIGILL`/`Illegal instruction` nor comes back too slow to hold `live_hz`. Do this in M0, the day the board is available, with a throwaway model if the real ones are not trained yet — the point is to test the toolchain, not the accuracy. If it fails, the fallbacks are an EI deployment target built without AVX2, or exporting TFLite and running it directly; both are recoverable in M0 and neither is recoverable the week of the contest.
+
 ### 19.2 Project 1 — `hotpot-ingredients` (image classification)
 
 - **Task:** classification, not detection. The bin rect already localises the food; asking a detector to find it again wastes compute and adds a failure mode.
@@ -1444,6 +1530,29 @@ Each milestone below is written so a Claude Code instance can start it directly.
 - `kill -9` any child → its pip goes red within 3s, then green again within 5s.
 - `Ctrl-C` → every process gone. `ps aux | grep hotpot` returns nothing.
 - Verify the last point specifically: an orphan holding a port is the failure this milestone exists to prevent.
+
+---
+
+### M0.B — Board bring-up (ODYSSEY X86J4125800 v2)
+
+**Run this the day the board arrives, whatever milestone is in progress.** It is off the critical path and depends on nothing, but every check in it can only be done on the board, and each one has a fallback that is cheap now and ruinous in M8. Half a day here buys back the three highest risks in §23.
+
+**Depends on:** the board being physically present. Nothing else.
+
+**Build — in this order, stopping at the first thing that fails:**
+1. **Install Ubuntu on the NVMe SSD**, not the eMMC (§1.4). Confirm both 2.5 GbE ports enumerate — they need a recent kernel; 22.04 or newer is fine.
+2. **Peripheral port allocation per §1.4d.** Camera on the USB 3.1 Type-A, XIAO on a USB 2.0, power on the barrel jack. Confirm the camera negotiates its capture mode on that port and check what happens if it is moved to USB 2.0, so the failure signature is known.
+3. **`arecord -l`** — the long-open VERIFY from §3. Settle whether a separate USB mic is needed while there is still time to order one.
+4. **One MediaPipe Hands inference** (§11.2). Confirm no `SIGILL`. Record the achieved fps at `model_complexity` 0 and 1, and write both numbers into `CLAUDE.md`. This sets the probe start point rather than guessing it.
+5. **One Edge Impulse `.eim` inference** (§19.1), a throwaway model if the real ones are not trained. Confirm no `SIGILL`.
+6. **A throwaway "hello world" openFrameworks build on the board itself** (§23), followed immediately by **one ofxFlowTools example**. The oF build proves the toolchain; the ofxFlowTools example proves Mesa on UHD 600 does what the Arc driver does — float render targets and GLSL version are the two places it could differ.
+7. **Fit the fan.** Run a 30-minute all-core plus GPU soak and watch package temperature and the throttle counter (§12.8).
+
+**Do NOT:** port the actual application, tune fluid parameters, or treat any performance number here as final. This milestone answers "does it run at all", not "how fast".
+
+**Acceptance (human, on the board):**
+- Every one of items 3–6 either passes or has a written fallback decision in `CLAUDE.md`. A recorded failure with a chosen fallback passes this milestone; an unrun check does not.
+- The soak test's peak package temperature and throttle count are written down. If it throttled on a bench, it will throttle harder beside a hot pot, and that is a cooling problem to solve now.
 
 ---
 
@@ -1692,9 +1801,12 @@ Note that several P3 items are nearly free once P1 exists — low-stock pulse is
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| **reComputer model unidentified** | **Highest.** Affects core count (§10.4), GPU (§14.6), and whether the fluid target is reachable at all. | Identify it before M8. Until then, the adaptive quality controller is the insurance. |
+| ~~reComputer model unidentified~~ | **CLOSED.** Resolved to the ODYSSEY-X86J4125800 v2 — see §1.4. Core count is settled (§10.4), the GPU is characterised (§14.6), and the fluid target is reachable at a lower sim resolution than the dev machine reaches. Superseded by the three rows below, which are the parts of this risk that survive. | — |
+| **No AVX2 on Goldmont Plus** | **Highest.** MediaPipe (§11.2) and the Edge Impulse `.eim` runners (§16) are the exposed surfaces. Worst case is a SIGILL on first inference from an AVX2-only build; ordinary case is a slow SSE fallback. Nothing on the development machine can reveal either. | Run one real inference of *each* model on the board in M0 — hands, ingredients, keywords. This is a 20-minute check that de-risks two whole milestones. Fallbacks: rebuild for this target, or drop to plain TFLite models. The stub backends (§19.4) mean neither blocks anything else. |
+| **Thermal throttling in the deployed position** | **High**, and near-invisible until it happens. 10 W passive part, four cores plus iGPU saturated indefinitely, mounted near a hot pot with steam and grease. Throttling degrades fluid and tracker at the same instant and reads as a software regression. | Fit the fan, mount away from the burner in a ventilated enclosure, and put package temperature plus the throttle flag on the developer panel (§12.8). Soak-test at M9 for the length of a real service, not for a demo's length. |
+| **64 GB eMMC is not enough** | Medium, but certain to bite. Ubuntu + the oF tree and build artifacts + models + `orders.sqlite3` + logs + the §12.7 dataset capture do not fit comfortably, and eMMC random write is poor enough that SQLite commits and image capture both suffer. | Order an NVMe SSD for the M.2 Key M slot with the board (§1.4) and install the OS on it. If that slips, move `datasets/`, `logs/` and `state/` there and leave the OS on eMMC. |
 | Camera elevation angle unmeasured | High — caps all hand-position accuracy (I10) | Measured in M3. If <70°, remount before M4. |
-| oF build on Linux | High — the Makefile and `config.make` must be generated **on the reComputer itself**, and the ofxFlowTools patches must be in the submodule or they will be rediscovered at the worst moment | Do a throwaway "hello world" oF build on the reComputer the day it is available, long before M8. |
+| oF build on Linux | High — the Makefile and `config.make` must be generated **on the board itself**, and the ofxFlowTools patches must be in the submodule or they will be rediscovered at the worst moment. Additionally, ofxFlowTools' GL feature use must be checked against Mesa on Gen9LP (UHD 600) rather than against the dev machine's Arc driver — float render targets and the exact GLSL version in particular. | Do a throwaway "hello world" oF build on the board the day it arrives, long before M8, and follow it immediately with one ofxFlowTools example. Two hours in M0 against two days in M8. |
 | MediaPipe confidence with tongs | Medium — could break the whole hand interaction | Bench test in M5. Fallback: increase the bin hover zones and lean on weight for confirmation, which already is the source of truth. |
 | Classifier accuracy on visually similar items | Medium — soya chunks, prawns and mushrooms are the known-hard set | Confidence floor already protects billing (§9.3). Collect more data on exactly those three. |
 | **The projector is the only illuminant (I9)** | **High** — `field_level` and camera exposure are one coupled parameter, so anything that changes the light on a cutout silently invalidates the training set. A projector bulb dimming with age does this slowly and invisibly. | Sweep and freeze the pair at M3/M4, record both in `state/camera_settings.json`, and re-capture rather than re-tune if the projector is ever changed. The light pass (§13.2) structurally prevents the *rendering* half of this class of bug; the hardware half needs the record. |

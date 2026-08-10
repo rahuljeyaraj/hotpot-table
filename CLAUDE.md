@@ -45,13 +45,35 @@ Last completed step: M0.0.
 - Distinguish states by hue, never by brightness, and
   luminance-match the hues to each other.
 
+## DEPLOY MACHINE
+Seeed ODYSSEY-X86J4125800 v2. Settled.
+Full spec and what it changes: doc section 1.4.
+Short version:
+- 4 cores, no SMT. Affinity plan fits exactly.
+- NO AVX2. Every model must be proven on the board.
+- UHD 600, 12 EU, shares RAM with the CPU.
+  Fluid starts at sim_scale 8 and climbs.
+- One USB 3 port. The camera gets it. Nothing else.
+- Order with it: NVMe SSD, fan, 12V barrel PSU.
+No features were cut to fit this board.
+
 ## TOP RISKS
-- reComputer x86 model still unidentified. Blocks M8.
+- No AVX2. MediaPipe or a .eim may not run at all.
+  Prove both on the board in M0.B.
+- Throttling. 10W passive part beside a hot pot.
+- 64GB eMMC too small. Install the OS on the SSD.
 - Camera elevation angle never measured. Due in M3.
 
+## NUMBERS OWED (write them here when measured)
+- MediaPipe fps at model_complexity 0 and 1.
+- Peak package temp and throttle count after soak.
+- Camera elevation angle.
+
 ## BUILD
-oF 0.12.1, Visual Studio 2026, toolset v145
+Dev: oF 0.12.1, Visual Studio 2026, toolset v145
 (projectGenerator emits v143 - must be changed).
 msbuild hotpot-table.sln /p:Configuration=Debug
         /p:Platform=x64 /m
+Deploy: Linux x86_64. Makefile and config.make must
+be generated on the board itself. Never copied.
 Firmware: PlatformIO, firmware/loadcells/. Do not touch.
