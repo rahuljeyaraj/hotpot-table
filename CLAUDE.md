@@ -31,16 +31,31 @@ machine 8080 is perpetually claimed by a stale WSL2 portproxy relay
 left behind by `iphlpsvc` even when that distro is stopped — not a
 one-off squatter, so routing around it beats trying to clear it.
 
-## KNOWN ISSUE — run.py pidfile race on Windows
-Starting 3+ children in the same tier concurrently (e.g.
-`--only camera,tracker,classifier,voice`, all tier 3 apart from
-camera) throws PermissionError from atomicio.write_json inside
-_write_pidfile: each child's supervisor thread writes state/run.pid
-independently and os.replace collides with a sibling's .tmp on
-Windows. Processes still start, print ready, and shut down clean
-with no orphans — only the pidfile write races. Not fixed here;
-out of scope for M0.6 (stub main.py only). Worth a lock or a
-single-writer queue in run.py before M0's own acceptance test.
+## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
+Two bugs found running M0's acceptance test for real the first time
+(earlier attempts never reached this code path — core kept failing to
+bind 8080 and the launcher gave up on its own before anyone needed to
+stop it):
+- Pidfile race: concurrent tier-3 supervisor threads all called
+  _write_pidfile at once; os.replace losing that race didn't just log —
+  it killed the supervisor thread outright (crash lands before the
+  reader thread starts), silently dropping restart-on-crash and log
+  capture for that child, and could tear state/run.pid into two
+  concatenated JSON objects, which then crashed every future
+  `python run.py` on startup until someone deleted the file by hand.
+  Fixed with a lock around _write_pidfile, plus _read_pidfile()
+  tolerating an already-corrupt file instead of crashing the CLI.
+- Ctrl-C did nothing: `self._stop.wait()` with no timeout blocks inside
+  a single infinite Win32 wait call that never returns control to the
+  interpreter, so a pending SIGINT is never actually acted on. Fixed
+  with a bounded-wait loop. `--stop` had two more bugs on top of that,
+  found verifying the fix: os.kill(..., CTRL_BREAK_EVENT) can raise a
+  bare SystemError instead of OSError on Windows, which _terminate
+  didn't catch, aborting the whole shutdown loop before later children
+  got touched; and the launcher had no SIGBREAK handler, so a
+  CTRL_BREAK_EVENT that did land killed it outright instead of running
+  _shutdown(), orphaning every child. Both fixed; `--stop` now verified
+  end-to-end (6/6 processes exit, pidfile removed, no orphans).
 
 ## HOW TO WORK HERE
 - One step at a time. Commit. Stop and report back.

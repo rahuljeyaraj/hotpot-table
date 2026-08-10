@@ -274,6 +274,17 @@ def _terminate(pid: int, *, graceful: bool) -> None:
             return
         except OSError:
             pass
+        except SystemError:
+            # Same failure as the OSError above — GenerateConsoleCtrlEvent
+            # rejected the target (e.g. it shares no console with us, the
+            # case `--stop` hits from a fresh process) — just surfaced as a
+            # bare SystemError instead of a normal OSError, a known
+            # CPython/Windows os.kill(..., CTRL_BREAK_EVENT) quirk. Without
+            # this it propagates straight out of the caller's loop and
+            # every remaining child in that loop never gets terminated at
+            # all, graceful or otherwise — worse than the timeout this
+            # fallback exists to handle.
+            pass
     subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                     capture_output=True)
 
@@ -355,6 +366,7 @@ class Launcher:
             n: ChildRuntime(PROCESS_BY_NAME[n]) for n in names}
         self.mlog = MergedLog(root / "logs")
         self.pidfile = _pidfile_path(root)
+        self._pidfile_lock = threading.Lock()
         self._stop = threading.Event()
         self._colour = _use_colour()
 
@@ -376,7 +388,17 @@ class Launcher:
             if not self._stop.is_set():
                 _apply_affinity(self.children, self._print)
                 self._print("run.py", f"up: {', '.join(self.children)}")
-            self._stop.wait()
+            # Not a bare self._stop.wait(): on Windows that blocks inside a
+            # single infinite WaitForSingleObject call, which never returns
+            # control to the interpreter's bytecode loop, so a Ctrl-C
+            # delivered by the console's separate control-handler thread
+            # sits queued and is never actually acted on. Waking up on a
+            # bounded timeout, repeatedly, is what lets Python check for
+            # and run the pending SIGINT handler between waits — the same
+            # reason time.sleep() is Ctrl-C-responsive on Windows and a
+            # bare Lock.acquire()/Event.wait() is not.
+            while not self._stop.wait(timeout=0.25):
+                pass
         finally:
             self._shutdown()
         return 0
@@ -500,6 +522,17 @@ class Launcher:
         signal.signal(signal.SIGINT, handler)
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, handler)
+        if hasattr(signal, "SIGBREAK"):
+            # Windows only. `cmd_stop` (--stop, "stop a detached instance")
+            # runs as a separate process and has no cross-console way to
+            # deliver SIGINT/SIGTERM to this one — CTRL_BREAK_EVENT via
+            # _terminate() is the only thing that reaches us from outside.
+            # Python maps it to SIGBREAK, but without a handler for it the
+            # OS's default action is to kill this process immediately, with
+            # no chance to run _shutdown() — every child then becomes a
+            # real orphan, the exact failure this launcher exists to
+            # prevent (module docstring). Treat it the same as SIGINT.
+            signal.signal(signal.SIGBREAK, handler)
 
     def _shutdown(self) -> None:
         self._stop.set()
@@ -551,12 +584,24 @@ class Launcher:
         self.mlog.write(f"{prefix}{line}")
 
     def _write_pidfile(self) -> None:
-        data = {
-            "launcher_pid": os.getpid(),
-            "started": time.time(),
-            "children": {n: c.pid for n, c in self.children.items() if c.pid},
-        }
-        atomicio.write_json(self.pidfile, data)
+        # Every tier-3 supervisor thread calls this the moment its child
+        # spawns, all at once (doc's KNOWN ISSUE, CLAUDE.md). Without this
+        # lock two threads' os.replace(tmp, dest) can land at the same
+        # instant and Windows — unlike POSIX, where rename() atomically
+        # replaces the destination — refuses the second one with WinError
+        # 32 because it briefly has the destination handle open. Losing
+        # that race doesn't just print an ugly traceback: it kills the
+        # supervisor thread outright (the crash happens before the reader
+        # thread starts), silently dropping restart-on-crash and log
+        # capture for that child for the rest of the run. A single-writer
+        # lock is cheap enough here that a queue is not worth it.
+        with self._pidfile_lock:
+            data = {
+                "launcher_pid": os.getpid(),
+                "started": time.time(),
+                "children": {n: c.pid for n, c in self.children.items() if c.pid},
+            }
+            atomicio.write_json(self.pidfile, data)
 
 
 # ---------------------------------------------------------------------------
@@ -585,8 +630,27 @@ def _select_names(only: Optional[str]) -> List[str]:
     return out
 
 
+def _read_pidfile(path: Path) -> Optional[dict]:
+    """Read the pidfile, tolerating corruption instead of crashing the CLI.
+
+    atomicio's "present but unparsable must raise" rule (its module
+    docstring) is right for calibration files, where corruption silently
+    mis-bills. It is too strict for this file: run.pid exists only to
+    answer "is an instance already running," and before the lock added to
+    Launcher._write_pidfile (see the KNOWN ISSUE this fixes), two
+    supervisor threads racing on os.replace could tear it exactly like
+    this. atomicio already logs the corruption loudly on its way past —
+    this just stops that from also being a crash that blocks every future
+    `python run.py` until someone finds and deletes the file by hand.
+    """
+    try:
+        return atomicio.read_json(path, default=None)
+    except ValueError:
+        return None
+
+
 def _running_launcher_pid(root: Path) -> Optional[int]:
-    data = atomicio.read_json(_pidfile_path(root), default=None)
+    data = _read_pidfile(_pidfile_path(root))
     if not data:
         return None
     pid = data.get("launcher_pid")
@@ -597,7 +661,7 @@ def _running_launcher_pid(root: Path) -> Optional[int]:
 
 def cmd_stop(root: Path = ROOT) -> int:
     pidfile = _pidfile_path(root)
-    data = atomicio.read_json(pidfile, default=None)
+    data = _read_pidfile(pidfile)
     if not data:
         print("run.py: no pidfile — nothing to stop")
         return 0
