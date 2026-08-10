@@ -4,6 +4,7 @@ every process in the system with one command.
 
     python run.py                 start everything, stream merged logs
     python run.py --stop          stop a detached instance
+    python run.py --replace       stop whatever is running, then start fresh
     python run.py --only core,of  start a subset (development)
     python run.py --no-restart    disable auto-restart (debugging a crash)
 
@@ -659,12 +660,20 @@ def _running_launcher_pid(root: Path) -> Optional[int]:
     return None
 
 
-def cmd_stop(root: Path = ROOT) -> int:
-    pidfile = _pidfile_path(root)
+def _stop_running(pidfile: Path) -> Tuple[List[str], List[str]]:
+    """Stop whatever the pidfile says is running: graceful, then a grace
+    period, then force (doc section 10.2) — shared by --stop and --replace
+    so there is exactly one "kill whatever's running" implementation, not
+    two that can quietly drift apart.
+
+    Returns (stopped, still_alive). Both empty means there was nothing
+    live to stop (missing, corrupt, or stale pidfile) — the caller decides
+    how to word that, since --stop and --replace mean different things by
+    it.
+    """
     data = _read_pidfile(pidfile)
     if not data:
-        print("run.py: no pidfile — nothing to stop")
-        return 0
+        return [], []
 
     pids: Dict[str, int] = {}
     launcher_pid = data.get("launcher_pid")
@@ -676,9 +685,8 @@ def cmd_stop(root: Path = ROOT) -> int:
 
     live = {n: pid for n, pid in pids.items() if _pid_alive(pid)}
     if not live:
-        print("run.py: pidfile is stale — nothing running")
         _remove_pidfile(pidfile)
-        return 0
+        return [], []
 
     for pid in live.values():
         _terminate(pid, graceful=True)
@@ -697,10 +705,24 @@ def cmd_stop(root: Path = ROOT) -> int:
 
     _remove_pidfile(pidfile)
     still = [n for n, pid in survivors.items() if _pid_alive(pid)]
+    stopped = [n for n in live if n not in still]
+    return stopped, still
+
+
+def cmd_stop(root: Path = ROOT) -> int:
+    pidfile = _pidfile_path(root)
+    if not _read_pidfile(pidfile):
+        print("run.py: no pidfile — nothing to stop")
+        return 0
+
+    stopped, still = _stop_running(pidfile)
+    if not stopped and not still:
+        print("run.py: pidfile is stale — nothing running")
+        return 0
     if still:
         print(f"run.py: could not stop: {', '.join(still)}")
         return 1
-    print(f"run.py: stopped ({', '.join(live)})")
+    print(f"run.py: stopped ({', '.join(stopped)})")
     return 0
 
 
@@ -716,6 +738,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         prog="run.py", description="Start, supervise, and stop the hotpot table.")
     p.add_argument("--stop", action="store_true",
                     help="stop a detached instance")
+    p.add_argument("--replace", action="store_true",
+                    help="stop an existing instance first (like --stop), "
+                         "then start — kill-and-restart in one command")
     p.add_argument("--only", metavar="NAMES", default=None,
                     help="comma-separated subset to start, e.g. core,of")
     p.add_argument("--no-restart", action="store_true",
@@ -733,8 +758,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     existing = _running_launcher_pid(ROOT)
     if existing is not None:
-        print(f"run.py: already running (pid {existing}) — stop it first with --stop")
-        return 1
+        if not args.replace:
+            print(f"run.py: already running (pid {existing}) — stop it "
+                  "first with --stop, or start with --replace")
+            return 1
+        print(f"run.py: replacing the running instance (pid {existing})")
+        _, still = _stop_running(_pidfile_path(ROOT))
+        if still:
+            print(f"run.py: could not stop {', '.join(still)} — "
+                  "not starting a new instance on top of it")
+            return 1
 
     launcher = Launcher(names, no_restart=args.no_restart)
     return launcher.run()
