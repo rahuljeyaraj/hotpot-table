@@ -1,0 +1,62 @@
+{
+  "schema": 3,
+  "base_currency": "INR",
+  "items": [
+    {
+      "id": "curly_noodle",
+      "pricePer100g": 18.0,
+      "names": {"en": "Curly Noodles", "zh": "卷面"},
+      "tags": ["vegetarian", "vegan"],
+      "class_name": "curly_noodle"
+    },
+    {
+      "id": "long_noodle",
+      "pricePer100g": 20.0,
+      "names": {"en": "Long Noodles", "zh": "细面"},
+      "tags": ["vegetarian", "vegan"],
+      "class_name": "long_noodle"
+    },
+    {
+      "id": "dried_prawns",
+      "pricePer100g": 55.0,
+      "names": {"en": "Dried Prawns", "zh": "虾干"},
+      "tags": ["seafood"],
+      "class_name": "dried_prawns"
+    },
+    {
+      "id": "egg",
+      "pricePer100g": 11.0,
+      "names": {"en": "Egg", "zh": "鸡蛋"},
+      "tags": ["vegetarian"],
+      "class_name": "egg"
+    },
+    {
+      "id": "mushroom",
+      "pricePer100g": 12.0,
+      "names": {"en": "Shiitake mushroom", "zh": "香菇"},
+      "tags": ["vegetarian", "vegan"],
+      "class_name": "mushroom"
+    },
+    {
+      "id": "soya_chunks",
+      "pricePer100g": 10.0,
+      "names": {"en": "Soya Chunks", "zh": "大豆蛋白块"},
+      "tags": ["vegetarian", "vegan"],
+      "class_name": "soya_chunks"
+    },
+    {
+      "id": "tofu",
+      "pricePer100g": 18.0,
+      "names": {"en": "Tofu", "zh": "豆腐"},
+      "tags": ["vegetarian", "vegan"],
+      "class_name": "tofu"
+    },
+    {
+      "id": "baby_corn",
+      "pricePer100g": 16.0,
+      "names": {"en": "Baby Corn", "zh": "玉米笋"},
+      "tags": ["vegetarian", "vegan"],
+      "class_name": "baby_corn"
+    }
+  ]
+}
