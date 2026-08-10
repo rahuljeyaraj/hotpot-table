@@ -1,3 +1,4 @@
 ofxFlowTools
 ofxGui
 ofxOsc
+ofxNetwork

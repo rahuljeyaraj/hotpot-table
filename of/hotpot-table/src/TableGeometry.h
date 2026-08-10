@@ -3,6 +3,17 @@
 // Physical table surface and the projector image mapped onto it.
 // Everything in the app that needs a table position works in mm and
 // converts here, so a projector or table change is a one-place edit.
+//
+// M1.4 note: this is the CAD layout only — no per-line nudge, no
+// bin_offsets.json. v3 §7.1 keeps the *measured* offsets, but as the seed
+// for core's state/bin_rects.json (M4 build item 5), not as something oF
+// applies to itself; oF has no way to hit-test a hand against a bin any
+// more (that moved to core's FSM at M5), so the alignment tool that used
+// to serve that hit test moved out with it. Until M4, UiLayer and Stage
+// use the raw CAD rects below for the 8 plates and the light-pass cutouts
+// — everywhere the doc would otherwise have oF read stage-space rects out
+// of `state`, which core does not send yet (confirmed against core/main.py's
+// actual _bin_msg — no `rect` field is on the wire in M1).
 
 // Plywood top: 60 x 36 inches.
 // constexpr rather than const so the bin layout below can be checked against
@@ -120,22 +131,8 @@ static_assert(sameMM(BINS[4].yMM, BINS[0].yMM + BIN_H_MM + 50.0f),
 static_assert(sameMM(BINS[4].yMM + BIN_H_MM + 177.4f, TABLE_H_MM),
 	"near row does not close the Y chain");
 
-// --- interaction timing ---------------------------------------------------
-// How long a hand must stay inside one bin before that bin counts as hovered.
-//
-// RIG-TUNABLE STARTING VALUE, NOT A DERIVED DIMENSION. Everything above this
-// point comes off the drawing and is checked by the asserts. This does not:
-// there is no chain it falls out of and no measurement it can be computed
-// from, so it must not be read as one.
-//
-// What it exists to reject: a hand travelling from one bin to another passes
-// straight over the bins in between. Those pass-overs are real detections
-// inside a real bin rect and are indistinguishable from an intentional hover
-// except by how long they last. The threshold is the whole discrimination.
-//
-// Too low and the table lights up every bin on the way to the one the diner
-// wanted. Too high and a deliberate hover feels broken. 1000 ms is a guess at
-// the middle, to be replaced by watching real hands cross the real table -
-// time a few pass-overs, take the longest, leave headroom. It is not
-// calculated and there is nothing here to calculate it from.
-static constexpr float HOVER_DWELL_MS = 1000.0f;
+// HOVER_DWELL_MS used to live here. Hover/dwell is v3 §9.4/§11 territory now
+// — computed from tracker cursors by core's FSM (M5), not by oF reading OSC
+// hand positions itself. Deleted with the rest of the M0.1 hover code
+// (ofApp.cpp's updateHover/binHover) rather than carried forward unused;
+// v3 §7.1 is explicit that this is a rewrite and "deleting is the point."

@@ -82,7 +82,7 @@
 			<PreprocessorDefinitions>%(PreprocessorDefinitions);OSC_HOST_LITTLE_ENDIAN</PreprocessorDefinitions>
 			<RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
 			<WarningLevel>Level3</WarningLevel>
-			<AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);src;..\..\..\..\..\addons\ofxFlowTools\src;..\..\..\..\..\addons\ofxFlowTools\src\core;..\..\..\..\..\addons\ofxFlowTools\src\core\bridge;..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\fluid;..\..\..\..\..\addons\ofxFlowTools\src\core\fluid\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\opticalflow;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\blend;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\blur;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\color;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\velocity;..\..\..\..\..\addons\ofxFlowTools\src\core\visualization;..\..\..\..\..\addons\ofxFlowTools\src\core\visualization\shaders;..\..\..\..\..\addons\ofxFlowTools\src\extensions;..\..\..\..\..\addons\ofxFlowTools\src\extensions\average;..\..\..\..\..\addons\ofxFlowTools\src\extensions\mouse;..\..\..\..\..\addons\ofxFlowTools\src\extensions\particles;..\..\..\..\..\addons\ofxFlowTools\src\extensions\shaders;..\..\..\..\..\addons\ofxFlowTools\src\extensions\splitvelocity;..\..\..\..\..\addons\ofxGui\src;..\..\..\..\..\addons\ofxOsc\libs;..\..\..\..\..\addons\ofxOsc\libs\oscpack;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\ip;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\osc;..\..\..\..\..\addons\ofxOsc\src</AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);src;..\..\..\..\..\addons\ofxFlowTools\src;..\..\..\..\..\addons\ofxFlowTools\src\core;..\..\..\..\..\addons\ofxFlowTools\src\core\bridge;..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\fluid;..\..\..\..\..\addons\ofxFlowTools\src\core\fluid\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\opticalflow;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\blend;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\blur;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\color;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\velocity;..\..\..\..\..\addons\ofxFlowTools\src\core\visualization;..\..\..\..\..\addons\ofxFlowTools\src\core\visualization\shaders;..\..\..\..\..\addons\ofxFlowTools\src\extensions;..\..\..\..\..\addons\ofxFlowTools\src\extensions\average;..\..\..\..\..\addons\ofxFlowTools\src\extensions\mouse;..\..\..\..\..\addons\ofxFlowTools\src\extensions\particles;..\..\..\..\..\addons\ofxFlowTools\src\extensions\shaders;..\..\..\..\..\addons\ofxFlowTools\src\extensions\splitvelocity;..\..\..\..\..\addons\ofxGui\src;..\..\..\..\..\addons\ofxOsc\libs;..\..\..\..\..\addons\ofxOsc\libs\oscpack;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\ip;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\osc;..\..\..\..\..\addons\ofxOsc\src;..\..\..\..\..\addons\ofxNetwork\src</AdditionalIncludeDirectories>
 			<CompileAs>CompileAsCpp</CompileAs>
 			<MultiProcessorCompilation>true</MultiProcessorCompilation>
 			<ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
@@ -127,7 +127,7 @@
 			<PreprocessorDefinitions>%(PreprocessorDefinitions);OSC_HOST_LITTLE_ENDIAN</PreprocessorDefinitions>
 			<RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
 			<WarningLevel>Level3</WarningLevel>
-			<AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);src;..\..\..\..\..\addons\ofxFlowTools\src;..\..\..\..\..\addons\ofxFlowTools\src\core;..\..\..\..\..\addons\ofxFlowTools\src\core\bridge;..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\fluid;..\..\..\..\..\addons\ofxFlowTools\src\core\fluid\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\opticalflow;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\blend;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\blur;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\color;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\velocity;..\..\..\..\..\addons\ofxFlowTools\src\core\visualization;..\..\..\..\..\addons\ofxFlowTools\src\core\visualization\shaders;..\..\..\..\..\addons\ofxFlowTools\src\extensions;..\..\..\..\..\addons\ofxFlowTools\src\extensions\average;..\..\..\..\..\addons\ofxFlowTools\src\extensions\mouse;..\..\..\..\..\addons\ofxFlowTools\src\extensions\particles;..\..\..\..\..\addons\ofxFlowTools\src\extensions\shaders;..\..\..\..\..\addons\ofxFlowTools\src\extensions\splitvelocity;..\..\..\..\..\addons\ofxGui\src;..\..\..\..\..\addons\ofxOsc\libs;..\..\..\..\..\addons\ofxOsc\libs\oscpack;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\ip;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\osc;..\..\..\..\..\addons\ofxOsc\src</AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);src;..\..\..\..\..\addons\ofxFlowTools\src;..\..\..\..\..\addons\ofxFlowTools\src\core;..\..\..\..\..\addons\ofxFlowTools\src\core\bridge;..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\fluid;..\..\..\..\..\addons\ofxFlowTools\src\core\fluid\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\opticalflow;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\blend;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\blur;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\color;..\..\..\..\..\addons\ofxFlowTools\src\core\shaders\velocity;..\..\..\..\..\addons\ofxFlowTools\src\core\visualization;..\..\..\..\..\addons\ofxFlowTools\src\core\visualization\shaders;..\..\..\..\..\addons\ofxFlowTools\src\extensions;..\..\..\..\..\addons\ofxFlowTools\src\extensions\average;..\..\..\..\..\addons\ofxFlowTools\src\extensions\mouse;..\..\..\..\..\addons\ofxFlowTools\src\extensions\particles;..\..\..\..\..\addons\ofxFlowTools\src\extensions\shaders;..\..\..\..\..\addons\ofxFlowTools\src\extensions\splitvelocity;..\..\..\..\..\addons\ofxGui\src;..\..\..\..\..\addons\ofxOsc\libs;..\..\..\..\..\addons\ofxOsc\libs\oscpack;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\ip;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\ip\win32;..\..\..\..\..\addons\ofxOsc\libs\oscpack\src\osc;..\..\..\..\..\addons\ofxOsc\src;..\..\..\..\..\addons\ofxNetwork\src</AdditionalIncludeDirectories>
 			<CompileAs>CompileAsCpp</CompileAs>
 			<ObjectFileName>$(IntDir)\Build\%(RelativeDir)\$(Configuration)\</ObjectFileName>
 			<LanguageStandard>stdcpplatest</LanguageStandard>
@@ -228,6 +228,12 @@
 	<ItemGroup>
 		<ClCompile Include="src\main.cpp" />
 		<ClCompile Include="src\ofApp.cpp" />
+		<ClCompile Include="src\StateLink.cpp" />
+		<ClCompile Include="src\Stage.cpp" />
+		<ClCompile Include="src\UiLayer.cpp" />
+		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.cpp" />
+		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPClient.cpp" />
+		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPManager.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxFlowTools\src\core\fluid\ftFluidFlow.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxFlowTools\src\core\ftFlow.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxFlowTools\src\core\ftUtil.cpp" />
@@ -261,6 +267,15 @@
 	<ItemGroup>
 		<ClInclude Include="src\ofApp.h" />
 		<ClInclude Include="src\TableGeometry.h" />
+		<ClInclude Include="src\Spring.h" />
+		<ClInclude Include="src\StateLink.h" />
+		<ClInclude Include="src\Stage.h" />
+		<ClInclude Include="src\UiLayer.h" />
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetwork.h" />
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.h" />
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPClient.h" />
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPManager.h" />
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPSettings.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\ftBridgeFlow.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\ftCombinedBridgeFlow.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\ftDensityBridgeFlow.h" />

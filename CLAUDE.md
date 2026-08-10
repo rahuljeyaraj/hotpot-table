@@ -59,8 +59,38 @@ test_pricing.py for the new ids() method) drive Cart/BinMap directly
 (the developer-panel mock controls that will do this for real are build
 item 4/5) and check the message shape, the seeded bins, seq monotonicity,
 a mock pick reaching the next broadcast correctly priced, and that only
-`of` receives it. Last completed step: M1.3. Next: build item 4, the oF
-renderer rewrite (StateLink/Stage/UiLayer) — the first C++ work in M1.
+`of` receives it.
+M1.4 (2026-08-10) is build item 4: the oF app rewritten around
+StateLink (of/hotpot-table/src/StateLink.h/.cpp — TCP JSONL client on
+its own thread, hello/welcome/heartbeat, reconnect backoff 1s->10s,
+parses `state`), Stage (Stage.h/.cpp — one content FBO, floor lift and
+light pass done with plain alpha-blended rects rather than a shader,
+keystone warp onto the window from bin/data/keystone.json, defaulted
+to the untransformed rectangle since no prior software keystone existed
+to carry forward — VERIFIED against the pre-rewrite ofApp, which only
+ever fullscreened onto a monitor), and UiLayer (UiLayer.h/.cpp — 8
+plates on TableGeometry.h's CAD rects, name+detail text outside every
+cutout, a Spring per tweened value per doc §13.3, running total, a
+diner-facing connection-lost indicator, a small dev overlay). Added
+ofxNetwork to addons.make and the vcxproj (VS projects don't glob —
+new addons and new src files both had to be added to hotpot-table.vcxproj
+by hand, which is what most of this step's build errors were).
+Everything M0.1/M1's "delete outright" list named is gone: OSC hand
+receiver, hover/dwell, the alignment nudge grid, the keyboard weight
+mock, in-bin weight text, the calibration-dot pattern.
+Two scope calls, both commented in the code where they bite: (1) the
+odometer digit-ROLL render is deferred — Spring.h builds the tweened
+value it would consume, but the glyph-clipping needed to draw it had no
+precedent anywhere in this app (no shader, no scissor use) and M1's
+acceptance test checks the settled number by arithmetic, not the roll.
+(2) Inter (doc §13.4's `en` face) isn't in this repo or the oF
+distribution; UiLayer uses the already-bundled DejaVuSans-Bold.ttf
+until the real font file shows up — one line to swap.
+Builds clean (msbuild, 0 errors, 0 warnings from any of the new files).
+Not yet run against a live core — that's the acceptance test, on the
+projected surface, still owed. Last completed step: M1.4. Next: build
+item 5, the staff view Live tab + developer-panel mock pick/put-back
+controls.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

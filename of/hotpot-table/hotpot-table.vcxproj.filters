@@ -7,6 +7,24 @@
 		<ClCompile Include="src\main.cpp">
 			<Filter>src</Filter>
 		</ClCompile>
+		<ClCompile Include="src\StateLink.cpp">
+			<Filter>src</Filter>
+		</ClCompile>
+		<ClCompile Include="src\Stage.cpp">
+			<Filter>src</Filter>
+		</ClCompile>
+		<ClCompile Include="src\UiLayer.cpp">
+			<Filter>src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.cpp">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPClient.cpp">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPManager.cpp">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClCompile>
 		<ClCompile Include="..\..\..\..\..\addons\ofxFlowTools\src\core\fluid\ftFluidFlow.cpp">
 			<Filter>addons\ofxFlowTools\src\core\fluid</Filter>
 		</ClCompile>
@@ -195,6 +213,12 @@
 		<Filter Include="addons\ofxOsc\libs\oscpack\src\osc">
 			<UniqueIdentifier>{BAF69F0F--F50-3-43-D1-B-3F9-981D8E411BAC}</UniqueIdentifier>
 		</Filter>
+		<Filter Include="addons\ofxNetwork">
+			<UniqueIdentifier>{A1B2C3D4-1111-4A24-9B08-AAC121D3AD01}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="addons\ofxNetwork\src">
+			<UniqueIdentifier>{A1B2C3D4-1111-4A24-9B08-AAC121D3AD02}</UniqueIdentifier>
+		</Filter>
 	</ItemGroup>
 	<ItemGroup>
 		<ClInclude Include="src\ofApp.h">
@@ -202,6 +226,33 @@
 		</ClInclude>
 		<ClInclude Include="src\TableGeometry.h">
 			<Filter>src</Filter>
+		</ClInclude>
+		<ClInclude Include="src\Spring.h">
+			<Filter>src</Filter>
+		</ClInclude>
+		<ClInclude Include="src\StateLink.h">
+			<Filter>src</Filter>
+		</ClInclude>
+		<ClInclude Include="src\Stage.h">
+			<Filter>src</Filter>
+		</ClInclude>
+		<ClInclude Include="src\UiLayer.h">
+			<Filter>src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetwork.h">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.h">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPClient.h">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPManager.h">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPSettings.h">
+			<Filter>addons\ofxNetwork\src</Filter>
 		</ClInclude>
 		<ClInclude Include="..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\ftBridgeFlow.h">
 			<Filter>addons\ofxFlowTools\src\core\bridge</Filter>
