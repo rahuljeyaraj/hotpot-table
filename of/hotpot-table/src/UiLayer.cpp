@@ -19,6 +19,19 @@ namespace {
 	// Swap this one line once the real font file exists.
 	const std::string kFontFile = "fonts/DejaVuSans-Bold.ttf";
 
+	// Doc §13.4 fixed these at 36px and 26px. Measured against the actual
+	// catalogue: at 36px DejaVuSans-Bold, only 3 of the 8 item names fit on
+	// one line inside a bin's own 200mm (252px) footprint, so five plates
+	// were carrying a two-line name — the block ran ~136px into a 209px
+	// margin to say "Curly Noodles". At 28px, 7 of 8 fit on one line and
+	// the block is ~112px. The names did not get harder to read; they got
+	// out of each other's way. Cap height at 28px is still ~17mm on the
+	// plywood, which is legible well past the 3m the banner is specified
+	// for. §13.4 corrected to match — the px values were a guess made
+	// before any name had been measured in a bin.
+	const int kNamePx = 28;
+	const int kDetailPx = 22;
+
 	// doc's old kBinOutlineMM/kLabelClearanceMM/kLabelLineGapMM (ofApp.cpp,
 	// now deleted). Redefined here rather than resurrected in
 	// TableGeometry.h, which v3 §7.1 keeps for CAD geometry only.
@@ -180,8 +193,8 @@ namespace {
 
 void UiLayer::setup(){
 	bool ok = true;
-	ok = loadUiFont(_nameFont, kFontFile, 36) && ok;
-	ok = loadUiFont(_detailFont, kFontFile, 26) && ok;
+	ok = loadUiFont(_nameFont, kFontFile, kNamePx) && ok;
+	ok = loadUiFont(_detailFont, kFontFile, kDetailPx) && ok;
 	ok = loadUiFont(_totalNumFont, kFontFile, 80) && ok;
 	ok = loadUiFont(_totalLabelFont, kFontFile, 28) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
@@ -379,14 +392,23 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	else {
 		// near row: label strip is BELOW the ring, into the 177.4mm near
 		// margin — the diner's own side of the table.
-		float firstLineBaseline = ringBottom + clearance + _nameFont.getAscenderHeight();
-		float lastLineBaseline = firstLineBaseline;
+		//
+		// Detail sits closest to the ring and the name outside it, which is
+		// the MIRROR of the far row above, not a copy of its top-to-bottom
+		// order. Reading outward from the pot, both rows now go ring →
+		// price/grams → name, so the two halves of the table are symmetric
+		// about the centre the way the bins themselves are. The previous
+		// version put the name nearest the ring down here and the detail
+		// nearest it up there, so the same two rows of text were in
+		// opposite orders on the two sides of one table.
+		float detailBaseline = ringBottom + clearance + _detailFont.getAscenderHeight();
+		drawCentered(_detailFont, detail, cx, detailBaseline);
+		// nameLines.front() sits closest to detail; later lines stack downward.
+		float firstLineBaseline = detailBaseline + _nameFont.getLineHeight() + gap;
 		for(size_t li = 0; li < nameLines.size(); li++){
-			float y = firstLineBaseline + (float)li * (_nameFont.getLineHeight() + nameLineGap);
-			drawCentered(_nameFont, nameLines[li], cx, y);
-			lastLineBaseline = y;
+			drawCentered(_nameFont, nameLines[li], cx,
+				firstLineBaseline + (float)li * (_nameFont.getLineHeight() + nameLineGap));
 		}
-		drawCentered(_detailFont, detail, cx, lastLineBaseline + _detailFont.getLineHeight() + gap);
 	}
 }
 

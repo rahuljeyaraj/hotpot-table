@@ -749,6 +749,35 @@ Verified the same way M2.6 was — `node --check` on the extracted script,
 every `getElementById` target cross-checked against the DOM (a script,
 not by eye), 413 tests still passing. **Not observed on the tablet yet.**
 
+### M2.6g — the plate label: smaller, and symmetric about the pot
+**2026-08-11.**
+- **The near row and the far row drew the same two rows of text in
+  opposite orders.** Far row was price-then-name reading outward; near row
+  was name-then-price. Both now read **ring → price/grams → name** going
+  outward from the pot, so the two halves mirror each other the way the
+  bins do. It is a mirror of the far row, not a copy of its
+  top-to-bottom order.
+- **Doc §13.4's 36px/26px were a guess made before any name had been
+  measured in a bin, and it was wrong.** At 36px DejaVuSans-Bold only
+  **3 of the 8 catalogue names fit on one line** inside a bin's own 200mm
+  (252px) footprint, so five plates carried a two-line name and the label
+  block ran ~136px into a 209px margin. Now **28px/22px**: 7 of 8 fit on
+  one line, block ~112px, cap height still ~17mm on the plywood. `kNamePx`
+  / `kDetailPx`, one edit. **§13.4 needs correcting to match — not done.**
+- **The face itself is still DejaVuSans-Bold and is still the
+  placeholder.** Measured, not guessed: DejaVu is the **widest** of every
+  face tested, which is most of why names wrapped at all. Candidates
+  measured for ₹ (U+20B9) coverage and one-line fit: Inter Bold (§13.4's
+  own choice, 7/8), Poppins Bold (7/8), Baloo 2 Bold (8/8 — narrowest with
+  a rupee). **Fredoka and Barlow Semi Condensed are ruled out: neither has
+  a ₹ glyph**, which is the bug M1's first rig run already hit once. The
+  choice is the developer's and is open.
+
+**Compiles clean; NOT LINKED** — the demo was running and held
+`bin/hotpot-table_debug.exe` (LNK1104, the same block M2.6e hit). Nothing
+here has been seen on the projected surface, including whether 28px is
+still comfortable at three metres, which only a photograph settles.
+
 **OPEN, decided by the developer, not by code:** the project needs a
 name and a logo (it is what the contest announces), and the brand block
 in the header is built as a logo slot + wordmark so both drop in with one
