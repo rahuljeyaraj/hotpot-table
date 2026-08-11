@@ -638,10 +638,15 @@ Two consequences, both enforced in `core/pricing.py`:
 ### 8.4 `state/bin_rects.json` — machine-written
 
 ```json
-{"schema":3,"camera_size":[1920,1080],
+{"schema":3,"camera_size":[1920,1080],"written":1754838400.1,
+ "verified_at":1754838500.2,
  "bins":[{"i":0,"cam":[210,140,300,220]}]}
 ```
 Camera space is the stored ground truth. Stage-space rects are derived at load time and never persisted — persisting a derived value invites the two copies to disagree.
+
+`verified_at` is the timestamp of §12.6's **human** Verify answer — a person looked at the projected outlines and said they sit on the trays. It is `null` until someone has, and it is cleared by a re-solve, a rect edit, or a "No". It records *that a human answered*, and nothing about whether the geometry is right beyond their word; nothing in code may set it (§5.3's TRAP). It lives with the rects rather than with the homography because the rects are what the human was looking at. Added at M4.1.
+
+**A consequence of storing camera rects axis-aligned, measured at M4.1 and worth recognising rather than debugging:** a homography maps a rectangle to a *quadrilateral*, so the derived stage rect is the bounding box of that quad and is a few percent larger than the tray whenever the camera is not square to the table. The dominant term is camera **rotation**, not perspective — the bounding box of a rotated rectangle grows by roughly its own size times the sine of the angle. Larger is the safe direction (I9: a cutout patch that is too small leaves a dark crescent on the food) and §13.2's cutout already adds `CUTOUT_MARGIN_MM` on top.
 
 ### 8.5 `state/homography.json` — machine-written
 

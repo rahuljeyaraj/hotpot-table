@@ -11,8 +11,10 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: **M3 (camera) — all 4 build items are code-complete**
-— see the M3 section below. M3.1 (`common/framebus.py`), M3.2
+Current milestone: **M4 (calibration and dataset capture) — in progress**
+— see the M4 section at the bottom of this file. M3 (camera) is
+code-complete; its acceptance test on the rig is still owed.
+M3.1 (`common/framebus.py`), M3.2
 (`camera/main.py` — real V4L2 capture, exposure/WB/focus lock, the shm
 writer, the MJPEG server), M3.3 (staff view Live tab — `<img>`+canvas,
 §5.4 scaling, the `camera` join message) and M3.4 (developer panel:
@@ -1105,6 +1107,73 @@ notes, only the pip and the Live tab's own placeholder exist), and the
 camera elevation angle (I10), for which no measurement tool exists yet
 either (`tools/measure_camera_angle.md` is referenced in the doc but was
 never written).
+
+## M4 — CALIBRATION AND DATASET CAPTURE (in progress)
+
+M4.1 (2026-08-12) is build item 1: `common/geometry.py` and
+`core/geometry_store.py`.
+`geometry.py` is split by what it depends on, not by topic. `fit()` is
+the only function that needs OpenCV, and `cv2`/`numpy` are imported
+**inside** it — the same seam `core/scale.py` uses for pyserial, so
+`apply`/`apply_rect`/`invert`/`rms_px` all run on a machine with no
+OpenCV, which is what lets core load and use a saved homography with no
+camera anywhere. RANSAC rather than plain least squares, and the reason
+is a specific failure: the thing that actually goes wrong on a rig is
+**one dot mis-paired** (a reflection, a tray highlight, an off-by-one
+row), not fifteen slightly noisy ones. Least squares smears that one bad
+pair across every point and quietly moves all eight rects; RANSAC drops
+it and says how many it dropped. `rms_px` is measured over the inliers
+only — over all points it would be dominated by the outlier RANSAC just
+decided to ignore, and every rig with one bad dot would read as a failed
+calibration.
+`geometry_store.py` is doc §5.3's contract as a class: camera rects are
+the stored ground truth, stage rects are derived through `H` and never
+written to disk, and both files go through `atomicio`.
+Five things worth not re-deriving:
+- **There is no `verify()` and there must not be one.** Reprojecting the
+  derived stage rects back through the same `H` returns the camera rects
+  by construction — that is what "inverse" means — so such a method
+  passes on a homography that is upside down. A test asserts the method
+  does not exist, which is the only way to stop it reappearing. Doc
+  §5.3's TRAP, and this is where it lives.
+- **`mark_verified()` records that a human answered, nothing more.**
+  `verified_at` is new in `state/bin_rects.json`; **§8.4 has been updated
+  in the same commit.**
+- **A homography maps a rectangle to a quadrilateral, not a rectangle.**
+  The derived stage rect is the bounding box of that quad. Measured: 26%
+  larger against the tests' harsh synthetic camera, and **the dominant
+  term is camera rotation, not perspective** — drop the perspective to a
+  realistic near-vertical value and it only falls to 10%. Larger is the
+  safe direction (I9: a cutout that is too small leaves a dark crescent
+  on the food). Expect the projected cutout to be a few percent bigger
+  than the tray on a camera that is not square to the table. Recorded in
+  §8.4 too, so it is recognised as geometry rather than debugged as a
+  rendering bug.
+- **`docs/legacy/bin_offsets.json`'s shape is a reconstruction, not a
+  spec**, and is documented as one. The oF code that wrote it was deleted
+  at M0.1. The reading — 4 horizontal bin edges, 8 vertical ones, plus a
+  global offset — is inferred from the array lengths and produces rects
+  192-197mm wide and 245-247mm tall against a 200x255 nominal, i.e. real
+  cutouts a few mm inside the drawing, which is what a saw does. It is
+  only ever a **seed** for the operator to drag from; if the reading is
+  wrong the symptom is visibly offset starting rects, not a mis-bill.
+- **`TableGeometry.h`'s CAD numbers now exist twice** (C++ cannot import
+  Python). `test_geometry_store.py` mirrors that header's own
+  `static_assert` chains — both walks across the table must sum to the
+  table dimension — so an edit made on one side and not the other fails a
+  test instead of moving four trays 50mm on the rig.
+65 new tests (`test_geometry.py`, `test_geometry_store.py`), 553 total,
+all passing. Five mutations checked red, each caught only by the tests
+aimed at it: `findHomography` switched to least squares (the mis-paired-
+dot test and the inliers-only-rms test); `apply_rect` returning the
+transformed origin plus the original size instead of the quad's bounding
+box; `match_nearest` made greedy in list order instead of distance order;
+`save_rects` allowed to write a partial set; stage rects persisted
+alongside the camera rects.
+Nothing here has touched a camera or a projector. Every homography in
+these tests is written out by hand or built by projecting a synthetic
+point set — the same no-hardware discipline `core/loadcell_cal.py` has
+for the other number in this system that can go silently wrong.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
