@@ -1070,6 +1070,27 @@ code in memory — restart it (Ctrl-C, then `python -m hotpot.camera.main`
 again) for the fix to take effect; reloading the browser tab alone does
 nothing.**
 
+**2026-08-12, same session: the feed also looked visibly worse than
+Windows's own camera app — a real bug, not "expected, dark-room design
+assumes different lighting" as first guessed.** `WindowsCapture.
+_lock_controls()` forced `CAP_PROP_AUTO_WB`/`CAP_PROP_AUTOFOCUS` off
+unconditionally on every open with no prior calibration, no convergence
+wait — so it locked white balance onto whatever the driver happened to
+be sitting at the instant right after `open()`, before its ISP had
+converged anything, which is close to a random value. The OS camera app
+never does this: it leaves auto-WB running continuously. Fixed by
+leaving every control alone (all autos stay on, `_readback()` just
+reports whatever the driver already has) whenever there is no prior
+`state/camera_settings.json` value to set a control *to* — the same
+"cannot verify V4L2Capture's `AUTO_SETTLE_S`-then-lock sequence is safe
+here" reasoning the class docstring already gave for exposure is now
+applied consistently to WB and focus too, rather than stopping short of
+them. Confirmed visually: a snapshot taken through the fixed path shows
+richer, correct-looking colour (saturated blue/red bins) against the
+same table the broken lock made look washed out. 1 test updated
+(asserted the old forced-off behaviour; now asserts nothing touches any
+control's auto mode with no prior settings).
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

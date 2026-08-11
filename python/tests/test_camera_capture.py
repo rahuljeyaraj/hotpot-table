@@ -304,14 +304,24 @@ class TestWindowsCaptureLockControls(unittest.TestCase):
         self.assertIsNone(info.exposure_absolute)
         self.assertIsNone(info.white_balance_temperature)
 
-    def test_no_prior_settings_still_turns_autos_off(self):
+    def test_no_prior_settings_leaves_every_auto_alone(self):
+        # Regression: this used to force AUTO_WB/AUTOFOCUS off
+        # unconditionally right after open(), with no convergence wait —
+        # locking onto whatever transient value the driver happened to be
+        # at, which looked visibly worse than the OS's own camera app
+        # (found 2026-08-12). With no prior calibration to set a control
+        # *to*, nothing should touch its auto mode at all.
         import cv2
         fake = FakeCv2Cap()
         cap = capture.WindowsCapture(
             0, 640, 480, 30, video_capture_factory=lambda: fake)
         cap.open()
-        self.assertIn((cv2.CAP_PROP_AUTO_WB, 0), fake.set_calls)
-        self.assertIn((cv2.CAP_PROP_AUTOFOCUS, 0), fake.set_calls)
+        touched_props = {prop for prop, _value in fake.set_calls}
+        self.assertNotIn(cv2.CAP_PROP_AUTO_WB, touched_props)
+        self.assertNotIn(cv2.CAP_PROP_AUTOFOCUS, touched_props)
+        self.assertNotIn(cv2.CAP_PROP_EXPOSURE, touched_props)
+        self.assertNotIn(cv2.CAP_PROP_WB_TEMPERATURE, touched_props)
+        self.assertNotIn(cv2.CAP_PROP_FOCUS, touched_props)
 
 
 if __name__ == "__main__":

@@ -405,14 +405,26 @@ class WindowsCapture:
             self._cap = None
 
     def _lock_controls(self, cap, cv2):
-        """Best-effort, and honest about it (see class docstring): turn the
-        autos off, then report whatever the device reads back — `None` if
-        the property is unsupported, never the number that was requested.
-        No `time.sleep(AUTO_SETTLE_S)` convergence wait here, unlike
-        V4L2Capture — `CAP_PROP_AUTO_EXPOSURE`'s "manual mode" value (0.25
-        on DirectShow, by widely-repeated report, not verified against this
-        machine's driver) already fights convergence semantics enough
-        without adding an unverified wait on top of it.
+        """Best-effort, and honest about it (see class docstring): only
+        ever move a control away from auto when there is a real prior
+        value (from a previous rig sweep) to set it *to*. With no prior
+        calibration, every auto is left running and this only reads back
+        whatever the driver already reports.
+
+        **This used to force auto-WB/autofocus off unconditionally on a
+        fresh run, with no convergence wait — found 2026-08-12 because
+        the resulting stream looked visibly worse than the OS's own
+        camera app.** `.set(CAP_PROP_AUTO_WB, 0)` locks onto whatever the
+        driver happens to be sitting at the instant it's called; called
+        right after `open()`, before the ISP has converged anything, that
+        is close to a random value, not a calibration. V4L2Capture avoids
+        this with `AUTO_SETTLE_S` — let autos run, then lock at whatever
+        they converged to — but that wait is not mirrored here: it is
+        gated on `CAP_PROP_AUTO_EXPOSURE`'s "manual mode" trigger value
+        (0.25 on DirectShow, by widely-repeated report, not verified
+        against this machine's driver), and flipping into manual mode is
+        exactly the step being avoided until that number is confirmed.
+        Leaving every auto alone is the smaller, verifiably-safe fix.
         """
         prior_exp = self._prior.get("exposure_absolute")
         prior_wb = self._prior.get("white_balance_temperature")
@@ -425,9 +437,6 @@ class WindowsCapture:
         if prior_focus is not None:
             cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
             cap.set(cv2.CAP_PROP_FOCUS, prior_focus)
-        if prior_exp is None and prior_wb is None and prior_focus is None:
-            cap.set(cv2.CAP_PROP_AUTO_WB, 0)
-            cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
 
         exposure = self._readback(cap, cv2.CAP_PROP_EXPOSURE)
         wb = self._readback(cap, cv2.CAP_PROP_WB_TEMPERATURE)
