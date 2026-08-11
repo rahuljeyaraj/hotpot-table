@@ -207,6 +207,28 @@ class TestStateBroadcast(CoreCase):
         self.assertIn("amount", msg["total"])
         self.assertIn("text", msg["total"])
 
+    def test_bin_labels_never_fall_back_to_the_hidden_id(self):
+        """The regression guard for the leak at core/main.py's `label =`.
+
+        It used to read `item.names.get(self.locale, item.id)`, so the
+        first locale missing one translation projected the hidden training
+        label onto a plate. Switching Core to a locale nothing in the
+        catalogue names must degrade to English, never to `soya_chunks`.
+
+        Driven through _bin_msg rather than the wire because the locale is
+        fixed to English at construction (build item 4) and the broadcast
+        would never carry another one today — the point is that the
+        *lookup* is safe when M6 makes the locale switchable.
+        """
+        self.core.locale = "ja"          # no ja.json, no ja names anywhere
+        ids = self.core.catalogue.ids()
+        for i in range(8):
+            item = self.core.catalogue.item(ids[i])
+            label = self.core._bin_msg(i)["label"]
+            self.assertEqual(label, item.names["en"])
+            self.assertNotEqual(label, item.id)
+            self.assertNotEqual(label, item.class_name)
+
     def test_bins_are_seeded_from_the_catalogue_in_order_and_billable(self):
         c, msgs, lock = self.of_client()
         self.wait_for_n(msgs, lock, 1)

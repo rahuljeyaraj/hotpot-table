@@ -252,5 +252,145 @@ class TestDisplayGrams(unittest.TestCase):
         self.assertEqual(shown_total(cart, bm, make_catalogue()), 5.40)
 
 
+class TestDisplayName(unittest.TestCase):
+    """The hidden-label rule (pricing.Item's docstring, doc section 8.1).
+
+    `id` and `class_name` are the training labels and are never shown;
+    `names` are the hot pot ingredients they stand in for. The fixture
+    below is the real shape of that: a bin trained on soya chunks that
+    sells as a fish ball.
+    """
+
+    def setUp(self):
+        self.stand_in = Item(
+            id="soya_chunks", price_per_100g=10.0,
+            names={"en": "Fish Ball", "zh": "鱼丸"},
+            tags=["seafood"], class_name="soya_chunks")
+        # The case the user called out: label and English display name
+        # coincide, but zh is a translation of the display name.
+        self.same_in_english = Item(
+            id="egg", price_per_100g=11.0,
+            names={"en": "Egg", "zh": "鸡蛋"},
+            tags=["vegetarian"], class_name="egg")
+
+    def test_shows_the_requested_locale(self):
+        self.assertEqual(self.stand_in.display_name("en"), "Fish Ball")
+        self.assertEqual(self.stand_in.display_name("zh"), "鱼丸")
+
+    def test_display_name_is_unrelated_to_the_hidden_label(self):
+        """A stand-in item shows the food it represents, in every locale
+        — not a prettified version of what the model was trained on.
+        """
+        for loc in ("en", "zh"):
+            shown = self.stand_in.display_name(loc)
+            self.assertNotIn("soya", shown.lower())
+            self.assertNotIn("chunk", shown.lower())
+
+    def test_label_matching_english_still_translates(self):
+        self.assertEqual(self.same_in_english.display_name("en"), "Egg")
+        self.assertEqual(self.same_in_english.display_name("zh"), "鸡蛋")
+
+    def test_missing_locale_falls_back_to_english_not_the_id(self):
+        """**The leak this method exists to close.** core/main.py used to
+        do `names.get(locale, item.id)`, which put the training label onto
+        the projected surface for any item a locale had not translated.
+        """
+        no_zh = Item(id="soya_chunks", price_per_100g=10.0,
+                     names={"en": "Fish Ball"},
+                     tags=[], class_name="soya_chunks")
+        got = no_zh.display_name("zh")
+        self.assertEqual(got, "Fish Ball")
+        self.assertNotEqual(got, no_zh.id)
+        self.assertNotEqual(got, no_zh.class_name)
+
+    def test_no_locale_at_all_falls_back_rather_than_leaking(self):
+        no_zh = Item(id="soya_chunks", price_per_100g=10.0,
+                     names={"en": "Fish Ball"},
+                     tags=[], class_name="soya_chunks")
+        for loc in ("zh", "ja", "", None):
+            self.assertEqual(no_zh.display_name(loc), "Fish Ball")
+
+    def test_an_item_with_no_english_name_raises_rather_than_leaking(self):
+        """Hand-built Items bypass Catalogue.load()'s guard. Even then the
+        failure is an exception, never the label.
+        """
+        broken = Item(id="soya_chunks", price_per_100g=10.0, names={},
+                      tags=[], class_name="soya_chunks")
+        with self.assertRaises(ValueError):
+            broken.display_name("en")
+
+    def test_every_real_catalogue_item_names_itself_in_both_locales(self):
+        """Integration check against the committed file. Guards the
+        promise Catalogue.load() makes to display_name(): en is always
+        there, so the fallback chain is total.
+        """
+        cat = Catalogue.load(CATALOGUE_PATH)
+        for item_id in cat.ids():
+            it = cat.item(item_id)
+            for loc in ("en", "zh"):
+                shown = it.display_name(loc)
+                self.assertTrue(shown, f"{item_id} has no {loc} name")
+                self.assertNotEqual(
+                    shown, it.id,
+                    f"{item_id}'s {loc} name is its hidden id")
+                self.assertNotEqual(
+                    shown, it.class_name,
+                    f"{item_id}'s {loc} name is its hidden class_name")
+
+
+class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
+    """Catalogue.load()'s guarantee: no item survives loading unless it
+    can be named without reaching for the hidden label.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = os.path.join(self.dir.name, "catalogue.json")
+
+    def write(self, text):
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_item_with_no_english_name_is_refused_at_load(self):
+        self.write('{"schema":3,"base_currency":"INR","items":['
+                   '{"id":"soya_chunks","pricePer100g":10.0,'
+                   '"names":{"zh":"鱼丸"},'
+                   '"tags":[],"class_name":"soya_chunks"}]}')
+        with self.assertRaises(ValueError) as ctx:
+            Catalogue.load(self.path)
+        self.assertIn("soya_chunks", str(ctx.exception))
+
+    def test_item_with_empty_names_is_refused_at_load(self):
+        self.write('{"schema":3,"base_currency":"INR","items":['
+                   '{"id":"tofu","pricePer100g":18.0,"names":{},'
+                   '"tags":[],"class_name":"tofu"}]}')
+        with self.assertRaises(ValueError):
+            Catalogue.load(self.path)
+
+    def test_item_with_a_blank_english_name_is_refused_at_load(self):
+        """An empty string is not a name. It would render a blank plate
+        that still bills — worse than refusing to start.
+        """
+        self.write('{"schema":3,"base_currency":"INR","items":['
+                   '{"id":"tofu","pricePer100g":18.0,'
+                   '"names":{"en":"","zh":"豆腐"},'
+                   '"tags":[],"class_name":"tofu"}]}')
+        with self.assertRaises(ValueError):
+            Catalogue.load(self.path)
+
+    def test_a_zh_only_gap_is_allowed_because_it_degrades_safely(self):
+        """Missing translations are tolerated — they fall back to English.
+        Missing *English* is not, because nothing is below it.
+        """
+        self.write('{"schema":3,"base_currency":"INR","items":['
+                   '{"id":"soya_chunks","pricePer100g":10.0,'
+                   '"names":{"en":"Fish Ball"},'
+                   '"tags":[],"class_name":"soya_chunks"}]}')
+        cat = Catalogue.load(self.path)
+        self.assertEqual(cat.item("soya_chunks").display_name("zh"),
+                         "Fish Ball")
+
+
 if __name__ == "__main__":
     unittest.main()

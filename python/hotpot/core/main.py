@@ -339,7 +339,12 @@ class Core:
         shown = pricing.display_grams(self.cart.shown_g[i])
         picked = int(shown)
         if resolved:
-            label = item.names.get(self.locale, item.id)
+            # display_name(), never names.get(locale, item.id): item.id is
+            # the hidden training label (pricing.Item's docstring), and the
+            # old fallback put it on the projected surface the moment a
+            # locale was missing one name. The catalogue is validated at
+            # load so this call cannot fail to find a name.
+            label = item.display_name(self.locale)
             per_100g = self.locales.currency(item.price_per_100g, self.locale)
             # The unit suffix is a locale string, not punctuation. I2 puts
             # every diner-facing word on this side of the wire, and zh wants

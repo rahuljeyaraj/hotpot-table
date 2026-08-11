@@ -14,25 +14,83 @@ section 8.1) — binmap.py only ever needs item ids, never pricePer100g.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from hotpot.common import atomicio
 from hotpot.core.binmap import DEFAULT_CONF_FLOOR, BinMap
+from hotpot.core.i18n import DEFAULT_LOCALE as FALLBACK_LOCALE
 
 if TYPE_CHECKING:
     from hotpot.core.cart import Cart
+
+log = logging.getLogger("hotpot.pricing")
 
 CATALOGUE_SCHEMA = 3
 
 
 @dataclass(frozen=True)
 class Item:
+    """One catalogue entry. Two of these five fields are **hidden** and
+    two are shown, and the split is the whole point of doc section 8.1.
+
+    HIDDEN — never reaches a diner-facing surface, in any language:
+        id          the catalogue's own key, and what BinMap stores.
+        class_name  the label string the ML model emits.
+
+    SHOWN — the only strings a diner ever reads:
+        names       display name per locale.
+
+    `names` is **not** a translation of `id`. The label names a thing that
+    is easy to photograph and train on; the display name is the hot pot
+    ingredient it stands in for on the table. `soya_chunks` may be shown
+    as a fish ball, `curly_noodle` as whatever noodle the menu actually
+    sells. Sometimes the two coincide in English — `egg` shows as "Egg" —
+    and that is a coincidence of that one locale, not a rule: its `zh`
+    name is still a real translation of the *display* name.
+
+    So there is no derivation from `id` to a display name, no
+    prettifier, and no fallback that reaches for one. See display_name().
+    """
+
     id: str
     price_per_100g: float
     names: Dict[str, str]
     tags: List[str]
     class_name: str
+
+    def display_name(self, locale: Optional[str] = None) -> str:
+        """The label the table prints. **Cannot return `id` or
+        `class_name`** — that is this method's entire reason for existing.
+
+        Falling back to `id` is what core/main.py used to do, and it put
+        the hidden training label onto the projected surface the moment a
+        locale was missing one name: a diner reading "soya_chunks" off a
+        plate. The chain here ends at the default locale instead, which
+        `Catalogue.load()` guarantees is present for every item, so it is
+        total and never has to reach past the `names` dict.
+
+        Mirrors Locales.translate()'s policy deliberately — try the
+        locale, fall back to the default, log once — because a bin label
+        and a UI string degrading differently under the same missing
+        locale would be its own bug.
+        """
+        loc = locale or FALLBACK_LOCALE
+        name = self.names.get(loc)
+        if name:
+            return name
+        fallback = self.names.get(FALLBACK_LOCALE)
+        if fallback:
+            log.warning(
+                "catalogue: item %r has no %r name, showed the %r one",
+                self.id, loc, FALLBACK_LOCALE)
+            return fallback
+        # Unreachable via Catalogue.load(), which refuses an item without
+        # a FALLBACK_LOCALE name. Hand-built Items in tests can still get
+        # here, and even they do not get to leak the label.
+        raise ValueError(
+            f"item {self.id!r} has no {FALLBACK_LOCALE!r} display name")
 
 
 class Catalogue:
@@ -53,16 +111,29 @@ class Catalogue:
         if schema != CATALOGUE_SCHEMA:
             raise ValueError(
                 f"{path}: schema {schema!r}, expected {CATALOGUE_SCHEMA}")
-        items = [
-            Item(
+        items = []
+        for it in raw["items"]:
+            names = dict(it["names"])
+            # The one thing that makes Item.display_name() total, and so
+            # the one thing standing between a missing translation and the
+            # hidden training label being projected onto a plate. Checked
+            # here, at startup, because catalogue.json is committed data
+            # (doc section 8): a missing display name is an editing
+            # mistake, and it should stop core on the bench rather than
+            # surface mid-service as a plate reading "soya_chunks".
+            if not names.get(FALLBACK_LOCALE):
+                raise ValueError(
+                    f"{path}: item {it['id']!r} has no {FALLBACK_LOCALE!r} "
+                    f"display name. Every item needs one — it is the "
+                    f"fallback every other locale degrades to, and without "
+                    f"it there is no name to show but the hidden label.")
+            items.append(Item(
                 id=it["id"],
                 price_per_100g=float(it["pricePer100g"]),
-                names=dict(it["names"]),
+                names=names,
                 tags=list(it.get("tags", [])),
                 class_name=it["class_name"],
-            )
-            for it in raw["items"]
-        ]
+            ))
         return cls(items)
 
     def item(self, item_id: Optional[str]) -> Optional[Item]:

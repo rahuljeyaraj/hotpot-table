@@ -595,6 +595,25 @@ Every item that could ever be in a bin. Not which bin it is in.
 
 `class_name` is the label string the ML model emits. Keeping it separate from `id` means retraining with different class names does not force a catalogue rewrite.
 
+#### Hidden labels versus display names
+
+**`id` and `class_name` are hidden. `names` is the only thing a diner ever reads.** These are two different vocabularies, not two spellings of one:
+
+| field | who it is for | example |
+|---|---|---|
+| `id` | the catalogue and `bin_map.json` | `soya_chunks` |
+| `class_name` | the ML model's output label | `soya_chunks` |
+| `names` | the diner, on the table | `{"en": "Fish Ball", "zh": "鱼丸"}` |
+
+The label names **a thing that is cheap to buy, photograph and train on**. The display name is **the hot pot ingredient it stands in for**. A bin trained on soya chunks can sell as a fish ball or a meat ball; `curly_noodle` and `long_noodle` are training labels for whatever noodles the menu actually lists. `names` is therefore **not a translation of `id`**, and no code may derive one from the other — no prettifier, no title-casing, no underscore stripping.
+
+Where the two coincide in one locale, that is a coincidence of that locale and nothing more: `egg` shows as "Egg" in English and 鸡蛋 in Chinese, and the Chinese string is a translation of the *display* name, not of the label.
+
+Two consequences, both enforced in `core/pricing.py`:
+
+- **`Item.display_name(locale)` is the only way to get a label onto the table**, and it cannot return `id` or `class_name`. Its chain is `names[locale]` → `names["en"]`, and it raises rather than reaching past that. The bug this replaced was `names.get(locale, item.id)` in `core/main.py`, which projected the training label onto a plate the moment a locale was missing one name.
+- **`Catalogue.load()` refuses any item without a non-empty `en` name.** That is what makes the chain above total. A missing translation is tolerated and degrades to English; a missing English name stops core at startup, because nothing sits below it but the hidden label.
+
 ### 8.2 `state/bin_map.json` — machine-written
 
 ```json

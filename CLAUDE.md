@@ -11,7 +11,8 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: M1 (core domain + oF renderer + mock picks).
+Current milestone: M2 (load cells). M1 is code-complete; its human
+acceptance test on the rig is still owed.
 M0's last completed step was M0.7 (core/main.py — control server,
 client registry, minimal staff view; doc section 21 build item 7).
 Control server and registry are hotpot.common.wire/health, reused as-is.
@@ -154,8 +155,74 @@ assume they were missed:
   `health.Registry.mark_failed` exists, is tested, and nothing calls it.
 - `welcome.cfg` is always `{}`. Nothing needs it before M5's tracker.
 
-Next: M1's human acceptance test (doc §21) on the physical rig. The plate
-ring, the pick pop and the descender fix have never been observed. Then M2.
+Still owed from M1: its human acceptance test (doc §21) on the physical
+rig. The plate ring, the pick pop and the descender fix have never been
+observed.
+
+## M2 — LOAD CELLS (in progress)
+
+M2.1 (2026-08-11) is build item 3, done **before** build item 2 because
+the dependency runs the other way: settle detection is specified in grams
+(§9.5, "within ±2g"), grams need a calibration, so the maths has to exist
+before the thread that consumes it. `core/loadcell_cal.py` — §9.6's
+two-point maths and §8.3's state file, deliberately with no serial port in
+it, so the one number that can *silently mis-bill* is testable with no
+XIAO attached. The sign is computed and the API has no parameter to
+override it (M2's "Do NOT"); `tare()` preserves `counts_per_gram` and is
+**not** I6's re-baseline (both documented at the top of the module);
+an uncalibrated bin and a dead XIAO both read `None`, never `0.0`, so
+neither can bill. 26 tests, checked capable of failing by three mutations.
+
+### VERIFIED ON THE RIG — read before writing core/scale.py
+Build item 1 says read `firmware/loadcells/src/main.cpp` and do not assume
+§4.9. Both halves of §4.9 were checked against COM5 on 2026-08-11:
+- **Format is right.** `raw <c0> ... <c7>\r\n` at 115200, 9 tokens.
+- **Rate is WRONG in the doc. §4.9 says ~78Hz; the rig delivers 10.7Hz.**
+  That is the HX711 at its default 10 SPS (RATE pin low). It changes every
+  derived timing: a median-of-5 spans 465ms, not 64ms, and takes ~280ms to
+  cross to a new value. Build the median window as a parameter, not a
+  constant. §4.9 has NOT been corrected in the doc — it is still written
+  as an assumption, which is what it was.
+- **Per-channel noise, 10s uncalibrated, counts stdev:** bin0 789, bin1
+  761, bin2 46, bin3 54, **bin4 1993**, bin5 1323, bin6 203, bin7 48.
+  Bin 4 is 40x bin 3. Whether that matters in grams is unknown until
+  calibration gives counts/gram — that is what §8.3's `noise_counts_rms`
+  is for. Worth checking bin 4's wiring at the rig.
+- Bins 0, 1, 3, 4 read large negative counts empty, so **inverted cells
+  are the ordinary case on this hardware**, not an edge case.
+
+Decided 2026-08-11, do not redo the analysis: **the 80 SPS jumper mod is
+deferred, not rejected.** 10 SPS is the mode where the HX711 rejects 50Hz
+and 60Hz mains simultaneously, and this table sits beside a hot pot that
+may be induction — that rejection is worth more than the latency. 80 SPS
+is also noisier per sample, and bin 4 is already the weak channel. If the
+lag is visible on the table after M2.4, the first move is **median-of-3,
+one line of Python**, not 8 irreversible board mods. Revisit only with
+physical observation of the projected surface as evidence.
+
+## HIDDEN LABELS (added 2026-08-11, doc §8.1)
+`id` and `class_name` are hidden; `names` is the only thing a diner reads.
+The label names a thing that is cheap to photograph and train on
+(`soya_chunks`); the display name is the hot pot ingredient it stands in
+for ("Fish Ball" / 鱼丸). `names` is **not** a translation of `id` — never
+derive one from the other. Fixed the leak this rule existed to prevent:
+`core/main.py` did `item.names.get(self.locale, item.id)`, which projected
+the training label onto a plate for any item a locale had not translated.
+Now `Item.display_name(locale)`, which cannot return `id` or `class_name`,
+and `Catalogue.load()` refuses an item with no `en` name so that chain is
+total. 12 tests; the call-site guard was confirmed to fail by restoring
+the old line and watching a plate read `curly_noodle`.
+
+**OWED — data, not code.** `data/catalogue.json`'s `names` are still
+placeholders that simply restate the labels ("Soya Chunks", "Curly
+Noodles"). The mechanism is built and tested; the actual mapping from each
+of the 8 labels to the hot pot ingredient it represents is the developer's
+to fill in, and was explicitly undecided as of 2026-08-11. Editing that
+file is the whole job — no code change is needed to go with it.
+
+Next: M2.2, `core/scale.py` — serial thread per §9.5, median-of-5 (as a
+parameter, see the rate finding above), staleness, settle detection.
+Needs `pyserial` added to python/requirements.txt.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
