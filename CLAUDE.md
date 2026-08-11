@@ -11,9 +11,16 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: **M4 (calibration and dataset capture) — in progress**
-— see the M4 section at the bottom of this file. M3 (camera) is
-code-complete; its acceptance test on the rig is still owed.
+Current milestone: **M4 (calibration and dataset capture) — all 7 build
+items are code-complete** (2026-08-12) — see the M4 section at the bottom
+of this file, and **the OWED list at the end of it**, which is long and
+is entirely physical: nothing in M4 has been run against a real camera, a
+real projector, or a real browser. M3 (camera) is also code-complete and
+also still owes its acceptance test on the rig.
+Next milestone per the doc's dependency graph: M5 (tracker, hover, dwell)
+— but note it depends on M4's homography being *real*, not merely
+computed, so M4's acceptance test is on M5's critical path in a way M3's
+was not.
 M3.1 (`common/framebus.py`), M3.2
 (`camera/main.py` — real V4L2 capture, exposure/WB/focus lock, the shm
 writer, the MJPEG server), M3.3 (staff view Live tab — `<img>`+canvas,
@@ -1545,6 +1552,56 @@ real browser.** No image has been captured, so the export tool has never
 processed a real dataset.
 
 **M4 build items 1-7 are all code-complete.**
+
+### STILL OWED FROM M4 — the physical acceptance test, in full
+**Nothing in this list has been observed. All of M4 ran in tests, a
+framebuffer, or a DOM shim.** Doc §21's M4 acceptance list, plus the gaps
+each build item recorded:
+
+**On the rig, with a camera and a projector:**
+- Fresh clone with an empty `state/` boots to UNCALIBRATED, **the table
+  says so** (the violet banner, never seen on the projected surface), and
+  the staff view opens on Setup.
+- Run dot calibration → the field actually inverts to black, the dots are
+  actually visible to the camera at its dark exposure, and **the RMS comes
+  back under ~3 px**. Everything about the dot pattern is a reasoned
+  default derived from the table's geometry with no camera present — see
+  the M4.3 entry and doc §24.1.
+- **Specifically check the middle dot row.** Its band is only 30 mm tall
+  (the 442-472 mm row gap); a 13 px dot spans ~22 mm of it. If the
+  projector's alignment is off by more than ~4 mm the dots clip the tray
+  edges and the row should be dropped — `calibration.grid_rows` to 2.
+- Drag the 8 rects on the feed, Save, then **Verify: do the projected
+  outlines sit on the real trays?** This is the only check in the whole
+  milestone that can fail (§5.3's TRAP). Answer honestly. Nothing in the
+  code can substitute for it and nothing has been built that pretends to.
+- Nudge the keystone → the staff view raises "calibration stale". The
+  fingerprint plumbing is wired end to end in tests; a real projector
+  nudge has never produced one.
+- **Sweep `field_level` against camera exposure (§6.6), pick the pair,
+  freeze it, and confirm it is written to `state/camera_settings.json`.**
+  Then look at a bin crop: evenly lit, no colour cast, no visible edge
+  from a UI element. **Untouched by M4 — no sweep has been done.**
+- Capture 20 images per class and export → a folder-per-label tree. The
+  export tool has never processed a real image.
+- **Confirm every capture is taken with the bin patches lit exactly as
+  serving mode lights them.** The design makes this true by having no
+  lighting path at all (M4.7), but that is an argument, not an
+  observation.
+
+**Also still owed, and it caps everything above:** the **camera elevation
+angle** (I10) is still unmeasured — open since Stage 1, due in M3, and
+`tools/measure_camera_angle.md` still does not exist. Below 70 degrees it
+is a hardware problem to fix before M5, and it directly bounds how much
+of the dot-pattern reasoning holds.
+
+**Reconstructions that a rig would confirm or refute:**
+- `docs/legacy/bin_offsets.json`'s four keys mean what M4.1 inferred
+  (4 horizontal bin edges, 8 vertical, plus a global offset). Symptom of
+  a wrong reading: visibly offset starting rects the operator then drags.
+  Not a mis-bill.
+- `dotcal.SETTLE_S` (0.6 s between showing a pattern and asking the
+  classifier to look) is a guess with a rationale, not a measurement.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
