@@ -24,7 +24,10 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from unittest.mock import patch  # noqa: E402
+
 from hotpot.camera import capture  # noqa: E402
+from hotpot.camera import main as camera_main  # noqa: E402
 from hotpot.camera.main import CameraProcess  # noqa: E402
 from hotpot.common import atomicio, framebus, log as hlog, wire  # noqa: E402
 
@@ -205,6 +208,36 @@ class TestDeviceDeathCrashesTheLoop(CameraProcessCase):
         self.proc.start()
         with self.assertRaises(capture.CameraError):
             self.proc.run_forever()
+
+
+class TestBuildCapture(unittest.TestCase):
+    """`_build_capture`'s platform branch — not a doc build item, see
+    capture.py's WindowsCapture docstring. `sys.platform` is patched
+    rather than actually running on both OSes, the same reasoning
+    `test_run.py` gives for patching `os.name` over `sys.platform` checks
+    it can't otherwise exercise on one machine."""
+
+    def test_windows_picks_windows_capture(self):
+        with patch.object(camera_main.sys, "platform", "win32"):
+            cap = camera_main._build_capture(
+                {"capture": [64, 48], "fps": 15}, None)
+        self.assertIsInstance(cap, capture.WindowsCapture)
+        self.assertEqual(cap.device, 0)
+
+    def test_windows_device_index_is_configurable(self):
+        with patch.object(camera_main.sys, "platform", "win32"):
+            cap = camera_main._build_capture(
+                {"capture": [64, 48], "fps": 15, "windows_device_index": 1},
+                None)
+        self.assertEqual(cap.device, 1)
+
+    def test_linux_picks_v4l2_capture(self):
+        with patch.object(camera_main.sys, "platform", "linux"):
+            cap = camera_main._build_capture(
+                {"device": "/dev/video2", "capture": [64, 48], "fps": 15},
+                None)
+        self.assertIsInstance(cap, capture.V4L2Capture)
+        self.assertEqual(cap.device, "/dev/video2")
 
 
 if __name__ == "__main__":

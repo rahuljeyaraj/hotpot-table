@@ -677,6 +677,8 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
 
 `of.field_level` and `of.white_floor` are the two I9 knobs, and both are **measured on the rig, not chosen** (§6.6, §13.2). They are config rather than constants specifically so they can be swept without a rebuild. `field_level` is additionally mirrored into `state/camera_settings.json` at startup, because it belongs to the dataset's provenance as much as exposure does — config says what the rig is set to, that file says what the training images were taken under.
 
+**`camera.windows_device_index`** (optional, not in the JSON above): read via `config.get(cfg, "camera.windows_device_index", 0)`, so its absence is not an error. It exists only for `camera/capture.py`'s `WindowsCapture` — a dev-machine capture backend for a USB webcam over DirectShow, picked automatically by `sys.platform` when `camera/main.py` runs on Windows. Not a doc build item and not part of the deploy schema: the ODYSSEY rig is always Linux, so this key is never read there. `camera.device` keeps its Linux/`V4L2Capture` meaning unchanged.
+
 ---
 
 ## 9. CORE — DOMAIN MODEL

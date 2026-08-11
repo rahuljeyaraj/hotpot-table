@@ -173,5 +173,146 @@ class TestLockControls(unittest.TestCase):
         self.assertTrue(any("focus_absolute=5" in c for c in set_calls))
 
 
+# ---------------------------------------------------------------------------
+# WindowsCapture, with the cv2.VideoCapture object faked (real cv2 constants
+# are used — opencv-python-headless is a hard dependency of this repo — only
+# the actual device handle is a fake, the same split subprocess-faking gives
+# V4L2Capture above).
+# ---------------------------------------------------------------------------
+
+class FrameStub:
+    """Something with a `.tobytes()`, standing in for the ndarray
+    `cv2.VideoCapture.read()` actually returns — avoids pulling numpy into
+    this test file for a value nothing here inspects past that one call."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    def tobytes(self) -> bytes:
+        return self._data
+
+
+class FakeCv2Cap:
+    def __init__(self, *, opened=True, props=None, frames=None):
+        self._opened = opened
+        self._props = dict(props or {})
+        self.set_calls = []
+        self._frames = list(frames) if frames is not None else None
+        self.released = False
+
+    def isOpened(self):
+        return self._opened
+
+    def set(self, prop, value):
+        self.set_calls.append((prop, value))
+        self._props[prop] = value
+        return True
+
+    def get(self, prop):
+        return self._props.get(prop, 0)
+
+    def read(self):
+        if self._frames is not None:
+            if not self._frames:
+                return False, None
+            return True, self._frames.pop(0)
+        return True, FrameStub(b"\x80" * 12)
+
+    def release(self):
+        self.released = True
+
+
+class TestWindowsCaptureOpen(unittest.TestCase):
+
+    def test_not_opened_raises(self):
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30,
+            video_capture_factory=lambda: FakeCv2Cap(opened=False))
+        with self.assertRaises(capture.CameraError):
+            cap.open()
+
+    def test_reports_the_negotiated_size(self):
+        import cv2
+        fake = FakeCv2Cap(props={
+            cv2.CAP_PROP_FRAME_WIDTH: 320, cv2.CAP_PROP_FRAME_HEIGHT: 240,
+            cv2.CAP_PROP_FPS: 30})
+        cap = capture.WindowsCapture(
+            0, 320, 240, 30, video_capture_factory=lambda: fake)
+        info = cap.open()
+        self.assertEqual((info.width, info.height), (320, 240))
+
+    def test_read_returns_frame_bytes(self):
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30,
+            video_capture_factory=lambda: FakeCv2Cap(
+                frames=[FrameStub(b"one"), FrameStub(b"two")]))
+        cap.open()
+        self.assertEqual(cap.read(), b"one")
+        self.assertEqual(cap.read(), b"two")
+
+    def test_a_failed_read_returns_none_not_an_exception(self):
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30,
+            video_capture_factory=lambda: FakeCv2Cap(frames=[]))
+        cap.open()
+        self.assertIsNone(cap.read())
+
+    def test_read_before_open_raises(self):
+        cap = capture.WindowsCapture(0, 640, 480, 30)
+        with self.assertRaises(capture.CameraError):
+            cap.read()
+
+    def test_close_releases(self):
+        fake = FakeCv2Cap()
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30, video_capture_factory=lambda: fake)
+        cap.open()
+        cap.close()
+        self.assertTrue(fake.released)
+
+
+class TestWindowsCaptureLockControls(unittest.TestCase):
+
+    def test_prior_settings_are_set_and_read_back(self):
+        import cv2
+        fake = FakeCv2Cap(props={
+            cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 4200,
+            cv2.CAP_PROP_FOCUS: 10})
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30, video_capture_factory=lambda: fake,
+            prior_settings={"exposure_absolute": -6,
+                            "white_balance_temperature": 4200,
+                            "focus_absolute": 10})
+        info = cap.open()
+        self.assertEqual(
+            (info.exposure_absolute, info.white_balance_temperature,
+             info.focus_absolute),
+            (-6, 4200, 10))
+        self.assertIn((cv2.CAP_PROP_EXPOSURE, -6), fake.set_calls)
+
+    def test_an_unsupported_property_reads_back_as_none_not_zero(self):
+        # OpenCV/DirectShow's own "unsupported" signal for .get() is 0 or
+        # -1 — the TRAP this guards is reporting that as a real reading
+        # (a webcam whose exposure is genuinely 0 is not the same fact as
+        # a webcam whose driver cannot answer at all).
+        import cv2
+        fake = FakeCv2Cap(props={
+            cv2.CAP_PROP_EXPOSURE: 0, cv2.CAP_PROP_WB_TEMPERATURE: -1})
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30, video_capture_factory=lambda: fake)
+        info = cap.open()
+        self.assertIsNone(info.exposure_absolute)
+        self.assertIsNone(info.white_balance_temperature)
+
+    def test_no_prior_settings_still_turns_autos_off(self):
+        import cv2
+        fake = FakeCv2Cap()
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30, video_capture_factory=lambda: fake)
+        cap.open()
+        self.assertIn((cv2.CAP_PROP_AUTO_WB, 0), fake.set_calls)
+        self.assertIn((cv2.CAP_PROP_AUTOFOCUS, 0), fake.set_calls)
+
+
 if __name__ == "__main__":
     unittest.main()

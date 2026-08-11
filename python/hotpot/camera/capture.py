@@ -11,7 +11,12 @@ and nothing in `camera/main.py`, the shm write path, or the MJPEG server
 should require real hardware to test. `FakeCapture` is the one this
 process's own tests drive; `V4L2Capture` is unverified against a real
 webcam until it runs on the rig, the same honest caveat M3.1's framebus.py
-carries for the shared-memory ring it is now feeding.
+carries for the shared-memory ring it is now feeding. `WindowsCapture`,
+added later, is the real backend for *this* dev machine — a genuine USB
+webcam over DirectShow, not a synthetic `FakeCapture` frame — so the ring/
+mjpeg/dev-panel path can be exercised with real frames before the rig is
+available. It is not a doc build item and does not replace `V4L2Capture`
+as the deploy backend.
 
 Locking exposure/WB/focus — and why it happens here, not by shelling a
 one-off script
@@ -309,3 +314,140 @@ class V4L2Capture:
             log.warning(msg)
             return None
         return result.stdout
+
+
+# ---------------------------------------------------------------------------
+# WindowsCapture — a real backend for this dev machine. Not a doc build
+# item: the ODYSSEY rig is Linux and V4L2Capture is what ships; this exists
+# because the dev machine is Windows and a real USB webcam is the only way
+# to see genuine frames (not FakeCapture's synthetic ones) flow through the
+# ring/mjpeg/dev-panel path before the rig is available. See CLAUDE.md.
+# ---------------------------------------------------------------------------
+
+class WindowsCapture:
+    """OpenCV's DirectShow backend, addressed by device *index* (0, 1, ...)
+    rather than V4L2Capture's `/dev/videoN` path — Windows has no such path.
+
+    **Exposure/WB/focus locking here is best-effort, not the guarantee
+    V4L2Capture gives.** That class's own docstring already warns that
+    OpenCV's `CAP_PROP_*` mapping onto UVC controls is inconsistent across
+    drivers, which is exactly why V4L2Capture shells out to `v4l2-ctl`
+    instead of trusting it — and `v4l2-ctl` does not exist on Windows, so
+    there is no reliable alternative here. Every value this class reports is
+    read back from the device after the matching `set()` call, never the
+    number that was asked for: a driver that silently ignores `.set()` (a
+    real, common DirectShow behaviour) must show up as an unreadable
+    control, not a fabricated lock. Do not point M4's dataset capture at
+    this backend and trust the recorded exposure the way §6.6 trusts
+    V4L2Capture's — verify manually first.
+    """
+
+    def __init__(self, device: int, width: int, height: int, fps: float, *,
+                 prior_settings: Optional[Dict[str, object]] = None,
+                 video_capture_factory=None) -> None:
+        self.device = device
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self._prior = prior_settings or {}
+        # Test seam: a fake object exposing isOpened/set/get/read/release,
+        # so the readback/lock logic is testable with no real webcam — the
+        # same role `subprocess.run` faking plays for V4L2Capture's tests.
+        self._video_capture_factory = video_capture_factory
+        self._cap = None
+
+    def open(self) -> CaptureInfo:
+        import cv2  # local import — see V4L2Capture's docstring for why
+
+        factory = self._video_capture_factory
+        if factory is None:
+            factory = lambda: cv2.VideoCapture(self.device, cv2.CAP_DSHOW)
+        cap = factory()
+        if not cap.isOpened():
+            raise CameraError(
+                f"could not open camera index {self.device} (DirectShow)")
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        cap.set(cv2.CAP_PROP_FPS, self.fps)
+        self._cap = cap
+
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = cap.get(cv2.CAP_PROP_FPS) or self.fps
+        fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+        fourcc = ("".join(chr((fourcc_int >> (8 * i)) & 0xFF) for i in range(4))
+                  if fourcc_int else "")
+        if (actual_w, actual_h) != (self.width, self.height):
+            log.warning("camera: asked for %dx%d, device gave %dx%d",
+                        self.width, self.height, actual_w, actual_h)
+        log.info("camera: opened index %s at %dx%d@%.1ffps, fourcc=%s "
+                 "(DirectShow, Windows dev backend)",
+                 self.device, actual_w, actual_h, actual_fps, fourcc)
+
+        exposure, wb, focus = self._lock_controls(cap, cv2)
+        return CaptureInfo(
+            width=actual_w, height=actual_h, fps=actual_fps, fourcc=fourcc,
+            exposure_absolute=exposure, white_balance_temperature=wb,
+            focus_absolute=focus)
+
+    def read(self) -> Optional[bytes]:
+        if self._cap is None:
+            raise CameraError("read() before open()")
+        ok, frame = self._cap.read()
+        if not ok or frame is None:
+            return None
+        return frame.tobytes()
+
+    def close(self) -> None:
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+
+    def _lock_controls(self, cap, cv2):
+        """Best-effort, and honest about it (see class docstring): turn the
+        autos off, then report whatever the device reads back — `None` if
+        the property is unsupported, never the number that was requested.
+        No `time.sleep(AUTO_SETTLE_S)` convergence wait here, unlike
+        V4L2Capture — `CAP_PROP_AUTO_EXPOSURE`'s "manual mode" value (0.25
+        on DirectShow, by widely-repeated report, not verified against this
+        machine's driver) already fights convergence semantics enough
+        without adding an unverified wait on top of it.
+        """
+        prior_exp = self._prior.get("exposure_absolute")
+        prior_wb = self._prior.get("white_balance_temperature")
+        prior_focus = self._prior.get("focus_absolute")
+        if prior_exp is not None:
+            cap.set(cv2.CAP_PROP_EXPOSURE, prior_exp)
+        if prior_wb is not None:
+            cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+            cap.set(cv2.CAP_PROP_WB_TEMPERATURE, prior_wb)
+        if prior_focus is not None:
+            cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+            cap.set(cv2.CAP_PROP_FOCUS, prior_focus)
+        if prior_exp is None and prior_wb is None and prior_focus is None:
+            cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+            cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+
+        exposure = self._readback(cap, cv2.CAP_PROP_EXPOSURE)
+        wb = self._readback(cap, cv2.CAP_PROP_WB_TEMPERATURE)
+        focus = self._readback(cap, cv2.CAP_PROP_FOCUS)
+        log.info("camera: Windows best-effort lock read back "
+                 "exposure=%s wb=%s focus=%s (None = unsupported by this "
+                 "driver, not a failure)", exposure, wb, focus)
+        return exposure, wb, focus
+
+    @staticmethod
+    def _readback(cap, prop) -> Optional[int]:
+        val = cap.get(prop)
+        if val is None:
+            return None
+        try:
+            val = int(val)
+        except (TypeError, ValueError):
+            return None
+        # OpenCV/DirectShow's documented "unsupported" signal for .get() is
+        # 0 or -1 depending on the property and driver — neither is a real
+        # exposure/WB/focus value a webcam would report, so treat both as
+        # "no reading" rather than a fabricated 0.
+        return val if val not in (0, -1) else None

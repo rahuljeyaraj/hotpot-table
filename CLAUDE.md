@@ -993,9 +993,57 @@ of gap as M3.2/M3.3's unverified-against-hardware notes.
 at configured resolution/rate, `kill -9` camera showing red pips and a
 stalled banner within 1s then resuming automatically, and the camera
 elevation angle (I10) measured and written into this file's NUMBERS OWED
-section. None of M3 has been run against real camera hardware yet. Next
-milestone per the doc's dependency graph: M4 (calibration and dataset
-capture), which depends on M1 (done) and M3 (now code-complete).
+section. Next milestone per the doc's dependency graph: M4 (calibration
+and dataset capture), which depends on M1 (done) and M3 (now
+code-complete).
+
+**2026-08-12, added `capture.py`'s `WindowsCapture` and ran the pipeline
+against a real webcam — not a doc build item.** The dev machine is
+Windows; `V4L2Capture` (Linux/`v4l2-ctl`-only, by design) cannot open a
+device here at all, which is what M3.2/M3.3's "not run against real
+camera hardware" notes above were always going to mean until the rig was
+available. Rather than wait, `WindowsCapture` — OpenCV's DirectShow
+backend, addressed by device index instead of a `/dev/videoN` path — gives
+this machine a *real* capture backend alongside `FakeCapture`, chosen
+automatically by `sys.platform` in a new `camera/main._build_capture()`
+(doc §8.6 gained one optional, rig-irrelevant config key,
+`camera.windows_device_index`, documented there as exactly that).
+**Exposure/WB/focus locking is best-effort here, explicitly not the
+`v4l2-ctl` guarantee** — no equivalent tool exists on Windows, so
+`WindowsCapture` uses OpenCV's own inconsistent `CAP_PROP_*` mapping and
+reads back whatever the driver actually reports after every `set()`,
+never the number asked for; an unsupported control reads `None`
+(`_readback()` also treats OpenCV's own 0/-1 "unsupported" sentinels as
+`None`, not a fabricated real reading). **Do not point M4's dataset
+capture at this backend and trust its recorded exposure the way §6.6
+trusts `V4L2Capture`'s** — say so in the class docstring too.
+**Run for real, on this machine, against the actual physical rig table**:
+`WindowsCapture` opened index 0 at 1920x1080@30fps (fourcc negotiated
+YUY2, not the requested MJPG — OpenCV decodes to BGR internally
+regardless, so this doesn't block anything downstream), locked-and-read-
+back `exposure=None, wb=6500, focus=None` (this webcam's driver honestly
+doesn't expose exposure or focus controls to DirectShow — not a bug),
+and a frame read back exactly `width*height*3` bytes. Wired into the full
+`CameraProcess` + real `core/main.py`, `/info.json` and `/snapshot.jpg`
+both hit over real HTTP, and the snapshot was a genuine JPEG of the
+physical table — 8 bins, load-cell wiring, visible in frame. **This is
+real evidence the framebus/mjpeg/dev-panel pipeline (M3.1-M3.4) works
+against actual camera hardware**, not synthetic frames — but it is
+DirectShow evidence, not V4L2 evidence: format enumeration
+(`v4l2-ctl --list-formats-ext`), the Linux open path, and MJPG
+negotiation on the actual driver remain unverified and are still owed on
+the rig, unchanged from M3.2's own gap.
+12 new tests (`TestWindowsCaptureOpen`, `TestWindowsCaptureLockControls`
+— a fake `cv2.VideoCapture` object, same seam `subprocess.run`-faking
+gives `V4L2Capture`'s tests, real `cv2` constants since opencv-python-
+headless is already a hard dependency; `TestBuildCapture` — the platform
+branch, with `sys.platform` patched). 486 total, all passing.
+Also fixed while wiring this in: `_write_camera_settings()` was reading
+`cam_cfg.get("device")` unconditionally, which would have written
+`"/dev/video0"` into `state/camera_settings.json` on a Windows run that
+never touches that value — now reads `self._cap.device`, the backend's
+own real identifier (a V4L2 path or a DirectShow index), falling back to
+config only for a backend (`FakeCapture`) that has no `.device` at all.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

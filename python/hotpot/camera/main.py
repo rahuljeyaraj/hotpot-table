@@ -40,6 +40,7 @@ nothing, is what makes that crash actually reach `run.py`.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -232,7 +233,12 @@ class CameraProcess:
         coupled parameter and must be recorded together, in the one file
         that answers "under what light was this dataset taken"."""
         atomicio.write_json(self._settings_path, {
-            "device": self._cam_cfg.get("device"),
+            # The backend's own `device` (a V4L2 path on Linux, a
+            # DirectShow index on Windows) is the honest value here —
+            # `cam_cfg["device"]` alone would misreport a Windows run,
+            # which never uses it. Falls back to config for a backend
+            # (FakeCapture, in tests) that has no `.device` at all.
+            "device": getattr(self._cap, "device", self._cam_cfg.get("device")),
             "capture": [info.width, info.height],
             "fps": info.fps,
             "fourcc": info.fourcc,
@@ -267,18 +273,37 @@ class CameraProcess:
         }
 
 
+def _build_capture(cam_cfg: Dict[str, Any],
+                   prior: Optional[Dict[str, object]]) -> capture_mod.Capture:
+    """Real backend, chosen by platform — not a doc build item (see
+    `capture.py`'s `WindowsCapture` docstring). The ODYSSEY rig is always
+    Linux, so this only ever picks `WindowsCapture` on a dev machine;
+    `sys.platform` is what `V4L2Capture`'s own docstring already names as
+    the dev/deploy split, so it is what decides here too, not a config
+    flag someone could leave wrong on the rig.
+    """
+    width, height = cam_cfg.get("capture", [1920, 1080])
+    fps = cam_cfg.get("fps", 30)
+    if sys.platform.startswith("win"):
+        # Dev-only key, deliberately absent from doc section 8.6's schema
+        # and `config/system.default.json`: `config.get`'s own default
+        # param is exactly for an optional key nothing on the rig needs.
+        index = config.get({"camera": cam_cfg}, "camera.windows_device_index", 0)
+        return capture_mod.WindowsCapture(index, width, height, fps,
+                                          prior_settings=prior)
+    device = cam_cfg.get("device", "/dev/video0")
+    return capture_mod.V4L2Capture(device, width, height, fps,
+                                   prior_settings=prior)
+
+
 def main() -> None:
     """What `python -m hotpot.camera.main` runs."""
     log.setup("camera")
     cfg = config.load()
     cam_cfg = cfg.get("camera", {})
 
-    device = cam_cfg.get("device", "/dev/video0")
-    width, height = cam_cfg.get("capture", [1920, 1080])
-    fps = cam_cfg.get("fps", 30)
     prior = atomicio.read_json(CAMERA_SETTINGS_PATH, default=None)
-    cap = capture_mod.V4L2Capture(device, width, height, fps,
-                                  prior_settings=prior)
+    cap = _build_capture(cam_cfg, prior)
 
     proc = CameraProcess(cfg, cap)
     proc.start()
