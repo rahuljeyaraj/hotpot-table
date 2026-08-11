@@ -244,8 +244,19 @@ class Core:
         # re-baseline, then lock — rather than leaving any of them to a
         # caller who might do two and forget the third. Read
         # fsm.exit_setting()'s docstring before changing either.
+        # `is_calibrated` is a lambda over the store, not the store's
+        # current value: doc section 9.1's UNCALIBRATED is entered at boot
+        # and left the moment the geometry lands, and setting-mode exit
+        # asks again because the operator may have just calibrated. See
+        # fsm.Fsm.__init__.
+        #
+        # Constructed AFTER self.geometry below in reading order but
+        # before it in execution — so the store is built first. Kept
+        # together with the other domain objects rather than moved down
+        # beside the store, because this is where the FSM lives.
         self.fsm = fsm.Fsm(self.cart, self.binmap,
-                           refresh_weights=self._refresh_weights_from_scale)
+                           refresh_weights=self._refresh_weights_from_scale,
+                           is_calibrated=lambda: self.geometry.calibrated)
 
         # -- M2 build item 4: the Bins tab's reader and calibrator ------
         # calibrator.py's own docstring gives this exact wiring order:
@@ -365,9 +376,16 @@ class Core:
         self.web.start()
         self.scale.start()
         self._self_beat.start()
-        # BOOT -> IDLE always succeeds until M4 adds the UNCALIBRATED
-        # check (fsm.py's docstring); M1 has nothing to wait on.
+        # Doc section 9.1's first-boot branch. Logged either way: on a
+        # fresh clone with an empty `state/` this is the line that says
+        # why the table is showing a calibration banner instead of plates,
+        # and it is the first thing anyone will look for.
         self.fsm.boot_complete()
+        if self.fsm.state is fsm.State.UNCALIBRATED:
+            _log.warning("core: no saved geometry (%s / %s) — booting "
+                         "UNCALIBRATED; the staff view opens on Setup",
+                         self.geometry.homography_path.name,
+                         self.geometry.rects_path.name)
         self._state_thread = threading.Thread(
             target=self._state_loop, name="core-state", daemon=True)
         self._state_thread.start()
@@ -553,8 +571,18 @@ class Core:
             mode = (MODE_SETTING if self.fsm.state is fsm.State.SETTING
                     else MODE_SERVING)
             active = self.cart.is_active()
+            # Doc section 9.1: "the staff view opens on the calibration
+            # wizard" in UNCALIBRATED. It rides `mode` rather than
+            # `geometry` because the tablet has to know before it renders
+            # anything, and `mode` is already the message it waits for.
+            #
+            # NOT folded into `mode` as a third value: doc section 4.3
+            # fixes that field at serving|setting, oF branches on it, and
+            # an uncalibrated table genuinely is in one of those two — it
+            # is just not allowed to serve from it.
+            uncalibrated = self.fsm.state is fsm.State.UNCALIBRATED
         return {"t": "mode", "mode": mode, "cart_active": active,
-                "refused": refused}
+                "refused": refused, "uncalibrated": uncalibrated}
 
     def _publish_mode(self, refused: Optional[str] = None) -> None:
         """Broadcast `mode` when either field flips — or unconditionally
@@ -574,7 +602,7 @@ class Core:
         nothing at all on a tick where nothing changed.
         """
         msg = self._mode_msg(refused)
-        key = (msg["mode"], msg["cart_active"])
+        key = (msg["mode"], msg["cart_active"], msg["uncalibrated"])
         if refused is None and key == self._last_mode_key:
             return
         self._last_mode_key = key
@@ -833,7 +861,12 @@ class Core:
         Caller holds state_lock — this mutates Cart, the same rule every
         other cart.py call site in this file already follows.
         """
-        if self.fsm.state is fsm.State.SETTING:
+        # `fsm.serving`, not "not SETTING": doc section 9.1 makes serving
+        # unreachable in UNCALIBRATED too, and a table that does not know
+        # which tray is which must not weigh food out of one and charge
+        # for it. One predicate, so a state added later cannot start
+        # billing by omission.
+        if not self.fsm.serving:
             return
         reading = self.scale.read()
         for i in range(cart.NUM_BINS):
@@ -903,6 +936,8 @@ class Core:
             dots = self._calibration_dots
         if dots is not None:
             return {"kind": "calibrating", "dots": dots}
+        if self.fsm.state is fsm.State.UNCALIBRATED:
+            return {"kind": "uncalibrated"}
         reading = self.scale.read()
         lost = any(self._scale_baselined[i] and reading.grams[i] is None
                   for i in range(cart.NUM_BINS))
@@ -1095,15 +1130,12 @@ class Core:
         """Doc section 9.1's UNCALIBRATED -> IDLE, taken the moment both
         state files exist.
 
-        M4 build item 6 adds `Fsm.calibration_complete()` and the state it
-        leaves. Until then there is nothing to leave — `boot_complete()`
-        goes straight to IDLE — so this is deliberately a no-op rather
-        than a call to a method that does not exist yet.
+        `Fsm.calibration_complete()` re-checks the geometry itself and
+        no-ops from every other state, so this is safe to call after any
+        geometry write without asking where the FSM is first.
         """
         with self.state_lock:
-            if self.geometry.calibrated and hasattr(self.fsm,
-                                                    "calibration_complete"):
-                self.fsm.calibration_complete()
+            self.fsm.calibration_complete()
 
     def _geometry_msg(self) -> Dict[str, Any]:
         """What the Setup tab needs to render: whether the table is

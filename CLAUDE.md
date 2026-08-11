@@ -1412,6 +1412,75 @@ removed entirely; the seed sent through `H` instead of `H^-1`.
 a real table. The symptom of a wrong reading is visibly offset starting
 rects that the operator then drags — not a mis-bill.
 
+M4.6 (2026-08-12) is build item 6: `UNCALIBRATED` in the FSM, working
+from a fresh clone with an empty `state/`.
+`Fsm` takes an `is_calibrated` **callable** — not a bool and not a
+`GeometryStore`. Not a bool because the answer has to be re-asked at
+every setting-mode exit rather than sampled once at boot; not the store
+because this module still knows nothing about state files, the same
+reason `refresh_weights` is a callback.
+Four things worth not re-deriving, and the second is a trap the doc's own
+diagram walks into:
+- **`fsm.serving` is a predicate, and the scale is gated on it, not on
+  `state is not SETTING`.** Doc §9.1 makes serving unreachable in
+  UNCALIBRATED too — a table that does not know which tray is which must
+  not weigh food out of one and charge for it. One predicate, so a state
+  added later cannot start billing by omission.
+- **Setting-mode exit returns to UNCALIBRATED, not IDLE, on a table that
+  still has no geometry.** §9.1's diagram writes that edge as
+  SETTING → IDLE, which is right for the ordinary case and wrong for the
+  first-boot one: **calibration is a setting-mode activity**, so the
+  operator is *in* setting mode while doing it, and an exit that always
+  landed on IDLE would open a table with no geometry at all. Re-asked at
+  exit, because the whole point of the mode being left is that the
+  operator may have just fixed it. **§9.1 has been corrected.**
+- **Setting mode stays reachable from UNCALIBRATED, and must** — blocking
+  entry would make the state unescapable, since calibration happens
+  inside it.
+- **`calibration_complete()` re-checks the geometry itself** rather than
+  trusting the caller. Core calls it after every geometry write, and a
+  write that saved a homography but no rects must not open the table.
+On the table: a third banner, **violet `#7c5cd6`**, headline
+`NOT SERVING`, subline `not set up yet`. A third hue rather than reusing
+amber or red because I8 distinguishes states by hue and this genuinely is
+a third state — not a subsystem fault (red), not staff working on a table
+that is otherwise fine (amber), but a table that has never been set up.
+§14.5's precedence table now names it in second place.
+In the staff view: its own violet banner and a **one-time** jump to the
+Setup tab. One-time, not a lock — once the operator has been taken there
+they must be able to walk to Live and stay, and every `mode` broadcast
+re-selecting the tab under their hands would be worse than not jumping at
+all.
+**Every existing Core test had to be given a calibrated fixture**, and
+that is the change worth noticing: `CoreCase` now writes a homography and
+eight rects into its throwaway directory before starting Core, because
+otherwise every test about pricing, the mode or the `state` message would
+have been testing a table that refuses to serve. M1-M3 assumed a table
+that always served because no other possibility existed. The two classes
+that want an empty `state/` opt out with `calibrated_fixture = False`.
+10 new Python tests (`TestUncalibratedBoot` — boots uncalibrated, the
+table and the tablet are both told, nothing bills, a hand cannot start a
+session, setting mode still reachable, exit returns to UNCALIBRATED,
+saving the geometry opens the table, a half-saved geometry does not),
+664 total, all passing.
+**One of those ten exists because a mutation found nothing.** Dropping
+`uncalibrated` from `_publish_mode`'s on-change key was checked and *no
+test went red*: the `mode` message is broadcast on change, and leaving
+the field out of the comparison key means a table that becomes
+calibrated without its mode or cart also changing never tells the
+tablet, which then shows "this table has not been set up yet" over a
+table that has been, clearable only by a reload. Latent today because
+the ordinary path also flips `mode`; not latent the moment anything else
+completes calibration. `test_the_tablet_is_told_when_the_table_stops_
+being_uncalibrated` is that test, and the mutation is red now.
+Six Python mutations checked red in total, and two more JS ones (the tab
+jump removed; the one-time latch removed, which drags the operator back
+to Setup on every broadcast). The shim harness is now 45 assertions.
+Builds clean (msbuild, Debug x64, 0 errors, 0 warnings from
+`hotpot-table/src`).
+**Not observed:** the violet banner has never been on the projected
+surface, and no fresh clone has actually been booted on a rig.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

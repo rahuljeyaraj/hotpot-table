@@ -93,6 +93,22 @@ namespace {
 	const ofColor kSettingBannerFill(232, 179, 61);   // #e8b33d
 	const ofColor kSettingBannerInk(42, 31, 0);       // #2a1f00
 
+	// M4 build item 6: `overlay.kind == "uncalibrated"` (doc §9.1's
+	// first-boot state). A THIRD hue rather than reusing amber or red,
+	// because I8 distinguishes states by hue and this is a genuinely
+	// different state from both: it is not a fault in a subsystem (red)
+	// and it is not staff working on a table that is otherwise fine
+	// (amber) — it is a table that has never been set up at all.
+	//
+	// Violet, and specifically NOT green/blue: the staff view's pips
+	// already own green for health, and a cool blue on a near-white field
+	// reads as "off" rather than as a state. #7c5cd6 against the same
+	// dark ink pattern the other two use, and luminance-matched to them
+	// by eye against the same field (I8's "or a state change reads as the
+	// table brightening rather than as the state changing").
+	const ofColor kUncalBannerFill(124, 92, 214);     // #7c5cd6
+	const ofColor kUncalBannerInk(20, 8, 48);         // #140830
+
 	// The banner panel. Height is in px, not mm, because it is sized to
 	// the two font sizes it holds rather than to anything physical.
 	// The inset is the breathing room from the pot-gap edges — see
@@ -634,6 +650,26 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	// "NOT BILLING" — an internal word for an external surface, and the
 	// system's own second word for the same idea. There is one word now,
 	// "serving", and it is the one a diner already understands.
+	// **Order, doc §14.5's precedence table, as built at M4:**
+	//   calibrating > uncalibrated > setting > error
+	//
+	// `calibrating` never reaches this function at all — ofApp::draw
+	// takes the whole inverted-field branch and UiLayer::draw is not
+	// called. That is not an oversight to tidy up later: a banner is a
+	// bright shape on a black field, which is precisely what
+	// classifier/dots.py is looking for, so drawing one during a solve
+	// would feed the homography a point that was never part of the
+	// pattern. It is a lighting rule, not a UI preference.
+	//
+	// `uncalibrated` outranks `setting` because it SURVIVES setting mode:
+	// an operator who exits setting mode on a table with no geometry
+	// still cannot serve, and `setting` would mask the one message that
+	// is still true for the whole time they are trying to fix it.
+	if(state.overlayKind == "uncalibrated"){
+		drawBanner(kUncalBannerFill, kUncalBannerInk,
+			"NOT SERVING", "not set up yet");
+		return;
+	}
 	if(state.mode == "setting"){
 		drawBanner(kSettingBannerFill, kSettingBannerInk,
 			"NOT SERVING", "setting the table");

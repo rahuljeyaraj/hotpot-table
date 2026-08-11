@@ -1,8 +1,8 @@
 """core/fsm.py — the table's state machine (doc section 9.1).
 
-Scope is BOOT, IDLE, SELECTING (M1 build item 2) and SETTING (M2.6).
-Doc section 9.1's diagram has more — UNCALIBRATED lands in M4 build item
-6, once geometry_store.py exists to give BOOT something to check for;
+Scope is BOOT, IDLE, SELECTING (M1 build item 2), SETTING (M2.6) and
+UNCALIBRATED (M4 build item 6, now that `geometry_store.py` exists to
+give BOOT something to check for). Doc section 9.1's diagram has more —
 BROTH, SPICE, RECAP, CHECKOUT arrive with M6, the milestone that gives
 them something to do. Adding a state means adding both a State member and
 a `_go(...)` method below; nothing about the shape here is provisional
@@ -42,10 +42,12 @@ if TYPE_CHECKING:
 
 OnTransition = Callable[["State", "State"], None]
 RefreshWeights = Callable[[], None]
+IsCalibrated = Callable[[], bool]
 
 
 class State(enum.Enum):
     BOOT = "boot"
+    UNCALIBRATED = "uncalibrated"
     IDLE = "idle"
     SELECTING = "selecting"
     SETTING = "setting"
@@ -54,24 +56,80 @@ class State(enum.Enum):
 class Fsm:
     def __init__(self, cart: "Cart", binmap: "BinMap", *,
                  on_transition: Optional[OnTransition] = None,
-                 refresh_weights: Optional[RefreshWeights] = None) -> None:
+                 refresh_weights: Optional[RefreshWeights] = None,
+                 is_calibrated: Optional[IsCalibrated] = None) -> None:
         self.cart = cart
         self.binmap = binmap
         self.state = State.BOOT
         self._on_transition = on_transition
         self._refresh_weights = refresh_weights
+        # A callable, not a bool, and not a GeometryStore. Not a bool
+        # because the answer has to be asked again at every exit from
+        # setting mode rather than sampled once at construction — an
+        # operator who calibrates during setting mode changes it. Not a
+        # GeometryStore because this module knows nothing about state
+        # files, the same reason `refresh_weights` is a callback rather
+        # than a ScaleReader.
+        #
+        # `None` means "nothing to check", which is M1 through M3's
+        # behaviour and is kept so this class stays constructible on its
+        # own. Core always passes one.
+        self._is_calibrated = is_calibrated
+
+    def calibrated(self) -> bool:
+        return self._is_calibrated is None or bool(self._is_calibrated())
+
+    @property
+    def serving(self) -> bool:
+        """Whether the table is billing. **This is the predicate the scale
+        is gated on, not `state is not SETTING`.**
+
+        Doc section 9.1: "In UNCALIBRATED, serving mode is unreachable." A
+        table with no homography has no idea which tray is which, so
+        weighing food out of one and charging for it would be billing
+        against a guess. BOOT is excluded for the reason it always was —
+        nothing is loaded yet.
+        """
+        return self.state in (State.IDLE, State.SELECTING)
 
     def boot_complete(self) -> bool:
-        """BOOT -> IDLE. Doc section 9.1: BOOT really goes to UNCALIBRATED
-        first if homography.json or bin_rects.json is missing. That branch
-        needs geometry_store.py (M4 build item 6) to check for those files
-        and does not exist yet, so this always succeeds and always lands
-        on IDLE until M4 replaces it.
+        """BOOT -> IDLE, or BOOT -> UNCALIBRATED.
+
+        Doc section 9.1: "BOOT always goes to UNCALIBRATED if
+        `homography.json` or `bin_rects.json` is missing… This is the
+        first-boot path and it must work on a fresh clone with an empty
+        `state/`." Both files, and both complete — `GeometryStore` counts
+        seven rects and a hole as uncalibrated, because the eighth bin
+        would otherwise render from a fallback nobody chose.
         """
+        if not self.calibrated():
+            return self._go(State.BOOT, State.UNCALIBRATED)
         return self._go(State.BOOT, State.IDLE)
 
+    def calibration_complete(self) -> bool:
+        """UNCALIBRATED -> IDLE, doc section 9.1's "(calibration
+        complete)" edge.
+
+        Refuses if the geometry still is not there, rather than trusting
+        the caller: core calls this after any geometry write, and a write
+        that saved a homography but no rects must not open the table.
+        No-ops from every other state, so it is safe to call after every
+        save without asking where the FSM is first.
+        """
+        if self.state is not State.UNCALIBRATED:
+            return False
+        if not self.calibrated():
+            return False
+        return self._go(State.UNCALIBRATED, State.IDLE)
+
     def hand_present(self) -> bool:
-        """IDLE -> SELECTING: a hand arriving over the table."""
+        """IDLE -> SELECTING: a hand arriving over the table.
+
+        Unreachable from UNCALIBRATED by construction — `_go` refuses any
+        source state but IDLE — which is what "serving mode is
+        unreachable" means in practice: a diner can wave at an
+        uncalibrated table all day and nothing starts.
+        """
         return self._go(State.IDLE, State.SELECTING)
 
     def staff_start(self) -> bool:
@@ -170,8 +228,18 @@ class Fsm:
             self._refresh_weights()
         self.cart.reset_session()
         self.binmap.locked = True
-        self.state = State.IDLE
-        self._fire(State.SETTING, State.IDLE)
+        # **Back to UNCALIBRATED, not IDLE, on a table that still has no
+        # geometry.** Doc section 9.1's diagram writes this edge as
+        # SETTING -> IDLE, which is right for the ordinary case and wrong
+        # for the first-boot one: calibration is a setting-mode activity,
+        # so the operator is IN setting mode while doing it, and an exit
+        # that always landed on IDLE would open a table that has no idea
+        # which tray is which. Asked again here rather than remembered
+        # from boot, because the whole point of the mode being left is
+        # that the operator may have just fixed it.
+        nxt = State.IDLE if self.calibrated() else State.UNCALIBRATED
+        self.state = nxt
+        self._fire(State.SETTING, nxt)
         return True
 
     def _go(self, expected: State, target: State) -> bool:

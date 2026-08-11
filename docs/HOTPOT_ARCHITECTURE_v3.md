@@ -723,6 +723,10 @@ Rules that are not negotiable:
   - **The refresh is not optional and omitting it mis-bills silently.** Billing is disabled for the whole of setting mode, so at exit `live_g` still holds the weights from when the mode was *entered*, and `reset_session()` does `start_g[i] = live_g[i]`. Swap a full tray for an empty one during setting mode — which is the entire point of the mode — and without the refresh, exit baselines `start_g` to the tray that left. The difference becomes removed grams and **the next diner is billed for the swap.**
   - A bin the scale cannot weigh (uncalibrated, or a dead XIAO) keeps its placeholder weight; `reset_session()` still re-baselines it where it stands.
 - **BOOT always goes to UNCALIBRATED if `homography.json` or `bin_rects.json` is missing.** In UNCALIBRATED, serving mode is unreachable, oF shows the `uncalibrated` overlay, and the staff view opens on the calibration wizard. This is the first-boot path and it must work on a fresh clone with an empty `state/`.
+  - "Missing" means **either file absent, unparsable, or incomplete** — seven rects and a hole counts, because the eighth bin would otherwise render from a fallback nobody chose. A homography that loads but cannot be inverted counts too: "the file is there but nonsense" has to land in the same place as "the file is not there", or a fresh clone crashes at boot instead of showing the wizard (M4.6).
+  - **"Serving is unreachable" is a predicate, `fsm.serving`, not `state is not SETTING`.** The scale reaching the cart is gated on it, so a state added later cannot start billing by omission. A table that does not know which tray is which must not weigh food out of one and charge for it.
+  - **Setting mode stays reachable from UNCALIBRATED, and must** — calibration is a setting-mode activity, so blocking entry would make the state unescapable.
+  - **Setting-mode exit returns to UNCALIBRATED, not IDLE, when the geometry still is not there.** The diagram above writes that edge as SETTING → IDLE, which is right for the ordinary case and wrong for the first-boot one: the operator is *in* setting mode while calibrating, and an exit that always landed on IDLE would open a table with no geometry. The check is re-asked at exit rather than remembered from boot, because the whole point of the mode being left is that the operator may have just fixed it. (M4.6.)
 
 ### 9.2 Pricing (restating I4/I5 as code shape)
 
@@ -1308,7 +1312,7 @@ Concretely, **`SETTING` wins over `error`.** Both are true at once the moment so
 | rank | state | why it sits there |
 |---|---|---|
 | 1 | `calibrating` | **Not a banner at all — it suppresses every banner, and this is a lighting rule, not a UI preference.** The field is inverted to black and the camera is at a dark exposure hunting bright blobs; a banner is a bright shape on a black field, which is precisely what `classifier/dots.py` is looking for. Anything drawn during a solve becomes a false dot. |
-| 2 | `uncalibrated` | Outranks `SETTING` because it is the more specific and more actionable statement, and because it *survives* setting mode: an operator who exits setting mode on an uncalibrated table still cannot serve, and the banner has to keep saying so. `SETTING` would otherwise mask it for the whole time the operator is trying to fix it. |
+| 2 | `uncalibrated` | Outranks `SETTING` because it is the more specific and more actionable statement, and because it *survives* setting mode: an operator who exits setting mode on an uncalibrated table still cannot serve (§9.1), and the banner has to keep saying so. `SETTING` would otherwise mask it for the whole time the operator is trying to fix it. Its own hue, **violet `#7c5cd6`** — a third state, not a variant of amber or red: it is neither a subsystem fault nor staff working on a table that is otherwise fine. Headline `NOT SERVING`, subline `not set up yet`. |
 | 3 | `setting` | The rule above. |
 | 4 | `error` | The rule above. |
 

@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from websockets.sync.client import connect  # noqa: E402
 
+from hotpot.common import atomicio  # noqa: E402
 from hotpot.common import geometry  # noqa: E402
 from hotpot.common import health  # noqa: E402
 from hotpot.common import log as hlog  # noqa: E402
@@ -70,8 +71,30 @@ def _no_serial_port():
     raise OSError("no serial port in tests")
 
 
+# A camera->stage homography with real perspective in it, and eight rects
+# that do not overlap. Enough to make GeometryStore.calibrated true, which
+# is all most of this file needs.
+_FIXTURE_H = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0], [0.00012, 0.00007, 1.0]]
+_FIXTURE_RECTS = [[100.0 + (i % 4) * 450, 200.0 + (i // 4) * 400, 300.0, 220.0]
+                  for i in range(8)]
+
+
 class CoreCase(unittest.TestCase):
     """A real Core on ephemeral loopback ports, torn down after."""
+
+    # Subclasses set this False to exercise doc section 9.1's first-boot
+    # path — a fresh clone with an empty `state/`.
+    calibrated_fixture = True
+
+    def write_calibration(self):
+        atomicio.write_json(self.h_path, {
+            "schema": 3, "H_cam_to_stage": _FIXTURE_H, "computed_at": 1.0,
+            "n_points": 15, "rms_px": 1.1, "keystone_fingerprint": "fixture",
+            "camera_size": [1920, 1080], "stage_size": [1920, 1080]})
+        atomicio.write_json(self.r_path, {
+            "schema": 3, "written": 1.0, "camera_size": [1920, 1080],
+            "verified_at": None,
+            "bins": [{"i": i, "cam": r} for i, r in enumerate(_FIXTURE_RECTS)]})
 
     def setUp(self):
         hlog.reset()
@@ -87,12 +110,23 @@ class CoreCase(unittest.TestCase):
         # homography_path/rects_path are throwaway for exactly the same
         # reason (M4.1): those two files decide where every bin rect is,
         # and a test that saved one would silently move the rig's trays.
+        self.h_path = os.path.join(self._cal_dir.name, "homography.json")
+        self.r_path = os.path.join(self._cal_dir.name, "bin_rects.json")
+        # **A CALIBRATED table by default (M4.6).** Doc section 9.1 boots
+        # an empty `state/` to UNCALIBRATED, where nothing bills at all —
+        # so every test in this file that is about pricing, the mode, or
+        # the `state` message would otherwise be testing a table that
+        # refuses to serve. That is real behaviour and it has its own case
+        # (`TestUncalibratedBoot`); the rest of the file wants a table
+        # that has been set up, which is what M1 through M3 implicitly
+        # assumed when there was no other possibility.
+        if self.calibrated_fixture:
+            self.write_calibration()
         self.core = coremain.start(
             control_host="127.0.0.1", control_port=0,
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
-            homography_path=os.path.join(self._cal_dir.name, "homography.json"),
-            rects_path=os.path.join(self._cal_dir.name, "bin_rects.json"),
+            homography_path=self.h_path, rects_path=self.r_path,
             scale_open_port=_no_serial_port)
         self._wire_clients = []
         self._ws_clients = []
@@ -1492,6 +1526,10 @@ class TestDotCalibrationOverTheWire(CoreCase):
     are exercised too, not just the solve.
     """
 
+    # An empty `state/`, because this whole class is about producing the
+    # geometry that a calibrated table already has.
+    calibrated_fixture = False
+
     CAM_TO_STAGE = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0],
                     [0.00012, 0.00007, 1.0]]
 
@@ -1749,6 +1787,12 @@ class TestSetupTabRects(CoreCase):
     checks.
     """
 
+    # Starts with no saved geometry and installs a homography by hand:
+    # this class is about the rects, and a fixture that already had eight
+    # of them would make every "saves eight rects" assertion pass before
+    # the code under test ran.
+    calibrated_fixture = False
+
     CAM_TO_STAGE = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0],
                     [0.00012, 0.00007, 1.0]]
 
@@ -1883,6 +1927,129 @@ class TestSetupTabRects(CoreCase):
             homography_path=self.core.geometry.homography_path,
             rects_path=self.core.geometry.rects_path)
         self.assertTrue(again.has_rects)
+
+
+class TestUncalibratedBoot(CoreCase):
+    """M4 build item 6, doc section 9.1: "BOOT always goes to UNCALIBRATED
+    if `homography.json` or `bin_rects.json` is missing… This is the
+    first-boot path and it must work on a fresh clone with an empty
+    `state/`."
+
+    Every Core here starts against an empty throwaway directory, which is
+    exactly that fresh clone.
+    """
+
+    calibrated_fixture = False
+
+    def test_an_empty_state_dir_boots_uncalibrated(self):
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.UNCALIBRATED)
+        self.assertFalse(self.core.fsm.serving)
+
+    def test_the_table_is_told_so(self):
+        self.assertEqual(self.core._state_msg()["overlay"],
+                         {"kind": "uncalibrated"})
+
+    def test_the_tablet_is_told_so_on_join(self):
+        # Doc §9.1: "the staff view opens on the calibration wizard."
+        ws = self.ws()
+        seeds = [self.recv_json(ws) for _ in range(4)]
+        mode = next(m for m in seeds if m["t"] == "mode")
+        self.assertTrue(mode["uncalibrated"])
+
+    def test_nothing_bills_while_uncalibrated(self):
+        # THE point of the state. A table that does not know which tray is
+        # which must not weigh food out of one and charge for it.
+        self.core.scale.cal.bins[0].zero_counts = 0.0
+        self.core.scale.cal.bins[0].counts_per_gram = 1.0
+        self.core.scale.feed([500] + [0] * 7)
+        before = self.core._state_msg()["bins"][0]["grams"]
+        self.core.scale.feed([300] + [0] * 7)
+        after = self.core._state_msg()["bins"][0]["grams"]
+        self.assertEqual(before, after)
+        self.assertEqual(self.core._state_msg()["total"]["amount"], 0.0)
+
+    def test_a_hand_cannot_start_a_session(self):
+        # Doc §9.1: "serving mode is unreachable." A diner can wave at an
+        # uncalibrated table all day and nothing starts.
+        with self.core.state_lock:
+            self.assertFalse(self.core.fsm.hand_present())
+            self.assertFalse(self.core.fsm.staff_start())
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.UNCALIBRATED)
+
+    def test_setting_mode_is_still_reachable_because_that_is_the_fix(self):
+        # Calibration is a setting-mode activity. If entering setting mode
+        # were blocked here, the state would be unescapable.
+        with self.core.state_lock:
+            self.assertIsNone(self.core.fsm.can_enter_setting())
+            self.assertTrue(self.core.fsm.enter_setting())
+
+    def test_exiting_setting_mode_without_geometry_returns_to_uncalibrated(self):
+        # The trap this state has of its own: doc §9.1's diagram writes
+        # setting-exit as SETTING -> IDLE, which on a first boot would
+        # open a table that has no idea which tray is which.
+        with self.core.state_lock:
+            self.core.fsm.enter_setting()
+            self.core.fsm.exit_setting()
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.UNCALIBRATED)
+
+    def test_saving_the_geometry_completes_calibration_and_opens_the_table(self):
+        self.core.geometry.set_homography(_FIXTURE_H, rms_px=1.0, n_points=15)
+        ws = self.ws()
+        for _ in range(4):
+            self.recv_json(ws)
+        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        deadline = time.monotonic() + DEADLINE
+        while time.monotonic() < deadline:
+            if self.recv_json(ws).get("t") == "mode":
+                break
+        ws.send(json.dumps({"t": "set_rects", "rects": _FIXTURE_RECTS}))
+        deadline = time.monotonic() + DEADLINE
+        while time.monotonic() < deadline:
+            if self.recv_json(ws).get("t") == "rects_result":
+                break
+        with self.core.state_lock:
+            self.core.fsm.exit_setting()
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.IDLE)
+        self.assertTrue(self.core.fsm.serving)
+        self.assertEqual(self.core._state_msg()["overlay"], {"kind": "none"})
+
+    def test_the_tablet_is_told_when_the_table_stops_being_uncalibrated(self):
+        """MUTATION-DRIVEN: dropping `uncalibrated` from `_publish_mode`'s
+        on-change key was checked and **no test went red**, so this is
+        that test.
+
+        The `mode` message is broadcast on change, not on a timer (M2.6),
+        and "change" is a comparison against a key. Leave `uncalibrated`
+        out of that key and a table that becomes calibrated without its
+        mode or cart also changing never tells the tablet — which sits
+        there showing "this table has not been set up yet" over a table
+        that has been, with no way to clear it but a reload.
+
+        Today the ordinary path also flips `mode`, so the bug is latent.
+        It stops being latent the moment anything else completes
+        calibration — restoring a backup, or M7 writing a bin map.
+        """
+        ws = self.ws()
+        for _ in range(4):
+            self.recv_json(ws)
+        self.core.geometry.set_homography(_FIXTURE_H, rms_px=1.0, n_points=15)
+        self.core.geometry.set_cam_rects(_FIXTURE_RECTS)
+        self.core._check_calibration_complete()
+        deadline = time.monotonic() + DEADLINE
+        while time.monotonic() < deadline:
+            msg = self.recv_json(ws, timeout=deadline - time.monotonic())
+            if msg.get("t") == "mode":
+                self.assertFalse(msg["uncalibrated"])
+                return
+        self.fail("the tablet was never told the table is calibrated now")
+
+    def test_a_half_saved_geometry_does_not_open_the_table(self):
+        # A homography and no rects is not a calibrated table: the eighth
+        # bin would render from a fallback nobody chose.
+        self.core.geometry.set_homography(_FIXTURE_H, rms_px=1.0, n_points=15)
+        with self.core.state_lock:
+            self.assertFalse(self.core.fsm.calibration_complete())
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.UNCALIBRATED)
 
 
 class TestStop(unittest.TestCase):

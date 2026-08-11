@@ -92,6 +92,16 @@
     background: #402626; color: #ffd7d7;
   }
   .conn-banner.show { display: block; }
+  /* Violet, matching the table's own uncalibrated banner (I8: both
+     surfaces say the same thing in the same hue), and deliberately not
+     the amber setting-mode chrome or the red fault one — this is a third
+     state, not a variant of either. */
+  .uncal-banner {
+    display: none;
+    padding: 10px 16px; font-size: 14px; line-height: 1.4;
+    background: #2b2350; color: #d8ccff;
+  }
+  .uncal-banner.show { display: block; }
 
   /* --- tabs, now inside the top bar (doc section 12.2) ------------------
      Live (M1) and Bins (M2) have real tab bodies. Orders/Setup/Capture
@@ -448,6 +458,15 @@
 </head>
 <body>
   <div id="connBanner" class="conn-banner">Not connected to core — retrying…</div>
+  <!-- Doc §9.1: in UNCALIBRATED "the staff view opens on the calibration
+       wizard". This says why, in the operator's words, and the tab switch
+       below does the opening. Its own banner rather than the connection
+       one: they are different problems with different fixes, and a
+       shared strip would have one of them silently replacing the other. -->
+  <div id="uncalBanner" class="uncal-banner">
+    This table has not been set up yet. Enter setting mode and run the
+    projector–camera calibration on the Setup tab.
+  </div>
   <header>
     <!-- Doc §12.2's mockup shows 称重火锅 here, but that's under the
          staff view's own EN|中文 toggle (doc line ~1336: "the operator may
@@ -660,6 +679,7 @@
 
   var pipsEl = document.getElementById("pips");
   var banner = document.getElementById("connBanner");
+  var uncalBanner = document.getElementById("uncalBanner");
   var elByWho = {};
 
   PIPS.forEach(function (p) {
@@ -685,16 +705,20 @@
   // --- tab bar (doc section 12.2) ---------------------------------------
   var tabButtons = document.querySelectorAll(".tab");
   var tabPanels = document.querySelectorAll(".tab-panel");
-  Array.prototype.forEach.call(tabButtons, function (btn) {
-    btn.addEventListener("click", function () {
-      var tab = btn.dataset.tab;
-      Array.prototype.forEach.call(tabButtons, function (b) {
-        b.classList.toggle("active", b === btn);
-      });
-      Array.prototype.forEach.call(tabPanels, function (p) {
-        p.classList.toggle("active", p.dataset.tab === tab);
-      });
+
+  // Pulled out of the click handler so core can open a tab too — doc
+  // §9.1's "the staff view opens on the calibration wizard" (M4.6).
+  function selectTab(tab) {
+    Array.prototype.forEach.call(tabButtons, function (b) {
+      b.classList.toggle("active", b.dataset.tab === tab);
     });
+    Array.prototype.forEach.call(tabPanels, function (p) {
+      p.classList.toggle("active", p.dataset.tab === tab);
+    });
+  }
+
+  Array.prototype.forEach.call(tabButtons, function (btn) {
+    btn.addEventListener("click", function () { selectTab(btn.dataset.tab); });
   });
 
   // --- Live tab (doc section 12.3, §5.4 — M3 build item 3) --------------
@@ -899,6 +923,13 @@
   // it leaves Tare and Calibrate disabled until core says otherwise.
   var mode = "serving";
   var cartActive = false;
+  var uncalibrated = false;
+  // Doc §9.1's "opens on the calibration wizard" is a ONE-TIME jump, not
+  // a lock: once the operator has been taken to Setup, they must be able
+  // to walk to Live or Bins and back without the page dragging them
+  // around. This is what stops every `mode` broadcast re-selecting the
+  // tab under their hands.
+  var openedOnSetup = false;
 
   function sendMock(kind, bin, grams) {
     if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
@@ -1589,7 +1620,14 @@
   function applyMode(msg) {
     mode = msg.mode;
     cartActive = !!msg.cart_active;
+    uncalibrated = !!msg.uncalibrated;
     var setting = mode === "setting";
+
+    uncalBanner.classList.toggle("show", uncalibrated);
+    if (uncalibrated && !openedOnSetup) {
+      openedOnSetup = true;
+      selectTab("setup");
+    }
 
     // Never colour alone (§12.2's own rule for the pips): the knob moves
     // and the filled half's label lights with the hue, so position and
