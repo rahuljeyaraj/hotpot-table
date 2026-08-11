@@ -157,6 +157,13 @@ class TestInfo(ServerCase):
         resp = self.get("/info.json")
         self.assertEqual(json.loads(resp.read())["frame_id"], 42)
 
+    def test_a_query_string_still_matches_the_route(self):
+        # Same latent bug as /stream.mjpg's — nothing fetches this with a
+        # query string today, but the dispatch bug was general, not
+        # stream-specific.
+        resp = self.get("/info.json?t=123")
+        self.assertEqual(resp.status, 200)
+
     def test_allows_cross_origin_fetch(self):
         # M3 build item 4: the developer panel fetches this from the staff
         # view's own origin (core's port), a different origin than
@@ -184,6 +191,17 @@ class TestStream(ServerCase):
         self.assertIn(b"multipart/x-mixed-replace", chunk)
         self.assertIn(mjpeg.BOUNDARY.encode(), chunk)
         self.assertIn(b"Content-Type: image/jpeg", chunk)
+        self.assertIn(b"\xff\xd8onejpeg", chunk)
+
+    def test_a_cache_busting_query_string_still_matches_the_route(self):
+        # Regression: index.html's loadLiveImg() always requests
+        # /stream.mjpg?t=<timestamp> (M3.3), and do_GET used to match
+        # self.path with `==` against the bare route, 404ing on every
+        # single browser request — found 2026-08-12 running against a
+        # real browser for the first time.
+        self.frame.publish(b"\xff\xd8onejpeg", frame_id=1)
+        chunk = self.raw_get("/stream.mjpg?t=1234567890")
+        self.assertIn(b"200", chunk.split(b"\r\n", 1)[0])
         self.assertIn(b"\xff\xd8onejpeg", chunk)
 
     def test_a_client_connecting_after_publish_still_gets_the_current_frame(self):

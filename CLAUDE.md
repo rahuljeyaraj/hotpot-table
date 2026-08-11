@@ -1045,6 +1045,31 @@ never touches that value — now reads `self._cap.device`, the backend's
 own real identifier (a V4L2 path or a DirectShow index), falling back to
 config only for a backend (`FakeCapture`) that has no `.device` at all.
 
+**2026-08-12, real bug found by the same real-browser run: `/stream.mjpg`
+404ed on every single load, and it was never the camera's fault.**
+`camera/mjpeg.py`'s `do_GET` matched `self.path` with `==` against the
+bare route string. `self.path` is the raw request target including the
+query string, and `index.html`'s own `loadLiveImg()` (M3.3) has always
+appended a cache-busting `?t=<timestamp>` — so every request has been
+`/stream.mjpg?t=...`, never equal to `/stream.mjpg`, and every one 404ed.
+`curl http://localhost:8081/stream.mjpg` (no query string) worked fine,
+which is exactly why this stayed invisible through M3.2-M3.4: nothing
+before now had actually loaded the Live tab in a real browser, the one
+client that always sends the query string. The symptom was
+indistinguishable from a dead camera — `<img>`'s `onerror` fires on a 404
+exactly like it fires on a refused connection, so "Camera offline —
+retrying…" looked identical either way and pointed at the wrong half of
+the system. Fixed by parsing the path with `urllib.parse.urlsplit`
+before the route comparison, in `do_GET` itself so `/snapshot.jpg` and
+`/info.json` are covered too, even though nothing queries those with a
+query string yet. 2 new tests (one per affected route; `/snapshot.jpg`
+wasn't given one since nothing exercises it with a query string, but the
+fix covers it identically), 488 total, all passing.
+**Any camera process started before this fix is still running the old
+code in memory — restart it (Ctrl-C, then `python -m hotpot.camera.main`
+again) for the fix to take effect; reloading the browser tab alone does
+nothing.**
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

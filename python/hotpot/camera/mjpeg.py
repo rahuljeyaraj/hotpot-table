@@ -32,6 +32,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, Optional, Tuple
+from urllib.parse import urlsplit
 
 log = logging.getLogger("hotpot.camera.mjpeg")
 
@@ -131,11 +132,24 @@ def _make_handler(frame: LatestFrame, get_info: Callable[[], Dict[str, Any]]):
             log.debug("%s - %s", self.address_string(), fmt % args)
 
         def do_GET(self) -> None:
-            if self.path == "/stream.mjpg":
+            # BUG, found 2026-08-12 running against a real browser for the
+            # first time (M3.3 was never observed against real hardware
+            # until then): `self.path` is the raw request target,
+            # `/stream.mjpg?t=...`, and index.html's own retry logic
+            # (`loadLiveImg()`) always appends that cache-busting query
+            # string. An exact-match `==` against the bare path 404s on
+            # literally every load, which is indistinguishable from
+            # "camera offline" to the <img>'s onerror handler — the stream
+            # worked from the first request, this dispatch never accepted
+            # one. `/snapshot.jpg` and `/info.json` are not fetched with a
+            # query string anywhere in this repo today, but the same bug
+            # is latent for either the moment one is.
+            path = urlsplit(self.path).path
+            if path == "/stream.mjpg":
                 self._stream()
-            elif self.path == "/snapshot.jpg":
+            elif path == "/snapshot.jpg":
                 self._snapshot()
-            elif self.path == "/info.json":
+            elif path == "/info.json":
                 self._info()
             else:
                 self.send_error(404)
