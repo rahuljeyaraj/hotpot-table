@@ -878,6 +878,64 @@ class TestBinsTab(CoreCase):
         self.assertIn("setting mode", res["message"])
         self.assertFalse(self.core.cal.bins[3].calibrated)
 
+    def test_tare_all_zeroes_every_bin_from_one_capture(self):
+        """Setting the table means eight empty bins at once, so Tare — the
+        one step whose whole content is "the bin is empty" — has a bulk
+        version. One capture window, not eight: every bin's zero comes
+        from the same instant, and it takes 2s rather than 16s.
+
+        MUTATION CHECKED: make `tare_all()` skip the loop body for any bin
+        but 0 and this goes red on bins 1-7.
+        """
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        self.enter_setting(w)
+
+        for b in range(8):
+            self.assertFalse(self.core.cal.bins[b].tared)
+
+        w.send(json.dumps({"t": "tare_all"}))
+        res = self.recv_until(
+            w, lambda m: m.get("t") == "cal_result" and m.get("op") == "tare_all")
+        self.assertIsNotNone(res, "tare_all never produced a cal_result")
+        self.assertTrue(res["ok"], res)
+        self.assertIsNone(res["bin"], "a bulk result named a single bin")
+        for b in range(8):
+            self.assertTrue(self.core.cal.bins[b].tared, f"bin {b} was not tared")
+            self.assertFalse(self.core.cal.bins[b].calibrated,
+                              "a tare must never set counts_per_gram")
+
+    def test_tare_all_is_refused_in_serving_mode(self):
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "tare_all"}))
+        res = self.recv_until(
+            w, lambda m: m.get("t") == "cal_result" and m.get("op") == "tare_all")
+        self.assertIsNotNone(res)
+        self.assertFalse(res["ok"])
+        self.assertIn("setting mode", res["message"])
+        for b in range(8):
+            self.assertFalse(self.core.cal.bins[b].tared)
+
+    def test_no_refusal_message_says_billing(self):
+        """The system had grown two words for one idea — the table banner
+        said NOT BILLING while the mode was named SERVING. One word now,
+        and it is the one that is already the mode's name.
+
+        MUTATION CHECKED: put "billing" back in NOT_IN_SETTING_MSG and
+        this goes red.
+        """
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "tare", "bin": 3}))
+        res = self.cal_result(w, 3, "tare")
+        self.assertNotIn("billing", res["message"].lower())
+        self.assertIn("serving", res["message"].lower())
+        self.assertNotIn("billing", coremain.NOT_IN_SETTING_MSG.lower())
+
     def test_the_whole_calibration_flow_bills_nothing_in_setting_mode(self):
         """What the deleted cal_begin/cal_end freeze used to guarantee per
         bin, now guaranteed mode-wide: an operator empties a bin by hand,

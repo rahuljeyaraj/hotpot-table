@@ -56,7 +56,7 @@ private:
 	void drawTotal(const StateLink::Total & total) const;
 	void drawConnectionIndicator(bool connected, float staleSeconds) const;
 	void drawBanner(const ofColor & fill, const ofColor & ink,
-		const std::string & text) const;
+		const std::string & headline, const std::string & subline) const;
 	void drawTopBanner(const StateLink::State & state) const;
 	void drawDevOverlay(bool hasState, const StateLink::State & state,
 		bool connected, float fps) const;

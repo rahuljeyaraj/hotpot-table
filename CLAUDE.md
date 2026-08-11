@@ -640,6 +640,96 @@ as a deliberate decision, never as a find/replace — the map was applied
 literally on purpose, because a broad sweep on "staff" is exactly what
 would have destroyed "staff view".
 
+### M2.6e — seven fixes from the first run on the dev machine
+**2026-08-11, and the first six are all things only running it showed.**
+The milestone was code-complete and fully tested before any of these were
+visible, which is the point: none of them is a logic bug and every one of
+them made the thing worse to use.
+
+1. **The banner said `SETTING — NOT BILLING`, which is jargon aimed at
+   nobody who reads it.** The table is the one surface with no operator
+   filter on it — a diner is looking at it. Both banners now lead with
+   the same headline, `NOT SERVING`, with the state as a subline
+   (`setting the table` / `scales offline`) and the hue carrying the rest
+   (I8). The headline is the only part a diner needs and is equally true
+   of both.
+2. **The banner covered the far row's item names.** §14.5 said "a
+   persistent banner strip along the top edge" and that is what was
+   built, 72px full width. But the far row's labels are drawn *upward*
+   into the 177mm far margin and a two-line wrapped name — which several
+   catalogue names are, at 36px in a 200mm box — puts ink as high as
+   ~50px. **Staff have to read those names to confirm which tray is
+   which, during setting mode above all, which is exactly when the
+   banner is up.** It defeated the mode it was announcing. The panel now
+   sits in the centre column (the pot gap, between bin 1's right edge
+   and bin 2's left edge) — the one horizontal span on the table with no
+   bin and no label in it, by construction, derived from the bin rects
+   rather than hardcoded. Narrower, so taller and two-line; ~440x88mm of
+   amber is still unmissable from three metres, and the strip shape was
+   only ever one way to get there. **§14.5 has been corrected.**
+3. **Tare/Calibrate refused only after Confirm** — i.e. after the
+   operator had emptied the bin, opened the wizard and tapped through.
+   The answer arrived at the last possible moment, having wasted the one
+   step that takes physical work. Both buttons are now disabled outside
+   setting mode with the reason on the card and in a `title`. Core still
+   refuses independently: the rule about what is safe to do to a bin
+   belongs on the side that owns the cart, and a stale page must not be
+   able to tare a serving table — but no operator should ever see it now.
+4. **The system had two words for one idea.** The banner said "billing"
+   while the mode was called "serving". One word now, "serving", and it
+   is the mode's own name — banner, refusals, hints. `NOT_IN_SETTING_MSG`
+   is the single source for the refusal sentence. "Billing" survives only
+   in code comments about the cart, where it is the accurate word.
+5. **Tare had no bulk option and is the one step that can have one.**
+   Setting the table means eight empty bins at once; taring them singly
+   is eight trips through a wizard whose whole content is "the bin is
+   empty". `Tare all 8 bins` does every bin from **one** capture window —
+   `scale.capture()` already reduces all eight channels over the same
+   window — so 2s rather than 8x2s, and, more than the speed, every
+   bin's zero comes from the same instant, so a board-wide drift lands
+   on all of them identically instead of smeared over sixteen seconds.
+   Each bin still takes its own zero out of that window; a shared one
+   would mis-weigh seven bins. Saved once, all eight rolled back together
+   if the write fails. **Calibrate cannot have a bulk form** — each bin
+   needs its own reference mass physically in it.
+6. **Mode status was top-left, its toggle bottom-left.** Two unrelated
+   things, with nothing saying which control drives the state you are
+   reading. The toggle moved up beside the chip. Keeping a consequential
+   toggle out of the bottom thumb-rest also makes it harder to mis-tap —
+   the same concern that ruled out a two-position switch in the first
+   place. `Cancel order` stayed in the action bar, which is now cleanly
+   order-scoped while the header is system-scoped. **§12.2's mockup has
+   been corrected**, and it is the second thing in this list that the
+   mockup got wrong and the table showed.
+
+413 tests (8 new). 5 more mutations checked red: `tare_all` taring only
+bin 0; `tare_all` reimplemented as 8 separate captures (caught by the
+one-window test, and it ran 8s slower); the bulk rollback dropped;
+"billing" restored in the refusal; `tare_all`'s setting-mode gate
+dropped. The staff-view shim harness grew to 44 assertions covering the
+gating, the disabled-tap doing nothing, and the whole bulk-tare flow.
+Builds clean, 0 errors and 0 warnings from `hotpot-table/src`.
+
+**Still owed, unchanged and now larger:** doc §21's M2.6 acceptance test
+on the rig. **None of the six fixes above has been seen on the projected
+surface either** — in particular the banner's new position and wording
+have only ever been reasoned about from the label geometry, never
+looked at. The one measurement that would settle #2 is a photograph of
+the far row with a two-line name and the banner up.
+
+**Not fixed, and it is a real complaint:** the live weight readout
+jitters. Options are written up in the session notes rather than here
+because none has been chosen; the short version is that the display
+deadband (I5) only suppresses *drift below 10g*, and nothing yet
+suppresses the 1-2g rms wobble on four of the eight channels
+(`noise_counts_rms` is measured and stored but is used only to colour the
+Bins tab's dot bar). The candidates are a median-of-3 on top of the
+existing median window, a settle-gated display that freezes the shown
+number until `scale`'s own settle detector says the bin is steady, and
+quantising the displayed grams to 5g. **The settle detector already
+exists and is already computed per bin, and is currently used by
+nothing** — that is the cheapest place to start.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

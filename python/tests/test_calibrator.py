@@ -246,6 +246,102 @@ class TestTheVerificationReading(CalibratorTestCase):
         self.assertTrue(self.saved().calibrated(4))
 
 
+class TestTareAll(CalibratorTestCase):
+    """Every bin zeroed at once, from ONE capture window. Taring is the
+    only half of doc section 12.4 that can be done in bulk — Calibrate
+    needs a reference mass physically in each bin, one at a time.
+    """
+
+    def test_all_eight_bins_are_tared(self):
+        """MUTATION CHECKED: `range(NUM_BINS)` -> `range(1)` in tare_all
+        and this goes red on bins 1-7.
+        """
+        rig = self.rig()
+        cal = self.calibrator(rig)
+        results = cal.tare_all()
+
+        self.assertEqual(len(results), 8)
+        self.assertEqual([r.bin for r in results], list(range(8)))
+        for i in range(8):
+            self.assertTrue(cal.cal.bins[i].tared, f"bin {i} not tared")
+            self.assertTrue(self.saved().bins[i].tared,
+                            f"bin {i} not persisted")
+
+    def test_each_bin_gets_its_own_zero_not_a_shared_one(self):
+        """The eight channels sit at wildly different counts empty (this
+        rig: -473574 to +204281). One capture window, but eight separate
+        zeros out of it — a bulk tare that wrote one shared number would
+        mis-weigh seven bins.
+        """
+        rig = self.rig()
+        cal = self.calibrator(rig)
+        cal.tare_all()
+        zeros = [cal.cal.bins[i].zero_counts for i in range(8)]
+        for i in range(8):
+            self.assertAlmostEqual(zeros[i], EMPTY[i], delta=50,
+                                    msg=f"bin {i} zeroed to the wrong channel")
+        self.assertEqual(len(set(zeros)), 8, "bins shared a zero")
+
+    def test_it_is_one_capture_window_not_eight(self):
+        """2s in total rather than 8 x 2s — and, more than speed, every
+        bin's zero comes from the same instant, so a drift affecting the
+        whole board lands on all of them identically.
+
+        MUTATION CHECKED: reimplement tare_all as a loop over self.tare(i)
+        and this goes red (8 captures, and it takes 8x as long).
+        """
+        rig = self.rig()
+        cal = self.calibrator(rig)
+        captures = []
+        real_capture = cal.reader.capture
+
+        def counting_capture(seconds):
+            captures.append(seconds)
+            return real_capture(seconds)
+
+        cal.reader.capture = counting_capture
+        cal.tare_all()
+        self.assertEqual(len(captures), 1,
+                          f"took {len(captures)} capture windows, wanted 1")
+
+    def test_it_does_not_set_counts_per_gram(self):
+        """Same contract as the single-bin tare: a tare is the load cell's
+        zero and must never touch a good two-point calibration.
+        """
+        rig = self.rig()
+        cal = self.calibrator(rig)
+        cal.tare(3)
+        rig.put(3, 500.0)
+        cal.calibrate(3, 500.0)
+        cpg_before = cal.cal.bins[3].counts_per_gram
+
+        rig.empty()
+        cal.tare_all()
+        self.assertEqual(cal.cal.bins[3].counts_per_gram, cpg_before)
+        self.assertTrue(cal.cal.bins[3].calibrated)
+
+    def test_a_failed_write_rolls_back_all_eight(self):
+        """Memory must never sit ahead of disk — the same rule
+        _apply_and_save enforces for one bin, applied to the set. Half the
+        bins tared in memory and none on disk is the state that bills
+        correctly all evening and comes back wrong from a restart.
+        """
+        rig = self.rig()
+        cal = self.calibrator(rig)
+        before = [cal.cal.bins[i].zero_counts for i in range(8)]
+
+        def boom(path):
+            raise OSError("disk full")
+
+        cal.cal.save = boom
+        with self.assertRaises(OSError):
+            cal.tare_all()
+        after = [cal.cal.bins[i].zero_counts for i in range(8)]
+        self.assertEqual(after, before, "a failed write left bins tared in memory")
+        for i in range(8):
+            self.assertFalse(cal.cal.bins[i].tared)
+
+
 class TestRefusals(CalibratorTestCase):
     """Doc section 12.4 step 3: show why, and do not save."""
 

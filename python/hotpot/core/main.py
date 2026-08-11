@@ -129,6 +129,14 @@ NOISE_BAR_SPAN_MULT = 2.0
 MODE_SERVING = "serving"
 MODE_SETTING = "setting"
 
+# Refusal shown when Tare or Calibrate is asked for outside setting mode.
+# **"serving", never "billing".** The system had grown two words for one
+# idea — the table banner said NOT BILLING while the mode was called
+# SERVING — which makes an operator work out that they mean the same
+# thing. One word, and it is the one that is already the mode's name.
+NOT_IN_SETTING_MSG = ("Enter setting mode first — the table is still "
+                      "serving.")
+
 
 def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
     """M1's fixed hand-built bin map (binmap.py's docstring, doc section
@@ -428,6 +436,9 @@ class Core:
         if t == "tare" or t == "calibrate":
             self._handle_cal(t, msg)
             return
+        if t == "tare_all":
+            self._handle_tare_all()
+            return
         if t == "set_mode":
             self._handle_set_mode(msg)
             return
@@ -509,6 +520,58 @@ class Core:
             else:
                 self.cart.mock_putback(i, float(grams))
 
+    def _in_setting(self) -> bool:
+        with self.state_lock:
+            return self.fsm.state is fsm.State.SETTING
+
+    def _handle_tare_all(self) -> None:
+        """Doc section 12.4's Tare, applied to all eight bins at once.
+
+        Setting the table means eight empty bins, so taring them one at a
+        time is eight trips through a wizard whose entire content is "the
+        bin is empty" — the step that most wanted a bulk version and the
+        only one that can have one. Calibrate cannot: each bin needs its
+        own reference mass physically in it.
+
+        Answered with one `cal_result` carrying `op: "tare_all"` and no
+        `bin`, rather than eight — the operator tapped one button and is
+        owed one sentence. The per-bin numbers reach the cards through the
+        next `bins` broadcast, 100ms later, which is where they belong.
+        """
+        if not self._in_setting():
+            self.web.broadcast({
+                "t": "cal_result", "bin": None, "op": "tare_all",
+                "ok": False, "message": NOT_IN_SETTING_MSG,
+            })
+            return
+        try:
+            results = self.calibrator.tare_all()
+        except calibrator.OPERATOR_ERRORS as e:
+            self.web.broadcast({"t": "cal_result", "bin": None,
+                                "op": "tare_all", "ok": False,
+                                "message": str(e)})
+            return
+        # A bin with no counts_per_gram yet cannot be quoted in grams at
+        # all (calibrator._result's own reasoning), so the summary counts
+        # what is now readable rather than claiming eight zeroes it did
+        # not measure.
+        read = [r for r in results if r.grams is not None]
+        noisy = [r.bin for r in results if r.noisy]
+        if read:
+            message = (f"All {len(results)} bins set as empty. "
+                       f"{len(read)} now read in grams.")
+        else:
+            message = (f"All {len(results)} bins set as empty. Now place a "
+                       "known weight in each and tap Calibrate.")
+        if noisy:
+            message += (" Noisy: bins "
+                        + ", ".join(str(b) for b in noisy) + ".")
+        self.web.broadcast({
+            "t": "cal_result", "bin": None, "op": "tare_all", "ok": True,
+            "message": message,
+            "bins": [r.bin for r in results],
+        })
+
     def _handle_cal(self, t: str, msg: Dict[str, Any]) -> None:
         """Doc section 12.4's Tare and Calibrate buttons.
 
@@ -536,12 +599,17 @@ class Core:
         # in serving mode, and would bill. The mode is what makes them
         # safe, which is why this replaced the per-bin cal_begin/cal_end
         # freeze rather than sitting alongside it.
-        with self.state_lock:
-            in_setting = self.fsm.state is fsm.State.SETTING
-        if not in_setting:
+        #
+        # The staff view disables both buttons outside setting mode and
+        # says why on the card, so an operator should never reach this.
+        # It stays as the authority anyway: the rule about what is safe to
+        # do to a bin belongs on the side that owns the cart, not in a
+        # tablet's markup, and a stale page must not be able to tare a
+        # billing table.
+        if not self._in_setting():
             self.web.broadcast({
                 "t": "cal_result", "bin": i, "op": t, "ok": False,
-                "message": "Enter setting mode first — the table is still billing.",
+                "message": NOT_IN_SETTING_MSG,
             })
             return
         try:

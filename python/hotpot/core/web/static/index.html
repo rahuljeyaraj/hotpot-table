@@ -178,6 +178,18 @@
     font-size: 13px; cursor: pointer;
   }
   .bin-btn:active { background: #2c2f37; }
+  /* Disabled, not hidden, and it explains itself: an operator who cannot
+     see the control cannot learn what unlocks it. `title` carries the
+     same sentence on hover/long-press; the toolbar hint carries it
+     permanently for touch, which has no hover. */
+  .bin-btn:disabled {
+    opacity: 0.4; cursor: not-allowed;
+  }
+  .bins-toolbar {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+  }
+  .bins-toolbar .bin-btn { flex: none; padding: 0 18px; }
+  .bins-toolbar-hint { font-size: 13px; color: var(--amber); }
   .bin-hint { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
 
   /* --- calibration wizard modal (doc section 12.4: "one screen at a
@@ -249,7 +261,12 @@
     background: var(--amber); border-color: var(--amber);
     color: #2a1f00;
   }
-  .action-note { font-size: 13px; color: var(--amber); }
+  .action-note { font-size: 13px; color: var(--amber); white-space: nowrap; }
+  .action-hint { font-size: 13px; color: var(--muted); }
+  /* Chip and toggle read as one control: the chip says what the table is
+     doing, the button says what tapping will do to it. */
+  .mode-group { display: flex; align-items: center; gap: 10px; }
+  .mode-group .action-btn { min-height: 44px; padding: 0 16px; font-size: 14px; }
   .modal-btn.danger {
     background: var(--red); border-color: var(--red);
     color: #2a0000; font-weight: 600;
@@ -303,7 +320,19 @@
          end to end). Staff view isn't customer-facing, so English until
          that toggle exists. -->
     <div class="title">Hot Pot</div>
-    <div class="mode" id="mode">—</div>
+    <!-- Mode chip and its toggle are ADJACENT, deliberately. §12.2's
+         mockup put the chip in the header and the button in the bottom
+         action bar; on a real tablet that reads as two unrelated things,
+         and you cannot tell which control changes the state you are
+         looking at. Keeping the consequential toggle out of the bottom
+         thumb-rest also makes it harder to mis-tap, which is the same
+         worry that ruled out a two-position switch. `Cancel order` stays
+         in the action bar: it is order-scoped, not system-scoped. -->
+    <div class="mode-group">
+      <div class="mode" id="mode">—</div>
+      <button id="modeBtn" class="action-btn primary">ENTER SETTING MODE</button>
+    </div>
+    <div class="action-note" id="modeNote"></div>
     <div class="order" id="order">—</div>
     <div class="spacer"></div>
     <div class="pips" id="pips"></div>
@@ -340,6 +369,14 @@
            M2's build item 5. -->
       <div class="bins-shell">
         <div class="serial-status" id="serialStatus">Load cells: —</div>
+        <!-- Setting the table means eight empty bins at once, so Tare —
+             the one step whose whole content is "the bin is empty" — gets
+             a bulk button. Calibrate cannot join it: each bin needs its
+             own reference mass physically placed in it. -->
+        <div class="bins-toolbar">
+          <button id="tareAllBtn" class="bin-btn">Tare all 8 bins</button>
+          <div class="bins-toolbar-hint" id="binsHint"></div>
+        </div>
         <div class="bins-grid" id="binsGrid"></div>
       </div>
     </section>
@@ -349,8 +386,7 @@
        written in M1 and confirms before it fires, because it
        re-baselines. -->
   <section class="action-bar">
-    <button id="modeBtn" class="action-btn primary">ENTER SETTING MODE</button>
-    <div class="action-note" id="modeNote"></div>
+    <div class="action-hint" id="actionHint"></div>
     <div class="spacer"></div>
     <button id="cancelBtn" class="action-btn">Cancel order</button>
   </section>
@@ -483,6 +519,13 @@
   // says where the live socket lives instead of leaving it to hoisting.
   var currentWs = null;
 
+  // The mode, declared up here for the same reason: the Bins tab's
+  // gating reads it and is defined before the action bar that drives it.
+  // "serving" is the safe assumption before the join seed arrives —
+  // it leaves Tare and Calibrate disabled until core says otherwise.
+  var mode = "serving";
+  var cartActive = false;
+
   function sendMock(kind, bin, grams) {
     if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
     currentWs.send(JSON.stringify({ t: kind, bin: bin, grams: grams }));
@@ -583,11 +626,17 @@
       var tareBtn = document.createElement("button");
       tareBtn.className = "bin-btn";
       tareBtn.textContent = "Tare";
-      tareBtn.addEventListener("click", function () { openWizard(bin, "tare"); });
+      tareBtn.addEventListener("click", function () {
+        if (tareBtn.disabled) return;
+        openWizard(bin, "tare");
+      });
       var calBtn = document.createElement("button");
       calBtn.className = "bin-btn";
       calBtn.textContent = "Calibrate";
-      calBtn.addEventListener("click", function () { openWizard(bin, "calibrate"); });
+      calBtn.addEventListener("click", function () {
+        if (calBtn.disabled) return;
+        openWizard(bin, "calibrate");
+      });
       actions.appendChild(tareBtn);
       actions.appendChild(calBtn);
       card.appendChild(actions);
@@ -605,10 +654,39 @@
       binCards[bin] = {
         nameEl: nameEl, gramsEl: gramsEl, priceEl: priceEl,
         dotEls: dotEls, noiseRow: noiseRow, noiseLabel: noiseLabel,
-        hintEl: hintEl,
+        hintEl: hintEl, tareBtn: tareBtn, calBtn: calBtn,
       };
     })(bi);
   }
+
+  // --- gating Tare/Calibrate on the mode (doc §12.4) --------------------
+  // These used to stay live in serving mode and fail only AFTER the
+  // operator had emptied a bin, opened the wizard and tapped Confirm —
+  // the refusal arrived at the last possible moment, having wasted the
+  // one step that takes physical work. Disabled up front instead, with
+  // the reason on the card, so the answer arrives before the effort.
+  var tareAllBtn = document.getElementById("tareAllBtn");
+  var binsHint = document.getElementById("binsHint");
+  var NEEDS_SETTING = "Enter setting mode to tare or calibrate.";
+
+  function applyBinGating() {
+    var on = mode === "setting";
+    binsHint.textContent = on ? "" : NEEDS_SETTING;
+    tareAllBtn.disabled = !on;
+    tareAllBtn.title = on ? "" : NEEDS_SETTING;
+    binCards.forEach(function (c) {
+      if (!c) return;
+      c.tareBtn.disabled = !on;
+      c.calBtn.disabled = !on;
+      c.tareBtn.title = on ? "" : NEEDS_SETTING;
+      c.calBtn.title = on ? "" : NEEDS_SETTING;
+    });
+  }
+
+  tareAllBtn.addEventListener("click", function () {
+    if (tareAllBtn.disabled) return;
+    openBulkTare();
+  });
 
   function applyBins(msg) {
     var s = msg.serial || {};
@@ -673,6 +751,13 @@
     calBackdrop.classList.add("show");
   }
 
+  // bin === null is the bulk tare. It rides the same one-screen-at-a-time
+  // wizard rather than a second dialog, because it is the same flow with
+  // the same three screens — confirm, capturing, done.
+  function openBulkTare() {
+    openWizard(null, "tare_all");
+  }
+
   function closeWizard() {
     wizard = null;
     calBackdrop.classList.remove("show");
@@ -688,12 +773,24 @@
 
   function renderWizard() {
     if (!wizard) return;
-    calTitle.textContent = "Bin " + wizard.bin;
+    calTitle.textContent = wizard.op === "tare_all"
+      ? "All 8 bins" : "Bin " + wizard.bin;
     calBody.innerHTML = "";
     calActions.innerHTML = "";
     calBody.classList.remove("error");
 
-    if (wizard.step === "confirm" && wizard.op === "tare") {
+    if (wizard.step === "confirm" && wizard.op === "tare_all") {
+      calBody.appendChild(document.createTextNode(
+        "Make sure all 8 bins are empty. This zeroes every bin from one "
+        + "2-second reading, so they all share the same instant."));
+      calActions.appendChild(modalButton("Cancel", false, closeWizard));
+      calActions.appendChild(modalButton("Confirm", true, function () {
+        wizard.step = "capturing";
+        renderWizard();
+        sendCal({ t: "tare_all" });
+      }));
+
+    } else if (wizard.step === "confirm" && wizard.op === "tare") {
       calBody.appendChild(document.createTextNode(
         "Make sure bin " + wizard.bin + " is empty."));
       calActions.appendChild(modalButton("Cancel", false, closeWizard));
@@ -781,13 +878,11 @@
   var modeBtn = document.getElementById("modeBtn");
   var modeNote = document.getElementById("modeNote");
   var cancelBtn = document.getElementById("cancelBtn");
+  var actionHint = document.getElementById("actionHint");
   var actBackdrop = document.getElementById("actBackdrop");
   var actTitle = document.getElementById("actTitle");
   var actBody = document.getElementById("actBody");
   var actActions = document.getElementById("actActions");
-
-  var mode = "serving";
-  var cartActive = false;
 
   // Whether *this* tablet is the one waiting on a set_mode it sent.
   // The `mode` reply is a broadcast to every attached tablet (core's
@@ -870,6 +965,13 @@
     // The pre-warn `cart_active` is on the wire for: the operator sees
     // the reason a tap is about to be refused before making it.
     modeNote.textContent = (!setting && cartActive) ? "An order is in progress" : "";
+    actionHint.textContent = setting
+      ? "Not serving — the table is not charging anyone while this is on."
+      : "";
+
+    // Tare and Calibrate live or dead follows the mode, so the answer
+    // arrives before the operator empties a bin, not after.
+    applyBinGating();
 
     if (msg.refused && awaitingMode) showRefusal(msg.refused);
     awaitingMode = false;
@@ -879,6 +981,12 @@
     sendMode(mode === "setting" ? "serving" : "setting");
   });
   cancelBtn.addEventListener("click", askCancelOrder);
+
+  // Before the join seed arrives the page has no idea what the mode is,
+  // so it renders the safe one: Tare and Calibrate dead, with the reason
+  // showing. A page that started them live and switched them off a
+  // moment later would invite exactly the mistimed tap this replaces.
+  applyBinGating();
 
   // Reconnect with the same shape of backoff as every other client in
   // this system (doc section 20.2) — a tablet left on overnight should

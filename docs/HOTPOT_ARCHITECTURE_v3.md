@@ -947,14 +947,15 @@ The staff view is not a debug page. It is the calibration surface, the diagnosti
 
 The six pips are `camera · tracker · classifier · voice · core · table`, each green/amber/red, each tappable for detail. `table` means oF. Colour alone is never the only signal — each pip also carries a one-letter code, because kitchen lighting and colour-blindness both exist.
 
-The **mode chip** in the header shows the live mode: neutral in serving, **amber** in setting, matching the table's own amber chrome (I8) so the tablet and the table are visibly one statement. Its text changes with its hue, per the same never-colour-alone rule as the pips.
+The **mode chip** shows the live mode: neutral in serving, **amber** in setting, matching the table's own amber chrome (I8) so the tablet and the table are visibly one statement. Its text changes with its hue, per the same never-colour-alone rule as the pips.
 
-The **action bar** is fixed to the bottom, above the developer panel, on every tab:
+**The mode toggle sits immediately beside the chip, in the header — not in the action bar**, which is where the mockup above puts it. Correcting the mockup, after seeing it on a tablet: a status indicator at the top-left and the control that changes it at the bottom-left read as two unrelated things, and nothing tells you which control drives the state you are looking at. State and its control go together. Keeping a consequential toggle out of the bottom thumb-rest also makes it harder to mis-tap, which is the same concern that ruled out a two-position switch.
 
 - **One primary button that names what happens next** — `ENTER SETTING MODE` / `EXIT SETTING MODE`. Not a two-position switch: §12.1 is "one primary action per screen", and a switch invites a mis-tap into the one transition that destroys a diner's order.
 - **When refused, the button stays tappable and explains.** It is never disabled silently. Tapping with an active cart shows §9.1's reason verbatim, plus a "Cancel the order first" action wired to `Cancel order` — that pairing is what §9.1 requires.
-- `Cancel order` confirms before it fires, because it re-baselines.
-- The mode message carries `cart_active` alongside the mode, so the bar can pre-warn beside the button before a tap is made rather than after a round trip.
+- The mode message carries `cart_active` alongside the mode, so the button can pre-warn beside itself before a tap is made rather than after a round trip.
+
+The **action bar** stays fixed to the bottom, above the developer panel, on every tab, and holds what is **order-scoped** rather than system-scoped: `Cancel order`, which confirms before it fires because it re-baselines. That split — system state in the header, order actions in the bar — is why the toggle moved and `Cancel order` did not.
 
 ### 12.3 Tab: Live
 
@@ -980,7 +981,11 @@ Eight cards. Each card, top to bottom:
 └────────────────────────────┘
 ```
 
-**Tare and Calibrate both require setting mode** (§9.1) and are refused in serving mode with a plain-language reason. The flow below asks the operator to empty a bin and then place a reference mass in it; in serving mode both of those are ordinary picks and would bill. The mode is what makes them safe — it replaced an earlier per-bin billing freeze that existed only because no mode-wide "not billing" state had been built yet.
+**Tare and Calibrate both require setting mode** (§9.1). The flow below asks the operator to empty a bin and then place a reference mass in it; in serving mode both of those are ordinary picks and would be charged for. The mode is what makes them safe — it replaced an earlier per-bin freeze that existed only because no mode-wide state had been built yet.
+
+**Both buttons are disabled outside setting mode, and say why** — on the card permanently, and in a `title` for hover. They are never left live to fail at the end. The first version refused only when the request reached core, which meant the operator had already emptied the bin, opened the wizard and tapped Confirm before being told: the answer arrived after all the physical work, at the last possible moment. Core still refuses independently — the rule about what is safe to do to a bin belongs on the side that owns the cart, and a stale page must not be able to tare a serving table — but no operator should ever see that refusal.
+
+**Tare has a bulk button; Calibrate cannot have one.** Setting the table means eight empty bins at once, and taring them one at a time is eight trips through a wizard whose entire content is "the bin is empty". `Tare all 8 bins` does every bin from **one** capture window — `scale.capture()` already reduces all eight channels over the same window — so it takes 2 s rather than 8 × 2 s, and every bin's zero comes from the same instant, which matters more than the speed: a drift affecting the whole board lands on all of them identically instead of being smeared across sixteen seconds. Each bin still gets its own zero out of that window; a shared one would mis-weigh seven bins. Calibrate has no bulk form because each bin needs its own reference mass physically placed in it, one at a time.
 
 Calibration flow, one screen at a time, no branching:
 
@@ -1248,8 +1253,25 @@ The fluid must not just respond to hands. It must respond to the *transaction*. 
 Setting mode look, corrected:
 
 - **The field and the bin patches are identical to serving mode.** Same white, same `field_level`, same light pass. This is not negotiable and is not a look.
-- The mode difference is carried entirely by **hue and chrome**, per I8: amber UI chrome instead of red, a persistent banner strip along the top edge reading **`SETTING — NOT BILLING`**, and every bin plate showing its numeric grams and raw confidence. The banner names the consequence, not the state — "not billing" is the thing a person three metres away needs to know.
+- The mode difference is carried entirely by **hue and chrome**, per I8: amber UI chrome instead of red, a persistent banner **panel** (see below), and every bin plate showing its numeric grams and raw confidence.
   - **The Chinese string is NOT decided and must not be invented.** `zh` locale data does not exist yet (M1 is English-only end to end) and §17.3 is explicit that Chinese judges will read this. Get it confirmed by a native speaker before any zh string ships. The banner is English-only until then.
+
+#### The banner panel — position and words
+
+Two corrections, both made after seeing the first version on the table.
+
+**It is not a full-width strip along the top edge.** That is what this section said, and it covered the far row's item names. Those labels are drawn *upward* from their rings into the 177 mm far margin, and a two-line wrapped name puts ink as high as ~50 px — inside a 72 px strip. Staff have to read those names to confirm which tray is which, during setting mode above all, which is precisely when the banner is up. Covering them defeats the mode.
+
+The panel therefore sits in the **centre column** — the span between bin 1's right edge and bin 2's left edge, the pot gap — which is the one horizontal span on the table with no bin and no label in it, by construction. Derive it from the bin rects, never hardcode it. Being narrower it is taller and two-line; a ~440 × 88 mm amber block is still unmistakable from three metres, which was the actual goal. The strip shape was only ever one way to get there.
+
+**The words are for a diner, not an operator.** Both banners lead with the same headline:
+
+| State | Headline | Subline | Fill |
+|---|---|---|---|
+| setting mode | `NOT SERVING` | `setting the table` | amber |
+| `overlay.kind == "error"` | `NOT SERVING` | `scales offline` | red |
+
+The headline is the only part a diner needs and is equally true of both; which one it is matters only to the operator, who gets it from the subline and the hue. The earlier text said `NOT BILLING`, which is an internal word on an external surface — and it was the system's **second** word for an idea the mode was already calling *serving*. **There is one word now, "serving", and it is used everywhere**: the banner, the mode name, and the staff view's refusal messages. Do not reintroduce "billing" in anything an operator or a diner reads; it survives only in code comments about the cart.
 - The 100 mm calibration grid is drawn as **dark lines on the light field**, and is **masked out of the bin patches** — the light pass (§13.2) does this for free, but it is worth knowing why the grid appears to break at the cutouts. Dark lines crossing a cutout are exactly the patterned shadow I9 exists to prevent; that is not a rendering bug and must not be "fixed."
 - Fluid off plus a visible grid plus amber chrome plus a banner is still unmissable from across the room, which was the actual goal. Darkness was only ever one way to achieve it, and it was the one way that broke the classifier.
 

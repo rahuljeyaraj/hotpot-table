@@ -80,6 +80,13 @@ namespace {
 	const ofColor kSettingBannerFill(232, 179, 61);   // #e8b33d
 	const ofColor kSettingBannerInk(42, 31, 0);       // #2a1f00
 
+	// The banner panel. Height is in px, not mm, because it is sized to
+	// the two font sizes it holds rather than to anything physical.
+	// The inset is the breathing room from the pot-gap edges — see
+	// drawBanner for why the panel lives in that gap at all.
+	const float kBannerHeightPx = 104.0f;
+	const float kBannerInsetMM = 10.0f;
+
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
 		if(text.empty() || !font.isLoaded()){
@@ -431,32 +438,64 @@ void UiLayer::drawConnectionIndicator(bool connected, float staleSeconds) const 
 }
 
 void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
-	const std::string & text) const {
+	const std::string & headline, const std::string & subline) const {
 	// Doc §14.5's pattern for naming a persistent, whole-table state
-	// loudly without touching the light field: "a persistent banner strip
-	// along the top edge". Built for `overlay.kind == "error"` at M2 and
-	// generalised at M2.6, when setting mode became the second thing that
-	// needed exactly this — same strip, different hue and words.
+	// loudly without touching the light field. Built for `overlay.kind ==
+	// "error"` at M2 and generalised at M2.6, when setting mode became the
+	// second thing that needed exactly this — same panel, different hue
+	// and words.
 	//
-	// Sits above every bin: the nearest cutout (far row, bins 0-3) starts
-	// at mmToPxY(177mm) =~ 209px, well clear of this 72px strip. Safe even
-	// if geometry ever changed underneath it — Stage's light pass runs
-	// after UiLayer and re-stamps every cutout white regardless of what
-	// this draws (doc §13.2's "any overlay added later" safety property).
+	// **NOT a full-width strip along the top edge, which is what §14.5
+	// literally said and what this drew until it was seen on the table.**
+	// The far row's labels are drawn ABOVE their rings, upward into the
+	// 177mm far margin: a two-line wrapped name (which several catalogue
+	// names are, at 36px in a 200mm box) puts ink as high as ~50px, and a
+	// 72px full-width strip covered it. Staff have to READ those names to
+	// confirm which tray is which — during setting mode above all, which
+	// is exactly when this banner is up. Covering them defeated the mode.
+	//
+	// So the panel is confined to the centre column: the span between
+	// bin 1's right edge and bin 2's left edge, which TableGeometry.h
+	// calls "a wide gap up the middle for the pot" and which is the one
+	// horizontal span on the table with no bin and no label in it, by
+	// construction. Derived from BINS rather than hardcoded, so moving a
+	// bin moves the panel with it.
+	//
+	// Being narrower, it is taller and two-line instead — a ~440x88mm
+	// amber block is still unmistakable from three metres, which was the
+	// actual goal, and the strip shape was only ever one way to get there.
+	//
+	// Stage's light pass runs after UiLayer and re-stamps every cutout
+	// white regardless of what this draws (doc §13.2's "any overlay added
+	// later" safety property), so this can never darken a bin patch.
 	//
 	// Bins and the total keep drawing underneath (draw() calls this after
 	// them, not instead of them) — doc §13.3's rule for a dead core link
 	// applies just as well to a dead scale link: "It does not black out —
 	// a frozen table is far better... than a dead one."
-	const float w = (float)PROJ_W_PX;
-	const float bannerH = 72.0f;
+	const float gapLeftMM = BINS[1].xMM + BINS[1].wMM;
+	const float gapRightMM = BINS[2].xMM;
+	const float insetPx = mmToPxX(kBannerInsetMM);
+	const float x = mmToPxX(gapLeftMM) + insetPx;
+	const float w = mmToPxX(gapRightMM - gapLeftMM) - 2.0f * insetPx;
+	const float h = kBannerHeightPx;
+	const float cx = x + w * 0.5f;
 
 	ofSetColor(fill);
-	ofDrawRectangle(0.0f, 0.0f, w, bannerH);
+	ofDrawRectangle(x, 0.0f, w, h);
 
 	ofSetColor(ink);
-	drawCentered(_nameFont, text,
-		w * 0.5f, bannerH * 0.5f + _nameFont.getAscenderHeight() * 0.5f);
+	// Two lines, centred as a block: the headline is what a diner reads
+	// from across the room and says nothing about modes or billing; the
+	// subline is the operator's word for which state it is. Both audiences
+	// are looking at the same table (doc §12.1's no-jargon rule applies
+	// here more than anywhere — this surface has no operator filter on it).
+	const float lineGap = 8.0f;
+	const float blockH = _nameFont.getAscenderHeight() + lineGap
+		+ _detailFont.getAscenderHeight();
+	const float top = (h - blockH) * 0.5f;
+	drawCentered(_nameFont, headline, cx, top + _nameFont.getAscenderHeight());
+	drawCentered(_detailFont, subline, cx, h - top);
 	ofSetColor(255);
 }
 
@@ -482,14 +521,21 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	// is English-only end to end) and §17.3 is explicit that Chinese
 	// judges will read this, so the zh text must be confirmed by a native
 	// speaker before it ships rather than guessed at here.
+	// Both banners lead with the SAME headline, deliberately. "NOT
+	// SERVING" is the only part a diner needs, and it is equally true of
+	// both states; which one it is only matters to the operator, who gets
+	// it from the subline and from the hue (I8). The old wording said
+	// "NOT BILLING" — an internal word for an external surface, and the
+	// system's own second word for the same idea. There is one word now,
+	// "serving", and it is the one a diner already understands.
 	if(state.mode == "setting"){
 		drawBanner(kSettingBannerFill, kSettingBannerInk,
-			"SETTING \xE2\x80\x94 NOT BILLING");
+			"NOT SERVING", "setting the table");
 		return;
 	}
 	if(state.overlayKind == "error"){
 		drawBanner(kErrorBannerFill, kErrorBannerInk,
-			"SCALES OFFLINE \xE2\x80\x94 NOT BILLING");
+			"NOT SERVING", "scales offline");
 	}
 }
 

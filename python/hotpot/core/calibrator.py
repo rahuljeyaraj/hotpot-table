@@ -69,7 +69,7 @@ import logging
 import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, List, Optional
 
 from hotpot.core import loadcell_cal, scale
 
@@ -173,6 +173,44 @@ class Calibrator:
                 i, lambda: self.cal.tare(i, cap.counts[i], cap.noise_rms[i]))
             log.info("calibrator: bin %d tared over %d samples", i, cap.n)
             return self._result(i, "tare", cap)
+
+    def tare_all(self, seconds: Optional[float] = None) -> List[Result]:
+        """Every bin zeroed at once, from ONE capture window.
+
+        Taring is the only half of doc section 12.4 that can be done in
+        bulk, and it is the half an operator does most: setting the table
+        means eight empty bins at once, and doing them one at a time is
+        eight trips through the wizard for a step whose whole content is
+        "the bin is empty". Calibrate cannot join it — each bin needs its
+        own reference mass physically placed in it, one at a time, so
+        there is no such thing as calibrating all eight from one window.
+
+        One capture, not eight: `scale.capture()` already reduces all
+        eight channels over the same window (`cap.counts` is a list of 8),
+        so the bulk version is 2s in total rather than 8 x 2s. That is not
+        just faster — it means every bin's zero is taken from the same
+        instant, so a drift affecting the whole board lands on all of them
+        identically instead of being spread across sixteen seconds.
+
+        Saved once, at the end, with all eight rolled back together if the
+        write fails — the same memory-never-ahead-of-disk rule
+        `_apply_and_save` enforces for one bin, applied to the set.
+        """
+        with self._one_at_a_time():
+            cap = self.reader.capture(self._seconds(seconds))
+            before = [replace(b) for b in self.cal.bins]
+            try:
+                for i in range(NUM_BINS):
+                    self.cal.tare(i, cap.counts[i], cap.noise_rms[i])
+                self.cal.save(self.path)
+            except Exception:
+                self.cal.bins = before
+                log.exception("calibrator: cannot write %s — all 8 bins "
+                              "rolled back", self.path)
+                raise
+            log.info("calibrator: all %d bins tared over %d samples",
+                     NUM_BINS, cap.n)
+            return [self._result(i, "tare", cap) for i in range(NUM_BINS)]
 
     def calibrate(self, i: int, ref_mass_g: float = DEFAULT_REF_MASS_G,
                   seconds: Optional[float] = None) -> Result:
