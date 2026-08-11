@@ -93,6 +93,19 @@ class BinCal:
     def calibrated(self) -> bool:
         return self.counts_per_gram is not None and self.counts_per_gram != 0.0
 
+    @property
+    def tared(self) -> bool:
+        """Whether `tare()` has ever run against this cell — i.e. it is
+        not still byte-for-byte its first-boot default.
+
+        Centralises the "never tared" check `Calibrator.calibrate()`
+        (doc section 12.4 step 3) refuses on: an untared bin's
+        `zero_counts` is 0 while an empty cell on this rig sits near
+        -287,000 counts, so the fit comes out ~4x too steep and still
+        passes the `abs(cpg) < 10` sanity check.
+        """
+        return self != BinCal(i=self.i)
+
     def grams(self, counts: Optional[float]) -> Optional[float]:
         """Doc section 9.6 line 3. None out when this cell has never been
         calibrated, or when the caller had no counts to give — never 0.0.

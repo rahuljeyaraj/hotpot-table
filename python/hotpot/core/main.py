@@ -1,32 +1,42 @@
-"""Core process — M0 scope (doc section 21, build item 7), plus M1 build
-item 3: the domain modules wired in and broadcasting `state` at 60Hz.
+"""Core process — M0 scope (doc section 21, build item 7), M1 build item
+3 (the domain modules wired in and broadcasting `state` at 60Hz), and now
+M2 build item 4: the staff view's Bins tab (doc section 12.4).
 
 What exists here: the one control server every other process dials into,
 the client registry that turns hellos and heartbeats into the six status
 pips, a minimal staff view that pushes those pips to the browser over a
-WebSocket, and — new in M1 — the five pure domain modules from build item
-2 (pricing, cart, binmap, i18n, fsm) held as Core's state and serialised
-into doc section 4.3's `state` message, sent to `of` at a fixed 60Hz.
+WebSocket, the five pure domain modules from M1 build item 2 (pricing,
+cart, binmap, i18n, fsm) held as Core's state and serialised into doc
+section 4.3's `state` message sent to `of` at a fixed 60Hz, and — new
+here — the load-cell reader and calibrator (core/scale.py,
+core/calibrator.py) that the Bins tab drives over a second, lower-rate
+broadcast to the web hub.
 
-**Do NOT** (M0 build list, doc section 21): open the camera, open the
-serial port, touch MediaPipe, or write any oF code. This file does none
-of those — it does not even know those things exist yet.
+M2 build item 5 ("wire real grams into pricing") is deliberately still
+undone: the Bins tab's grams come straight from `self.scale.read()`, and
+Cart still runs on M1's mock seed. The two sources are separate on
+purpose until that build item replaces the mock with the scale reading.
+
+**Do NOT** (M0 build list, doc section 21): open the camera, touch
+MediaPipe, or write any oF code. This file does none of those.
 
 Host and port are hardcoded to the doc section 4.1 defaults, same as
 common/stub.py and for the same reason: config loading is not built until
-it has a reader that needs more than one key.
+it has a reader that needs more than one key. `SCALE_PORT` below is the
+same story — doc section 8.6's config example has no serial-port key yet.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from hotpot.common import health, log, wire
-from hotpot.core import binmap, cart, fsm, i18n, pricing
+from hotpot.core import binmap, calibrator, cart, fsm, i18n, loadcell_cal, pricing, scale
 from hotpot.core.web import server as web
 
 _log = logging.getLogger("hotpot.core")
@@ -64,6 +74,28 @@ STATE_INTERVAL = 1.0 / STATE_HZ
 # docstring ("Where live_g comes from is not this module's business").
 MOCK_SEED_GRAMS = 500.0
 
+# Doc section 8.6's config example has no serial-port key (a known gap —
+# config loading is not built, CLAUDE.md's "Known gaps" list). Hardcoded
+# the same way CONTROL_PORT/WEB_PORT are, and matches this dev rig's XIAO
+# (CLAUDE.md, verified 2026-08-11). Not the deploy machine's port — that
+# is unmeasured and waits on config loading, same as every other §8.6 key.
+SCALE_PORT = "COM5"
+
+# Doc section 12.4's Bins tab is "live" but does not need `state`'s 60Hz —
+# nobody reads eight numbers that fast. 10Hz (every 6th state tick) is
+# comfortably above flicker perception for a static numeric readout and a
+# sixth of the traffic to a tablet that may be on Wi-Fi.
+BINS_BROADCAST_EVERY = 6
+
+# Doc section 12.4's "●●●●●●○○" noise-indicator dot bar. The doc gives the
+# mockup, not a formula, so this is a UI heuristic, not a check anything
+# bills from: 8 dots, spanning 2x the settle tolerance so a cell exactly
+# at doc section 9.5's settle boundary — the number that actually
+# matters — reads exactly half full, a quieter cell reads fuller, and a
+# cell at or past twice the tolerance reads empty.
+NOISE_DOTS = 8
+NOISE_BAR_SPAN_MULT = 2.0
+
 
 def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
     """M1's fixed hand-built bin map (binmap.py's docstring, doc section
@@ -92,6 +124,18 @@ def _seed_cart() -> cart.Cart:
     return c
 
 
+def _noise_dots(noise_g: Optional[float], settle_tol_g: float) -> Optional[int]:
+    """Doc section 12.4's dot bar, 0-8. `None` (not 0) when the bin has
+    never been calibrated — there is no noise number to show, and 0 dots
+    would read as "extremely noisy" rather than "unmeasured".
+    """
+    if noise_g is None:
+        return None
+    span = settle_tol_g * NOISE_BAR_SPAN_MULT
+    quiet = 1.0 - (noise_g / span if span > 0 else 1.0)
+    return round(NOISE_DOTS * max(0.0, min(1.0, quiet)))
+
+
 class Core:
     """Everything M0 wires up, held together so tests and main() can start
     and stop it as one unit rather than three separately-ordered pieces.
@@ -105,6 +149,9 @@ class Core:
         web_port: int = WEB_PORT,
         static_root: Path = STATIC_ROOT,
         data_dir: Path = DATA_DIR,
+        scale_port: str = SCALE_PORT,
+        cal_path: Path = calibrator.CAL_PATH,
+        scale_open_port: Optional[Callable[[], Any]] = None,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -130,6 +177,36 @@ class Core:
         self.binmap = _seed_binmap(self.catalogue)
         self.cart = _seed_cart()
         self.fsm = fsm.Fsm(self.cart)
+
+        # -- M2 build item 4: the Bins tab's reader and calibrator ------
+        # calibrator.py's own docstring gives this exact wiring order:
+        # load the saved calibration, hand it to the reader (never a
+        # copy — see that module's docstring on why), and hand the
+        # reader to the Calibrator. Building it here, always, rather
+        # than only once a tablet opens the Bins tab: a missing or
+        # unplugged XIAO is the ordinary boot state (scale.py's own
+        # docstring) and the reader's backoff loop handles it quietly.
+        #
+        # `cal_path` is a parameter (defaulting to the real doc section
+        # 8.3 file), not a hardcoded read of calibrator.CAL_PATH, purely
+        # so a test can point it at a throwaway file the way
+        # test_calibrator.py already does — this is the one file in the
+        # repo doc section 9.6 calls out as able to silently mis-bill,
+        # and a test run must never read or write the real one.
+        #
+        # `scale_open_port` exists for the same reason and is not a
+        # hypothetical: SCALE_PORT's default is this dev machine's real
+        # port, and on it COM5 is a live XIAO (verified 2026-08-11) — a
+        # test that leaves this None gets Core's own reader thread
+        # racing real hardware counts against whatever it just fed in
+        # through scale.feed(). scale.ScaleReader's own docstring built
+        # this hook for exactly this: "the numbers in here can silently
+        # mis-bill, so they have to be reachable from a test" with no
+        # port attached.
+        self.cal = loadcell_cal.Calibration.load(cal_path)
+        self.scale = scale.ScaleReader(scale_port, cal=self.cal,
+                                       open_port=scale_open_port)
+        self.calibrator = calibrator.Calibrator(self.scale, path=cal_path)
 
         # I1 says core owns all state; it does not say core touches it from
         # one thread, and core does not. Reads happen on the 60Hz broadcast
@@ -164,6 +241,7 @@ class Core:
         self.registry.start()
         self.control.start()
         self.web.start()
+        self.scale.start()
         self._self_beat.start()
         # BOOT -> IDLE always succeeds until M4 adds the UNCALIBRATED
         # check (fsm.py's docstring); M1 has nothing to wait on.
@@ -177,6 +255,7 @@ class Core:
         if self._state_thread is not None and self._state_thread.is_alive():
             self._state_thread.join(2.0)
         self._self_beat.stop()
+        self.scale.stop()
         self.web.stop()
         self.control.stop()
         self.registry.stop()
@@ -227,19 +306,20 @@ class Core:
         self.web.broadcast(self._pips_msg())
 
     # -- developer-panel mock controls (doc section 12.8, build item 5) -----
+    # -- and the Bins tab's Tare/Calibrate wizard (doc section 12.4, M2) ----
 
     def _on_web_message(self, msg: Dict[str, Any]) -> None:
-        """Everything the staff view can send. M1 has exactly one pair:
-        the mock pick/put-back buttons that stand in for load cells until
-        M2 wires up core/scale.py. Both go through cart.py's mock_pick/
-        mock_putback — the same entry point test_core_main.py's
-        TestStateBroadcast pokes directly, closing the gap that test's
-        docstring calls out ("bypasses the developer panel, not built
-        yet").
+        """Everything the staff view can send: M1's mock pick/put-back
+        pair (cart.py's mock_pick/mock_putback — the same entry point
+        test_core_main.py's TestStateBroadcast pokes directly) and now
+        M2's tare/calibrate pair (calibrator.Calibrator's two flows).
         """
         t = msg.get("t")
         if t == "mock_pick" or t == "mock_putback":
             self._handle_mock(t, msg)
+            return
+        if t == "tare" or t == "calibrate":
+            self._handle_cal(t, msg)
             return
         _log.debug("web: unhandled message type %r from a tablet", t)
 
@@ -258,6 +338,106 @@ class Core:
             else:
                 self.cart.mock_putback(i, float(grams))
 
+    def _handle_cal(self, t: str, msg: Dict[str, Any]) -> None:
+        """Doc section 12.4's Tare and Calibrate buttons.
+
+        Blocking — a capture window is a duration, calibrator.py's own
+        docstring says so — and that is fine here: web/server.py gives
+        every tablet its own thread, so one operator's 2s capture stalls
+        only their own screen, which is exactly what the wizard is asking
+        them to wait through, not anyone else's connection.
+
+        Replies by broadcast, not a direct answer to the asking tablet:
+        web/server.py's `on_message` hands this callback the decoded
+        frame only, with no handle back to the connection it arrived on
+        (see server.py's docstring). Every attached tablet sees the
+        result, which matches how the six pips and the Bins tab's own
+        `bins` message already work, rather than growing the wire
+        protocol to answer one screen.
+        """
+        i = msg.get("bin")
+        if not isinstance(i, int) or isinstance(i, bool) or not (0 <= i < binmap.NUM_BINS):
+            _log.warning("web: %s with bad bin %r — ignored", t, i)
+            return
+        try:
+            if t == "tare":
+                result = self.calibrator.tare(i)
+            else:
+                ref_mass_g = msg.get("ref_mass_g", calibrator.DEFAULT_REF_MASS_G)
+                # isfinite, not just isinstance: a NaN or Infinity ref
+                # mass survives `ref_mass_g <= 0` (every comparison
+                # against NaN is False) and would otherwise reach
+                # loadcell_cal.calibrate() and get written into
+                # state/loadcell_cal.json — the one file doc section
+                # 9.6's docstring calls out as able to silently mis-bill.
+                if (not isinstance(ref_mass_g, (int, float))
+                        or isinstance(ref_mass_g, bool)
+                        or not math.isfinite(ref_mass_g)):
+                    _log.warning("web: calibrate bin %d with bad ref_mass_g %r "
+                                "— ignored", i, ref_mass_g)
+                    return
+                result = self.calibrator.calibrate(i, float(ref_mass_g))
+        except calibrator.OPERATOR_ERRORS as e:
+            self.web.broadcast({"t": "cal_result", "bin": i, "op": t,
+                                "ok": False, "message": str(e)})
+            return
+        self.web.broadcast({
+            "t": "cal_result", "bin": i, "op": t, "ok": True,
+            "message": result.message, "grams": result.grams,
+            "noise_g": result.noise_g, "noisy": result.noisy,
+        })
+
+    # -- the Bins tab (doc section 12.4, M2 build item 4) --------------------
+
+    def _bins_tab_msg(self) -> Dict[str, Any]:
+        """8 cards' worth of data. Grams come straight from
+        `self.scale.read()`, not Cart — build item 5 ("wire real grams
+        into pricing") is what makes those the same number; until then
+        this tab and the diner/mock path read two different sources on
+        purpose (see this module's docstring).
+
+        Read without `state_lock`: that lock protects the billing
+        snapshot (cart+binmap+total as one instant, __init__'s own
+        docstring), and this tab bills nothing. `Calibrator`'s own
+        `_busy` lock already serialises concurrent tare/calibrate calls
+        on this same `self.cal`, so the worst case here is one broadcast
+        tick showing a card mid-update — cosmetic, not a mis-bill.
+        """
+        status = self.scale.status()
+        reading = self.scale.read()
+        settle_tol_g = self.scale.settle_tol_g
+        bins = []
+        for i in range(binmap.NUM_BINS):
+            b = self.binmap.bins[i]
+            item = self.catalogue.item(b.item_id)
+            resolved = item is not None and self.binmap.resolved(i)
+            if resolved:
+                label = item.display_name(self.locale)
+                per_100g = self.locales.currency(item.price_per_100g, self.locale)
+                sub = f"{per_100g['text']}{self.locales.translate('per_100g', self.locale)}"
+            else:
+                label, sub = "", ""
+            cal_bin = self.cal.bins[i]
+            noise_g = cal_bin.noise_grams()
+            grams = reading.grams[i]
+            bins.append({
+                "i": i,
+                "label": label,
+                "sub": sub,
+                "grams": None if grams is None else round(grams),
+                "calibrated": cal_bin.calibrated,
+                "tared": cal_bin.tared,
+                "noise_g": None if noise_g is None else round(noise_g, 1),
+                "noisy": noise_g is not None and noise_g > settle_tol_g,
+                "noise_dots": _noise_dots(noise_g, settle_tol_g),
+            })
+        return {
+            "t": "bins",
+            "serial": {"open": status["open"], "stale": status["stale"],
+                      "hz": status["hz"]},
+            "bins": bins,
+        }
+
     # -- state broadcaster (doc section 4.3) --------------------------------
 
     def _state_loop(self) -> None:
@@ -270,6 +450,12 @@ class Core:
         due = time.monotonic()
         while not self._state_stop.is_set():
             self._broadcast_state()
+            # _state_msg() has already advanced _state_seq for this tick
+            # (it increments before returning), so this divides the same
+            # 60Hz clock down to ~10Hz for the Bins tab rather than
+            # running a second timer.
+            if self._state_seq % BINS_BROADCAST_EVERY == 0:
+                self.web.broadcast(self._bins_tab_msg())
             due += STATE_INTERVAL
             now = time.monotonic()
             if due <= now:

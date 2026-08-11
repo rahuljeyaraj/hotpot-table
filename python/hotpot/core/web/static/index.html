@@ -62,10 +62,9 @@
   .conn-banner.show { display: block; }
 
   /* --- tab bar (doc section 12.2) ---------------------------------------
-     Only "Live" has a tab body in M1 (build item 5's shell). Bins/Orders/
-     Setup/Capture are M2/M4/M5/M6 build items — not stubbed here, since a
-     button leading to nothing is worse than a button that doesn't exist
-     yet. */
+     Live (M1) and Bins (M2) have real tab bodies. Orders/Setup/Capture
+     are M4/M5/M6 build items — not stubbed here, since a button leading
+     to nothing is worse than a button that doesn't exist yet. */
   nav.tabs {
     display: flex; align-items: center; gap: 4px;
     padding: 6px 12px;
@@ -117,6 +116,89 @@
     font-size: 13px;
   }
   .chip:disabled { opacity: 0.5; cursor: default; }
+
+  /* --- Bins tab (doc section 12.4) --------------------------------------
+     8 cards: name, live grams (doc 12.9: 44px tabular-nums for the large
+     numeric), price/100g, a noise dot bar, and Tare/Calibrate. */
+  .bins-shell { max-width: 1100px; }
+  .serial-status {
+    margin-bottom: 14px; font-size: 14px; color: var(--muted);
+  }
+  .serial-status.down { color: var(--red); }
+  .bins-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .bin-card {
+    background: var(--panel); border: 1px solid #2a2c31; border-radius: 8px;
+    padding: 14px;
+  }
+  .bin-card .bin-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 14px; color: var(--muted); gap: 8px;
+  }
+  .bin-card .bin-name { color: var(--text); font-weight: 500; text-align: right; }
+  .bin-card .bin-grams {
+    font-size: 44px; font-weight: 500; margin: 6px 0 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .bin-card .bin-grams.unmeasured { color: var(--muted); font-size: 26px; }
+  .bin-card .bin-price { font-size: 14px; color: var(--muted); margin-top: 2px; }
+  .noise-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .noise-dots { display: flex; gap: 3px; }
+  .noise-dot { width: 8px; height: 8px; border-radius: 50%; background: #333640; }
+  .noise-dot.on { background: var(--green); }
+  .noise-row.noisy .noise-dot.on { background: var(--amber); }
+  .noise-label { font-size: 12px; color: var(--muted); }
+  .bin-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .bin-btn {
+    flex: 1; min-height: 44px;
+    border: 1px solid #3a3d47; border-radius: 6px;
+    background: #22252b; color: var(--text);
+    font-size: 13px; cursor: pointer;
+  }
+  .bin-btn:active { background: #2c2f37; }
+  .bin-hint { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
+
+  /* --- calibration wizard modal (doc section 12.4: "one screen at a
+     time, no branching") -------------------------------------------- */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 5;
+    align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.6); padding: 16px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    width: 100%; max-width: 360px;
+    background: var(--panel); border: 1px solid #333640; border-radius: 10px;
+    padding: 20px;
+  }
+  .modal-title { font-size: 18px; font-weight: 500; margin-bottom: 10px; }
+  .modal-body { font-size: 14px; line-height: 1.5; }
+  .modal-body.error { color: var(--red); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .modal-btn {
+    flex: 1; min-height: 44px; border-radius: 6px;
+    border: 1px solid #3a3d47; background: #22252b; color: var(--text);
+    font-size: 14px; cursor: pointer;
+  }
+  .modal-btn.primary {
+    background: var(--green); border-color: var(--green);
+    color: #062b12; font-weight: 600;
+  }
+  .weight-display {
+    font-size: 32px; font-weight: 500; text-align: center; margin: 12px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .keypad {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .keypad button {
+    min-height: 48px; font-size: 18px; border-radius: 6px;
+    border: 1px solid #3a3d47; background: #22252b; color: var(--text);
+    cursor: pointer;
+  }
+  .keypad button:active { background: #2c2f37; }
 
   /* --- developer panel (doc section 12.8) -------------------------------
      Spec home is a toggle inside the Setup tab; Setup doesn't exist until
@@ -173,6 +255,7 @@
   </header>
   <nav class="tabs">
     <button class="tab active" data-tab="live">Live</button>
+    <button class="tab" data-tab="bins">Bins</button>
     <div class="spacer"></div>
     <button id="devToggle" class="dev-toggle">Developer</button>
   </nav>
@@ -193,6 +276,18 @@
         </div>
       </div>
     </section>
+    <section class="tab-panel" data-tab="bins">
+      <!-- Doc §12.4: 8 cards, live grams, a noise indicator, and a
+           one-screen-at-a-time Tare/Calibrate wizard (#calBackdrop below).
+           Grams here come straight from the load-cell reader, not the
+           mock cart — a bin can show "—" here while the Live tab still
+           reflects M1's mock pick/put-back cycle. That gap closes at
+           M2's build item 5. -->
+      <div class="bins-shell">
+        <div class="serial-status" id="serialStatus">Load cells: —</div>
+        <div class="bins-grid" id="binsGrid"></div>
+      </div>
+    </section>
   </main>
   <section id="devPanel" class="dev-panel">
     <h3>Mock picks / put-backs
@@ -200,6 +295,18 @@
     </h3>
     <div class="mock-grid" id="mockGrid"></div>
   </section>
+
+  <!-- Doc §12.4's calibration flow: one screen at a time, no branching.
+       A single modal is reused for every bin's Tare and Calibrate flow
+       rather than one per card, since only one can run at a time anyway
+       (core/calibrator.py's own one-at-a-time lock). -->
+  <div id="calBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-title" id="calTitle">—</div>
+      <div class="modal-body" id="calBody"></div>
+      <div class="modal-actions" id="calActions"></div>
+    </div>
+  </div>
 
 <script>
 (function () {
@@ -240,6 +347,21 @@
       entry.el.title = entry.label + ": " + p.status + " (last beat " + age + ")";
     });
   }
+
+  // --- tab bar (doc section 12.2) ---------------------------------------
+  var tabButtons = document.querySelectorAll(".tab");
+  var tabPanels = document.querySelectorAll(".tab-panel");
+  Array.prototype.forEach.call(tabButtons, function (btn) {
+    btn.addEventListener("click", function () {
+      var tab = btn.dataset.tab;
+      Array.prototype.forEach.call(tabButtons, function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      Array.prototype.forEach.call(tabPanels, function (p) {
+        p.classList.toggle("active", p.dataset.tab === tab);
+      });
+    });
+  });
 
   // --- developer panel toggle (doc section 12.8: "persisted in
   // localStorage") -----------------------------------------------------
@@ -325,6 +447,244 @@
   }
   refreshHints();
 
+  // --- Bins tab (doc section 12.4, M2 build item 4) ---------------------
+
+  function sendCal(obj) {
+    if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+    currentWs.send(JSON.stringify(obj));
+  }
+
+  var serialStatusEl = document.getElementById("serialStatus");
+  var binsGrid = document.getElementById("binsGrid");
+  var binCards = [];
+
+  for (var bi = 0; bi < 8; bi++) {
+    (function (bin) {
+      var card = document.createElement("div");
+      card.className = "bin-card";
+
+      var head = document.createElement("div");
+      head.className = "bin-head";
+      var idxEl = document.createElement("div");
+      idxEl.textContent = "Bin " + bin;
+      var nameEl = document.createElement("div");
+      nameEl.className = "bin-name";
+      nameEl.textContent = "—";
+      head.appendChild(idxEl);
+      head.appendChild(nameEl);
+      card.appendChild(head);
+
+      var gramsEl = document.createElement("div");
+      gramsEl.className = "bin-grams unmeasured";
+      gramsEl.textContent = "—";
+      card.appendChild(gramsEl);
+
+      var priceEl = document.createElement("div");
+      priceEl.className = "bin-price";
+      card.appendChild(priceEl);
+
+      var noiseRow = document.createElement("div");
+      noiseRow.className = "noise-row";
+      var dotsWrap = document.createElement("div");
+      dotsWrap.className = "noise-dots";
+      var dotEls = [];
+      for (var d = 0; d < 8; d++) {
+        var dot = document.createElement("div");
+        dot.className = "noise-dot";
+        dotsWrap.appendChild(dot);
+        dotEls.push(dot);
+      }
+      var noiseLabel = document.createElement("div");
+      noiseLabel.className = "noise-label";
+      noiseLabel.textContent = "unmeasured";
+      noiseRow.appendChild(dotsWrap);
+      noiseRow.appendChild(noiseLabel);
+      card.appendChild(noiseRow);
+
+      var actions = document.createElement("div");
+      actions.className = "bin-actions";
+      var tareBtn = document.createElement("button");
+      tareBtn.className = "bin-btn";
+      tareBtn.textContent = "Tare";
+      tareBtn.addEventListener("click", function () { openWizard(bin, "tare"); });
+      var calBtn = document.createElement("button");
+      calBtn.className = "bin-btn";
+      calBtn.textContent = "Calibrate";
+      calBtn.addEventListener("click", function () { openWizard(bin, "calibrate"); });
+      actions.appendChild(tareBtn);
+      actions.appendChild(calBtn);
+      card.appendChild(actions);
+
+      // Doc section 12.1's plain-language principle, applied to the one
+      // thing the operator needs to know before Calibrate makes sense:
+      // core/calibrator.py refuses an untared bin server-side already,
+      // this just says why up front instead of making them discover it
+      // by tapping Calibrate and reading the refusal.
+      var hintEl = document.createElement("div");
+      hintEl.className = "bin-hint";
+      card.appendChild(hintEl);
+
+      binsGrid.appendChild(card);
+      binCards[bin] = {
+        nameEl: nameEl, gramsEl: gramsEl, priceEl: priceEl,
+        dotEls: dotEls, noiseRow: noiseRow, noiseLabel: noiseLabel,
+        hintEl: hintEl,
+      };
+    })(bi);
+  }
+
+  function applyBins(msg) {
+    var s = msg.serial || {};
+    if (s.open && !s.stale) {
+      serialStatusEl.textContent = "Load cells: connected, " + (s.hz || 0).toFixed(1) + " Hz";
+      serialStatusEl.classList.remove("down");
+    } else {
+      serialStatusEl.textContent = "Load cells: no connection";
+      serialStatusEl.classList.add("down");
+    }
+    (msg.bins || []).forEach(function (b) {
+      var c = binCards[b.i];
+      if (!c) return;
+      c.nameEl.textContent = b.label || "(unresolved)";
+      if (b.grams === null || b.grams === undefined) {
+        c.gramsEl.textContent = "—";
+        c.gramsEl.classList.add("unmeasured");
+      } else {
+        c.gramsEl.textContent = b.grams + " g";
+        c.gramsEl.classList.remove("unmeasured");
+      }
+      c.priceEl.textContent = b.sub || "";
+      var dots = b.noise_dots;
+      var known = dots !== null && dots !== undefined;
+      c.noiseRow.classList.toggle("noisy", !!b.noisy);
+      for (var di = 0; di < c.dotEls.length; di++) {
+        c.dotEls[di].classList.toggle("on", known && di < dots);
+      }
+      c.noiseLabel.textContent = !known ? "unmeasured" : (b.noisy ? "noisy" : "stable");
+      c.hintEl.textContent = b.tared ? "" : "Tare first, then Calibrate";
+    });
+  }
+
+  // --- the Tare/Calibrate wizard: one screen at a time, no branching
+  // (doc section 12.4). A single modal is reused for every bin rather
+  // than one per card — only one flow can run at once anyway
+  // (core/calibrator.py's own one-at-a-time lock) — driven by `wizard`,
+  // the one piece of state every render below reads.
+  var calBackdrop = document.getElementById("calBackdrop");
+  var calTitle = document.getElementById("calTitle");
+  var calBody = document.getElementById("calBody");
+  var calActions = document.getElementById("calActions");
+
+  // Doc section 12.4's keypad default. Duplicated from
+  // calibrator.DEFAULT_REF_MASS_G rather than sent over the wire — it is
+  // only ever a starting point the operator can overtype, never sent
+  // as-is without the keypad touching it, so the two do not need to be
+  // the same variable, only the same number.
+  var DEFAULT_REF_MASS_G = 500;
+
+  var wizard = null;   // {bin, op, step, weight, message} | null
+
+  function openWizard(bin, op) {
+    wizard = { bin: bin, op: op, step: "confirm", weight: String(DEFAULT_REF_MASS_G) };
+    renderWizard();
+    calBackdrop.classList.add("show");
+  }
+
+  function closeWizard() {
+    wizard = null;
+    calBackdrop.classList.remove("show");
+  }
+
+  function modalButton(label, primary, onClick) {
+    var b = document.createElement("button");
+    b.className = "modal-btn" + (primary ? " primary" : "");
+    b.textContent = label;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function renderWizard() {
+    if (!wizard) return;
+    calTitle.textContent = "Bin " + wizard.bin;
+    calBody.innerHTML = "";
+    calActions.innerHTML = "";
+    calBody.classList.remove("error");
+
+    if (wizard.step === "confirm" && wizard.op === "tare") {
+      calBody.appendChild(document.createTextNode(
+        "Make sure bin " + wizard.bin + " is empty."));
+      calActions.appendChild(modalButton("Cancel", false, closeWizard));
+      calActions.appendChild(modalButton("Confirm", true, function () {
+        wizard.step = "capturing";
+        renderWizard();
+        sendCal({ t: "tare", bin: wizard.bin });
+      }));
+
+    } else if (wizard.step === "confirm" && wizard.op === "calibrate") {
+      calBody.appendChild(document.createTextNode(
+        "Place a known weight in bin " + wizard.bin + "."));
+      var disp = document.createElement("div");
+      disp.className = "weight-display";
+      disp.textContent = (wizard.weight || "0") + " g";
+      calBody.appendChild(disp);
+
+      var pad = document.createElement("div");
+      pad.className = "keypad";
+      ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "back"]
+        .forEach(function (key) {
+          var b = document.createElement("button");
+          b.textContent = key === "clear" ? "C" : (key === "back" ? "⌫" : key);
+          b.addEventListener("click", function () {
+            if (key === "clear") { wizard.weight = ""; }
+            else if (key === "back") { wizard.weight = wizard.weight.slice(0, -1); }
+            else if (wizard.weight.length < 5) { wizard.weight += key; }
+            disp.textContent = (wizard.weight || "0") + " g";
+          });
+          pad.appendChild(b);
+        });
+      calBody.appendChild(pad);
+
+      calActions.appendChild(modalButton("Cancel", false, closeWizard));
+      calActions.appendChild(modalButton("Confirm", true, function () {
+        var grams = parseFloat(wizard.weight);
+        if (!isFinite(grams) || grams <= 0) return;
+        wizard.step = "capturing";
+        renderWizard();
+        sendCal({ t: "calibrate", bin: wizard.bin, ref_mass_g: grams });
+      }));
+
+    } else if (wizard.step === "capturing") {
+      calBody.appendChild(document.createTextNode("Capturing… (2s)"));
+
+    } else if (wizard.step === "done") {
+      calBody.appendChild(document.createTextNode(wizard.message));
+      calActions.appendChild(modalButton("Done", true, closeWizard));
+
+    } else if (wizard.step === "error") {
+      calBody.classList.add("error");
+      calBody.appendChild(document.createTextNode(wizard.message));
+      calActions.appendChild(modalButton("Close", false, closeWizard));
+      calActions.appendChild(modalButton("Try again", true, function () {
+        wizard.step = "confirm";
+        wizard.weight = String(DEFAULT_REF_MASS_G);
+        renderWizard();
+      }));
+    }
+  }
+
+  function applyCalResult(msg) {
+    // A result for a screen that already moved on (closed, or a second
+    // tare/calibrate raced it) — doc section 12.4's flow is one screen
+    // at a time, so a stale result must not reopen or overwrite it.
+    if (!wizard || wizard.bin !== msg.bin || wizard.op !== msg.op
+        || wizard.step !== "capturing") {
+      return;
+    }
+    wizard.step = msg.ok ? "done" : "error";
+    wizard.message = msg.message;
+    renderWizard();
+  }
+
   // Reconnect with the same shape of backoff as every other client in
   // this system (doc section 20.2) — a tablet left on overnight should
   // recover on its own, not need a page reload.
@@ -344,6 +704,8 @@
       var msg;
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (msg.t === "pips") applyPips(msg.pips);
+      else if (msg.t === "bins") applyBins(msg);
+      else if (msg.t === "cal_result") applyCalResult(msg);
     };
     ws.onclose = function () {
       banner.classList.add("show");

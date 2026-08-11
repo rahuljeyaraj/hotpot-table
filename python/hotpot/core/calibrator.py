@@ -193,7 +193,7 @@ class Calibrator:
         trade for a fact already visible in the data.
         """
         self._check_bin(i)
-        if self.cal.bins[i] == loadcell_cal.BinCal(i=i):
+        if not self.cal.bins[i].tared:
             raise loadcell_cal.CalibrationError(
                 f"Tare bin {i} first, with the bin empty.")
         with self._one_at_a_time():

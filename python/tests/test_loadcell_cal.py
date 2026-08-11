@@ -77,6 +77,29 @@ class TestTareAndCalibrate(unittest.TestCase):
         self.assertIsNone(self.cal.grams(4, 500))
 
 
+class TestTared(unittest.TestCase):
+    """BinCal.tared — the Bins tab's (doc section 12.4) "never tared"
+    check, centralised here so calibrator.py and core/main.py share one
+    definition of "first-boot default" instead of two.
+    """
+
+    def test_a_fresh_bin_is_not_tared(self):
+        self.assertFalse(loadcell_cal.BinCal(i=0).tared)
+
+    def test_tare_alone_makes_it_tared(self):
+        cal = loadcell_cal.Calibration()
+        cal.tare(0, 83422)
+        self.assertTrue(cal.bins[0].tared)
+        self.assertFalse(cal.calibrated(0), "tare alone must not calibrate")
+
+    def test_clear_returns_it_to_untared(self):
+        cal = loadcell_cal.Calibration()
+        cal.tare(0, 83422)
+        cal.calibrate(0, 83422 + 214.77 * 500.0, 500.0)
+        cal.clear(0)
+        self.assertFalse(cal.bins[0].tared)
+
+
 class TestInvertedCell(unittest.TestCase):
     """Doc section 9.6 and M2's 'Do NOT': the sign is computed, never
     asked. These tests pass the *same* API calls as the upright ones —

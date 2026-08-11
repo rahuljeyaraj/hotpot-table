@@ -55,15 +55,38 @@ def pip_colour(msg, who):
     return None
 
 
+def _no_serial_port():
+    """`Core`'s `scale_open_port` for every test below.
+
+    SCALE_PORT's default is this dev machine's real COM5, and on this
+    machine COM5 is a live XIAO (CLAUDE.md, verified 2026-08-11) —
+    leaving this unset would have Core's own reader thread racing real
+    hardware counts against whatever a test just fed in through
+    scale.feed(). test_scale.py and test_calibrator.py never touch a
+    real port either; this is the same discipline at the Core level.
+    """
+    raise OSError("no serial port in tests")
+
+
 class CoreCase(unittest.TestCase):
     """A real Core on ephemeral loopback ports, torn down after."""
 
     def setUp(self):
         hlog.reset()
         self.addCleanup(hlog.reset)
+        # cal_path: a throwaway file, never state/loadcell_cal.json. That
+        # is the one file doc section 9.6 calls out as able to silently
+        # mis-bill, and every Core built here reads it at construction
+        # (loadcell_cal.py's docstring: missing is a normal first boot) —
+        # a test run must never read, and TestBinsTab below must never
+        # write, the real one.
+        self._cal_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._cal_dir.cleanup)
         self.core = coremain.start(
             control_host="127.0.0.1", control_port=0,
-            web_host="127.0.0.1", web_port=0)
+            web_host="127.0.0.1", web_port=0,
+            cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            scale_open_port=_no_serial_port)
         self._wire_clients = []
         self._ws_clients = []
 
@@ -467,6 +490,188 @@ class TestDeveloperPanelMockControls(CoreCase):
                          "a valid message after a bad one never went through")
 
 
+class TestBinsTab(CoreCase):
+    """M2 build item 4 (doc section 21): the staff view's Bins tab (doc
+    section 12.4) — the periodic `bins` broadcast the 8 cards read, and
+    the Tare/Calibrate wizard driving core/calibrator.py over the real
+    WebSocket.
+
+    No XIAO and no real state/loadcell_cal.json (CoreCase.setUp points
+    every Core at a throwaway cal_path): counts are fed straight into
+    core.scale.feed() in the background, the same shape as
+    test_calibrator.py's Rig, aimed at the reader Core itself
+    constructed rather than a standalone one.
+    """
+
+    # Windows' sleep granularity is ~15.6ms (CLAUDE.md, M2.2's own
+    # finding) — test_calibrator.py's CAPTURE_S is 0.3s for exactly this
+    # reason (~19 samples even at that granularity), and this reuses it
+    # rather than picking a shorter window that could starve
+    # MIN_CAPTURE_SAMPLES on a busy CI box.
+    CAPTURE_S = 0.3
+    CPG = 200.0
+
+    # Doc section 8.3's own example zero_counts, negated — and it has to
+    # be *some* nonzero value: BinCal()'s first-boot default is
+    # zero_counts=0.0, so a tare fed literal zeros would set
+    # zero_counts back to 0.0 and be indistinguishable from "never
+    # tared" by BinCal.tared's own "!= first-boot default" check. Real
+    # cells never actually read exactly 0 empty (CLAUDE.md's per-channel
+    # table), so this was never a live-rig concern — only a synthetic
+    # all-zero fixture's.
+    EMPTY = [-83422] * 8
+
+    def setUp(self):
+        super().setUp()
+        self.core.calibrator.capture_s = self.CAPTURE_S
+
+    def feed(self, counts):
+        """Push `counts` into core.scale in the background until the test
+        ends. Returns the list so the test can mutate it in place to
+        change what the "rig" reads mid-flow (test_calibrator.py's
+        Rig.put()/empty() do the same thing with their own list).
+        """
+        counts = list(counts)
+        stop = threading.Event()
+
+        def run():
+            while not stop.is_set():
+                self.core.scale.feed(list(counts))
+                time.sleep(0.002)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        self.addCleanup(stop.set)
+        return counts
+
+    def bins_msg(self, w, pred=lambda m: True, timeout=DEADLINE):
+        return self.recv_until(
+            w, lambda m: m.get("t") == "bins" and pred(m), timeout)
+
+    def cal_result(self, w, bin_, op, timeout=DEADLINE):
+        return self.recv_until(
+            w, lambda m: (m.get("t") == "cal_result" and m.get("bin") == bin_
+                         and m.get("op") == op),
+            timeout)
+
+    def test_bins_message_has_eight_cards_all_uncalibrated_at_boot(self):
+        w = self.ws()
+        self.recv_json(w)   # the pips seed
+        msg = self.bins_msg(w)
+        self.assertIsNotNone(msg, "no bins message arrived")
+        self.assertEqual(len(msg["bins"]), 8)
+        for b in msg["bins"]:
+            self.assertIsNone(b["grams"])
+            self.assertFalse(b["calibrated"])
+            self.assertFalse(b["tared"])
+            self.assertIsNone(b["noise_g"])
+            self.assertIsNone(b["noise_dots"])
+            self.assertFalse(b["noisy"])
+            # Seeded 1:1 from the catalogue at conf 1.0 (core/main.py's
+            # _seed_binmap) — the Bins tab shows a name even though it
+            # cannot show grams yet.
+            self.assertTrue(b["label"])
+            self.assertTrue(b["sub"])
+
+    def test_tare_over_the_websocket_reaches_the_calibrator(self):
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "tare", "bin": 3}))
+        res = self.cal_result(w, 3, "tare")
+        self.assertIsNotNone(res, "tare never produced a cal_result")
+        self.assertTrue(res["ok"])
+        # A first-ever tare has nothing to quote grams from yet
+        # (calibrator.py's own docstring) — it sends the operator on to
+        # Calibrate instead of printing a 0g it never measured.
+        self.assertIsNone(res["grams"])
+        self.assertIn("Calibrate", res["message"])
+        self.assertTrue(self.core.cal.bins[3].tared)
+        self.assertFalse(self.core.cal.bins[3].calibrated)
+
+    def test_calibrate_before_tare_is_refused_with_the_operator_message(self):
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "calibrate", "bin": 1, "ref_mass_g": 500}))
+        res = self.cal_result(w, 1, "calibrate")
+        self.assertIsNotNone(res)
+        self.assertFalse(res["ok"])
+        self.assertIn("Tare", res["message"])
+        self.assertIn("bin 1", res["message"])
+        self.assertFalse(self.core.cal.bins[1].calibrated)
+
+    def test_full_tare_then_calibrate_cycle_reaches_the_next_bins_broadcast(self):
+        counts = self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+
+        w.send(json.dumps({"t": "tare", "bin": 5}))
+        self.assertTrue(self.cal_result(w, 5, "tare")["ok"])
+
+        counts[5] = int(self.CPG * 500.0)   # 500g now sitting in bin 5
+        w.send(json.dumps({"t": "calibrate", "bin": 5, "ref_mass_g": 500}))
+        done = self.cal_result(w, 5, "calibrate")
+        self.assertTrue(done["ok"], done)
+        self.assertAlmostEqual(done["grams"], 500.0, delta=5.0)
+
+        msg = self.bins_msg(w, lambda m: m["bins"][5]["calibrated"])
+        self.assertIsNotNone(msg, "the calibration never reached a bins broadcast")
+        b5 = msg["bins"][5]
+        self.assertTrue(b5["tared"])
+        self.assertAlmostEqual(b5["grams"], 500, delta=5)
+
+    def test_bad_bin_index_is_ignored_not_a_crash(self):
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "tare", "bin": 99}))
+        w.send(json.dumps({"t": "tare", "bin": 2}))
+        res = self.cal_result(w, 2, "tare")
+        self.assertIsNotNone(res, "a valid tare after a bad one never went through")
+
+    def test_non_finite_ref_mass_is_ignored_not_saved(self):
+        """A NaN or Infinity survives `ref_mass_g <= 0` (every comparison
+        against NaN is False) and would otherwise reach
+        loadcell_cal.calibrate() and get written into the calibration
+        file — doc section 9.6's one number that can silently mis-bill.
+        """
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "tare", "bin": 2}))
+        self.assertTrue(self.cal_result(w, 2, "tare")["ok"])
+
+        w.send(json.dumps({"t": "calibrate", "bin": 2, "ref_mass_g": float("nan")}))
+        # Proof the link survived, rather than waiting out a full DEADLINE
+        # for a bin-2 result that a working guard never sends at all: a
+        # valid tare on a different bin still completes.
+        w.send(json.dumps({"t": "tare", "bin": 4}))
+        self.assertTrue(self.cal_result(w, 4, "tare")["ok"])
+        self.assertFalse(self.core.cal.bins[2].calibrated)
+
+
+class TestNoiseDots(unittest.TestCase):
+    """coremain._noise_dots — doc section 12.4's "●●●●●●○○" bar. A UI
+    heuristic (the doc gives a mockup, not a formula), so these pin down
+    the contract the constants' own comment claims, not a doc-given
+    number.
+    """
+
+    def test_unmeasured_is_none_not_zero(self):
+        self.assertIsNone(coremain._noise_dots(None, 2.0))
+
+    def test_zero_noise_is_a_full_bar(self):
+        self.assertEqual(coremain._noise_dots(0.0, 2.0), coremain.NOISE_DOTS)
+
+    def test_exactly_at_the_settle_tolerance_is_half_full(self):
+        self.assertEqual(coremain._noise_dots(2.0, 2.0), coremain.NOISE_DOTS // 2)
+
+    def test_at_or_past_twice_the_tolerance_is_empty(self):
+        self.assertEqual(coremain._noise_dots(4.0, 2.0), 0)
+        self.assertEqual(coremain._noise_dots(400.0, 2.0), 0)
+
+
 class TestStateSnapshotIsAtomic(unittest.TestCase):
     """Core.state_lock — a `state` message is one instant, not two.
 
@@ -478,8 +683,12 @@ class TestStateSnapshotIsAtomic(unittest.TestCase):
     def setUp(self):
         hlog.reset()
         self.addCleanup(hlog.reset)
+        cal_dir = tempfile.TemporaryDirectory()   # see CoreCase.setUp
+        self.addCleanup(cal_dir.cleanup)
         self.core = coremain.Core(control_host="127.0.0.1", control_port=0,
-                                  web_host="127.0.0.1", web_port=0)
+                                  web_host="127.0.0.1", web_port=0,
+                                  cal_path=os.path.join(cal_dir.name, "loadcell_cal.json"),
+                                  scale_open_port=_no_serial_port)
 
     def test_a_pick_cannot_land_between_the_bins_and_the_total(self):
         """The tear this lock exists to stop, forced rather than waited for.
@@ -558,7 +767,9 @@ class TestUnitSuffixIsLocalised(unittest.TestCase):
 
             core = coremain.Core(control_host="127.0.0.1", control_port=0,
                                  web_host="127.0.0.1", web_port=0,
-                                 data_dir=tmp)
+                                 data_dir=tmp,
+                                 cal_path=os.path.join(tmp, "loadcell_cal.json"),
+                                 scale_open_port=_no_serial_port)
             msg = core._state_msg()
 
         self.assertTrue(msg["bins"][0]["resolved"], "fixture bin is not billable")
@@ -571,10 +782,13 @@ class TestUnitSuffixIsLocalised(unittest.TestCase):
 class TestStop(unittest.TestCase):
 
     def test_stop_is_clean_and_idempotent(self):
-        core = coremain.start(control_host="127.0.0.1", control_port=0,
-                              web_host="127.0.0.1", web_port=0)
-        core.stop()
-        core.stop()   # must not raise
+        with tempfile.TemporaryDirectory() as tmp:
+            core = coremain.start(control_host="127.0.0.1", control_port=0,
+                                  web_host="127.0.0.1", web_port=0,
+                                  cal_path=os.path.join(tmp, "loadcell_cal.json"),
+                                  scale_open_port=_no_serial_port)
+            core.stop()
+            core.stop()   # must not raise
 
 
 if __name__ == "__main__":

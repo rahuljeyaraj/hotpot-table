@@ -330,6 +330,83 @@ Next: M2.4, build item 4 — the staff view's Bins tab (§12.4): 8 cards,
 live grams, the noise indicator, and the one-screen-at-a-time Tare and
 Calibrate wizard driving `calibrator.Calibrator`.
 
+M2.4 (2026-08-11) closes build item 4: the Bins tab, both halves.
+`core/main.py` now constructs `Calibration`/`ScaleReader`/`Calibrator`
+always, at boot — not lazily when a tablet opens the tab — since an
+unplugged XIAO is the ordinary boot state scale.py already tolerates.
+The tab's grams come straight from `scale.read()`, **not** Cart; that
+stays on M1's mock seed until build item 5 wires the two together, so a
+bin can legitimately show "—" on the Bins tab while the Live tab still
+reflects a mock pick. Wire protocol, all new: core pushes a `bins`
+message (8 cards' worth: name, live grams, price/100g, a noise dot bar,
+`tared`/`calibrated` flags) at 10Hz — a sixth of `state`'s 60Hz, reusing
+that same loop's tick counter rather than a second timer — and a tablet
+sends `tare`/`calibrate`, answered with `cal_result`. That reply is a
+**broadcast to every tablet, not a direct answer** — `web/server.py`'s
+`on_message` hands the callback the decoded frame only, with no
+connection handle to answer just the asker, the same limitation
+`_on_pip_change` already lives with. The noise dot bar (doc's "●●●●●●○○"
+is a mockup, not a formula) is defined here as 8 dots spanning 2x the
+settle tolerance, so a cell exactly at doc §9.5's settle boundary — the
+number that actually matters — reads exactly half full.
+
+**Found while wiring `Core`, not while building the tab:** this dev
+machine's COM5 is a live XIAO right now (`serial.Serial('COM5', ...)`
+opens and streams real counts), and `Core.__init__` had started
+constructing a real `ScaleReader` against the hardcoded `SCALE_PORT`
+default unconditionally. Every existing `Core`-based test — not just the
+new ones — was one `core.start()` away from racing genuine hardware
+counts against whatever a test fed in through `scale.feed()`. Fixed with
+a `scale_open_port` constructor parameter threaded straight to
+`ScaleReader`'s own test hook (its docstring: "the numbers in here can
+silently mis-bill, so they have to be reachable from a test" — this is
+that same argument one layer up), and every `Core`/`start()` call in
+test_core_main.py now passes an opener that always raises. `cal_path` is
+a matching parameter, defaulting to the real §8.3 file — `CoreCase` now
+builds every test Core against a throwaway one, the same discipline
+test_calibrator.py already had for a standalone `Calibrator`.
+**A second, unrelated fixture bug this uncovered:** an early version of
+the Bins tab tests fed an all-zero baseline as "empty" — but
+`BinCal()`'s own first-boot default is `zero_counts=0.0`, so a tare
+against literal zeros is byte-for-byte indistinguishable from "never
+tared" by `BinCal.tared`'s own check, and `calibrate()` refused it as
+untared. Not a production bug — no real cell reads exactly 0 counts
+empty (CLAUDE.md's own per-channel table) — fixed by feeding §8.3's
+example zero_counts (negated) instead of zero.
+Also added, small: `math.isfinite()` on an incoming `ref_mass_g` — a NaN
+or Infinity survives `ref_mass_g <= 0` (every comparison against NaN is
+False) and would otherwise have reached `loadcell_cal.calibrate()` and
+been written into `state/loadcell_cal.json`, doc §9.6's one number that
+can silently mis-bill. And `BinCal.tared`, a property centralising the
+"first-boot default" check calibrator.py already had inline, now shared
+by both call sites (`calibrator.py`'s refusal, `main.py`'s card data).
+13 new tests (3 for `BinCal.tared`, 10 for the Bins tab end to end over
+the real WebSocket — boot shape, tare, calibrate-before-tare refused,
+a full tare→calibrate cycle reaching a `bins` broadcast, a bad bin
+index, a NaN ref mass), 357 total, all passing.
+**Run against the live XIAO on COM5** (2026-08-11, after the fix above):
+a `bins` broadcast over a real connection showed all 8 bins correctly
+uncalibrated (`grams`/`noise_g`/`noise_dots` all `null`, catalogue names
+and ₹/100g prices present), and a real `tare` on bin 0 returned
+`ok: true` with the first-tare wording, against a scratch `cal_path` so
+the repo's own (currently absent) calibration state was never touched.
+`hz` read over 1000 briefly right after open — a burst of buffered
+serial lines draining at once, not a real rate; §21's acceptance test
+(a real 500g mass) is still owed and untouched by this step.
+**Doc gap, named not resolved:** §9.5 and §21 both say "serial pip red"
+on a dead XIAO, but §12.2's six header pips (camera·tracker·classifier·
+voice·core·table) have no seventh slot for one — the serial link is a
+thread inside core, not a process with its own hello/heartbeat, so it
+cannot join `health.Registry` the way the other six do. Built instead,
+and narrower: a plain-language "Load cells: connected, N Hz" / "no
+connection" line at the top of the Bins tab, sourced from `scale.status()`.
+Where a header-level indicator belongs is undecided; revisit when build
+item 5 makes a dead link a billing-visible fault, not just a Bins-tab one.
+Next: M2.5, build item 5 — wire real grams into pricing (Cart reads
+`scale.read()` each tick instead of the M1 mock seed), with the mock
+pick/put-back controls gated behind the developer panel rather than
+removed.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
