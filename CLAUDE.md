@@ -500,6 +500,19 @@ to `"error"`, and the banner has not been seen on the projected surface —
 that observation is §21's own remaining step, now unblocked rather than
 impossible.
 
+**2026-08-11, calibration weight entry changed from keypad to text field.**
+Doc §12.4 specified a "big keypad" (12 on-screen digit buttons) for the
+Calibrate step's reference mass. Replaced with a standard `<input
+type="number">` in `index.html`'s wizard, prefilled with
+`DEFAULT_REF_MASS_G` and auto-selected on open so typing overtypes it;
+Enter submits, same as tapping Confirm. Reasoning: the staff view runs on
+a tablet reachable by a physical keyboard, and typing digits is faster
+and less error-prone than tapping a 12-button on-screen pad one digit at
+a time. `calibrator.py`'s `DEFAULT_REF_MASS_G` and the sanity check in
+`loadcell_cal.calibrate()` are unchanged — only the entry widget moved.
+Doc §12.4 updated to match. No test changes needed; nothing tested the
+keypad's markup specifically.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

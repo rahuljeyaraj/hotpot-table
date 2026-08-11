@@ -88,7 +88,7 @@ CAL_PATH = Path(__file__).resolve().parents[3] / "state" / "loadcell_cal.json"
 # changes that, the window and not the code should move.
 DEFAULT_CAPTURE_S = 2.0
 
-# Doc section 12.4's keypad default. Lives here rather than in the browser
+# Doc section 12.4's weight-entry default. Lives here rather than in the browser
 # so the number the operator is offered and the number the maths defaults
 # to cannot drift apart.
 DEFAULT_REF_MASS_G = 500.0

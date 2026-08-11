@@ -186,19 +186,18 @@
     background: var(--green); border-color: var(--green);
     color: #062b12; font-weight: 600;
   }
-  .weight-display {
-    font-size: 32px; font-weight: 500; text-align: center; margin: 12px 0;
+  .weight-input-row {
+    display: flex; align-items: baseline; justify-content: center;
+    gap: 8px; margin: 12px 0;
+  }
+  .weight-input {
+    width: 140px; font-size: 32px; font-weight: 500; text-align: center;
     font-variant-numeric: tabular-nums;
-  }
-  .keypad {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-  }
-  .keypad button {
-    min-height: 48px; font-size: 18px; border-radius: 6px;
+    padding: 6px 4px; border-radius: 6px;
     border: 1px solid #3a3d47; background: #22252b; color: var(--text);
-    cursor: pointer;
   }
-  .keypad button:active { background: #2c2f37; }
+  .weight-input:focus { outline: none; border-color: var(--green); }
+  .weight-unit { font-size: 16px; color: var(--muted); }
 
   /* --- developer panel (doc section 12.8) -------------------------------
      Spec home is a toggle inside the Setup tab; Setup doesn't exist until
@@ -575,11 +574,11 @@
   var calBody = document.getElementById("calBody");
   var calActions = document.getElementById("calActions");
 
-  // Doc section 12.4's keypad default. Duplicated from
+  // Doc section 12.4's weight-entry default. Duplicated from
   // calibrator.DEFAULT_REF_MASS_G rather than sent over the wire — it is
   // only ever a starting point the operator can overtype, never sent
-  // as-is without the keypad touching it, so the two do not need to be
-  // the same variable, only the same number.
+  // as-is without the input field touching it, so the two do not need to
+  // be the same variable, only the same number.
   var DEFAULT_REF_MASS_G = 500;
 
   var wizard = null;   // {bin, op, step, weight, message} | null
@@ -623,35 +622,42 @@
     } else if (wizard.step === "confirm" && wizard.op === "calibrate") {
       calBody.appendChild(document.createTextNode(
         "Place a known weight in bin " + wizard.bin + "."));
-      var disp = document.createElement("div");
-      disp.className = "weight-display";
-      disp.textContent = (wizard.weight || "0") + " g";
-      calBody.appendChild(disp);
 
-      var pad = document.createElement("div");
-      pad.className = "keypad";
-      ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "back"]
-        .forEach(function (key) {
-          var b = document.createElement("button");
-          b.textContent = key === "clear" ? "C" : (key === "back" ? "⌫" : key);
-          b.addEventListener("click", function () {
-            if (key === "clear") { wizard.weight = ""; }
-            else if (key === "back") { wizard.weight = wizard.weight.slice(0, -1); }
-            else if (wizard.weight.length < 5) { wizard.weight += key; }
-            disp.textContent = (wizard.weight || "0") + " g";
-          });
-          pad.appendChild(b);
-        });
-      calBody.appendChild(pad);
+      var inputRow = document.createElement("div");
+      inputRow.className = "weight-input-row";
+      var input = document.createElement("input");
+      input.className = "weight-input";
+      input.type = "number";
+      input.inputMode = "decimal";
+      input.min = "0";
+      input.step = "any";
+      input.value = wizard.weight;
+      input.addEventListener("input", function () { wizard.weight = input.value; });
+      inputRow.appendChild(input);
+      var unit = document.createElement("span");
+      unit.className = "weight-unit";
+      unit.textContent = "g";
+      inputRow.appendChild(unit);
+      calBody.appendChild(inputRow);
 
-      calActions.appendChild(modalButton("Cancel", false, closeWizard));
-      calActions.appendChild(modalButton("Confirm", true, function () {
+      var confirmCalibrate = function () {
         var grams = parseFloat(wizard.weight);
         if (!isFinite(grams) || grams <= 0) return;
         wizard.step = "capturing";
         renderWizard();
         sendCal({ t: "calibrate", bin: wizard.bin, ref_mass_g: grams });
-      }));
+      };
+      // Enter submits straight from the keyboard, same as tapping Confirm.
+      input.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") confirmCalibrate();
+      });
+
+      calActions.appendChild(modalButton("Cancel", false, closeWizard));
+      calActions.appendChild(modalButton("Confirm", true, confirmCalibrate));
+
+      // Focus after the element is in the DOM, and select so typing
+      // overtypes the DEFAULT_REF_MASS_G prefill instead of appending to it.
+      setTimeout(function () { input.focus(); input.select(); }, 0);
 
     } else if (wizard.step === "capturing") {
       calBody.appendChild(document.createTextNode("Capturing… (2s)"));

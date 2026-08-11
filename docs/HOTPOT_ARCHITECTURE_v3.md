@@ -967,7 +967,7 @@ Eight cards. Each card, top to bottom:
 Calibration flow, one screen at a time, no branching:
 
 1. Tap **Tare** → "Make sure bin 3 is empty" → **Confirm** → 2s capture → "Done. Bin 3 reads 0 g."
-2. Tap **Calibrate** → "Place a known weight in bin 3" → numeric entry with a big keypad, default 500 g → **Confirm** → 2s capture → "Done. Bin 3 reads 500 g."
+2. Tap **Calibrate** → "Place a known weight in bin 3" → numeric text field, prefilled 500 g, overtype with the physical keyboard (Enter submits) → **Confirm** → 2s capture → "Done. Bin 3 reads 500 g."
 3. If the result fails the sanity check (§9.6), show "That didn't work — check the wiring for bin 3, or use a heavier weight" and do not save.
 
 The operator is never shown or asked about counts, sign, multipliers, or orientation.
