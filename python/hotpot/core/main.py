@@ -110,6 +110,19 @@ BINS_BROADCAST_EVERY = 6
 NOISE_DOTS = 8
 NOISE_BAR_SPAN_MULT = 2.0
 
+# doc section 9.1 puts calibration inside a real STAFF state that refuses
+# to bill and re-baselines the whole cart on exit — that state does not
+# exist yet (fsm.py's docstring: arrives with M2/M7). Until it does, this
+# is the narrow version, scoped to whichever one bin the Bins tab wizard
+# has open (see _handle_cal_session): the wizard sends cal_begin/cal_end
+# around the whole Tare or Calibrate screen, not just the capture, so a
+# staff member emptying a bin by hand before tapping Confirm is covered
+# too. If a tablet drops mid-wizard (Wi-Fi, closed browser) and cal_end
+# never arrives, the bin must not stay excluded from billing forever —
+# same tolerance-for-a-dropped-link rule as wire.py's reconnect ladder —
+# so _apply_scale_to_cart auto-releases the freeze after this long.
+CAL_FREEZE_TIMEOUT_S = 300.0
+
 
 def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
     """M1's fixed hand-built bin map (binmap.py's docstring, doc section
@@ -227,6 +240,12 @@ class Core:
         # mock pick/put-back on top of it) — see _apply_scale_to_cart().
         self._scale_baselined = [False] * cart.NUM_BINS
 
+        # Bin index -> time.time() the Bins tab's wizard opened on it, for
+        # as long as it stays open. See CAL_FREEZE_TIMEOUT_S and
+        # _handle_cal_session: while a bin is a key here,
+        # _apply_scale_to_cart leaves Cart alone for it entirely.
+        self._calibrating: Dict[int, float] = {}
+
         # I1 says core owns all state; it does not say core touches it from
         # one thread, and core does not. Reads happen on the 60Hz broadcast
         # thread; writes arrive on whichever of the `websockets` library's
@@ -340,6 +359,9 @@ class Core:
         if t == "tare" or t == "calibrate":
             self._handle_cal(t, msg)
             return
+        if t == "cal_begin" or t == "cal_end":
+            self._handle_cal_session(t, msg)
+            return
         _log.debug("web: unhandled message type %r from a tablet", t)
 
     def _handle_mock(self, t: str, msg: Dict[str, Any]) -> None:
@@ -406,6 +428,40 @@ class Core:
             "noise_g": result.noise_g, "noisy": result.noisy,
         })
 
+    def _handle_cal_session(self, t: str, msg: Dict[str, Any]) -> None:
+        """The Bins tab wizard's open/close (index.html's openWizard() /
+        closeWizard()), wrapping a whole Tare or Calibrate screen rather
+        than just the capture inside `_handle_cal`.
+
+        Staff emptying a bin by hand, or lifting a reference mass back out
+        of it once Calibrate is done, is not a diner picking food, and
+        must not price as one. Between cal_begin and cal_end the bin is a
+        key in self._calibrating, and _apply_scale_to_cart leaves it alone
+        entirely. On cal_end this re-baselines the bin (cart.seed_live_
+        grams — same one-time hand-off M2 build item 5 uses for a bin's
+        very first real reading) to whatever it holds right now, so the
+        session that just ended prices as zero rather than as everything
+        that came out of it while the operator worked — the same "re-
+        baseline, never re-tare" rule doc section 9.1 gives STAFF exit,
+        just scoped to the one bin the wizard touched. A bin still
+        uncalibrated (grams still None — a first-ever tare with no
+        calibrate yet) has nothing to re-baseline to and is left exactly
+        as _apply_scale_to_cart would have left it anyway.
+        """
+        i = msg.get("bin")
+        if not isinstance(i, int) or isinstance(i, bool) or not (0 <= i < binmap.NUM_BINS):
+            _log.warning("web: %s with bad bin %r — ignored", t, i)
+            return
+        with self.state_lock:
+            if t == "cal_begin":
+                self._calibrating[i] = time.time()
+                return
+            self._calibrating.pop(i, None)
+            g = self.scale.read().grams[i]
+            if g is not None:
+                self.cart.seed_live_grams(i, g)
+                self._scale_baselined[i] = True
+
     # -- wiring the scale into Cart (doc section 21, M2 build item 5) -------
 
     def _apply_scale_to_cart(self) -> None:
@@ -413,13 +469,28 @@ class Core:
         overwrites Cart's live grams; a bin it cannot (uncalibrated, or a
         stale/missing XIAO — core/scale.py's Reading.grams is None for
         both, on purpose) is left untouched, still driven by the
-        developer panel's mock controls (doc section 12.8).
+        developer panel's mock controls (doc section 12.8). A bin whose
+        Bins tab wizard is open (self._calibrating — see
+        _handle_cal_session) is also left untouched: staff moving weights
+        around to tare or calibrate it is not a diner pick and must not
+        reach Cart at all while it is happening, only be re-baselined once
+        the wizard closes.
 
         Caller holds state_lock — this mutates Cart, the same rule every
         other cart.py call site in this file already follows.
         """
         reading = self.scale.read()
+        now = time.time()
         for i in range(cart.NUM_BINS):
+            started = self._calibrating.get(i)
+            if started is not None:
+                if now - started < CAL_FREEZE_TIMEOUT_S:
+                    continue
+                # cal_end never arrived — a dropped tablet, not a bin to
+                # exclude from billing forever (this method's docstring;
+                # CAL_FREEZE_TIMEOUT_S's own comment). Release it and fall
+                # through to an ordinary reading this same tick.
+                del self._calibrating[i]
             g = reading.grams[i]
             if g is None:
                 continue

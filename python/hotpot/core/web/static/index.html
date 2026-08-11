@@ -583,13 +583,21 @@
 
   var wizard = null;   // {bin, op, step, weight, message} | null
 
+  // cal_begin/cal_end bracket the whole wizard, not just the capture:
+  // core/main.py excludes this bin from Cart entirely between the two
+  // (_handle_cal_session's docstring) so a staff member emptying a bin
+  // by hand, or lifting a reference weight back out once Calibrate is
+  // done, never prices as a diner pick. Sent for both Tare and
+  // Calibrate — each is its own open/close cycle.
   function openWizard(bin, op) {
     wizard = { bin: bin, op: op, step: "confirm", weight: String(DEFAULT_REF_MASS_G) };
     renderWizard();
     calBackdrop.classList.add("show");
+    sendCal({ t: "cal_begin", bin: bin });
   }
 
   function closeWizard() {
+    if (wizard) sendCal({ t: "cal_end", bin: wizard.bin });
     wizard = null;
     calBackdrop.classList.remove("show");
   }

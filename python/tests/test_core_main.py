@@ -823,6 +823,107 @@ class TestBinsTab(CoreCase):
         self.assertTrue(self.cal_result(w, 4, "tare")["ok"])
         self.assertFalse(self.core.cal.bins[2].calibrated)
 
+    def test_calibration_session_does_not_bill_the_reference_weight(self):
+        """The bug this guards: without cal_begin/cal_end, the instant
+        calibrate() succeeds, _apply_scale_to_cart seeds Cart to whatever
+        real weight is sitting in the bin — the reference mass, still
+        there for the wizard's verification step. Lifting it back out
+        afterwards, the ordinary next move of the calibration flow, would
+        then read as a diner picking that exact weight and bill it. The
+        wizard now brackets Tare and Calibrate each in their own
+        cal_begin/cal_end, and bin 6 must show nothing billed at any
+        point until cal_end re-baselines it to what it actually holds.
+        """
+        counts = self.feed(self.EMPTY)
+        _, of_msgs, of_lock = self.of_client()
+        w = self.ws()
+        self.recv_json(w)
+
+        def clear():
+            with of_lock:
+                of_msgs.clear()
+
+        def all_bin6_unpicked():
+            with of_lock:
+                return of_msgs and all(m["bins"][6]["picked"] == 0 for m in of_msgs)
+
+        # Tare: staff empties the bin by hand (already empty here), taps
+        # Confirm, taps Done.
+        w.send(json.dumps({"t": "cal_begin", "bin": 6}))
+        w.send(json.dumps({"t": "tare", "bin": 6}))
+        self.assertTrue(self.cal_result(w, 6, "tare")["ok"])
+        w.send(json.dumps({"t": "cal_end", "bin": 6}))
+
+        # Calibrate: staff places a 650g reference mass (chosen to differ
+        # from MOCK_SEED_GRAMS' 500g, so a coincidental match can't hide a
+        # regression), taps Confirm.
+        w.send(json.dumps({"t": "cal_begin", "bin": 6}))
+        counts[6] = 0     # some counts value distinct from the -83422 zero
+        w.send(json.dumps({"t": "calibrate", "bin": 6, "ref_mass_g": 650}))
+        done = self.cal_result(w, 6, "calibrate")
+        self.assertTrue(done["ok"], done)
+        self.assertAlmostEqual(done["grams"], 650.0, delta=5.0)
+
+        # The reference mass is sitting in a now-calibrated bin — the
+        # wizard is still open (no cal_end yet). Nothing must bill.
+        clear()
+        self.wait_for_n(of_msgs, of_lock, 5)
+        self.assertTrue(all_bin6_unpicked(),
+                        "the reference mass billed while the wizard was still open")
+
+        # Staff lifts the reference mass back out — still before cal_end.
+        # This is the exact step that used to bill 650g as a phantom pick.
+        counts[6] = self.EMPTY[6]
+        clear()
+        self.wait_for_n(of_msgs, of_lock, 5)
+        self.assertTrue(all_bin6_unpicked(),
+                        "removing the reference mass billed before cal_end")
+
+        # Operator taps Done: cal_end re-baselines bin 6 to what it holds
+        # now (empty) instead of pricing the whole session as a 650g pick.
+        clear()
+        w.send(json.dumps({"t": "cal_end", "bin": 6}))
+
+        def rebaselined():
+            with of_lock:
+                return any(m["bins"][6]["grams"] == 0 for m in of_msgs)
+        self.assertTrue(wait_for(rebaselined), "bin 6 never re-baselined after cal_end")
+        with of_lock:
+            last = of_msgs[-1]
+        self.assertEqual(last["bins"][6]["picked"], 0)
+        self.assertEqual(last["total"]["amount"], 0.0)
+
+    def test_abandoned_wizard_auto_releases_instead_of_freezing_forever(self):
+        """cal_end can simply never arrive — a tablet dropped off Wi-Fi or
+        a browser closed mid-wizard. A bin must not stay excluded from
+        billing for the rest of the evening because of it; it self-heals
+        once CAL_FREEZE_TIMEOUT_S has passed (same tolerance-for-a-
+        dropped-link rule as wire.py's reconnect ladder), the same as any
+        ordinary reading from then on.
+        """
+        counts = self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "cal_begin", "bin": 7}))
+        w.send(json.dumps({"t": "tare", "bin": 7}))
+        self.assertTrue(self.cal_result(w, 7, "tare")["ok"])
+        counts[7] = 0
+        w.send(json.dumps({"t": "calibrate", "bin": 7, "ref_mass_g": 300}))
+        self.assertTrue(self.cal_result(w, 7, "calibrate")["ok"])
+        # No cal_end: simulate the tablet having dropped, and the freeze
+        # having been open far longer than CAL_FREEZE_TIMEOUT_S allows,
+        # without an actual multi-minute sleep.
+        with self.core.state_lock:
+            self.assertIn(7, self.core._calibrating)
+            self.core._calibrating[7] = time.time() - coremain.CAL_FREEZE_TIMEOUT_S - 1.0
+
+        def released():
+            with self.core.state_lock:
+                return 7 not in self.core._calibrating
+        self.assertTrue(wait_for(released), "the abandoned freeze never auto-released")
+        self.assertTrue(self.core._scale_baselined[7],
+                        "bin 7 never resumed ordinary billing after the freeze released")
+
 
 class TestNoiseDots(unittest.TestCase):
     """coremain._noise_dots — doc section 12.4's "●●●●●●○○" bar. A UI
