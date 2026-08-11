@@ -14,6 +14,12 @@ Stage 1-2 code is being replaced, not extended.
 Current milestone: **M3 (camera) is in progress** — see the M3 section
 below. M3.1 (`common/framebus.py`, the shared-memory frame ring) is
 code-complete; M3 build item 2 (`camera/main.py`) is next.
+Deferred, not started: demo-video recording (capturing the table video,
+room audio, and optionally a Live-tab PIP overlay, for the contest
+submission) is designed in `docs/DEMO_RECORDING_PLAN.md`. It's
+deliberately out-of-band tooling (`tools/record_demo.py`, not a `run.py`
+process) so it doesn't block or get built into M3. Pick it up whenever,
+per that doc's §8.
 M2.6 (mode) is code-complete (2026-08-11) — see the M2.6 section below.
 M2's 5 build items (load cells) are all code-complete; M1, M2 and M2.6
 each still owe their human acceptance test on the rig.
