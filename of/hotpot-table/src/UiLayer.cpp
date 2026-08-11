@@ -203,6 +203,17 @@ void UiLayer::setup(){
 		ofLogError(kTag) << "could not load " << kFontFile << " at one or more sizes"
 			<< " — labels will not draw";
 	}
+
+	// Pre-cropped, background-already-transparent — see assets/logo/ in the
+	// repo root for the source and how it was derived. "light" (dark ink,
+	// near-white background) rather than "dark", matching this surface's
+	// own hard invariant: the projected field stays above a white floor
+	// (doc §2, CLAUDE.md's "never black, never coloured, never patterned").
+	_brandLogoLoaded = _brandLogo.load("img/hotpottery-light-cropped.png");
+	if(!_brandLogoLoaded){
+		ofLogError(kTag) << "could not load img/hotpottery-light-cropped.png"
+			<< " — no brand mark will draw";
+	}
 }
 
 ofRectangle UiLayer::binRectPx(int i){
@@ -521,6 +532,38 @@ void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
 	ofSetColor(255);
 }
 
+void UiLayer::drawBrandMark() const {
+	// Developer request, not doc §14.5: persistent "always visible" table
+	// branding. Lives in the SAME strip drawBanner claims — the pot-gap
+	// centre column, "the one horizontal span on the table with no bin
+	// and no label in it, by construction" (see drawBanner) — because
+	// that is the only span on the table already proven safe to put
+	// diner-facing content in without burying a bin label. draw() decides
+	// whether this or drawTopBanner gets the strip on a given frame; the
+	// banner always wins when one is up (a diner needs "NOT SERVING" more
+	// than the logo).
+	if(!_brandLogoLoaded){
+		return;
+	}
+	const float gapLeftMM = BINS[1].xMM + BINS[1].wMM;
+	const float gapRightMM = BINS[2].xMM;
+	const float insetPx = mmToPxX(kBannerInsetMM);
+	const float x = mmToPxX(gapLeftMM) + insetPx;
+	const float w = mmToPxX(gapRightMM - gapLeftMM) - 2.0f * insetPx;
+	const float cx = x + w * 0.5f;
+	const float cy = kBannerHeightPx * 0.5f;
+
+	// Height-bound, not width-bound — the strip is much wider than the
+	// logo needs, and the logo is much wider than it is tall. 24px of
+	// combined top/bottom margin inside the banner's own height so the
+	// mark reads as a mark, not a strip-filling bar.
+	const float drawH = kBannerHeightPx - 24.0f;
+	const float drawW = drawH * ((float)_brandLogo.getWidth() / (float)_brandLogo.getHeight());
+
+	ofSetColor(255);
+	_brandLogo.draw(cx - drawW * 0.5f, cy - drawH * 0.5f, drawW, drawH);
+}
+
 void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	// **Precedence: SETTING wins over error.** Both claim the same strip
 	// and both can be true at once — in setting mode, someone knocks the
@@ -578,6 +621,17 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		return;
 	}
 
+	// The pot-gap strip is either the banner's or the brand mark's, never
+	// both — see drawBrandMark. No banner exists before the first `state`
+	// ever arrives (mode/overlayKind live on it), so bannerUp is false and
+	// the brand mark is what a table with no core link yet shows, same as
+	// drawConnectionIndicator below already does unconditionally.
+	const bool bannerUp = hasState
+		&& (state.mode == "setting" || state.overlayKind == "error");
+	if(!bannerUp){
+		drawBrandMark();
+	}
+
 	if(hasState){
 		// Once per frame, ahead of the bins: drawBin's price line and
 		// drawTotal's numeral both format off this same prefix/decimals
@@ -588,7 +642,9 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 			drawBin(i, state.bins[i], _bins[i]);
 		}
 		drawTotal(state.total);
-		drawTopBanner(state);
+		if(bannerUp){
+			drawTopBanner(state);
+		}
 	}
 
 	drawConnectionIndicator(connected, staleSeconds);

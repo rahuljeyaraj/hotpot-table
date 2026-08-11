@@ -58,6 +58,7 @@ private:
 	void drawBanner(const ofColor & fill, const ofColor & ink,
 		const std::string & headline, const std::string & subline) const;
 	void drawTopBanner(const StateLink::State & state) const;
+	void drawBrandMark() const;
 	void drawDevOverlay(bool hasState, const StateLink::State & state,
 		bool connected, float fps) const;
 	std::string _priceText(double amount) const;
@@ -75,6 +76,9 @@ private:
 	ofTrueTypeFont _totalLabelFont;// 28px, "Total label"
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
+
+	ofImage _brandLogo;   // "The Hotpottery" mark — see drawBrandMark
+	bool _brandLogoLoaded = false;
 
 	std::array<BinTween, 8> _bins;
 	Spring _totalAmount{0.15f};
