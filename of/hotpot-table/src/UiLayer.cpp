@@ -100,6 +100,15 @@ namespace {
 	const float kBannerHeightPx = 104.0f;
 	const float kBannerInsetMM = 10.0f;
 
+	// The brand mark sits ABOVE the banner in the same centre column,
+	// never sharing its strip — see drawBrandMark and drawBanner's yTop.
+	// Height is developer-tuned (not a doc value); top margin is
+	// clearance from the table's far edge; the gap is breathing room
+	// between the mark's bottom and the banner's top when both are up.
+	const float kBrandHeightPx = 220.0f;
+	const float kBrandTopMarginPx = 20.0f;
+	const float kBrandBannerGapPx = 24.0f;
+
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
 		if(text.empty() || !font.isLoaded()){
@@ -506,6 +515,10 @@ void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
 	// them, not instead of them) — doc §13.3's rule for a dead core link
 	// applies just as well to a dead scale link: "It does not black out —
 	// a frozen table is far better... than a dead one."
+	// yTop, not 0: the strip used to start at the table's far edge; now
+	// the brand mark owns that edge (drawBrandMark) and this panel starts
+	// wherever the mark's own bottom margin ends, so the two stack instead
+	// of one replacing the other.
 	const float gapLeftMM = BINS[1].xMM + BINS[1].wMM;
 	const float gapRightMM = BINS[2].xMM;
 	const float insetPx = mmToPxX(kBannerInsetMM);
@@ -513,9 +526,10 @@ void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
 	const float w = mmToPxX(gapRightMM - gapLeftMM) - 2.0f * insetPx;
 	const float h = kBannerHeightPx;
 	const float cx = x + w * 0.5f;
+	const float yTop = kBrandTopMarginPx + kBrandHeightPx + kBrandBannerGapPx;
 
 	ofSetColor(fill);
-	ofDrawRectangle(x, 0.0f, w, h);
+	ofDrawRectangle(x, yTop, w, h);
 
 	ofSetColor(ink);
 	// Two lines, centred as a block: the headline is what a diner reads
@@ -526,22 +540,21 @@ void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
 	const float lineGap = 8.0f;
 	const float blockH = _nameFont.getAscenderHeight() + lineGap
 		+ _detailFont.getAscenderHeight();
-	const float top = (h - blockH) * 0.5f;
-	drawCentered(_nameFont, headline, cx, top + _nameFont.getAscenderHeight());
-	drawCentered(_detailFont, subline, cx, h - top);
+	const float localTop = (h - blockH) * 0.5f;
+	drawCentered(_nameFont, headline, cx, yTop + localTop + _nameFont.getAscenderHeight());
+	drawCentered(_detailFont, subline, cx, yTop + h - localTop);
 	ofSetColor(255);
 }
 
 void UiLayer::drawBrandMark() const {
 	// Developer request, not doc §14.5: persistent "always visible" table
-	// branding. Lives in the SAME strip drawBanner claims — the pot-gap
-	// centre column, "the one horizontal span on the table with no bin
-	// and no label in it, by construction" (see drawBanner) — because
-	// that is the only span on the table already proven safe to put
-	// diner-facing content in without burying a bin label. draw() decides
-	// whether this or drawTopBanner gets the strip on a given frame; the
-	// banner always wins when one is up (a diner needs "NOT SERVING" more
-	// than the logo).
+	// branding, top-anchored in the pot-gap centre column — "the one
+	// horizontal span on the table with no bin and no label in it, by
+	// construction" (see drawBanner). Unlike the banner this is never
+	// hidden — draw() always calls it when the image loaded — and
+	// drawBanner positions itself below the mark's bottom edge rather
+	// than sharing this strip, so the two stack instead of one replacing
+	// the other.
 	if(!_brandLogoLoaded){
 		return;
 	}
@@ -551,17 +564,14 @@ void UiLayer::drawBrandMark() const {
 	const float x = mmToPxX(gapLeftMM) + insetPx;
 	const float w = mmToPxX(gapRightMM - gapLeftMM) - 2.0f * insetPx;
 	const float cx = x + w * 0.5f;
-	const float cy = kBannerHeightPx * 0.5f;
 
-	// Height-bound, not width-bound — the strip is much wider than the
-	// logo needs, and the logo is much wider than it is tall. 24px of
-	// combined top/bottom margin inside the banner's own height so the
-	// mark reads as a mark, not a strip-filling bar.
-	const float drawH = kBannerHeightPx - 24.0f;
+	// Height-bound, not width-bound — the column is much wider than the
+	// logo needs, and the logo is much wider than it is tall.
+	const float drawH = kBrandHeightPx;
 	const float drawW = drawH * ((float)_brandLogo.getWidth() / (float)_brandLogo.getHeight());
 
 	ofSetColor(255);
-	_brandLogo.draw(cx - drawW * 0.5f, cy - drawH * 0.5f, drawW, drawH);
+	_brandLogo.draw(cx - drawW * 0.5f, kBrandTopMarginPx, drawW, drawH);
 }
 
 void UiLayer::drawTopBanner(const StateLink::State & state) const {
@@ -621,16 +631,13 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		return;
 	}
 
-	// The pot-gap strip is either the banner's or the brand mark's, never
-	// both — see drawBrandMark. No banner exists before the first `state`
-	// ever arrives (mode/overlayKind live on it), so bannerUp is false and
-	// the brand mark is what a table with no core link yet shows, same as
-	// drawConnectionIndicator below already does unconditionally.
-	const bool bannerUp = hasState
-		&& (state.mode == "setting" || state.overlayKind == "error");
-	if(!bannerUp){
-		drawBrandMark();
-	}
+	// Always on when loaded — never hidden by the banner, which now
+	// positions itself below the mark's bottom edge instead of sharing
+	// its strip (see drawBrandMark/drawBanner). Drawn outside the
+	// hasState gate too: a table with no core link yet still has no
+	// banner to show (state.mode/overlayKind don't exist without state),
+	// so the brand mark is the "always visible" default from boot.
+	drawBrandMark();
 
 	if(hasState){
 		// Once per frame, ahead of the bins: drawBin's price line and
@@ -642,9 +649,7 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 			drawBin(i, state.bins[i], _bins[i]);
 		}
 		drawTotal(state.total);
-		if(bannerUp){
-			drawTopBanner(state);
-		}
+		drawTopBanner(state);
 	}
 
 	drawConnectionIndicator(connected, staleSeconds);
