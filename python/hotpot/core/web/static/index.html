@@ -24,6 +24,12 @@
     background: var(--bg); color: var(--text);
     font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
   }
+  /* Column layout so §12.2's action bar sits at the bottom of every tab
+     without a fixed height guess: only <main> scrolls, and the bar and
+     the developer panel below it stay put. Replaces the sticky-only
+     arrangement — two sticky bottom:0 siblings would have overlapped. */
+  body { display: flex; flex-direction: column; }
+  main { flex: 1 1 auto; overflow-y: auto; }
   header {
     position: sticky; top: 0; z-index: 1;
     display: flex; align-items: center; gap: 16px;
@@ -35,6 +41,20 @@
   .mode, .order {
     font-size: 14px; font-weight: 400; color: var(--muted);
     white-space: nowrap;
+  }
+  /* Header mode chip (doc §12.2). Neutral in serving, amber in setting —
+     matching the table's own amber chrome per I8, so the two surfaces
+     say the same thing in the same hue. Never colour alone: the chip's
+     text changes too, same rule the six pips follow with their letter
+     codes. */
+  .mode {
+    padding: 4px 10px; border-radius: 12px;
+    border: 1px solid #333640;
+    font-variant-caps: all-small-caps; letter-spacing: 0.06em;
+  }
+  .mode.setting {
+    background: var(--amber); border-color: var(--amber);
+    color: #2a1f00; font-weight: 600;
   }
   .spacer { flex: 1; }
   .pips { display: flex; gap: 10px; }
@@ -199,6 +219,42 @@
   .weight-input:focus { outline: none; border-color: var(--green); }
   .weight-unit { font-size: 16px; color: var(--muted); }
 
+  /* --- action bar (doc section 12.2, M2.6 build item 8) -----------------
+     Fixed to the bottom, above the developer panel, on every tab.
+
+     ONE primary button that names what happens next, not a two-position
+     switch: §12.1 is "one primary action per screen", and a switch
+     invites a mis-tap into the one transition that destroys a diner's
+     order. */
+  .action-bar {
+    flex: none;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-top: 1px solid #333640;
+  }
+  .action-btn {
+    min-height: 52px; padding: 0 22px;      /* well over §12.1's 44px */
+    border: 1px solid #3a3d47; border-radius: 8px;
+    background: #22252b; color: var(--text);
+    font-size: 15px; cursor: pointer;
+  }
+  .action-btn.primary {
+    font-weight: 600; letter-spacing: 0.04em;
+    border-color: #4a4e5a; background: #2b2f37;
+  }
+  /* In setting mode the primary button carries the same amber as the
+     header chip and the table's banner (I8). */
+  .action-btn.primary.setting {
+    background: var(--amber); border-color: var(--amber);
+    color: #2a1f00;
+  }
+  .action-note { font-size: 13px; color: var(--amber); }
+  .modal-btn.danger {
+    background: var(--red); border-color: var(--red);
+    color: #2a0000; font-weight: 600;
+  }
+
   /* --- developer panel (doc section 12.8) -------------------------------
      Spec home is a toggle inside the Setup tab; Setup doesn't exist until
      M4 (doc section 21). Homed on the tab bar for now so the mock
@@ -288,6 +344,16 @@
       </div>
     </section>
   </main>
+  <!-- Doc §12.2's action bar. The primary button names what happens
+       next; `Cancel order` is fsm.cancel()'s first caller since it was
+       written in M1 and confirms before it fires, because it
+       re-baselines. -->
+  <section class="action-bar">
+    <button id="modeBtn" class="action-btn primary">ENTER SETTING MODE</button>
+    <div class="action-note" id="modeNote"></div>
+    <div class="spacer"></div>
+    <button id="cancelBtn" class="action-btn">Cancel order</button>
+  </section>
   <section id="devPanel" class="dev-panel">
     <h3>Mock picks / put-backs
       <span class="dev-note">— doc §12.8's {45,6,120,3,25,80} g cycle, one shared pointer for every button below</span>
@@ -304,6 +370,18 @@
       <div class="modal-title" id="calTitle">—</div>
       <div class="modal-body" id="calBody"></div>
       <div class="modal-actions" id="calActions"></div>
+    </div>
+  </div>
+
+  <!-- The action bar's own dialog, separate from the calibration wizard
+       above rather than sharing it: that one is a state machine driven by
+       `wizard`, and threading two unrelated flows through it would make
+       every render read both. Same one-screen-at-a-time shape (§12.4). -->
+  <div id="actBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-title" id="actTitle">—</div>
+      <div class="modal-body" id="actBody"></div>
+      <div class="modal-actions" id="actActions"></div>
     </div>
   </div>
 
@@ -697,6 +775,111 @@
     renderWizard();
   }
 
+  // --- action bar and the mode (doc sections 12.2, 9.1 — M2.6) ---------
+
+  var modeChip = document.getElementById("mode");
+  var modeBtn = document.getElementById("modeBtn");
+  var modeNote = document.getElementById("modeNote");
+  var cancelBtn = document.getElementById("cancelBtn");
+  var actBackdrop = document.getElementById("actBackdrop");
+  var actTitle = document.getElementById("actTitle");
+  var actBody = document.getElementById("actBody");
+  var actActions = document.getElementById("actActions");
+
+  var mode = "serving";
+  var cartActive = false;
+
+  // Whether *this* tablet is the one waiting on a set_mode it sent.
+  // The `mode` reply is a broadcast to every attached tablet (core's
+  // _publish_mode: the mode is global state and they must all agree on
+  // it), so without this a refusal would pop a dialog on a tablet
+  // nobody was holding. Every tablet still gets the state; only the one
+  // that asked gets the modal.
+  var awaitingMode = false;
+
+  function closeDialog() {
+    actBackdrop.classList.remove("show");
+  }
+
+  function showDialog(title, body, buttons, isError) {
+    actTitle.textContent = title;
+    actBody.innerHTML = "";
+    actBody.classList.toggle("error", !!isError);
+    actBody.appendChild(document.createTextNode(body));
+    actActions.innerHTML = "";
+    buttons.forEach(function (b) {
+      var el = document.createElement("button");
+      el.className = "modal-btn" + (b.cls ? " " + b.cls : "");
+      el.textContent = b.label;
+      el.addEventListener("click", b.onClick);
+      actActions.appendChild(el);
+    });
+    actBackdrop.classList.add("show");
+  }
+
+  function sendMode(next) {
+    if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+    awaitingMode = true;
+    currentWs.send(JSON.stringify({ t: "set_mode", mode: next }));
+  }
+
+  // Doc §9.1: "The staff view shows *why* it is refused and offers
+  // 'cancel the order first.'" The reason is core's, shown verbatim —
+  // the rule about what makes a cart active lives in one place
+  // (cart.is_active) and this side does not restate it. The button also
+  // stays tappable rather than being disabled while a cart is live: a
+  // dead control that explains nothing is the thing this replaces.
+  function showRefusal(reason) {
+    showDialog("Can't enter setting mode", reason, [
+      { label: "Close", onClick: closeDialog },
+      { label: "Cancel the order first", cls: "primary",
+        onClick: askCancelOrder },
+    ], true);
+  }
+
+  // Confirmation before fsm.cancel() fires, because it re-baselines:
+  // whatever the diner has taken so far stops being charged and cannot
+  // be recovered.
+  function askCancelOrder() {
+    showDialog("Cancel this order?",
+      "Everything taken so far stops being charged, and the bins "
+      + "re-baseline where they stand. This cannot be undone.", [
+      { label: "Keep the order", onClick: closeDialog },
+      { label: "Cancel order", cls: "danger", onClick: function () {
+        if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+          currentWs.send(JSON.stringify({ t: "cancel_order" }));
+        }
+        closeDialog();
+      } },
+    ]);
+  }
+
+  function applyMode(msg) {
+    mode = msg.mode;
+    cartActive = !!msg.cart_active;
+    var setting = mode === "setting";
+
+    // Never colour alone (§12.2's own rule for the pips): the chip's
+    // text changes with its hue.
+    modeChip.textContent = setting ? "Setting" : "Serving";
+    modeChip.classList.toggle("setting", setting);
+
+    modeBtn.textContent = setting ? "EXIT SETTING MODE" : "ENTER SETTING MODE";
+    modeBtn.classList.toggle("setting", setting);
+
+    // The pre-warn `cart_active` is on the wire for: the operator sees
+    // the reason a tap is about to be refused before making it.
+    modeNote.textContent = (!setting && cartActive) ? "An order is in progress" : "";
+
+    if (msg.refused && awaitingMode) showRefusal(msg.refused);
+    awaitingMode = false;
+  }
+
+  modeBtn.addEventListener("click", function () {
+    sendMode(mode === "setting" ? "serving" : "setting");
+  });
+  cancelBtn.addEventListener("click", askCancelOrder);
+
   // Reconnect with the same shape of backoff as every other client in
   // this system (doc section 20.2) — a tablet left on overnight should
   // recover on its own, not need a page reload.
@@ -718,8 +901,13 @@
       if (msg.t === "pips") applyPips(msg.pips);
       else if (msg.t === "bins") applyBins(msg);
       else if (msg.t === "cal_result") applyCalResult(msg);
+      else if (msg.t === "mode") applyMode(msg);
     };
     ws.onclose = function () {
+      // A set_mode whose reply will now never arrive. Left true, the
+      // next reconnect's join seed would pop a refusal dialog for a tap
+      // made minutes ago.
+      awaitingMode = false;
       banner.classList.add("show");
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, BACKOFF_MAX);
