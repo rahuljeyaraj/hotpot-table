@@ -1228,6 +1228,87 @@ numpy array of white discs on black, and `RingSource` takes an
 `open_reader` callable for exactly the reason `ScaleReader` takes
 `open_port`.
 
+M4.3 (2026-08-12) is build item 3, the dot calibration wizard:
+`core/dotcal.py`, its wiring into `core/main.py`, and the `calibrating`
+overlay drawn on the table.
+
+**Doc §24.1's open decision is now made — and it was made from the
+table's geometry, not from a camera, because there is no rig here. It
+needs a sanity check on real hardware.** §24.1 has been rewritten with
+the full reasoning; the short version:
+- **Two passes.** Four big corner dots first, used only to *order* the
+  second pass's 5x3 grid — each expected grid position is projected
+  through the coarse fit and matched nearest-neighbour. The one-pass
+  alternative is to sort the detected grid row-major, which works until
+  the camera is a few degrees off square, at which point the rows
+  interleave, the pairing goes off by one, and **the fit still reports an
+  excellent RMS**. Ordering is the only step in the solve with no
+  numerical safety net.
+- **The rows avoid the bin cutouts, and that is what shapes the
+  pattern.** A dot landing on a tray is displaced by
+  `height / tan(elevation)` — at I10's worst allowed 70 degrees, a tray
+  40mm down moves the dot ~19px, six times the whole error budget. The
+  three rows sit in the only bin-free bands: far margin 85mm, row gap
+  457mm, near margin 830mm.
+- **15 points.** 8 DOF needs 4 pairs; 15 leaves RANSAC room to drop one.
+  Denser risks dots merging under projector defocus into one blob in the
+  wrong place.
+- **The middle row is the tight one — check it on the rig.** Its band is
+  30mm; a 13px dot spans ~22mm of it, ~4mm each side. If projector
+  alignment is worse than that, set `calibration.grid_rows` to 2.
+Every number is a `calibration.*` config key (§8.6, added).
+
+**Found by a test, not reasoned out in advance, and it changes what "a
+good calibration" means:** the RMS alone is not a verdict. Feed 6px of
+centroid jitter against a 3px RANSAC threshold and RANSAC does exactly
+its job — finds the largest subset agreeing within 3px, which came out as
+5 of 15 dots, and reports a beautiful sub-pixel RMS over them. **That
+would have passed doc §21's "under ~3px" acceptance test while being the
+worst solve the rig could produce.** The verdict now needs both the error
+and the inlier count (70% of the pattern, never under 6). §24.1 records
+this too.
+
+Three more things worth not re-deriving:
+- **Core sends the dot POSITIONS, oF does not know the pattern.** I2 at
+  its sharpest: if oF held the layout and core assumed it, one edit on
+  either side would have core solving against dots that were never where
+  it thought — with a perfect RMS, because the fit only ever sees core's
+  copy. `overlay.dots` is `[[x,y,r],...]` in stage space; **§4.3 updated.**
+- **`calibrating` suppresses every banner, and that is a lighting rule,
+  not a UI preference.** The field inverts to black (I9's one exception)
+  and the camera sits at a dark exposure hunting bright blobs — a banner
+  is a bright shape on a black field, which is exactly what
+  `classifier/dots.py` is looking for. **§14.5's precedence table now
+  reads calibrating > uncalibrated > setting > error**, with
+  `uncalibrated` above `setting` because it survives setting mode: an
+  operator who exits still cannot serve, and `setting` would mask the one
+  message that is still true.
+- **The same inverted-field flag goes to both `Stage::beginContent` and
+  `Stage::compositeAndWarp`.** Passing it to one and not the other is the
+  failure worth knowing: begin-only leaves the light pass stamping eight
+  white rectangles across the pattern; composite-only draws the dots onto
+  a white field where nothing can see them. One local in `ofApp::draw`,
+  used twice. The keystone warp still runs in both cases — §5.2 says
+  `H_cam→stage` implicitly contains the keystone, so solving through an
+  un-warped pattern would give a homography for a table nobody projects
+  onto.
+Classifier replies are correlated **by command id**, not "the next reply
+that arrives": a late coarse-pass answer handed to the fine pass would
+solve 15 labelled points against 4 real ones.
+39 new tests (`test_dotcal.py` 29, plus 10 in `test_core_main.py`'s
+`TestDotCalibrationOverTheWire` — a stand-in classifier over a real
+socket that projects whatever core just put in the overlay through a
+known matrix, so the recovered homography is checked against a reference
+core never saw). 638 total, all passing. Six mutations checked red:
+nearest-neighbour pairing replaced by a row-major sort (caught by the
+rotated-camera test); the verdict taken from RMS alone; the overlay left
+up after a solve; the overlay left up after a *failed* solve; the human
+Verify answer not cleared by a re-solve.
+Builds clean (msbuild, Debug x64, 0 errors, 0 warnings from
+`hotpot-table/src`). **Nothing here has been seen on the projected
+surface**: the black field, the dots, and whether a real camera can find
+them are all still owed.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

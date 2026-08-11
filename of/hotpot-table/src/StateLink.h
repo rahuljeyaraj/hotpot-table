@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ofJson.h"
+#include "glm/vec3.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -82,6 +83,19 @@ public:
 		std::vector<Bin> bins;
 		Total total;
 		std::string overlayKind = "none";
+
+		// doc §4.3's `overlay.dots`, present only while
+		// overlayKind == "calibrating" (M4 build item 3). Each entry is
+		// [x, y, radius] in STAGE pixels.
+		//
+		// **Core sends the positions; oF does not know the pattern.** I2
+		// ("computes nothing it could be told") is at its sharpest here:
+		// if this class held the dot layout and core assumed it, one edit
+		// on either side would have core solving a homography against
+		// dots that were never where it thought they were — and the fit
+		// would report a beautiful error, because it only ever sees
+		// core's copy of the pattern.
+		std::vector<glm::vec3> overlayDots;
 	};
 
 	// who="of" (doc §4.1 process names / health.py's PROCESSES tuple).

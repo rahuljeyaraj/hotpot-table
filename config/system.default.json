@@ -27,6 +27,19 @@
     "model": "models/ingredients-x86_64.eim",
     "live_hz": 2
   },
+  "calibration": {
+    "grid_cols": 5,
+    "grid_rows": 3,
+    "grid_inset_px": [164, 100],
+    "dot_radius_px": 13,
+    "corner_dot_radius_px": 24,
+    "min_dot_area_px": 40,
+    "max_dot_area_px": 20000,
+    "match_gate_px": 120,
+    "ransac_reproj_px": 3.0,
+    "rms_warn_px": 3.0,
+    "settle_s": 0.6
+  },
   "voice": {
     "backend": "stub",
     "model": "models/keywords-x86_64.eim",

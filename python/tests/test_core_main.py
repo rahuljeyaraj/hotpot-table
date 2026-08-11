@@ -82,10 +82,15 @@ class CoreCase(unittest.TestCase):
         # write, the real one.
         self._cal_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._cal_dir.cleanup)
+        # homography_path/rects_path are throwaway for exactly the same
+        # reason (M4.1): those two files decide where every bin rect is,
+        # and a test that saved one would silently move the rig's trays.
         self.core = coremain.start(
             control_host="127.0.0.1", control_port=0,
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            homography_path=os.path.join(self._cal_dir.name, "homography.json"),
+            rects_path=os.path.join(self._cal_dir.name, "bin_rects.json"),
             scale_open_port=_no_serial_port)
         self._wire_clients = []
         self._ws_clients = []
@@ -1020,22 +1025,26 @@ class TestMode(ScaleRig, CoreCase):
     # -- the join seed ---------------------------------------------------
 
     def test_a_joining_tablet_is_told_the_mode_as_well_as_the_pips(self):
-        """web/server.py's on_join now takes a list (build item 7). All
-        three messages, in order — without the second, a tablet that joins
+        """web/server.py's on_join takes a list (M2.6 build item 7). All
+        four messages, in order — without the second, a tablet that joins
         mid-run renders the wrong action-bar button until someone touches
         something; without the third (M3 build item 3) the Live tab has no
-        `<img>` src until the next full reconnect.
+        `<img>` src until the next full reconnect; without the fourth
+        (M4 build item 3) the Setup tab cannot tell a calibrated table
+        from an uncalibrated one.
         """
         w = self.ws()
         first = self.recv_json(w)
         second = self.recv_json(w)
         third = self.recv_json(w)
+        fourth = self.recv_json(w)
         self.assertEqual(first["t"], "pips")
         self.assertEqual(second["t"], "mode")
         self.assertEqual(second["mode"], "serving")
         self.assertFalse(second["cart_active"])
         self.assertIsNone(second["refused"])
         self.assertEqual(third["t"], "camera")
+        self.assertEqual(fourth["t"], "geometry")
 
     def test_a_tablet_joining_during_setting_mode_is_told_setting(self):
         w = self.ws()
@@ -1467,6 +1476,206 @@ class TestUnitSuffixIsLocalised(unittest.TestCase):
             msg["bins"][0]["sub"].endswith("/100克"),
             f"price line kept an English unit: {msg['bins'][0]['sub']!r}")
         self.assertEqual(msg["total"]["label"], "总计")
+
+
+class TestDotCalibrationOverTheWire(CoreCase):
+    """M4 build item 3, end to end over the real WebSocket and the real
+    control link: a tablet asks, core drives oF's overlay and a stand-in
+    classifier, and a homography comes out.
+
+    The "classifier" here is a `wire.Client` that answers `detect_dots`
+    by projecting whatever dots core just put in the overlay through a
+    known matrix — the same `FakeRig` idea as `test_dotcal.py`, but
+    running over a socket so the id correlation and the overlay plumbing
+    are exercised too, not just the solve.
+    """
+
+    CAM_TO_STAGE = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0],
+                    [0.00012, 0.00007, 1.0]]
+
+    def fake_classifier(self, *, answer=True):
+        from hotpot.common import geometry as geo
+        stage_to_cam = geo.invert(self.CAM_TO_STAGE)
+        seen = []
+
+        def on_message(msg):
+            if msg.get("t") != "cmd" or msg.get("op") != "detect_dots":
+                return
+            seen.append(msg)
+            if not answer:
+                return
+            dots = self.core._overlay_msg().get("dots") or []
+            points = [list(geo.apply(stage_to_cam, (d[0], d[1])))
+                      for d in dots]
+            client.send({"t": "dots", "id": msg.get("id"),
+                         "points": list(reversed(points))})
+
+        client = self.wire_client("classifier", on_message=on_message)
+        self.assertTrue(client.wait_connected(DEADLINE))
+        return client, seen
+
+    def enter_setting(self, ws):
+        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        deadline = time.monotonic() + DEADLINE
+        while time.monotonic() < deadline:
+            msg = self.recv_json(ws)
+            if msg.get("t") == "mode" and msg.get("mode") == "setting":
+                return
+        self.fail("never entered setting mode")
+
+    def collect(self, ws, want, timeout=25.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            msg = self.recv_json(ws, timeout=deadline - time.monotonic())
+            if msg.get("t") == want:
+                return msg
+        self.fail(f"no {want} message arrived")
+
+    def test_a_full_solve_writes_a_homography_and_reports_the_rms(self):
+        self.fake_classifier()
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        result = self.collect(ws, "dotcal_result")
+        self.assertTrue(result["ok"], result.get("message"))
+        self.assertTrue(result["good"])
+        self.assertLess(result["rms_px"], 1.0)
+        self.assertTrue(self.core.geometry.has_homography)
+
+    def test_the_solved_homography_matches_the_fake_rig_it_was_built_from(self):
+        # The reference is the fake classifier's own matrix, which core
+        # never saw — not a reprojection of core's own points (doc §5.3).
+        from hotpot.common import geometry as geo
+        self.fake_classifier()
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+        probe = (700.0, 400.0)
+        want = geo.apply(self.CAM_TO_STAGE, probe)
+        got = geo.apply(self.core.geometry.h, probe)
+        self.assertAlmostEqual(got[0], want[0], places=1)
+        self.assertAlmostEqual(got[1], want[1], places=1)
+
+    def test_the_table_shows_the_calibrating_overlay_while_it_runs(self):
+        # Doc §4.3's overlay kind, with the dot POSITIONS on the wire —
+        # I2: oF is told where the dots are, it does not know the pattern.
+        seen_kinds = []
+
+        from hotpot.common import geometry as geo
+        stage_to_cam = geo.invert(self.CAM_TO_STAGE)
+
+        def on_message(msg):
+            if msg.get("t") != "cmd" or msg.get("op") != "detect_dots":
+                return
+            overlay = self.core._overlay_msg()
+            seen_kinds.append(overlay)
+            points = [list(geo.apply(stage_to_cam, (d[0], d[1])))
+                      for d in (overlay.get("dots") or [])]
+            client.send({"t": "dots", "id": msg.get("id"), "points": points})
+
+        client = self.wire_client("classifier", on_message=on_message)
+        self.assertTrue(client.wait_connected(DEADLINE))
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+
+        self.assertEqual(len(seen_kinds), 2)
+        for overlay in seen_kinds:
+            self.assertEqual(overlay["kind"], "calibrating")
+            self.assertTrue(overlay["dots"])
+            self.assertEqual(len(overlay["dots"][0]), 3)
+        self.assertEqual(len(seen_kinds[0]["dots"]), 4)
+        self.assertEqual(len(seen_kinds[1]["dots"]), 15)
+
+    def test_the_overlay_is_back_to_none_afterwards(self):
+        self.fake_classifier()
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+        self.assertEqual(self.core._overlay_msg()["kind"], "none")
+
+    def test_calibration_is_refused_in_serving_mode(self):
+        # The field goes black for several seconds. Doing that to a diner
+        # mid-order is not something a tablet gets to ask for.
+        client, seen = self.fake_classifier()
+        ws = self.ws()
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        result = self.collect(ws, "dotcal_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("setting mode", result["message"])
+        self.assertEqual(seen, [])
+
+    def test_a_missing_classifier_is_a_sentence_not_a_hang(self):
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        result = self.collect(ws, "dotcal_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("classifier is not connected", result["message"])
+
+    def test_a_silent_classifier_times_out_rather_than_wedging_core(self):
+        self.fake_classifier(answer=False)
+        original = coremain.dotcal.REPLY_TIMEOUT_S
+        coremain.dotcal.REPLY_TIMEOUT_S = 0.5
+        self.addCleanup(setattr, coremain.dotcal, "REPLY_TIMEOUT_S", original)
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        result = self.collect(ws, "dotcal_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("did not answer", result["message"])
+        # And the table is not left black with dots on it.
+        self.assertEqual(self.core._overlay_msg()["kind"], "none")
+
+    def test_a_late_reply_to_a_dead_command_is_not_handed_to_the_next_one(self):
+        # Correlation by id, not "the next reply that arrives". Without
+        # it, a late coarse-pass answer would be handed to the fine pass
+        # and the solve would be fitted to four points labelled fifteen.
+        self.core._resolve_classifier_reply({"t": "dots", "id": 9999,
+                                             "points": [[1, 1]]})
+        with self.core._cmd_lock:
+            self.assertEqual(self.core._cmd_waiters, {})
+
+    def test_the_join_seed_tells_a_tablet_the_geometry(self):
+        ws = self.ws()
+        seeds = [self.recv_json(ws) for _ in range(4)]
+        kinds = {m["t"] for m in seeds}
+        self.assertEqual(kinds, {"pips", "mode", "camera", "geometry"})
+        geo_msg = next(m for m in seeds if m["t"] == "geometry")
+        self.assertFalse(geo_msg["calibrated"])
+        self.assertEqual(len(geo_msg["rects"]), 8)
+
+    def test_ofs_keystone_fingerprint_reaches_the_staleness_check(self):
+        # Doc §8.5: oF reports its fingerprint in `stat`; a different one
+        # after a solve means somebody nudged the keystone.
+        self.fake_classifier()
+        of_client = self.wire_client("of")
+        self.assertTrue(of_client.wait_connected(DEADLINE))
+        of_client.send({"t": "stat", "fps": 60.0,
+                        "keystone_fingerprint": "aaaa"})
+        deadline = time.monotonic() + DEADLINE
+        while (self.core._keystone_fingerprint != "aaaa"
+               and time.monotonic() < deadline):
+            time.sleep(0.02)
+        self.assertEqual(self.core._keystone_fingerprint, "aaaa")
+
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+        self.assertEqual(self.core.geometry.keystone_fingerprint, "aaaa")
+        self.assertFalse(self.core._geometry_msg()["keystone_stale"])
+
+        of_client.send({"t": "stat", "fps": 60.0,
+                        "keystone_fingerprint": "bbbb"})
+        deadline = time.monotonic() + DEADLINE
+        while (self.core._keystone_fingerprint != "bbbb"
+               and time.monotonic() < deadline):
+            time.sleep(0.02)
+        self.assertTrue(self.core._geometry_msg()["keystone_stale"])
 
 
 class TestStop(unittest.TestCase):

@@ -33,6 +33,17 @@ public:
 	void draw(bool hasState, const StateLink::State & state,
 		bool connected, float staleSeconds, float fps, bool showDevOverlay) const;
 
+	// Dot calibration, I9's one field inversion (M4 build item 3). Drawn
+	// INSTEAD of draw(), never as well as it: the camera is looking at a
+	// black field for bright blobs, and every plate, label, ring, banner
+	// and brand mark this class otherwise draws would be another bright
+	// blob for classifier/dots.py to find. Stage must be given
+	// invertedField=true for the same frame — see Stage.h.
+	//
+	// The dot positions come from core on the wire (state.overlayDots),
+	// not from a pattern held here. I2, and see StateLink::State.
+	void drawCalibrationDots(const StateLink::State & state) const;
+
 	// Stage's light pass needs exactly these rects, in stage px, and they
 	// must be the SAME rects the plates are drawn against — that identity
 	// is what stops a plate's ink from ever landing inside its own cutout.

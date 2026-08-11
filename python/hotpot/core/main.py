@@ -57,8 +57,9 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from hotpot.common import config, health, log, wire
-from hotpot.core import binmap, calibrator, cart, fsm, i18n, loadcell_cal, pricing, scale
+from hotpot.common import config, geometry, health, log, wire
+from hotpot.core import (binmap, calibrator, cart, dotcal, fsm, geometry_store,
+                         i18n, loadcell_cal, pricing, scale)
 from hotpot.core.web import server as web
 
 _log = logging.getLogger("hotpot.core")
@@ -147,6 +148,12 @@ MODE_SETTING = "setting"
 NOT_IN_SETTING_MSG = ("Enter setting mode first — the table is still "
                       "serving.")
 
+# How long core waits for a classifier reply to one of doc section 4.7's
+# commands. Longer than `dotcal.REPLY_TIMEOUT_S` for the capture case,
+# which is a whole burst (doc section 12.7: 10 frames over 5 s) plus the
+# JPEG writes.
+CLASSIFIER_REPLY_TIMEOUT_S = 30.0
+
 
 def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
     """M1's fixed hand-built bin map (binmap.py's docstring, doc section
@@ -205,6 +212,9 @@ class Core:
         scale_open_port: Optional[Callable[[], Any]] = None,
         camera_host: str = CAMERA_HOST,
         camera_port: int = CAMERA_PORT,
+        homography_path: Path = geometry_store.HOMOGRAPHY_PATH,
+        rects_path: Path = geometry_store.BIN_RECTS_PATH,
+        calibration_cfg: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -272,6 +282,41 @@ class Core:
         self.scale = scale.ScaleReader(scale_port, cal=self.cal,
                                        open_port=scale_open_port)
         self.calibrator = calibrator.Calibrator(self.scale, path=cal_path)
+
+        # -- M4: geometry (doc sections 5.3, 8.4, 8.5) -------------------
+        # Paths are parameters for the same reason `cal_path` is: these
+        # two files decide where every bin rect is, and a test run must
+        # never read or write the rig's own.
+        self.geometry = geometry_store.GeometryStore(
+            homography_path=homography_path, rects_path=rects_path)
+        self.dotcal = dotcal.DotCalibrator(
+            self.geometry, show_dots=self._show_calibration_dots,
+            ask_dots=self._ask_dots, cfg=calibration_cfg,
+            settle_s=float((calibration_cfg or {}).get(
+                "settle_s", dotcal.SETTLE_S)))
+
+        # The `calibrating` overlay's payload while a solve is running, or
+        # None. Read by `_overlay_msg()` on the 60Hz thread and written by
+        # the wizard's own thread, so it is guarded — but by its own lock,
+        # not `state_lock`: it is not part of the billing snapshot, and
+        # taking the domain lock for a whole two-pass solve would stall
+        # every state broadcast for two seconds.
+        self._overlay_lock = threading.Lock()
+        self._calibration_dots: Optional[list] = None
+
+        # Doc section 8.5's staleness check needs oF's live fingerprint,
+        # which arrives on the `stat` message (doc section 4.5). None
+        # until oF has ever connected — and `keystone_is_stale` treats
+        # that as "not stale", never as a fault.
+        self._keystone_fingerprint: Optional[str] = None
+
+        # In-flight doc section 4.7 commands to the classifier, by id.
+        # Each is an Event plus a slot for the reply — the classifier
+        # answers on the control link's read thread and the waiter is a
+        # tablet's WebSocket thread.
+        self._cmd_lock = threading.Lock()
+        self._cmd_seq = 0
+        self._cmd_waiters: Dict[int, list] = {}
 
         # M2 build item 5: which bins have ever had a real scale reading
         # applied to Cart. False means still on the M1 mock seed (or a
@@ -360,10 +405,95 @@ class Core:
     def _on_message(self, conn: wire.Connection, msg: Dict[str, Any]) -> None:
         if self.registry.handle(conn.who, msg):
             return
-        # M0 speaks nothing else on the control link yet. An unrecognised
-        # `t` from a known process is worth a log line, not a dropped
-        # link — wire.py's job is framing, not protocol enforcement.
-        _log.debug("core: %s sent unhandled message type %r", conn.who, msg.get("t"))
+        t = msg.get("t")
+        if t == "stat":
+            # Doc section 4.5's telemetry. The only field core acts on is
+            # the keystone fingerprint (doc section 8.5) — see
+            # `_keystone_fingerprint`'s comment in __init__.
+            fp = msg.get("keystone_fingerprint")
+            if isinstance(fp, str) and fp:
+                self._keystone_fingerprint = fp
+            return
+        if t in ("dots", "result", "captured"):
+            self._resolve_classifier_reply(msg)
+            return
+        # An unrecognised `t` from a known process is worth a log line,
+        # not a dropped link — wire.py's job is framing, not protocol
+        # enforcement.
+        _log.debug("core: %s sent unhandled message type %r", conn.who, t)
+
+    # -- talking to the classifier (doc section 4.7) -----------------------
+
+    def _send_classifier_cmd(self, op: str, timeout: float, **fields: Any
+                             ) -> Optional[Dict[str, Any]]:
+        """Send one doc section 4.7 command and block until its reply, or
+        until `timeout`.
+
+        Blocking is deliberate and is safe *here specifically*: every
+        caller is on a tablet's own WebSocket thread (web/server.py gives
+        each connection one), which is the thread whose screen is showing
+        the operator a "working…" step. It must never be called from the
+        60Hz state loop.
+
+        Correlated by `id` rather than by "the next reply that arrives":
+        a late answer from a cancelled command would otherwise be handed
+        to whoever asked next, which for a two-pass calibration means the
+        fine pass being solved against the coarse pass's four points.
+        """
+        with self._cmd_lock:
+            self._cmd_seq += 1
+            cmd_id = self._cmd_seq
+            waiter = [threading.Event(), None]
+            self._cmd_waiters[cmd_id] = waiter
+        try:
+            sent = self.control.broadcast(
+                {"t": "cmd", "id": cmd_id, "op": op, **fields},
+                only=["classifier"])
+            if not sent:
+                return {"ok": False,
+                        "error": "the classifier is not connected"}
+            if not waiter[0].wait(timeout):
+                return {"ok": False,
+                        "error": "the classifier did not answer in time"}
+            return waiter[1]
+        finally:
+            with self._cmd_lock:
+                self._cmd_waiters.pop(cmd_id, None)
+
+    def _resolve_classifier_reply(self, msg: Dict[str, Any]) -> None:
+        cmd_id = msg.get("id")
+        with self._cmd_lock:
+            waiter = self._cmd_waiters.get(cmd_id)
+        if waiter is None:
+            _log.debug("core: classifier reply for unknown command id %r",
+                       cmd_id)
+            return
+        waiter[1] = msg
+        waiter[0].set()
+
+    def _ask_dots(self, expect: int, min_area: float) -> Dict[str, Any]:
+        """`dotcal.DotCalibrator`'s hook into doc section 4.7's
+        `detect_dots`. Kept as a one-line adapter so that module knows
+        nothing about the wire.
+        """
+        return self._send_classifier_cmd(
+            "detect_dots", dotcal.REPLY_TIMEOUT_S,
+            expect=expect, min_area=min_area) or {}
+
+    # -- the calibrating overlay (doc sections 4.3, 14.5, I9) --------------
+
+    def _show_calibration_dots(self, dots: Optional[list]) -> None:
+        """`dotcal`'s other hook: put the dot pattern on the table, or
+        take it down (`None`).
+
+        Core sends the *positions*, not a "draw the pattern" flag. I2 —
+        oF computes nothing it could be told — and here that is not
+        pedantry: if oF held the pattern and core assumed it, one edit on
+        either side would have core solving against dots that were never
+        where it thought, with a perfect RMS to prove it.
+        """
+        with self._overlay_lock:
+            self._calibration_dots = dots
 
     def _on_disconnect(self, conn: wire.Connection, reason: str) -> None:
         self.registry.disconnected(conn.who, reason)
@@ -393,7 +523,8 @@ class Core:
         Not the `bins` message — that one is already on a 10Hz timer, so
         a joining tablet waits at most 100ms for it.
         """
-        return [self._pips_msg(), self._mode_msg(), self._camera_msg()]
+        return [self._pips_msg(), self._mode_msg(), self._camera_msg(),
+                self._geometry_msg()]
 
     # -- the Live tab's MJPEG source (doc §12.3, §5.4 — M3 build item 3) ----
 
@@ -473,6 +604,9 @@ class Core:
             return
         if t == "cancel_order":
             self._handle_cancel_order()
+            return
+        if t == "calibrate_dots":
+            self._handle_calibrate_dots()
             return
         _log.debug("web: unhandled message type %r from a tablet", t)
 
@@ -736,7 +870,18 @@ class Core:
             self._scale_baselined[i] = True
 
     def _overlay_msg(self) -> Dict[str, Any]:
-        """Doc section 9.5: "the table shows a fault overlay" when a bin
+        """Doc section 4.3's `overlay`, and the order it is decided in.
+
+        **`calibrating` outranks everything, and that is a lighting rule,
+        not a UI preference.** I9's one exception inverts the whole field
+        to black with white dots, and the camera is sitting at a dark
+        exposure looking for exactly those dots. Anything else drawn in
+        that moment — a fault banner, a setting-mode panel — is a bright
+        shape on a black field, which is the definition of a dot as far as
+        `classifier/dots.py` is concerned. So while a solve is running the
+        overlay says `calibrating` and nothing else may claim the table.
+
+        After that, doc section 9.5's fault overlay: `error` when a bin
         that was billing from real weight can no longer be read — not
         merely "the scale has never been calibrated", which is the
         ordinary state of the M1 mock-only demo (doc section 12.8) and
@@ -745,10 +890,81 @@ class Core:
         reading counts: that is the "dead XIAO mid-session" case doc
         section 21's M2 acceptance test means, not "never plugged in".
         """
+        with self._overlay_lock:
+            dots = self._calibration_dots
+        if dots is not None:
+            return {"kind": "calibrating", "dots": dots}
         reading = self.scale.read()
         lost = any(self._scale_baselined[i] and reading.grams[i] is None
                   for i in range(cart.NUM_BINS))
         return {"kind": "error"} if lost else {"kind": "none"}
+
+    # -- the Setup tab's dot calibration (doc sections 12.6, 21 M4.3) ------
+
+    def _handle_calibrate_dots(self) -> None:
+        """Doc section 12.6's "Calibrate projector <-> camera": one big
+        button, a progress line, then a result with the RMS in pixels and
+        a plain-language verdict.
+
+        Setting mode is required, for the same reason Tare and Calibrate
+        are (doc section 12.4): the field inverts to black for several
+        seconds, so every bin patch goes dark and the table stops looking
+        like a table. Doing that to a diner mid-order is not a thing to
+        allow because a tablet asked nicely.
+
+        Runs on the calling tablet's own WebSocket thread and blocks it
+        for the length of the solve, the same as `_handle_cal`'s 2 s
+        capture windows: that is the thread whose screen is showing the
+        progress line.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "dotcal_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        self.web.broadcast({"t": "dotcal_progress",
+                            "message": "Showing the dot pattern on the table…"})
+        try:
+            result = self.dotcal.run(
+                keystone_fingerprint=self._keystone_fingerprint,
+                camera_size=self.geometry.camera_size)
+        except (dotcal.DotCalError, geometry.GeometryError) as e:
+            self.web.broadcast({"t": "dotcal_result", "ok": False,
+                                "message": str(e)})
+            return
+        except Exception:      # noqa: BLE001 - a wizard must not kill core
+            _log.exception("core: dot calibration failed unexpectedly")
+            self.web.broadcast({
+                "t": "dotcal_result", "ok": False,
+                "message": "The calibration hit an internal error — see the log."})
+            return
+        self.web.broadcast({
+            "t": "dotcal_result", "ok": True, "good": result.good,
+            "message": result.message, "rms_px": round(result.rms_px, 2),
+            "n_points": result.n_points, "n_inliers": result.n_inliers,
+        })
+        self.web.broadcast(self._geometry_msg())
+
+    def _geometry_msg(self) -> Dict[str, Any]:
+        """What the Setup tab needs to render: whether the table is
+        calibrated, the last solve's numbers, the camera-space rects to
+        drag, and whether oF's keystone has moved under the solve (doc
+        section 8.5).
+        """
+        g = self.geometry
+        return {
+            "t": "geometry",
+            "calibrated": g.calibrated,
+            "has_homography": g.has_homography,
+            "has_rects": g.has_rects,
+            "rms_px": None if g.rms_px is None else round(g.rms_px, 2),
+            "n_points": g.n_points,
+            "computed_at": g.computed_at,
+            "verified_at": g.verified_at,
+            "camera_size": list(g.camera_size),
+            "keystone_stale": g.keystone_is_stale(self._keystone_fingerprint),
+            "rects": [None if r is None else [round(v, 1) for v in r]
+                      for r in g.cam_rects],
+        }
 
     # -- the Bins tab (doc section 12.4, M2 build item 4) --------------------
 

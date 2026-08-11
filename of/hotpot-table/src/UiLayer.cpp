@@ -614,6 +614,24 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	}
 }
 
+void UiLayer::drawCalibrationDots(const StateLink::State & state) const {
+	// Filled white discs on the black field Stage just cleared to. Nothing
+	// else is drawn this frame, on purpose — see the header.
+	//
+	// ofDrawCircle, not an ofPath ring: these are solid, so §13.4's
+	// "halos and outline rings must be FILLED geometry" objection does not
+	// arise, and ofSetCircleResolution(64) is already set in ofApp::setup.
+	// The resolution matters more here than anywhere else in this app: a
+	// coarse polygon has a centroid offset from the circle it approximates
+	// by a fixed amount in a fixed direction, and every dot would carry
+	// the same bias into the solve — where a systematic offset is exactly
+	// the error a homography absorbs silently.
+	ofSetColor(255);
+	for(const glm::vec3 & d : state.overlayDots){
+		ofDrawCircle(d.x, d.y, d.z);
+	}
+}
+
 void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
 	bool connected, float fps) const {
 	char buf[128];

@@ -77,13 +77,16 @@ void Stage::loadKeystone(const std::string & path){
 	_fingerprint = hex.str();
 }
 
-void Stage::beginContent(){
+void Stage::beginContent(bool invertedField){
 	_fbo.begin();
 	// The paper base (§14.3: "the base of every palette is the paper,
 	// near-white"). Flat white stands in for FluidLayer until M8 — the
 	// same flat-field starting point the pre-rewrite app drew via
 	// ofBackground(fieldGrey) at its default full-brightness index.
-	ofBackground(255);
+	//
+	// Black instead, and only, for dot calibration — I9's single
+	// exception. See the header.
+	ofBackground(invertedField ? 0 : 255);
 	// VERIFY, doc §13.2: "ofxFlowTools leaves the blend mode as
 	// OF_BLENDMODE_ADD. Call ofEnableAlphaBlending() explicitly before
 	// drawing the UI layer, every frame. Do not assume the state you left
@@ -98,28 +101,39 @@ void Stage::endContent(){
 	_fbo.end();
 }
 
-void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx){
-	// --- step 3: floor lift --------------------------------------------
-	// out = k + (1-k)*in, applied as a single translucent white rect over
-	// the whole FBO — see the class comment for why this equals the doc
-	// formula exactly rather than approximating it.
-	_fbo.begin();
-	ofEnableAlphaBlending();
-	ofSetColor(255, 255, 255, (int)roundf(ofClamp(whiteFloor, 0.0f, 1.0f) * 255.0f));
-	ofDrawRectangle(0, 0, (float)_w, (float)_h);
-	ofSetColor(255);
+void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx,
+	bool invertedField){
+	// --- I9's exception: dot calibration ---------------------------------
+	// Neither the floor lift nor the light pass runs. Both exist to keep
+	// the table lit for the camera, and during a solve the camera is
+	// deliberately at a dark exposure looking for bright dots on black —
+	// so a 45% white floor would raise the "black" field to the dots'
+	// own brightness, and the light pass would stamp eight full-white
+	// rectangles across the pattern. This is not a relaxation of I9; it
+	// is the case I9 itself carves out, and it is the only one.
+	if(!invertedField){
+		// --- step 3: floor lift ------------------------------------------
+		// out = k + (1-k)*in, applied as a single translucent white rect over
+		// the whole FBO — see the class comment for why this equals the doc
+		// formula exactly rather than approximating it.
+		_fbo.begin();
+		ofEnableAlphaBlending();
+		ofSetColor(255, 255, 255, (int)roundf(ofClamp(whiteFloor, 0.0f, 1.0f) * 255.0f));
+		ofDrawRectangle(0, 0, (float)_w, (float)_h);
+		ofSetColor(255);
 
-	// --- step 4: light pass ----------------------------------------------
-	// Opaque, always full white regardless of whiteFloor (doc: "the bin
-	// patches are always at full level regardless of field_level"), and
-	// last — nothing drawn after this point can put anything but flat white
-	// into a cutout, which is I9's entire safety property.
-	ofDisableAlphaBlending();
-	ofSetColor(255);
-	for(const auto & r : cutoutsPx){
-		ofDrawRectangle(r);
+		// --- step 4: light pass ------------------------------------------
+		// Opaque, always full white regardless of whiteFloor (doc: "the bin
+		// patches are always at full level regardless of field_level"), and
+		// last — nothing drawn after this point can put anything but flat
+		// white into a cutout, which is I9's entire safety property.
+		ofDisableAlphaBlending();
+		ofSetColor(255);
+		for(const auto & r : cutoutsPx){
+			ofDrawRectangle(r);
+		}
+		_fbo.end();
 	}
-	_fbo.end();
 
 	// --- keystone warp to the real window --------------------------------
 	ofClear(0.0f, 255.0f);

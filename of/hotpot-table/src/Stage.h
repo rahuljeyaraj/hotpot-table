@@ -41,7 +41,17 @@ public:
 
 	// Bracket UiLayer's drawing. Content lands in the un-keystoned FBO,
 	// which IS stage space (v3 §5.2 — "oF's un-keystoned framebuffer").
-	void beginContent();
+	//
+	// invertedField is I9's ONE documented exception, dot calibration:
+	// "black field, white dots... a white field there puts the dots on a
+	// background as bright as they are and the solve finds nothing."
+	// It clears to black instead of paper white, and the matching
+	// compositeAndWarp() call must be given the same flag or the light
+	// pass will stamp eight white rectangles into the camera's view of
+	// the pattern — which is the failure this parameter exists to make
+	// impossible to forget, since forgetting it produces a calibration
+	// that fails for a reason nothing on screen explains.
+	void beginContent(bool invertedField = false);
 	void endContent();
 
 	// Runs the floor lift and light pass on the FBO, then warps it onto
@@ -49,7 +59,15 @@ public:
 	// bin fill rects in table mm (TableGeometry.h's binFillRectMM), because
 	// this class does the one mm->px conversion the light pass needs and
 	// nothing calling it should have to duplicate that math.
-	void compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx);
+	// invertedField skips BOTH the floor lift and the light pass — see
+	// beginContent(). The keystone warp still runs: doc §5.2 is explicit
+	// that "H_cam->stage implicitly contains the keystone", because the
+	// dots are drawn at known stage coordinates and keystoned onto the
+	// table by the same warp that will later carry the UI. Solving
+	// through an un-warped pattern would produce a homography that is
+	// correct for a table nobody is projecting onto.
+	void compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx,
+		bool invertedField = false);
 
 	int stageWidth() const { return _w; }
 	int stageHeight() const { return _h; }

@@ -260,6 +260,7 @@ Notes that are not optional:
 - `hl` ∈ `none | hover | picking | picked | lowstock | disabled`.
 - `mode` ∈ `serving | setting` (§9.1). Derived from the FSM state, never stored separately — two places that can disagree about which mode the table is in is the failure this field exists to prevent. oF defaults it to `serving` when absent, deliberately: a line that somehow lost the field must not paint `SETTING — NOT BILLING` over a table that is billing.
 - `overlay.kind` ∈ `none | recap | qr | calibrating | uncalibrated | error`.
+- **`calibrating` additionally carries `overlay.dots`**, a list of `[x, y, radius]` in stage space (M4.3). Core sends the *positions*, not a "draw the pattern" flag — I2 at its sharpest: if oF held the dot layout and core assumed it, one edit on either side would have core solving a homography against dots that were never where it thought they were, and the fit would report a beautiful error because it only ever sees core's copy of the pattern.
 - `bins` always has exactly 8 entries. An unresolved bin has `resolved:false`, an empty `label`, and bills nothing.
 
 ### 4.4 core → of, one-shot events
@@ -670,6 +671,11 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
              "host_for_browser":"localhost"},
   "tracker":{"model_complexity":1,"max_hands":2,"emit_hz":60,"mirror_handedness":false},
   "classifier":{"backend":"stub","model":"models/ingredients-x86_64.eim","live_hz":2},
+  "calibration":{"grid_cols":5,"grid_rows":3,"grid_inset_px":[164,100],
+             "dot_radius_px":13,"corner_dot_radius_px":24,
+             "min_dot_area_px":40,"max_dot_area_px":20000,
+             "match_gate_px":120,"ransac_reproj_px":3.0,"rms_warn_px":3.0,
+             "settle_s":0.6},
   "voice":  {"backend":"stub","model":"models/keywords-x86_64.eim","threshold":0.75,
              "enabled":false},
   "of":     {"stage":[1920,1080],"monitor_index":2,"fluid_sim_scale":4,"target_fps":60,
@@ -679,6 +685,8 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
 ```
 
 `camera.host_for_browser` is the config value that will bite on deploy day: in development the browser and the camera process are both on localhost; on the ODYSSEY, if the staff tablet is a different machine, this must be the board's LAN address. It exists as an explicit field precisely so it is visible rather than hardcoded. Note that the board has two 2.5 GbE ports and Wi-Fi, so "the LAN address" is genuinely ambiguous on this hardware — write the address of whichever interface the tablet is actually on, and see §1.4 on giving the tablet its own network rather than trusting a venue's.
+
+The `calibration` block is M4.3's dot pattern (§24.1) — every number in it is a decision made from the table's geometry rather than from a camera, and it is config precisely so the rig can disagree with it without a rebuild. `grid_rows: 2` drops the tight middle row.
 
 `of.field_level` and `of.white_floor` are the two I9 knobs, and both are **measured on the rig, not chosen** (§6.6, §13.2). They are config rather than constants specifically so they can be swept without a rebuild. `field_level` is additionally mirrored into `state/camera_settings.json` at startup, because it belongs to the dataset's provenance as much as exposure does — config says what the rig is set to, that file says what the training images were taken under.
 
@@ -1292,7 +1300,16 @@ There is **one** top-edge banner strip. More than one state can claim it at once
 
 Concretely, **`SETTING` wins over `error`.** Both are true at once the moment someone knocks the XIAO cable out during setting-mode work. Nothing bills in setting mode, so `SCALES OFFLINE — NOT BILLING` would be warning about a risk that cannot occur, while displacing the message that is true. The person doing that work is holding the tablet, whose Bins tab already reads `Load cells: no connection`; the table banner is for everyone *not* holding the tablet.
 
-`calibrating` (M4) and `recap`/`qr` (M6) each land on this same strip and are settled by the same rule.
+**The full order, as built at M4:**
+
+| rank | state | why it sits there |
+|---|---|---|
+| 1 | `calibrating` | **Not a banner at all — it suppresses every banner, and this is a lighting rule, not a UI preference.** The field is inverted to black and the camera is at a dark exposure hunting bright blobs; a banner is a bright shape on a black field, which is precisely what `classifier/dots.py` is looking for. Anything drawn during a solve becomes a false dot. |
+| 2 | `uncalibrated` | Outranks `SETTING` because it is the more specific and more actionable statement, and because it *survives* setting mode: an operator who exits setting mode on an uncalibrated table still cannot serve, and the banner has to keep saying so. `SETTING` would otherwise mask it for the whole time the operator is trying to fix it. |
+| 3 | `setting` | The rule above. |
+| 4 | `error` | The rule above. |
+
+`recap`/`qr` (M6) land on the same strip and are settled by the same rule.
 
 ### 14.6 Adaptive quality — using the GPU fully without gambling
 
@@ -1934,7 +1951,16 @@ Note that several P3 items are nearly free once P1 exists — low-stock pulse is
 
 Everything else in this document is settled. These are not, and each is small enough to decide when it is reached:
 
-1. **Exact dot pattern for calibration** — count, spacing, and whether to run two passes at different densities. Decide at M4 with the real camera field of view in front of you.
+1. ~~**Exact dot pattern for calibration**~~ — **DECIDED at M4.3, but decided from the table's geometry rather than from a camera, because there was no rig in front of the implementation. Sanity-check it on real hardware.** The reasoning is in `core/dotcal.py`'s module docstring; the short version:
+
+   - **Two passes.** Pass 1: four large dots at the corners of the usable area, used only to *order* pass 2. Pass 2: a 5×3 grid over the same rectangle, paired by projecting each expected position through pass 1's coarse homography and matching nearest-neighbour. The one-pass alternative is to sort the detected grid row-major, which works until the camera is a few degrees off square — at which point the rows interleave, the pairing goes off by one, and **the fit still reports an excellent RMS**. Ordering is the only step in the solve with no numerical safety net.
+   - **15 points (5 × 3).** A homography has 8 DOF and needs 4 pairs; 15 leaves RANSAC room to drop a bad one. Denser grids buy little for a planar fit and risk dots merging under projector defocus into one blob in the wrong place.
+   - **The rows avoid the bin cutouts, and that constraint is what shapes the pattern.** A dot landing on a tray is displaced by `height / tan(elevation)` — at I10's worst allowed 70°, a tray 40 mm down moves the dot ~19 px, six times the whole error budget. So the three rows sit in the only bin-free horizontal bands: the far margin (85 mm), the row gap (457 mm) and the near margin (830 mm). Columns need no such care; all three bands are bin-free across the full width.
+   - **Radii: 13 px grid, 24 px corners.** The corner pass must not fail, and it sits in the wide margins where there is room.
+   - **The middle row is tight and is the thing to check on the rig.** Its band is only 30 mm; a 13 px dot spans ~22 mm of it, leaving ~4 mm each side. If projector alignment is worse than that, the middle row clips the tray edges — set `calibration.grid_rows` to 2.
+   - Every number above is a `calibration.*` key in §8.6, so narrowing the grid is an edit, not a rebuild.
+
+   **Also found at M4.3, and it changes what "a good calibration" means:** the RMS alone is not a verdict. Feed a noisy rig — 6 px of centroid jitter against a 3 px RANSAC threshold — and RANSAC does exactly its job, finding the largest subset that agrees to within 3 px, which can be five of fifteen dots, and reporting a beautiful sub-pixel RMS over them. That would pass §21's "under ~3 px" acceptance while being the worst solve the rig can produce. **The verdict requires both the error and the inlier count** (at least 70% of the pattern, never fewer than 6).
 2. **Broth as a one-time or mid-session choice.** Currently specified as a step in the checkout flow, which makes it one-time. If it should be changeable mid-session, the FSM gains a `current_broth` field and BROTH becomes reachable from SELECTING. Cheap either way; do not decide it in the abstract.
 3. **Whether the third fluid style ships.** Two would be enough. `shuimo` is the highest-value and lowest-cost of the three, so if only two ship, ship `mala` and `shuimo`.
 4. **Multi-diner attribution.** Assumed out of scope: at a weigh-by-weight counter people queue with their own bowl rather than crowd. Confirm by watching the real usage pattern before building anything for it.
