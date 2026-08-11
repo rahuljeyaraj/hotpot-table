@@ -14,3 +14,17 @@
 # to differ across versions, so an untested older release is a real risk
 # rather than a formality.
 websockets>=16.1
+
+# pyserial backs core/scale.py's load-cell thread (doc section 9.5) — the
+# XIAO's `raw <c0> ... <c7>` lines at 115200. It is imported inside
+# scale.py's `_open_serial()` rather than at module scope, so the parse,
+# the median filter and the settle window stay importable and testable on
+# a machine with neither pyserial nor a XIAO; only opening a real port
+# needs this installed.
+#
+# Lower-bounded at the version the rig was verified against (3.5, on
+# COM5, 2026-08-11). 3.5 is also where `Serial.readline()`'s timeout
+# behaviour — a whole-call deadline that returns whatever arrived, which
+# is what bounds that read and lets stop() be prompt — is the documented
+# one.
+pyserial>=3.5

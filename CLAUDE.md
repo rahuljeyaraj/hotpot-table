@@ -220,9 +220,38 @@ of the 8 labels to the hot pot ingredient it represents is the developer's
 to fill in, and was explicitly undecided as of 2026-08-11. Editing that
 file is the whole job — no code change is needed to go with it.
 
-Next: M2.2, `core/scale.py` — serial thread per §9.5, median-of-5 (as a
-parameter, see the rate finding above), staleness, settle detection.
-Needs `pyserial` added to python/requirements.txt.
+M2.2 (2026-08-11) is build item 2: `core/scale.py`, the serial thread.
+Owns the port and nothing else does — parse, median, staleness, settle,
+plus the 2s capture windows M2.1's docstring said would live here.
+Lifecycle copies `wire.Client` (start/stop, composition) rather than
+§9.5's `threading.Thread` subclass, so every long-running link in the
+tree is driven the same way; the doc's snippet is `_read_forever`'s body.
+`median_window` is a constructor parameter, never a constant, because of
+the 10.7Hz finding above — median-of-5 spans 465ms here. Stale (>0.5s)
+reports `counts=None`, which reaches `Calibration.grams_all(None)` and
+comes back as eight `None`s: a dead XIAO and an uncalibrated cell reach
+pricing by one route, and neither bills. The thread never dies — broad
+`except` on read, doc §20.2's 1s→10s reopen ladder — because staleness
+is only visible while something is still trying. `pyserial>=3.5` added
+to python/requirements.txt, imported inside `_open_serial()` so the
+maths stays testable with no XIAO and no pyserial.
+Two things worth knowing at the next step: settle anchors each window to
+the value it **opened** at, not the previous sample (a 1g-per-sample ramp
+never breaks a ±2g step, so previous-sample comparison would photograph
+a bin that is still filling), and `capture()` reduces **raw** samples,
+not the median-filtered slot — noise measured through the smoother is
+the smoother's noise, which is what would hide bin 4.
+48 tests, 325 total, all passing. Five mutations checked; the first
+version of the capture test was a TRAP that passed by construction
+(alternating ±2000 survives a median-of-5 unchanged) and was rewritten
+to a one-in-five spike before it could fail.
+**Not run against the rig — no XIAO was attached for this step.** All
+evidence here is unit tests against an injected fake port.
+
+Next: M2.3, calibration wired end to end — `scale.capture()` into
+`loadcell_cal.tare/calibrate`, persisted to `state/loadcell_cal.json`.
+Nothing constructs a ScaleReader yet; core/main.py is untouched (that is
+build item 5).
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
