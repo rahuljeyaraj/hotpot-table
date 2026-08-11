@@ -773,10 +773,11 @@ not by eye), 413 tests still passing. **Not observed on the tablet yet.**
   a ₹ glyph**, which is the bug M1's first rig run already hit once. The
   choice is the developer's and is open.
 
-**Compiles clean; NOT LINKED** — the demo was running and held
-`bin/hotpot-table_debug.exe` (LNK1104, the same block M2.6e hit). Nothing
-here has been seen on the projected surface, including whether 28px is
-still comfortable at three metres, which only a photograph settles.
+**Builds clean** (msbuild, Debug x64, 0 errors, 0 warnings from
+`hotpot-table/src`) — linked once the demo holding the exe was gone.
+Nothing here has been seen on the projected surface, including whether
+28px is still comfortable at three metres, which only a photograph
+settles.
 
 **OPEN, decided by the developer, not by code:** the project needs a
 name and a logo (it is what the contest announces), and the brand block
