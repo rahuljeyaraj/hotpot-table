@@ -11,9 +11,10 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: **M2.6 (mode) is code-complete** (2026-08-11) — see the
-M2.6 section below. **M3 (camera) is next**, and is what the doc's own
-dependency graph names.
+Current milestone: **M3 (camera) is in progress** — see the M3 section
+below. M3.1 (`common/framebus.py`, the shared-memory frame ring) is
+code-complete; M3 build item 2 (`camera/main.py`) is next.
+M2.6 (mode) is code-complete (2026-08-11) — see the M2.6 section below.
 M2's 5 build items (load cells) are all code-complete; M1, M2 and M2.6
 each still owe their human acceptance test on the rig.
 M0's last completed step was M0.7 (core/main.py — control server,
@@ -796,6 +797,44 @@ number until `scale`'s own settle detector says the bin is steady, and
 quantising the displayed grams to 5g. **The settle detector already
 exists and is already computed per bin, and is currently used by
 nothing** — that is the cheapest place to start.
+
+## M3 — CAMERA (in progress)
+
+M3.1 (2026-08-11) is build item 1: `common/framebus.py`, doc §6's
+shared-memory frame ring — writer and reader, seqlock, staleness. No
+camera yet (that is build item 2); this is the transport alone, and it
+is deliberately testable with neither a camera nor a second process
+attached, the same discipline `core/scale.py` uses for the XIAO:
+`FrameWriter`/`FrameReader` share a ring inside one test process.
+`core` never imports this module — I3 ("core never touches a frame") is
+enforced by that omission, the same way I2 keeps pricing out of `of/`.
+Layout, magic/version, and both the write and read algorithms are byte-
+for-byte doc §6.1–§6.4: pixels, then the slot header, then
+`write_counter`, in that order, because `write_counter` becoming visible
+is the definition of "published"; a reader reads `frame_id` before and
+after copying pixels and retries on a mismatch (a torn read — the writer
+lapped it), giving up after `max_retries` rather than spinning forever.
+`FrameReader._torn_read_hook` is a testing seam, not a production
+feature — called between the copy and the second `frame_id` check, so a
+test can force a real interleaved write (`slot_count=1` guarantees the
+collision) rather than trust the retry path works. §6.4's staleness is
+`is_stale()`/`peek_ts_ns()`, the latter reading only the slot header so
+a consumer can poll liveness every tick without copying a full frame.
+18 new tests, 431 total, all passing. Three mutations checked red:
+dropping the `write_counter` publish (a write that "completes" but is
+never visible — no reader would ever see it), collapsing the retry loop
+to return on the first attempt regardless of tearing (the exact TRAP
+doc §5.3 warns about generally — a check that cannot fail proves
+nothing, and this is the one place in the module where that trap was
+buildable), and flipping `is_stale`'s comparison direction.
+**Not run against a real camera** — nothing to run it against until
+build item 2. `python/requirements.txt` untouched: this module needs
+nothing beyond the standard library.
+Next: M3 build item 2, `camera/main.py` — V4L2 open, MJPG format
+preference (§6.6), exposure/WB/focus lock, the shm writer, and the MJPEG
+HTTP server. This is also where the AVX2/board risk (CLAUDE.md's own
+"NO AVX2" line) first becomes reachable in code, and where the
+never-measured camera elevation angle (I10) has to be measured before M4.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
