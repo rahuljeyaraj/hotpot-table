@@ -63,6 +63,7 @@ public:
 	struct Total {
 		double amount = 0.0;
 		std::string text;
+		std::string label;   // e.g. "Total"/"总计" — I2: resolved by core, oF never looks it up
 	};
 
 	// doc §4.3's `state` message, decoded. Bins is always resized to

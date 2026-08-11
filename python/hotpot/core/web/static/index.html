@@ -159,7 +159,13 @@
 <body>
   <div id="connBanner" class="conn-banner">Not connected to core — retrying…</div>
   <header>
-    <div class="title">称重火锅</div>
+    <!-- Doc §12.2's mockup shows 称重火锅 here, but that's under the
+         staff view's own EN|中文 toggle (doc line ~1336: "the operator may
+         read English while the table shows Chinese") — not built yet, and
+         zh locale data doesn't exist yet either (M1 is English-only
+         end to end). Staff view isn't customer-facing, so English until
+         that toggle exists. -->
+    <div class="title">Hot Pot</div>
     <div class="mode" id="mode">—</div>
     <div class="order" id="order">—</div>
     <div class="spacer"></div>

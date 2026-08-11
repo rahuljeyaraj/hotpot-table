@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <sstream>
 
 namespace {
 	const char * kTag = "UiLayer";
@@ -25,6 +26,13 @@ namespace {
 	const float kLabelClearanceMM = 10.0f;
 	const float kLabelLineGapMM = 4.0f;
 
+	// doc §13.4: "Dark ink on a light field, and set bold" — the field is
+	// near-white by construction (I9's white floor), so text has to win on
+	// stroke weight, not brightness. Near-black rather than pure 0,0,0: full
+	// black on this bold a face at these sizes reads harsher than the doc's
+	// own comparison point (dark plates on the pre-rewrite app).
+	const ofColor kInkColor(20, 20, 20);
+
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
 		if(text.empty() || !font.isLoaded()){
@@ -32,6 +40,50 @@ namespace {
 		}
 		ofRectangle bb = font.getStringBoundingBox(text, 0, 0);
 		font.drawString(text, cx - bb.width * 0.5f - bb.x, baselineY);
+	}
+
+	// Bin item names (e.g. "Curly Noodles") can render wider than the 250mm
+	// gap between two bin centres in the same pair at doc §13.4's fixed 36px
+	// — that overflowed into the neighbour's label before this existed.
+	// Greedy word-wrap to at most 2 lines instead of shrinking the font,
+	// which would abandon the doc's px value. A single word wider than
+	// maxWidthPx on its own is still returned whole — this never breaks
+	// mid-word, matching how nothing else in this file does character-level
+	// layout.
+	std::vector<std::string> wrapNameToTwoLines(const ofTrueTypeFont & font,
+		const std::string & text, float maxWidthPx){
+		if(!font.isLoaded() || font.getStringBoundingBox(text, 0, 0).width <= maxWidthPx){
+			return {text};
+		}
+		std::vector<std::string> words;
+		std::istringstream iss(text);
+		std::string w;
+		while(iss >> w){
+			words.push_back(w);
+		}
+		if(words.empty()){
+			return {text};
+		}
+		std::string line1;
+		size_t i = 0;
+		for(; i < words.size(); i++){
+			std::string candidate = line1.empty() ? words[i] : line1 + " " + words[i];
+			if(!line1.empty() && font.getStringBoundingBox(candidate, 0, 0).width > maxWidthPx){
+				break;
+			}
+			line1 = candidate;
+		}
+		if(line1.empty()){
+			line1 = words[i++];   // one overlong word — take it anyway, never emit an empty line
+		}
+		std::string line2;
+		for(; i < words.size(); i++){
+			line2 = line2.empty() ? words[i] : line2 + " " + words[i];
+		}
+		if(line2.empty()){
+			return {line1};
+		}
+		return {line1, line2};
 	}
 
 	// Pulls the currency symbol and decimal count out of core's already-
@@ -58,13 +110,27 @@ namespace {
 	}
 }
 
+namespace {
+	// The plain font.load(file, size) overload only requests
+	// ofUnicode::Latin — ASCII 32-127 — so ₹ (U+20B9) silently has no glyph
+	// and drawString skips it, even though core sends it correctly (doc
+	// §17.2 currency text is "<symbol><amount>"). Latin1Supplement adds the
+	// yen/yuan sign and other Latin-1 symbols for the same reason, cheaply,
+	// ahead of any locale actually needing them.
+	bool loadUiFont(ofTrueTypeFont & font, const std::string & file, int size){
+		ofTrueTypeFontSettings settings(file, size);
+		settings.ranges = {ofUnicode::Latin1Supplement, ofUnicode::CurrencySymbols};
+		return font.load(settings);
+	}
+}
+
 void UiLayer::setup(){
 	bool ok = true;
-	ok = _nameFont.load(kFontFile, 36) && ok;
-	ok = _detailFont.load(kFontFile, 26) && ok;
-	ok = _totalNumFont.load(kFontFile, 80) && ok;
-	ok = _totalLabelFont.load(kFontFile, 28) && ok;
-	ok = _devFont.load(kFontFile, 16) && ok;
+	ok = loadUiFont(_nameFont, kFontFile, 36) && ok;
+	ok = loadUiFont(_detailFont, kFontFile, 26) && ok;
+	ok = loadUiFont(_totalNumFont, kFontFile, 80) && ok;
+	ok = loadUiFont(_totalLabelFont, kFontFile, 28) && ok;
+	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
 	_fontsLoaded = ok;
 	if(!_fontsLoaded){
 		ofLogError(kTag) << "could not load " << kFontFile << " at one or more sizes"
@@ -167,7 +233,11 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	path.setColor(outline);
 	path.rectangle(scaled);
 	path.draw();
-	ofSetColor(255);
+	// Name/detail text drawn below inherits this colour (drawCentered sets
+	// none of its own) — must be the doc §13.4 ink colour, not white, or
+	// it disappears into the white-floor background bar the bug fix here
+	// replaced.
+	ofSetColor(kInkColor);
 
 	if(!b.resolved){
 		return;   // doc §9.3: unresolved bins render with no label
@@ -188,18 +258,34 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		detail = std::string(g) + "  " + _priceText(tw.price.get());
 	}
 
+	// Wrap to the bin's own footprint, not the gap to its neighbour — the
+	// neighbour gap (250mm) is wider, but wrapping to the box the label
+	// sits over keeps every name visually inside its own plate.
+	std::vector<std::string> nameLines = wrapNameToTwoLines(_nameFont, b.label, mmToPxX(BIN_W_MM));
+	const float nameLineGap = 2.0f;   // px between a name's own wrapped lines, tighter than kLabelLineGapMM's block-to-block gap
+
 	if(i < 4){
 		// far row: label strip is ABOVE the box, into the 177mm far margin
 		float detailBaseline = box.y - clearance;
 		drawCentered(_detailFont, detail, cx, detailBaseline);
-		drawCentered(_nameFont, b.label, cx, detailBaseline - _detailFont.getLineHeight() - gap);
+		// nameLines.back() sits closest to detail; earlier lines stack upward.
+		float lastLineBaseline = detailBaseline - _detailFont.getLineHeight() - gap;
+		for(int li = (int)nameLines.size() - 1; li >= 0; li--){
+			float y = lastLineBaseline - (float)(nameLines.size() - 1 - li) * (_nameFont.getLineHeight() + nameLineGap);
+			drawCentered(_nameFont, nameLines[li], cx, y);
+		}
 	}
 	else {
 		// near row: label strip is BELOW the box, into the 177.4mm near
 		// margin — the diner's own side of the table.
-		float nameBaseline = box.y + box.height + clearance + _nameFont.getAscenderHeight();
-		drawCentered(_nameFont, b.label, cx, nameBaseline);
-		drawCentered(_detailFont, detail, cx, nameBaseline + _detailFont.getLineHeight() + gap);
+		float firstLineBaseline = box.y + box.height + clearance + _nameFont.getAscenderHeight();
+		float lastLineBaseline = firstLineBaseline;
+		for(size_t li = 0; li < nameLines.size(); li++){
+			float y = firstLineBaseline + (float)li * (_nameFont.getLineHeight() + nameLineGap);
+			drawCentered(_nameFont, nameLines[li], cx, y);
+			lastLineBaseline = y;
+		}
+		drawCentered(_detailFont, detail, cx, lastLineBaseline + _detailFont.getLineHeight() + gap);
 	}
 }
 
@@ -216,15 +302,21 @@ void UiLayer::drawTotal(const StateLink::Total & total) const {
 	float baselineY = mmToPxY(TABLE_H_MM) - mmToPxY(40.0f);
 
 	std::string text = formatCurrency(_totalAmount.get(), _currencyPrefix, _currencyDecimals);
+	ofSetColor(kInkColor);
 	drawCentered(_totalNumFont, text, cx, baselineY);
 
-	// doc §13.4 reserves a "Total label" size (28px) for a translated
-	// caption (e.g. "Total"/"总计"). Not drawn: core's `state.total` carries
-	// only {amount, text}, no resolved label string (verified against
-	// core/main.py — doc §21 M1 item 3 didn't add one), and I2 forbids oF
-	// from supplying the English word itself. _totalLabelFont is loaded and
-	// ready for the day a `total.label` field exists on the wire.
-	(void)_totalLabelFont;
+	// doc §13.4's 28px "Total label" caption — core now resolves it
+	// per-locale (data/locales/<locale>.json's "total" key) and puts it on
+	// `total.label`; oF only draws whatever string arrives (I2: no lookup
+	// here), so this reads correctly whichever locale core is set to,
+	// currency included, with no oF-side change needed when zh.json lands.
+	// Empty on an older core (StateLink defaults it to "") — draws nothing
+	// rather than a placeholder, same rule drawCentered already applies
+	// everywhere else.
+	if(!total.label.empty()){
+		float labelBaseline = baselineY - _totalNumFont.getAscenderHeight() - mmToPxY(kLabelLineGapMM);
+		drawCentered(_totalLabelFont, total.label, cx, labelBaseline);
+	}
 }
 
 void UiLayer::drawConnectionIndicator(bool connected, float staleSeconds) const {
@@ -255,7 +347,7 @@ void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
 }
 
 void UiLayer::draw(bool hasState, const StateLink::State & state,
-	bool connected, float staleSeconds, float fps) const {
+	bool connected, float staleSeconds, float fps, bool showDevOverlay) const {
 	if(!_fontsLoaded){
 		drawConnectionIndicator(connected, staleSeconds);
 		return;
@@ -274,5 +366,7 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 	}
 
 	drawConnectionIndicator(connected, staleSeconds);
-	drawDevOverlay(hasState, state, connected, fps);
+	if(showDevOverlay){
+		drawDevOverlay(hasState, state, connected, fps);
+	}
 }

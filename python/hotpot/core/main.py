@@ -269,13 +269,26 @@ class Core:
             # rendering it yet.
             "fluid": {"style": "mala", "enabled": False, "intensity": 0.6},
             "bins": [self._bin_msg(i) for i in range(binmap.NUM_BINS)],
-            "total": self.locales.currency(
-                pricing.total(self.cart, self.binmap, self.catalogue), self.locale),
+            "total": self._total_msg(),
             "widgets": [],      # no widget exists before BROTH/SPICE/etc. (M6)
             "overlay": {"kind": "none"},
         }
         self._state_seq += 1
         return msg
+
+    def _total_msg(self) -> Dict[str, Any]:
+        # Doc §4.3's total is {amount, text} only — this adds `label`
+        # (I2: oF does no lookup, so the "Total"/"总计" caption has to
+        # arrive resolved from here, the same as every other diner-facing
+        # string, not get hardcoded in UiLayer). Reuses the "total" key
+        # already sitting in every locale file (data/locales/en.json) —
+        # Locales.translate() falls back to "en" then to the key itself,
+        # so a future locale missing the key degrades to English/"total"
+        # rather than a blank caption.
+        out = self.locales.currency(
+            pricing.total(self.cart, self.binmap, self.catalogue), self.locale)
+        out["label"] = self.locales.translate("total", self.locale)
+        return out
 
     def _bin_msg(self, i: int) -> Dict[str, Any]:
         b = self.binmap.bins[i]

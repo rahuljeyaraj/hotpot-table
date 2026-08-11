@@ -89,7 +89,8 @@ void ofApp::draw(){
 	}
 
 	_stage.beginContent();
-	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(), ofGetFrameRate());
+	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
+		ofGetFrameRate(), _devOverlayVisible);
 	_stage.endContent();
 
 	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx());
@@ -125,8 +126,14 @@ void ofApp::keyPressed(int key){
 	// oF — mock picks arrive over the same StateLink `state` bins already
 	// draw), and the calibration dot pattern is M4's job, drawn by core
 	// setting `overlay.kind = "calibrating"`, not a local key toggle.
+	// d added post-M1 acceptance: the fps/link/seq corner readout is a
+	// debug tool, not diner-facing, so it defaults off and toggles here
+	// rather than drawing unconditionally on the projected table.
 	if(key == 'p' || key == 'P'){
 		_screenshotPending = true;
+	}
+	if(key == 'd' || key == 'D'){
+		_devOverlayVisible = !_devOverlayVisible;
 	}
 }
 

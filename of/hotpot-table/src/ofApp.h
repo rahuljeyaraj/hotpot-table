@@ -40,5 +40,6 @@ private:
 	UiLayer _ui;
 
 	bool _screenshotPending = false;
+	bool _devOverlayVisible = false;   // 'd' toggles; off by default (diner-facing table)
 	float _statTimer = 0.0f;
 };

@@ -27,8 +27,11 @@ public:
 
 	// Must be called with Stage's content FBO already begin()'d — this
 	// class only ever draws, it never owns or clears a framebuffer itself.
+	// showDevOverlay gates only the fps/link/seq corner readout — off by
+	// default (diner-facing table, not a debug console), toggled by ofApp
+	// on a keypress.
 	void draw(bool hasState, const StateLink::State & state,
-		bool connected, float staleSeconds, float fps) const;
+		bool connected, float staleSeconds, float fps, bool showDevOverlay) const;
 
 	// Stage's light pass needs exactly these rects, in stage px, and they
 	// must be the SAME rects the plates are drawn against — that identity

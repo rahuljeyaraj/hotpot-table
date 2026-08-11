@@ -307,6 +307,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 	if(j.contains("total") && j["total"].is_object()){
 		out.total.amount = j["total"].value("amount", 0.0);
 		out.total.text = j["total"].value("text", "");
+		out.total.label = j["total"].value("label", "");   // absent on an older core — draws blank, not garbage
 	}
 
 	if(j.contains("overlay") && j["overlay"].is_object()){
