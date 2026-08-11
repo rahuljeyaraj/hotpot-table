@@ -490,6 +490,179 @@ class TestDeveloperPanelMockControls(CoreCase):
                          "a valid message after a bad one never went through")
 
 
+class TestScaleWiredIntoCart(CoreCase):
+    """M2 build item 5 (doc section 21): Cart's live grams come from
+    core/scale.py's real reading once a bin has one — main.py's
+    _apply_scale_to_cart — replacing reliance on the M1 mock seed as an
+    ongoing source of truth. TestDeveloperPanelMockControls above is the
+    regression proof that an uncalibrated bin (every bin, in every test
+    up there — none of them ever call scale.feed()) is untouched by any
+    of this and the mock buttons still work exactly as before.
+
+    Calibrates bins by writing straight to core.cal (the same object
+    core.scale.cal is — Core.__init__'s own docstring) rather than
+    driving the Tare/Calibrate wizard's 2s capture windows: that flow is
+    TestBinsTab's job, and going around it keeps these tests about Cart,
+    not about calibrator.py.
+    """
+
+    CPG = 200.0                # counts per gram, arbitrary but round
+    ZERO_COUNTS = -83422.0     # doc section 8.3's own example (TestBinsTab)
+
+    def calibrate_bin(self, i, ref_mass_g):
+        self.core.cal.tare(i, self.ZERO_COUNTS)
+        self.core.cal.calibrate(i, self.grams_to_counts(ref_mass_g), ref_mass_g)
+
+    def grams_to_counts(self, grams):
+        return self.ZERO_COUNTS + self.CPG * grams
+
+    def feed(self, counts):
+        """Push `counts` into core.scale in the background. Returns the
+        live list (mutate an index to change what the "rig" reads) and
+        the stop Event (set it to simulate the XIAO going away mid-test,
+        not just at teardown) — same shape as TestBinsTab.feed(), plus
+        the early-stop handle this file's staleness tests need.
+        """
+        counts = list(counts)
+        stop = threading.Event()
+
+        def run():
+            while not stop.is_set():
+                self.core.scale.feed(list(counts))
+                time.sleep(0.01)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        self.addCleanup(stop.set)
+        return counts, stop
+
+    def test_first_real_reading_baselines_instead_of_pricing_the_mock_gap(self):
+        """A fresh Cart is seeded to MOCK_SEED_GRAMS (500g). Bin 0's real
+        weight is calibrated to read 300g — ordinary set_live_grams() on
+        top of the mock seed would price this as a 200g phantom pick the
+        instant the scale comes online. It must not.
+        """
+        self.calibrate_bin(0, ref_mass_g=300.0)
+        _, of_msgs, of_lock = self.of_client()
+        counts = [self.ZERO_COUNTS] * 8
+        counts[0] = self.grams_to_counts(300.0)
+        self.feed(counts)
+
+        def bin0_grams_300():
+            with of_lock:
+                return any(m["bins"][0]["grams"] == 300 for m in of_msgs)
+        self.assertTrue(wait_for(bin0_grams_300), "bin 0 never showed the real weight")
+
+        with of_lock:
+            last = of_msgs[-1]
+        self.assertEqual(last["bins"][0]["grams"], 300)
+        self.assertEqual(last["bins"][0]["picked"], 0,
+                         "the mock-seed-to-real gap was billed as a phantom pick")
+        self.assertEqual(last["bins"][0]["price"], 0.0)
+        self.assertEqual(last["total"]["amount"], 0.0)
+
+    def test_removing_real_mass_after_baseline_bills_by_arithmetic(self):
+        """Doc section 21's M2 acceptance test, at the Cart level: remove
+        ~100g from a calibrated bin and the total rises by the correct,
+        arithmetically-checkable amount.
+        """
+        self.calibrate_bin(1, ref_mass_g=400.0)
+        _, of_msgs, of_lock = self.of_client()
+        counts, _ = self.feed(
+            [self.grams_to_counts(400.0) if i == 1 else self.ZERO_COUNTS
+             for i in range(8)])
+
+        def baselined():
+            with of_lock:
+                return any(m["bins"][1]["grams"] == 400 for m in of_msgs)
+        self.assertTrue(wait_for(baselined), "bin 1 never baselined to its real weight")
+
+        counts[1] = self.grams_to_counts(300.0)     # 100g removed
+
+        def picked_100():
+            with of_lock:
+                return any(m["bins"][1]["picked"] == 100 for m in of_msgs)
+        self.assertTrue(wait_for(picked_100), "the 100g removal never reached a broadcast")
+
+        with of_lock:
+            last = of_msgs[-1]
+        item = self.core.catalogue.item(self.core.catalogue.ids()[1])
+        expected_price = round(100 / 100.0 * item.price_per_100g, 2)
+        self.assertEqual(last["bins"][1]["price"], expected_price)
+        self.assertEqual(last["total"]["amount"], expected_price)
+
+    def test_a_dead_link_freezes_the_bin_instead_of_billing_from_it(self):
+        """Doc section 9.5 / doc section 21's M2 acceptance: "no billing
+        occurs from the frozen reading." Once a baselined bin goes stale,
+        the broadcast must keep repeating exactly the last real numbers —
+        not drift, not zero, not re-price.
+        """
+        self.calibrate_bin(2, ref_mass_g=250.0)
+        _, of_msgs, of_lock = self.of_client()
+        counts, stop = self.feed(
+            [self.grams_to_counts(250.0) if i == 2 else self.ZERO_COUNTS
+             for i in range(8)])
+
+        def baselined():
+            with of_lock:
+                return any(m["bins"][2]["grams"] == 250 for m in of_msgs)
+        self.assertTrue(wait_for(baselined), "bin 2 never baselined")
+
+        counts[2] = self.grams_to_counts(200.0)      # 50g removed, seen once
+
+        def picked_50():
+            with of_lock:
+                return any(m["bins"][2]["picked"] == 50 for m in of_msgs)
+        self.assertTrue(wait_for(picked_50), "the 50g removal never reached a broadcast")
+
+        stop.set()                                    # the XIAO goes away
+        time.sleep(self.core.scale.stale_s + 0.3)      # cross the staleness threshold
+        with of_lock:
+            of_msgs.clear()
+        self.wait_for_n(of_msgs, of_lock, 3)
+        with of_lock:
+            frozen = [m["bins"][2] for m in of_msgs]
+        for b in frozen:
+            self.assertEqual(b["grams"], 200)
+            self.assertEqual(b["picked"], 50)
+
+    def test_overlay_goes_to_error_only_after_a_baselined_bin_is_lost(self):
+        """Before any bin has ever been calibrated the scale is stale from
+        boot (no XIAO in tests) — that is the ordinary M1 mock-only demo
+        (doc section 12.8) and must not permanently cover the table in a
+        fault screen. The overlay must flip to "error" only once a bin
+        that was genuinely billing from real weight goes dark.
+        """
+        _, of_msgs, of_lock = self.of_client()
+        self.wait_for_n(of_msgs, of_lock, 3)
+        with of_lock:
+            self.assertTrue(all(m["overlay"] == {"kind": "none"} for m in of_msgs),
+                            "overlay fired before any bin ever had real data")
+            of_msgs.clear()
+
+        self.calibrate_bin(6, ref_mass_g=350.0)
+        counts, stop = self.feed(
+            [self.grams_to_counts(350.0) if i == 6 else self.ZERO_COUNTS
+             for i in range(8)])
+
+        def baselined():
+            with of_lock:
+                return any(m["bins"][6]["grams"] == 350 for m in of_msgs)
+        self.assertTrue(wait_for(baselined), "bin 6 never baselined")
+        with of_lock:
+            self.assertTrue(any(m["overlay"] == {"kind": "none"} for m in of_msgs),
+                            "overlay fired while the link was still healthy")
+            of_msgs.clear()
+
+        stop.set()
+        time.sleep(self.core.scale.stale_s + 0.3)
+
+        def overlay_is_error():
+            with of_lock:
+                return any(m["overlay"] == {"kind": "error"} for m in of_msgs)
+        self.assertTrue(wait_for(overlay_is_error), "overlay never flagged the dead link")
+
+
 class TestBinsTab(CoreCase):
     """M2 build item 4 (doc section 21): the staff view's Bins tab (doc
     section 12.4) — the periodic `bins` broadcast the 8 cards read, and

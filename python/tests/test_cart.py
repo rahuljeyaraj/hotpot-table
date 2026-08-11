@@ -121,6 +121,57 @@ class TestMockControls(unittest.TestCase):
         self.assertEqual(self.c.removed_grams(3), 0.0)
 
 
+class TestSeedLiveGrams(unittest.TestCase):
+    """M2 build item 5: the one-time hand-off from a mock/placeholder
+    weight to a bin's first real scale reading (core/main.py's
+    _apply_scale_to_cart). Unlike set_live_grams(), this must not price
+    the distance from wherever start_g/live_g already were.
+    """
+
+    def test_start_live_and_shown_all_snap_to_the_given_weight(self):
+        c = Cart()
+        c.start_g[0] = 500.0            # the M1 mock seed
+        c.live_g[0] = 500.0
+        c.seed_live_grams(0, 300.0)     # bin 0's first real reading
+        self.assertEqual(c.start_g[0], 300.0)
+        self.assertEqual(c.live_g[0], 300.0)
+        self.assertEqual(c.shown_g[0], 0.0)
+
+    def test_removed_grams_is_zero_immediately_after_seeding(self):
+        """The check that actually matters: ordinary set_live_grams()
+        would price the 200g gap between a 500g mock seed and a 300g real
+        weight as a phantom pick the instant the scale comes online.
+        """
+        c = Cart()
+        c.start_g[0] = 500.0
+        c.live_g[0] = 500.0
+        c.seed_live_grams(0, 300.0)
+        self.assertEqual(c.removed_grams(0), 0.0)
+
+    def test_negative_grams_clamped_to_zero(self):
+        c = Cart()
+        c.seed_live_grams(0, -10.0)
+        self.assertEqual(c.start_g[0], 0.0)
+        self.assertEqual(c.live_g[0], 0.0)
+
+    def test_only_touches_the_named_bin(self):
+        c = Cart()
+        for i in range(8):
+            c.start_g[i] = 500.0
+            c.live_g[i] = 500.0
+        c.seed_live_grams(3, 300.0)
+        for i in range(8):
+            if i == 3:
+                continue
+            self.assertEqual(c.start_g[i], 500.0)
+            self.assertEqual(c.live_g[i], 500.0)
+
+    def test_bin_index_is_checked(self):
+        c = Cart()
+        with self.assertRaises(IndexError):
+            c.seed_live_grams(8, 100.0)
+
+
 class TestResetSession(unittest.TestCase):
     """I6: re-baseline, never re-tare. Nothing becomes zero."""
 

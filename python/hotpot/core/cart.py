@@ -10,10 +10,20 @@ a fresh number is needed.
 
 Where live_g comes from is not this module's business. M1 sets it from
 the developer panel's mock pick/put-back controls (doc section 12.8); M2
-replaces that with core/scale.py's median-of-5 serial reading. Both go
-through set_live_grams() — the one entry point that also drives the
-display deadband (doc section 9.2), so neither caller has to know the
-snap rule exists.
+build item 5 adds core/scale.py's median-of-5 serial reading as a second
+source. Ordinary updates from either source go through set_live_grams()
+— the one entry point that also drives the display deadband (doc section
+9.2), so neither caller has to know the snap rule exists.
+
+The one thing set_live_grams() cannot do is *introduce* a source: the
+first real scale reading for a bin arrives while start_g is still
+wherever the M1 mock seed (or a previous mock pick) left it, and running
+that gap through the ordinary removed_grams subtraction would price the
+distance between a fictional mock weight and a real one as one enormous
+phantom pick. seed_live_grams() exists for exactly that one moment —
+main.py calls it once per bin, the first time core/scale.py reports a
+real, non-None weight for it, and set_live_grams() for every reading
+after that.
 """
 
 from __future__ import annotations
@@ -73,6 +83,24 @@ class Cart:
         removed = self.removed_grams(i)
         if abs(removed - self.shown_g[i]) >= self.deadband_g:
             self.shown_g[i] = removed
+
+    def seed_live_grams(self, i: int, grams: float) -> None:
+        """M2 build item 5: the one-time hand-off from a mock/placeholder
+        weight to a bin's first real scale reading.
+
+        Sets start_g, live_g AND shown_g around `grams`, as if this bin's
+        session had just begun — the same three-field shape as
+        reset_session(), but for one bin instead of all eight, and driven
+        by a real weight instead of whatever live_g already held. Call
+        this exactly once per bin, the first time it has one (main.py
+        tracks that per bin); every reading after that is an ordinary
+        set_live_grams() call, same as a mock pick.
+        """
+        self._check_bin(i)
+        g = max(0.0, grams)
+        self.start_g[i] = g
+        self.live_g[i] = g
+        self.shown_g[i] = 0.0
 
     def mock_pick(self, i: int, grams: float) -> None:
         """Developer-panel mock (doc section 12.8): `grams` leave bin i."""

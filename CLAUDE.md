@@ -11,8 +11,9 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: M2 (load cells). M1 is code-complete; its human
-acceptance test on the rig is still owed.
+Current milestone: M3 (camera) is next per the doc's dependency graph.
+M2's 5 build items (load cells) are all code-complete; M1 and M2 each
+still owe their human acceptance test on the rig.
 M0's last completed step was M0.7 (core/main.py — control server,
 client registry, minimal staff view; doc section 21 build item 7).
 Control server and registry are hotpot.common.wire/health, reused as-is.
@@ -402,10 +403,71 @@ and narrower: a plain-language "Load cells: connected, N Hz" / "no
 connection" line at the top of the Bins tab, sourced from `scale.status()`.
 Where a header-level indicator belongs is undecided; revisit when build
 item 5 makes a dead link a billing-visible fault, not just a Bins-tab one.
-Next: M2.5, build item 5 — wire real grams into pricing (Cart reads
-`scale.read()` each tick instead of the M1 mock seed), with the mock
-pick/put-back controls gated behind the developer panel rather than
-removed.
+
+M2.5 (2026-08-11) closes build item 5, the last of M2: real grams wired
+into pricing. `core/main.py`'s new `_apply_scale_to_cart()` runs every
+state tick — any bin `scale.read()` can currently weigh overwrites Cart's
+live grams; a bin it cannot (uncalibrated, or the XIAO stale/missing —
+`Reading.grams[i]` is `None` for both) is left exactly where the developer
+panel's mock controls put it, doc §12.8's "stays forever as a test
+harness" being the literal reason nothing was removed.
+**The one real design problem this build item had to solve, not just
+wire up:** a bin's first real reading arrives while `start_g` is still
+wherever the M1 mock seed left it (500g). Running that through the
+ordinary `set_live_grams()` would price the gap to a real weight — say
+300g — as an instant 200g phantom pick. `cart.seed_live_grams(i, grams)`
+is the fix: start_g/live_g/shown_g all snap to the real weight, once,
+the first time a bin has one (`Core._scale_baselined`, a bool per bin);
+every reading after that is an ordinary `set_live_grams()` call, same as
+a mock pick. `cart.py`'s own docstring said "both go through
+set_live_grams()" — that line was wrong, written before this problem was
+worked through, and is corrected now.
+**Also resolved, not deferred:** the doc gap two entries up, which
+explicitly asked to be revisited here. `_overlay_msg()` sets
+`state.overlay.kind = "error"` when a bin that has crossed into
+`_scale_baselined` can no longer be read — never merely "uncalibrated",
+which is the ordinary state of the M1 mock-only demo and must not
+permanently cover the table in a fault screen. The condition is
+per-bin-history, not "is the scale stale right now": a fresh boot with
+no XIAO ever attached stays `overlay.kind: "none"` forever, and only a
+bin that was genuinely billing from real weight going dark trips it. oF
+already parses `overlay.kind` (M1.4's StateLink) but renders nothing for
+any kind yet — recap/qr/calibrating/uncalibrated/error are all in the
+same unbuilt state; drawing the fault screen itself is oF-renderer work
+with no doc-given visual design and is not part of this build item.
+9 new tests, 366 total, all passing. Two mutations checked red: routing
+the first-reading case through `set_live_grams()` instead of
+`seed_live_grams()` failed the two tests that check for a phantom pick
+(200g showed up as a false `picked`, not 0); hardcoding `_overlay_msg()`
+to always return `none` failed the one test that waits for `"error"`
+after a baselined bin goes dark, and left the other three untouched —
+each mutation was caught by exactly the tests aimed at it, not by
+accident.
+**Run against the live XIAO on COM5** (2026-08-11): `scale.status()`
+showed `open: True, stale: False, hz: 10.65, bad_lines: 1` (the usual
+truncated first line) with nothing calibrated — Cart correctly stayed on
+the 500g mock seed and `overlay.kind` stayed `"none"`. Tared and
+calibrated bin 0 against a synthetic 200 counts/gram fit (no real mass
+was placed — see below) using bin 0's genuine live counts as the zero
+point, then sampled `_state_msg()` five times over ~1s of real serial
+noise: `grams` sat at 0-1, `picked` stayed 0 throughout, no crash — the
+baseline-then-track path holds up against actual per-channel noise, not
+just clean synthetic samples. A real two-point calibration was also
+attempted with an honest `ref_mass_g=100` and no mass actually added
+between tare and calibrate; `loadcell_cal.calibrate()` correctly refused
+it (`abs(cpg) < 10`) rather than accepting a fit computed from noise —
+the sanity check working as intended, not a bug.
+**Not observed: the physical acceptance scenario itself** — a known mass
+placed in a calibrated bin, then removed, with the total rising by the
+correct amount on the table. That needs a hand and a scale weight, same
+class of gap as M2.1-M2.4's "needs a hand on the cable" notes.
+**M2 build items 1-5 are all code-complete.** Still owed from M2: §21's
+human acceptance test on the physical rig — 8 empty bins tared to 0 ±2g,
+bin 5 calibrated with a known 500g mass reading 500 ±3g, the same on an
+inverted cell, ~100g removed from a calibrated bin with the total
+checked by arithmetic, and unplugging the XIAO showing a fault overlay
+with no further billing. Next milestone per the doc's dependency graph:
+M3, the camera process (depends on M0, not M2 — can run in parallel).
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

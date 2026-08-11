@@ -1,6 +1,7 @@
 """Core process — M0 scope (doc section 21, build item 7), M1 build item
-3 (the domain modules wired in and broadcasting `state` at 60Hz), and now
-M2 build item 4: the staff view's Bins tab (doc section 12.4).
+3 (the domain modules wired in and broadcasting `state` at 60Hz), M2
+build item 4 (the staff view's Bins tab, doc section 12.4), and now M2
+build item 5: real grams wired into pricing.
 
 What exists here: the one control server every other process dials into,
 the client registry that turns hellos and heartbeats into the six status
@@ -12,10 +13,18 @@ here — the load-cell reader and calibrator (core/scale.py,
 core/calibrator.py) that the Bins tab drives over a second, lower-rate
 broadcast to the web hub.
 
-M2 build item 5 ("wire real grams into pricing") is deliberately still
-undone: the Bins tab's grams come straight from `self.scale.read()`, and
-Cart still runs on M1's mock seed. The two sources are separate on
-purpose until that build item replaces the mock with the scale reading.
+M2 build item 5 ("wire real grams into pricing") is done: every state
+tick, `_apply_scale_to_cart()` reads `self.scale.read()` and feeds any
+bin with a real (non-None) grams value into Cart — set_live_grams() from
+then on, but seed_live_grams() the first time, so the M1 mock seed's
+placeholder weight never gets priced against a real one (cart.py's own
+docstring). A bin the scale cannot weigh (uncalibrated, or no XIAO at
+all) is left exactly where the developer panel's mock controls put it —
+doc section 12.8's "stays forever as a test harness" is what that
+sentence was for. The Bins tab's grams still come straight from
+`self.scale.read()` rather than Cart, but for a bin Cart has already
+adopted the two numbers are now the same reading one tick apart, not two
+independent sources.
 
 **Do NOT** (M0 build list, doc section 21): open the camera, touch
 MediaPipe, or write any oF code. This file does none of those.
@@ -67,11 +76,16 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 STATE_HZ = 60.0
 STATE_INTERVAL = 1.0 / STATE_HZ
 
-# M1 has no load cells (M2) and no classifier (M6): every bin starts full
-# of a fixed placeholder weight so the mock pick/put-back cycle (doc
-# section 12.8) has something to remove grams from. Overwritten for real
-# once core/scale.py's median-of-5 reading exists — see cart.py's
-# docstring ("Where live_g comes from is not this module's business").
+# Every bin starts full of a fixed placeholder weight so the mock
+# pick/put-back cycle (doc section 12.8) has something to remove grams
+# from before any bin has a real scale reading — first boot, an
+# uncalibrated bin, or no XIAO at all. Per bin, this is a one-time seed:
+# _apply_scale_to_cart() replaces it with the real weight (via
+# cart.seed_live_grams(), never plain set_live_grams() — see that
+# module's docstring on why the hand-off needs its own entry point) the
+# first time core/scale.py reports one, and never reads it again after
+# that. Not "removed" by M2 build item 5 — still needed as long as a
+# bin can be diner-facing before it has been calibrated.
 MOCK_SEED_GRAMS = 500.0
 
 # Doc section 8.6's config example has no serial-port key (a known gap —
@@ -207,6 +221,11 @@ class Core:
         self.scale = scale.ScaleReader(scale_port, cal=self.cal,
                                        open_port=scale_open_port)
         self.calibrator = calibrator.Calibrator(self.scale, path=cal_path)
+
+        # M2 build item 5: which bins have ever had a real scale reading
+        # applied to Cart. False means still on the M1 mock seed (or a
+        # mock pick/put-back on top of it) — see _apply_scale_to_cart().
+        self._scale_baselined = [False] * cart.NUM_BINS
 
         # I1 says core owns all state; it does not say core touches it from
         # one thread, and core does not. Reads happen on the 60Hz broadcast
@@ -387,14 +406,57 @@ class Core:
             "noise_g": result.noise_g, "noisy": result.noisy,
         })
 
+    # -- wiring the scale into Cart (doc section 21, M2 build item 5) -------
+
+    def _apply_scale_to_cart(self) -> None:
+        """Every state tick: any bin the scale can currently weigh
+        overwrites Cart's live grams; a bin it cannot (uncalibrated, or a
+        stale/missing XIAO — core/scale.py's Reading.grams is None for
+        both, on purpose) is left untouched, still driven by the
+        developer panel's mock controls (doc section 12.8).
+
+        Caller holds state_lock — this mutates Cart, the same rule every
+        other cart.py call site in this file already follows.
+        """
+        reading = self.scale.read()
+        for i in range(cart.NUM_BINS):
+            g = reading.grams[i]
+            if g is None:
+                continue
+            if self._scale_baselined[i]:
+                self.cart.set_live_grams(i, g)
+            else:
+                # First real reading this bin has ever had: seed, not
+                # set, so the gap to the M1 mock seed never prices as a
+                # phantom pick (cart.py's seed_live_grams docstring).
+                self.cart.seed_live_grams(i, g)
+                self._scale_baselined[i] = True
+
+    def _overlay_msg(self) -> Dict[str, Any]:
+        """Doc section 9.5: "the table shows a fault overlay" when a bin
+        that was billing from real weight can no longer be read — not
+        merely "the scale has never been calibrated", which is the
+        ordinary state of the M1 mock-only demo (doc section 12.8) and
+        must not permanently cover the table in a fault screen. Only a
+        bin that has crossed into `_scale_baselined` and then lost its
+        reading counts: that is the "dead XIAO mid-session" case doc
+        section 21's M2 acceptance test means, not "never plugged in".
+        """
+        reading = self.scale.read()
+        lost = any(self._scale_baselined[i] and reading.grams[i] is None
+                  for i in range(cart.NUM_BINS))
+        return {"kind": "error"} if lost else {"kind": "none"}
+
     # -- the Bins tab (doc section 12.4, M2 build item 4) --------------------
 
     def _bins_tab_msg(self) -> Dict[str, Any]:
-        """8 cards' worth of data. Grams come straight from
-        `self.scale.read()`, not Cart — build item 5 ("wire real grams
-        into pricing") is what makes those the same number; until then
-        this tab and the diner/mock path read two different sources on
-        purpose (see this module's docstring).
+        """8 cards' worth of data. Grams still come straight from
+        `self.scale.read()`, not Cart: this tab shows a bin's raw scale
+        reading regardless of whether Cart has adopted it yet (a bin
+        still on the M1 mock seed reads its real weight here well before
+        _apply_scale_to_cart's first seed_live_grams() call catches up,
+        which is correct — the Bins tab is a scale diagnostic, not a
+        billing view).
 
         Read without `state_lock`: that lock protects the billing
         snapshot (cart+binmap+total as one instant, __init__'s own
@@ -472,6 +534,7 @@ class Core:
 
     def _state_msg(self) -> Dict[str, Any]:
         with self.state_lock:
+            self._apply_scale_to_cart()
             msg = {
                 "t": "state",
                 "seq": self._state_seq,
@@ -486,7 +549,7 @@ class Core:
                 "bins": [self._bin_msg(i) for i in range(binmap.NUM_BINS)],
                 "total": self._total_msg(),
                 "widgets": [],      # no widget exists before BROTH/SPICE/etc. (M6)
-                "overlay": {"kind": "none"},
+                "overlay": self._overlay_msg(),
             }
             self._state_seq += 1
             return msg
