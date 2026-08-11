@@ -608,6 +608,15 @@ class Core:
         if t == "calibrate_dots":
             self._handle_calibrate_dots()
             return
+        if t == "set_rects":
+            self._handle_set_rects(msg)
+            return
+        if t == "seed_rects":
+            self._handle_seed_rects()
+            return
+        if t == "verify_rects":
+            self._handle_verify_rects(msg)
+            return
         _log.debug("web: unhandled message type %r from a tablet", t)
 
     def _handle_set_mode(self, msg: Dict[str, Any]) -> None:
@@ -944,6 +953,140 @@ class Core:
         })
         self.web.broadcast(self._geometry_msg())
 
+    def _handle_set_rects(self, msg: Dict[str, Any]) -> None:
+        """Doc section 12.6's "Adjust bin rectangles — drag the 8 rects on
+        the live feed… Save is explicit."
+
+        The tablet sends the whole set of eight, not a delta, and only
+        when the operator taps Save — dragging is entirely local to the
+        page (doc section 12.6 gives it Undo, which is a page-level idea).
+        Sending all eight also means a dropped message cannot leave core
+        holding six new rects and two old ones.
+
+        **Setting mode required**, same rule as everything else on this
+        tab: moving a rect moves the light-pass cutout, so a save in
+        serving mode would slide the white patches off the trays under a
+        diner's hands.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "rects_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        rects = msg.get("rects")
+        if not isinstance(rects, list) or len(rects) != binmap.NUM_BINS:
+            self.web.broadcast({
+                "t": "rects_result", "ok": False,
+                "message": f"Expected {binmap.NUM_BINS} rectangles."})
+            return
+        parsed = []
+        for r in rects:
+            if (not isinstance(r, list) or len(r) != 4
+                    or not all(isinstance(v, (int, float))
+                               and not isinstance(v, bool)
+                               and math.isfinite(v) for v in r)):
+                self.web.broadcast({
+                    "t": "rects_result", "ok": False,
+                    "message": "One of the rectangles is not four numbers."})
+                return
+            parsed.append(tuple(float(v) for v in r))
+        try:
+            self.geometry.set_cam_rects(parsed)
+            # A moved rect invalidates the last human Verify answer — the
+            # outlines the operator said were on the trays are not these
+            # outlines any more (doc section 12.6).
+            self.geometry.clear_verified()
+            self.geometry.save_rects()
+        except (ValueError, geometry.GeometryError) as e:
+            self.web.broadcast({"t": "rects_result", "ok": False,
+                                "message": str(e)})
+            return
+        self.web.broadcast({"t": "rects_result", "ok": True,
+                            "message": "Bin rectangles saved."})
+        self.web.broadcast(self._geometry_msg())
+        # A table that had a homography and no rects has just become
+        # calibrated. Doc section 9.1's UNCALIBRATED -> IDLE transition
+        # is M4 build item 6; it hooks in here.
+        self._check_calibration_complete()
+
+    def _handle_seed_rects(self) -> None:
+        """Doc section 21 M4 build item 5: put the legacy measured rects
+        on screen as a starting position to drag from, converted to camera
+        space through `H^-1`.
+
+        Not saved — doc section 12.6's "Save is explicit" applies to a
+        seed more than to anything else, since nobody has looked at it
+        yet.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "rects_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        try:
+            self.geometry.seed_cam_rects_from_table()
+        except geometry.GeometryError as e:
+            self.web.broadcast({"t": "rects_result", "ok": False,
+                                "message": str(e)})
+            return
+        self.web.broadcast({
+            "t": "rects_result", "ok": True,
+            "message": ("Starting positions loaded from the measured table "
+                        "layout. Drag them onto the trays, then Save.")})
+        self.web.broadcast(self._geometry_msg())
+
+    def _handle_verify_rects(self, msg: Dict[str, Any]) -> None:
+        """Doc section 12.6's Verify step, and doc section 5.3's TRAP.
+
+        **The only thing this does is record a human's answer.** There is
+        no check here and there must not be one: the outlines are already
+        on the table every frame (core sends the derived stage rects in
+        `state.bins[].rect` and oF draws its plates and cutouts on them),
+        so "Verify" is the operator looking at the real trays and saying
+        yes or no. Reprojecting the rects through the same homography to
+        check them would pass by construction on a homography that is
+        upside down — that is the trap this project has already hit three
+        times in different disguises.
+
+        A "No" clears the flag rather than setting a failure state:
+        nothing downstream branches on it, and what the operator does
+        next is re-run the calibration, which clears it anyway.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "rects_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        ok = bool(msg.get("ok"))
+        if ok:
+            self.geometry.mark_verified()
+            message = "Recorded — the outlines are on the trays."
+        else:
+            self.geometry.clear_verified()
+            message = ("Recorded. Run the projector-camera calibration "
+                       "again, then drag the rectangles and check once more.")
+        try:
+            if self.geometry.has_rects:
+                self.geometry.save_rects()
+        except geometry.GeometryError as e:
+            self.web.broadcast({"t": "rects_result", "ok": False,
+                                "message": str(e)})
+            return
+        self.web.broadcast({"t": "rects_result", "ok": True,
+                            "message": message})
+        self.web.broadcast(self._geometry_msg())
+
+    def _check_calibration_complete(self) -> None:
+        """Doc section 9.1's UNCALIBRATED -> IDLE, taken the moment both
+        state files exist.
+
+        M4 build item 6 adds `Fsm.calibration_complete()` and the state it
+        leaves. Until then there is nothing to leave — `boot_complete()`
+        goes straight to IDLE — so this is deliberately a no-op rather
+        than a call to a method that does not exist yet.
+        """
+        with self.state_lock:
+            if self.geometry.calibrated and hasattr(self.fsm,
+                                                    "calibration_complete"):
+                self.fsm.calibration_complete()
+
     def _geometry_msg(self) -> Dict[str, Any]:
         """What the Setup tab needs to render: whether the table is
         calibrated, the last solve's numbers, the camera-space rects to
@@ -1132,10 +1275,19 @@ class Core:
             )["amount"]
         else:
             label, sub, price = "", "", 0.0
+        # Doc section 5.3: "core pushes … stage-space rects to oF". Derived
+        # from the camera rect staff dragged, through H — never persisted
+        # (doc section 8.4), so this is the only place it exists outside
+        # GeometryStore. `None` until the table is calibrated, so oF falls
+        # back to TableGeometry.h's CAD layout rather than drawing eight
+        # plates at the origin.
+        stage_rect = self.geometry.stage_rects[i]
         return {
             "i": i,
             "label": label,
             "sub": sub,
+            "rect": (None if stage_rect is None
+                     else [round(v, 1) for v in stage_rect]),
             "grams": round(self.cart.live_g[i]),
             "picked": picked,
             "price": price,

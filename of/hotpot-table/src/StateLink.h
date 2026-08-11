@@ -53,6 +53,19 @@ public:
 		std::string hl = "none";        // none|hover|picking|picked|lowstock|disabled
 		std::string stock = "ok";
 		bool resolved = false;
+
+		// doc §4.3's `rect`, in STAGE space, [x,y,w,h] (M4 build item 4).
+		// Core derives it from the camera-space rect staff dragged, through
+		// H_cam->stage (doc §5.3), and it is what oF frames the plate and
+		// the light-pass cutout against.
+		//
+		// hasRect is false until core has both a homography and eight
+		// saved rects. It has to be an absence, not a plausible rectangle
+		// at the origin: an uncalibrated table falls back to
+		// TableGeometry.h's CAD layout, which is visibly approximately
+		// right, whereas a rect at 0,0 would look like a rendering bug.
+		bool hasRect = false;
+		float rx = 0.0f, ry = 0.0f, rw = 0.0f, rh = 0.0f;
 	};
 
 	struct Fluid {

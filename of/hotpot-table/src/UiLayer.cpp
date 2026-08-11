@@ -225,18 +225,39 @@ void UiLayer::setup(){
 	}
 }
 
-ofRectangle UiLayer::binRectPx(int i){
+ofRectangle UiLayer::cadBinRectPx(int i){
 	const BinRect & b = BINS[i];
 	float x = mmToPxX(b.xMM);
 	float y = mmToPxY(b.yMM);
 	return ofRectangle(x, y, mmToPxX(b.xMM + b.wMM) - x, mmToPxY(b.yMM + b.hMM) - y);
 }
 
-ofRectangle UiLayer::cutoutRectPx(int i){
-	BinRect f = binFillRectMM(BINS[i]);
-	float x = mmToPxX(f.xMM);
-	float y = mmToPxY(f.yMM);
-	return ofRectangle(x, y, mmToPxX(f.xMM + f.wMM) - x, mmToPxY(f.yMM + f.hMM) - y);
+ofRectangle UiLayer::binRectPx(int i) const {
+	// Core's rect when there is one — doc §5.3 makes core the owner of
+	// the bin rects in both spaces, and this is the stage-space half
+	// arriving. The CAD layout is the fallback for an uncalibrated table
+	// (M4 build item 6), which is visibly approximately right rather than
+	// visibly broken.
+	if(_hasCoreRect[i]){
+		return _coreRects[i];
+	}
+	return cadBinRectPx(i);
+}
+
+ofRectangle UiLayer::cutoutRectPx(int i) const {
+	// The bin grown by CUTOUT_MARGIN_MM on all four sides — the same
+	// growth TableGeometry.h::binFillRectMM applies, but expressed here
+	// in px so it works on a core-sent rect too (which has no mm form:
+	// it came from a camera through a homography, not from the drawing).
+	//
+	// The margin absorbs the saw kerf on the real cutout and the
+	// homography's residual error, and it is the safe direction: a patch
+	// slightly too big spills white onto the table, one slightly too
+	// small leaves a dark crescent on the food (I9).
+	const ofRectangle b = binRectPx(i);
+	const float mx = mmToPxX(CUTOUT_MARGIN_MM);
+	const float my = mmToPxY(CUTOUT_MARGIN_MM);
+	return ofRectangle(b.x - mx, b.y - my, b.width + 2.0f * mx, b.height + 2.0f * my);
 }
 
 std::vector<ofRectangle> UiLayer::cutoutRectsPx() const {
@@ -298,6 +319,16 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 	for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
 		const StateLink::Bin & b = state.bins[i];
 		BinTween & tw = _bins[i];
+
+		// Cached here, not read at draw time: cutoutRectsPx() is called
+		// by ofApp after endContent(), with no `state` in scope. Not
+		// tweened either — a bin rect is rig calibration, not animation,
+		// and springing it would smear the light-pass cutout across the
+		// table for 150ms after every save.
+		_hasCoreRect[i] = b.hasRect;
+		if(b.hasRect){
+			_coreRects[i] = ofRectangle(b.rx, b.ry, b.rw, b.rh);
+		}
 
 		tw.picked.setTarget(b.picked);
 		tw.price.setTarget((float)b.price);

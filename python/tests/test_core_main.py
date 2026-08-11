@@ -29,9 +29,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from websockets.sync.client import connect  # noqa: E402
 
+from hotpot.common import geometry  # noqa: E402
 from hotpot.common import health  # noqa: E402
 from hotpot.common import log as hlog  # noqa: E402
 from hotpot.common import wire  # noqa: E402
+from hotpot.core import geometry_store  # noqa: E402
 from hotpot.core import main as coremain  # noqa: E402
 
 DEADLINE = 5.0
@@ -1676,6 +1678,155 @@ class TestDotCalibrationOverTheWire(CoreCase):
                and time.monotonic() < deadline):
             time.sleep(0.02)
         self.assertTrue(self.core._geometry_msg()["keystone_stale"])
+
+
+class TestSetupTabRects(CoreCase):
+    """M4 build item 4's server half: rect dragging saved explicitly, the
+    legacy seed, and doc section 12.6's Verify step.
+
+    **What is NOT here is the point.** There is no test that reprojects
+    the saved stage rects back through `H` and checks they match the
+    camera rects — that passes by construction on a homography pointing
+    the wrong way (doc section 5.3's TRAP). The only verification that can
+    fail is a human looking at the trays, and all the code can do is
+    record their answer, which is what `test_verify_records_a_human_answer`
+    checks.
+    """
+
+    CAM_TO_STAGE = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0],
+                    [0.00012, 0.00007, 1.0]]
+
+    def setUp(self):
+        super().setUp()
+        self.core.geometry.set_homography(self.CAM_TO_STAGE, rms_px=1.1,
+                                          n_points=15)
+        self.ws_ = self.ws()
+        for _ in range(4):
+            self.recv_json(self.ws_)
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.drain_until("mode")
+
+    def drain_until(self, want, timeout=DEADLINE):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            msg = self.recv_json(self.ws_, timeout=deadline - time.monotonic())
+            if msg.get("t") == want:
+                return msg
+        self.fail(f"no {want} message arrived")
+
+    def eight(self, dx=0.0):
+        return [[100.0 + dx + i * 40, 200.0, 300.0, 220.0] for i in range(8)]
+
+    def test_saving_eight_rects_writes_the_file_and_derives_stage_rects(self):
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
+        reply = self.drain_until("rects_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertTrue(self.core.geometry.has_rects)
+        self.assertTrue(all(r is not None
+                            for r in self.core.geometry.stage_rects))
+
+    def test_the_stage_rects_reach_of_on_the_state_message(self):
+        # Doc §5.3: "core pushes camera-space rects to the classifier and
+        # stage-space rects to oF." Without this, the Verify step has
+        # nothing on the table to look at.
+        msg = self.core._state_msg()
+        self.assertIsNone(msg["bins"][0]["rect"])
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
+        self.drain_until("rects_result")
+        msg = self.core._state_msg()
+        rect = msg["bins"][0]["rect"]
+        self.assertEqual(len(rect), 4)
+        want = geometry.apply_rect(self.CAM_TO_STAGE, (100.0, 200.0, 300.0, 220.0))
+        for got, w in zip(rect, want):
+            self.assertAlmostEqual(got, w, places=1)
+
+    def test_saving_is_refused_in_serving_mode(self):
+        # Moving a rect moves the light-pass cutout, so a save while a
+        # diner is at the table slides the white patches off the trays.
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "serving"}))
+        self.drain_until("mode")
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
+        reply = self.drain_until("rects_result")
+        self.assertFalse(reply["ok"])
+        self.assertFalse(self.core.geometry.has_rects)
+
+    def test_a_short_rect_list_is_refused(self):
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()[:6]}))
+        self.assertFalse(self.drain_until("rects_result")["ok"])
+
+    def test_a_nan_in_a_rect_is_refused(self):
+        # A NaN survives every `> 0` comparison and would be written into
+        # state/bin_rects.json, then derived into a stage rect oF cannot
+        # draw. Same class of hole as the NaN ref_mass_g M2.4 closed.
+        bad = self.eight()
+        bad[3][2] = float("nan")
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": bad}))
+        self.assertFalse(self.drain_until("rects_result")["ok"])
+        self.assertFalse(self.core.geometry.has_rects)
+
+    def test_a_zero_width_rect_is_refused(self):
+        bad = self.eight()
+        bad[2][2] = 0.0
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": bad}))
+        self.assertFalse(self.drain_until("rects_result")["ok"])
+
+    def test_the_seed_lands_eight_rects_without_saving(self):
+        # Doc §12.6: "Save is explicit" — which applies to a seed more
+        # than to anything, since nobody has looked at it yet.
+        self.ws_.send(json.dumps({"t": "seed_rects"}))
+        reply = self.drain_until("rects_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        geo = self.drain_until("geometry")
+        self.assertEqual(len(geo["rects"]), 8)
+        self.assertTrue(all(r is not None for r in geo["rects"]))
+        self.assertFalse(self.core.geometry.rects_path.exists())
+
+    def test_seeding_without_a_homography_says_so(self):
+        core = self.core
+        core.geometry._h = None
+        core.geometry._h_inv = None
+        self.ws_.send(json.dumps({"t": "seed_rects"}))
+        reply = self.drain_until("rects_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("dot calibration", reply["message"])
+
+    def test_verify_records_a_human_answer(self):
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
+        self.drain_until("rects_result")
+        self.assertIsNone(self.core.geometry.verified_at)
+        self.ws_.send(json.dumps({"t": "verify_rects", "ok": True}))
+        self.drain_until("rects_result")
+        self.assertIsNotNone(self.core.geometry.verified_at)
+
+    def test_a_no_answer_clears_it_and_says_what_to_do_next(self):
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
+        self.drain_until("rects_result")
+        self.ws_.send(json.dumps({"t": "verify_rects", "ok": True}))
+        self.drain_until("rects_result")
+        self.ws_.send(json.dumps({"t": "verify_rects", "ok": False}))
+        reply = self.drain_until("rects_result")
+        self.assertIn("again", reply["message"])
+        self.assertIsNone(self.core.geometry.verified_at)
+
+    def test_moving_a_rect_after_verifying_clears_the_verification(self):
+        # The outlines the operator said were on the trays are not these
+        # outlines any more.
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
+        self.drain_until("rects_result")
+        self.ws_.send(json.dumps({"t": "verify_rects", "ok": True}))
+        self.drain_until("rects_result")
+        self.assertIsNotNone(self.core.geometry.verified_at)
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight(dx=30)}))
+        self.drain_until("rects_result")
+        self.assertIsNone(self.core.geometry.verified_at)
+
+    def test_a_saved_calibration_survives_a_reload(self):
+        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
+        self.drain_until("rects_result")
+        again = geometry_store.GeometryStore(
+            homography_path=self.core.geometry.homography_path,
+            rects_path=self.core.geometry.rects_path)
+        self.assertTrue(again.has_rects)
 
 
 class TestStop(unittest.TestCase):

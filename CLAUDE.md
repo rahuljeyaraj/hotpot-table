@@ -1309,6 +1309,80 @@ Builds clean (msbuild, Debug x64, 0 errors, 0 warnings from
 surface**: the black field, the dots, and whether a real camera can find
 them are all still owed.
 
+M4.4 (2026-08-12) is build item 4: the staff view's Setup tab (doc
+§12.6) — the wizard, rect dragging on the live feed, Save, and Verify —
+plus the plumbing that makes Verify mean anything: **core now sends the
+derived stage rect for every bin in `state.bins[].rect`, and oF draws its
+plates and light-pass cutouts on them.**
+
+**The TRAP, and how it was answered.** Doc §12.6 and §5.3 both say the
+only verification that can fail is a human looking at the trays. So:
+- **There is no "projection mode" to switch on for Verify, and that is
+  the design, not a shortcut.** The outlines are already on the table
+  every frame — core sends the rects, oF frames each ring and each cutout
+  with them, falling back to `TableGeometry.h`'s CAD layout when core has
+  none. Verify is two buttons and a recorded answer. A separate
+  projection path would have been a second renderer whose agreement with
+  the real one nobody could check.
+- `verified_at` is cleared by a re-solve, by a rect edit, and by a "No".
+  The outlines the operator said were on the trays are not these outlines
+  any more.
+- **There is no test anywhere that reprojects the saved rects through the
+  same H.** `test_the_store_has_no_verify_method` (M4.1) is the guard
+  against one appearing.
+
+Three things worth not re-deriving:
+- **oF's bin rect is now core's when core has one, CAD when it does
+  not**, and the absence has to stay an absence: a rect at the origin
+  would look like a placed rect nobody placed, while the CAD layout is
+  visibly approximately right. `cutoutRectPx()` grows whatever rect it
+  gets by `CUTOUT_MARGIN_MM` in px rather than in mm, because a core-sent
+  rect has no mm form — it came from a camera through a homography, not
+  from the drawing.
+- **The rects are cached in `UiLayer::update()`, not read at draw time,
+  and not tweened.** `cutoutRectsPx()` is called by `ofApp` after
+  `endContent()`, with no `state` in scope. Springing a bin rect would
+  smear the light-pass cutout across the table for 150ms after every
+  save — a bin rect is rig calibration, not animation.
+- **Doc §5.4's scaling trap is the load-bearing part of the dragging.**
+  Rects are held and sent in capture-space pixels, never display pixels;
+  every pointer coordinate goes through one `toCam()`. The shim harness
+  serves a 1920x1080 "camera" into a 480x270 layout box, so a version
+  that forgot the conversion is off by exactly 4x.
+Rect validation on the core side rejects a NaN (which survives every
+`> 0` comparison and would reach `state/bin_rects.json` and then oF as an
+undrawable rect — the same hole M2.4 closed for `ref_mass_g`), a
+zero-width rect (crops an empty image, which the classifier answers
+confidently and wrongly), and a short list. All eight rects are sent on
+every Save, never a delta, so a dropped message cannot leave core holding
+six new rects and two old ones.
+**Not built, and named rather than quietly skipped:** snap-to-grid (doc
+§12.6 called it optional; nothing about a hand-dragged tray position
+wants quantising, and it would be a setting to explain), and the tab's
+other settings — swap hands, dwell, broth/spice, deadband, conf floor —
+each of which belongs to the milestone that gives it something to change.
+**§12.6 has been updated** to say all of this.
+12 new Python tests (`TestSetupTabRects`), 650 total, all passing. Four
+Python mutations checked red: the setting-mode gate dropped from
+`set_rects`; NaN tolerated in a rect; the stage rect not put on the
+`state` message; the verification not cleared by a rect edit.
+The staff view was verified the same way M2.6/M3.3/M3.4 were, with no
+browser toolchain added: `node --check` on the extracted script, all 46
+`getElementById` targets and every `querySelectorAll` selector
+cross-checked against the DOM by script (plus tab buttons against tab
+panels), and the whole IIFE driven against a throwaway DOM shim over **40
+assertions** — the §5.4 scaling, a drag, Undo, a Save with a hole in it,
+the calibrate button's three replies, both Verify answers, dragging being
+inert in serving mode, and a `geometry` broadcast arriving mid-drag not
+yanking the rect out from under the operator. Three JS mutations checked
+red: `toCam` scaling removed, the mid-drag guard removed, the
+setting-mode gating removed. The shim is scratchpad-only, not committed.
+Builds clean (msbuild, Debug x64, 0 errors, 0 warnings from
+`hotpot-table/src`).
+**Nothing here has been seen in a browser or on the projected surface.**
+The Verify answer in particular is a mechanism with no observation behind
+it yet — that is exactly the acceptance step still owed.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

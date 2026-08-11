@@ -1021,11 +1021,14 @@ Restaurant-management surface. This is what makes the entry look like a product 
 
 ### 12.6 Tab: Setup
 
-- **Calibrate projector ↔ camera** (dot calibration wizard, §17.2). Big single button, then a progress line, then a result with the RMS error in pixels and a plain-language verdict.
-- **Adjust bin rectangles** — drag the 8 rects on the live feed. Snap-to-grid optional. Undo. Save is explicit.
-- **Verify** — projects the derived stage rects onto the table and asks the operator: *"Are the outlines sitting on the trays?"* with **Yes** / **No**. **TRAP:** this human confirmation is the only verification of the homography's direction that can actually fail. Do not replace it with a reprojection check.
-- Swap hands (§11.3), locale, broth and spice options, deadband, dwell time, confidence floor.
-- **Developer panel toggle** — off by default (§12.8).
+- **Calibrate projector ↔ camera** (dot calibration wizard, §24.1). Big single button, then a progress line, then a result with the RMS error in pixels and a plain-language verdict. The verdict is **not** the RMS alone — see §24.1 on why a low error over five dots is a bad calibration.
+- **Adjust bin rectangles** — drag the 8 rects on the live feed. Drag inside to move, drag the corner handle to resize. Undo. Save is explicit. Snap-to-grid was optional and is **not built** — nothing about a hand-dragged tray position wants quantising, and it would have been a setting to explain.
+- **Verify** — asks the operator: *"Are the outlines sitting on the trays?"* with **Yes** / **No**. **TRAP:** this human confirmation is the only verification of the homography's direction that can actually fail. Do not replace it with a reprojection check.
+
+  **As built (M4.4), there is nothing to switch on for this step and that is deliberate.** The outlines are already on the table every frame: core sends the derived stage rects in `state.bins[].rect` and oF draws each plate ring and each light-pass cutout on them (falling back to `TableGeometry.h`'s CAD layout when core has none). So "Verify" is two buttons and a recorded answer — `verified_at` in §8.4 — and nothing more. A separate "projection mode" would have been a second rendering path whose agreement with the real one nobody could check.
+- Everything on this tab requires **setting mode**, the same rule §12.4's Tare and Calibrate follow and for the same class of reason: the solve inverts the field to black for several seconds, and moving a rect moves the light-pass cutout off the tray. Refused server-side too, not only greyed out on the tablet.
+- Swap hands (§11.3), locale, broth and spice options, deadband, dwell time, confidence floor — **not built at M4**; each belongs to the milestone that gives it something to change (M5 for swap hands and dwell, M6 for broth and spice).
+- **Developer panel toggle** — off by default (§12.8). **Still on the top bar, not here** (M1.5 put it there because Setup did not exist). Moving it is a one-line change and was left alone at M4 rather than bundled into a milestone about geometry.
 
 ### 12.7 Tab: Capture — dataset collection
 

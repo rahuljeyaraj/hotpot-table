@@ -58,8 +58,15 @@ private:
 		float lastPicked = 0.0f;
 	};
 
-	static ofRectangle binRectPx(int i);
-	static ofRectangle cutoutRectPx(int i);
+	// Not static any more (M4 build item 4): the bin rects come from core
+	// when it has them (StateLink::Bin::hasRect — doc §5.3, core owns
+	// rects in both spaces) and fall back to TableGeometry.h's CAD layout
+	// when it does not. Cached in update() rather than read out of
+	// `state` at draw time, because cutoutRectsPx() is called by ofApp
+	// AFTER endContent() and has no state to read.
+	ofRectangle binRectPx(int i) const;
+	ofRectangle cutoutRectPx(int i) const;
+	static ofRectangle cadBinRectPx(int i);
 	static void drawRing(const ofRectangle & cut, float widthX, float widthY,
 		const ofColor & colour);
 	static ofColor highlightColour(const std::string & hl);
@@ -93,4 +100,9 @@ private:
 
 	std::array<BinTween, 8> _bins;
 	Spring _totalAmount{0.15f};
+
+	// The stage-space rects core last sent, and whether it sent any. An
+	// absence is NOT "a rect at the origin" — see StateLink::Bin::hasRect.
+	std::array<ofRectangle, 8> _coreRects;
+	std::array<bool, 8> _hasCoreRect{};
 };

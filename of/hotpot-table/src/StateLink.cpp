@@ -352,6 +352,21 @@ bool StateLink::parseState(const ofJson & j, State & out){
 			b.hl = bj.value("hl", "none");
 			b.stock = bj.value("stock", "ok");
 			b.resolved = bj.value("resolved", false);
+			// Four finite numbers or nothing. A partially-parsed rect is
+			// worse than none: it would move the light-pass cutout off
+			// the tray, which is a dark crescent on the food (I9).
+			if(bj.contains("rect") && bj["rect"].is_array() && bj["rect"].size() == 4){
+				const ofJson & r = bj["rect"];
+				if(r[0].is_number() && r[1].is_number()
+					&& r[2].is_number() && r[3].is_number()
+					&& r[2].get<float>() > 0.0f && r[3].get<float>() > 0.0f){
+					b.hasRect = true;
+					b.rx = r[0].get<float>();
+					b.ry = r[1].get<float>();
+					b.rw = r[2].get<float>();
+					b.rh = r[3].get<float>();
+				}
+			}
 			int slot = (b.i >= 0 && b.i < 8) ? b.i : (int)k;
 			out.bins[slot] = b;
 		}

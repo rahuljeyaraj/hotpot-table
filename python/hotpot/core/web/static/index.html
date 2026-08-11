@@ -285,6 +285,50 @@
   .bins-toolbar-hint { font-size: 13px; color: var(--amber); }
   .bin-hint { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
 
+  /* --- Setup tab (doc section 12.6, M4 build item 4) --------------------
+     Three things in one column, in the order an operator does them:
+     calibrate the projector against the camera, drag the 8 rects onto the
+     trays, then Verify by looking at the real table. */
+  .setup-shell { max-width: 1100px; }
+  .setup-card {
+    background: var(--panel); border: 1px solid #2a2c31; border-radius: 8px;
+    padding: 16px; margin-bottom: 14px;
+  }
+  .setup-card h2 {
+    margin: 0 0 6px; font-size: 20px; font-weight: 500;   /* doc 12.9 */
+  }
+  .setup-card p { margin: 0 0 12px; font-size: 14px; color: var(--muted); line-height: 1.5; }
+  .setup-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .setup-btn {
+    min-height: 52px; padding: 0 22px;
+    border: 1px solid #3a3d47; border-radius: 8px;
+    background: #22252b; color: var(--text);
+    font-size: 15px; cursor: pointer;
+  }
+  .setup-btn.primary {
+    background: var(--green); border-color: var(--green);
+    color: #062b12; font-weight: 600;
+  }
+  .setup-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .setup-status { font-size: 14px; margin-top: 12px; line-height: 1.5; }
+  .setup-status.good { color: var(--green); }
+  .setup-status.bad { color: var(--red); }
+  .setup-status.busy { color: var(--amber); }
+  .setup-facts {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 4px 16px; margin-top: 12px; font-size: 14px;
+  }
+  .setup-facts .k { color: var(--muted); }
+  .setup-warn {
+    margin-top: 12px; padding: 10px 12px; border-radius: 6px;
+    background: #402c26; color: #ffd9c9; font-size: 14px;
+  }
+  .setup-warn.hide { display: none; }
+  /* The rect editor reuses the Live tab's feed wrapper so doc §5.4's
+     scaling rule is implemented once, not twice. The canvas here DOES
+     take pointer events — that is the whole tab. */
+  .setup-shell .live-feed-wrap canvas { pointer-events: auto; touch-action: none; cursor: crosshair; }
+
   /* --- calibration wizard modal (doc section 12.4: "one screen at a
      time, no branching") -------------------------------------------- */
   .modal-backdrop {
@@ -420,6 +464,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="live">Live</button>
       <button class="tab" data-tab="bins">Bins</button>
+      <button class="tab" data-tab="setup">Setup</button>
     </nav>
     <div class="order" id="order">—</div>
     <div class="spacer"></div>
@@ -478,6 +523,72 @@
           <div class="bins-toolbar-hint" id="binsHint"></div>
         </div>
         <div class="bins-grid" id="binsGrid"></div>
+      </div>
+    </section>
+    <section class="tab-panel" data-tab="setup">
+      <!-- Doc §12.6. The order of the three cards is the order the work
+           happens in, and each says what it needs before it will run. -->
+      <div class="setup-shell">
+        <div class="setup-card">
+          <h2>Calibrate projector and camera</h2>
+          <p>The table goes dark and shows a pattern of white dots twice,
+             about five seconds in total. Nobody should be leaning over it
+             while this runs.</p>
+          <div class="setup-actions">
+            <button id="dotcalBtn" class="setup-btn primary">Calibrate</button>
+          </div>
+          <div class="setup-status" id="dotcalStatus"></div>
+          <div class="setup-facts">
+            <div><span class="k">calibrated</span> <span id="geoCalibrated">—</span></div>
+            <div><span class="k">average error</span> <span id="geoRms">—</span></div>
+            <div><span class="k">dots used</span> <span id="geoPoints">—</span></div>
+            <div><span class="k">checked by eye</span> <span id="geoVerified">—</span></div>
+          </div>
+          <!-- Doc §8.5: oF reports its keystone fingerprint in `stat`;
+               a different one means someone nudged the projector and the
+               solve no longer describes the table. §5.2 asks for exactly
+               this warning to be enforceable rather than merely written. -->
+          <div class="setup-warn hide" id="keystoneWarn">
+            Calibration is stale — the projector keystone changed since this
+            calibration was made. Run it again.
+          </div>
+        </div>
+
+        <div class="setup-card">
+          <h2>Bin rectangles</h2>
+          <p>Drag each rectangle onto its tray. Drag inside to move it, drag
+             a corner to resize. Nothing is saved until you tap Save.</p>
+          <div class="live-feed-wrap">
+            <img id="setupImg" alt="">
+            <canvas id="setupOverlay"></canvas>
+            <div id="setupPlaceholder" class="live-feed-placeholder">
+              Waiting for the camera…
+            </div>
+          </div>
+          <div class="setup-actions" style="margin-top:12px">
+            <button id="rectsSaveBtn" class="setup-btn primary">Save</button>
+            <button id="rectsUndoBtn" class="setup-btn">Undo</button>
+            <button id="rectsSeedBtn" class="setup-btn">Load measured layout</button>
+          </div>
+          <div class="setup-status" id="rectsStatus"></div>
+        </div>
+
+        <div class="setup-card">
+          <h2>Verify</h2>
+          <!-- Doc §12.6's TRAP, in the words the operator sees. The
+               outlines are already on the table every frame (core sends
+               the derived stage rects and oF draws its plates and cutouts
+               on them), so there is nothing to switch on — the step is a
+               person looking at the real trays. A reprojection check here
+               would pass on a homography that is upside down. -->
+          <p>Look at the table itself, not at this screen. Are the projected
+             outlines sitting on the trays?</p>
+          <div class="setup-actions">
+            <button id="verifyYesBtn" class="setup-btn primary">Yes, they line up</button>
+            <button id="verifyNoBtn" class="setup-btn">No, they are off</button>
+          </div>
+          <div class="setup-status" id="verifyStatus"></div>
+        </div>
       </div>
     </section>
   </main>
@@ -647,7 +758,14 @@
     // what actually forces a new connection on retry — the doc section 21
     // M3 acceptance test's "the feed resumes automatically after restart"
     // needs this, not just the red pip camera's health link already gives.
-    liveImg.src = cameraUrl + "?t=" + Date.now();
+    // Two <img> elements on one MJPEG server, deliberately: the Live tab
+    // and the Setup tab are never both visible, and giving Setup its own
+    // element means doc §5.4's naturalWidth scaling is read off the
+    // element the operator is actually dragging on rather than off a
+    // hidden one whose layout box is zero.
+    var bust = "?t=" + Date.now();
+    liveImg.src = cameraUrl + bust;
+    setupImg.src = cameraUrl + bust;
   }
 
   function scheduleCameraRetry() {
@@ -1128,6 +1246,270 @@
     renderWizard();
   }
 
+
+  // --- Setup tab (doc section 12.6, M4 build item 4) -------------------
+  // Three steps in the order the work happens: calibrate, drag, verify.
+  //
+  // Doc §5.4's scaling rule is the load-bearing part of the dragging.
+  // Rects are held and sent in CAPTURE-space pixels — what the camera
+  // actually produced — never in display pixels, because the <img> is
+  // CSS-scaled to fit and may be served downscaled. Every pointer
+  // coordinate goes through toCam() below before it touches a rect.
+
+  var NUM_BINS = 8;
+  var setupImg = document.getElementById("setupImg");
+  var setupOverlay = document.getElementById("setupOverlay");
+  var setupPlaceholder = document.getElementById("setupPlaceholder");
+  var setupCtx = setupOverlay.getContext("2d");
+
+  var dotcalBtn = document.getElementById("dotcalBtn");
+  var dotcalStatus = document.getElementById("dotcalStatus");
+  var geoCalibrated = document.getElementById("geoCalibrated");
+  var geoRms = document.getElementById("geoRms");
+  var geoPoints = document.getElementById("geoPoints");
+  var geoVerified = document.getElementById("geoVerified");
+  var keystoneWarn = document.getElementById("keystoneWarn");
+
+  var rectsSaveBtn = document.getElementById("rectsSaveBtn");
+  var rectsUndoBtn = document.getElementById("rectsUndoBtn");
+  var rectsSeedBtn = document.getElementById("rectsSeedBtn");
+  var rectsStatus = document.getElementById("rectsStatus");
+  var verifyYesBtn = document.getElementById("verifyYesBtn");
+  var verifyNoBtn = document.getElementById("verifyNoBtn");
+  var verifyStatus = document.getElementById("verifyStatus");
+
+  // The rects being edited, in camera space. `null` for a bin core has no
+  // rect for — drawn as nothing rather than as a rectangle at the origin,
+  // which would look like a placed rect nobody placed.
+  var rects = [];
+  for (var ri = 0; ri < NUM_BINS; ri++) rects.push(null);
+  var rectsUndo = [];        // doc §12.6 asks for Undo by name
+  var camSize = [1920, 1080];
+  var NEEDS_SETTING_SETUP = "Enter setting mode to change the calibration.";
+
+  function setStatus(el, text, cls) {
+    el.textContent = text || "";
+    el.className = "setup-status" + (cls ? " " + cls : "");
+  }
+
+  function cloneRects() {
+    return rects.map(function (r) { return r ? r.slice() : null; });
+  }
+
+  function pushUndo() {
+    rectsUndo.push(cloneRects());
+    if (rectsUndo.length > 50) rectsUndo.shift();
+    rectsUndoBtn.disabled = false;
+  }
+
+  // Doc §5.4 verbatim: naturalWidth reflects what the server actually
+  // sent, so this stays correct whether MJPEG is full-res or downscaled,
+  // and stays correct if the config changes.
+  function toCam(ev) {
+    var box = setupImg.getBoundingClientRect();
+    var sx = (setupImg.naturalWidth || camSize[0]) / (box.width || 1);
+    var sy = (setupImg.naturalHeight || camSize[1]) / (box.height || 1);
+    return { x: (ev.clientX - box.left) * sx, y: (ev.clientY - box.top) * sy };
+  }
+
+  var HANDLE_CAM_PX = 28;    // corner grab area, in camera pixels
+
+  function hitTest(pt) {
+    // Last drawn wins, so a rect on top of another is the one you grab.
+    for (var i = NUM_BINS - 1; i >= 0; i--) {
+      var r = rects[i];
+      if (!r) continue;
+      var nearCorner = Math.abs(pt.x - (r[0] + r[2])) < HANDLE_CAM_PX
+                    && Math.abs(pt.y - (r[1] + r[3])) < HANDLE_CAM_PX;
+      if (nearCorner) return { bin: i, mode: "resize" };
+      if (pt.x >= r[0] && pt.x <= r[0] + r[2]
+          && pt.y >= r[1] && pt.y <= r[1] + r[3]) {
+        return { bin: i, mode: "move" };
+      }
+    }
+    return null;
+  }
+
+  var drag = null;
+
+  function onPointerDown(ev) {
+    if (mode !== "setting") return;
+    var pt = toCam(ev);
+    var hit = hitTest(pt);
+    if (!hit) return;
+    pushUndo();
+    drag = { bin: hit.bin, mode: hit.mode, at: pt,
+             start: rects[hit.bin].slice() };
+    if (setupOverlay.setPointerCapture && ev.pointerId !== undefined) {
+      try { setupOverlay.setPointerCapture(ev.pointerId); } catch (e) { /* not captured */ }
+    }
+    ev.preventDefault();
+  }
+
+  function onPointerMove(ev) {
+    if (!drag) return;
+    var pt = toCam(ev);
+    var dx = pt.x - drag.at.x, dy = pt.y - drag.at.y;
+    var s = drag.start;
+    if (drag.mode === "move") {
+      rects[drag.bin] = [s[0] + dx, s[1] + dy, s[2], s[3]];
+    } else {
+      // Never below a floor: a zero-width rect crops an empty image,
+      // which reaches the classifier as a blank and comes back as a
+      // confident wrong label. Core refuses one too.
+      rects[drag.bin] = [s[0], s[1], Math.max(20, s[2] + dx),
+                         Math.max(20, s[3] + dy)];
+    }
+    drawSetupOverlay();
+    ev.preventDefault();
+  }
+
+  function onPointerUp(ev) {
+    if (!drag) return;
+    drag = null;
+    if (ev.pointerId !== undefined && setupOverlay.releasePointerCapture) {
+      try { setupOverlay.releasePointerCapture(ev.pointerId); } catch (e) { /* already gone */ }
+    }
+  }
+
+  setupOverlay.addEventListener("pointerdown", onPointerDown);
+  setupOverlay.addEventListener("pointermove", onPointerMove);
+  setupOverlay.addEventListener("pointerup", onPointerUp);
+  setupOverlay.addEventListener("pointercancel", onPointerUp);
+
+  function sizeSetupOverlay() {
+    if (!setupImg.naturalWidth || !setupImg.naturalHeight) return;
+    if (setupOverlay.width !== setupImg.naturalWidth) setupOverlay.width = setupImg.naturalWidth;
+    if (setupOverlay.height !== setupImg.naturalHeight) setupOverlay.height = setupImg.naturalHeight;
+    drawSetupOverlay();
+  }
+
+  function drawSetupOverlay() {
+    setupCtx.clearRect(0, 0, setupOverlay.width, setupOverlay.height);
+    setupCtx.lineWidth = Math.max(2, setupOverlay.width / 480);
+    setupCtx.font = Math.max(14, setupOverlay.width / 60) + "px sans-serif";
+    setupCtx.textBaseline = "top";
+    for (var i = 0; i < NUM_BINS; i++) {
+      var r = rects[i];
+      if (!r) continue;
+      setupCtx.strokeStyle = "#3ecf6e";
+      setupCtx.strokeRect(r[0], r[1], r[2], r[3]);
+      setupCtx.fillStyle = "#3ecf6e";
+      setupCtx.fillText("Bin " + i, r[0] + 6, r[1] + 6);
+      // The resize handle, drawn where hitTest looks for it.
+      setupCtx.fillRect(r[0] + r[2] - HANDLE_CAM_PX / 2,
+                        r[1] + r[3] - HANDLE_CAM_PX / 2,
+                        HANDLE_CAM_PX, HANDLE_CAM_PX);
+    }
+  }
+
+  setupImg.addEventListener("load", function () {
+    setupPlaceholder.classList.add("hide");
+    sizeSetupOverlay();
+  });
+  setupImg.addEventListener("error", function () {
+    setupPlaceholder.textContent = "Camera offline — retrying…";
+    setupPlaceholder.classList.remove("hide");
+  });
+
+  function applyGeometry(msg) {
+    camSize = msg.camera_size || camSize;
+    geoCalibrated.textContent = msg.calibrated ? "yes" : "no";
+    geoRms.textContent = msg.rms_px === null || msg.rms_px === undefined
+      ? "—" : msg.rms_px + " px";
+    geoPoints.textContent = msg.n_points ? String(msg.n_points) : "—";
+    geoVerified.textContent = msg.verified_at
+      ? new Date(msg.verified_at * 1000).toLocaleString() : "not yet";
+    keystoneWarn.classList.toggle("hide", !msg.keystone_stale);
+    // Never overwrite a drag in progress with a broadcast: core sends a
+    // `geometry` message after every save, and an operator mid-drag when
+    // one arrives would watch their rect jump back.
+    if (!drag) {
+      rects = (msg.rects || []).map(function (r) { return r ? r.slice() : null; });
+      while (rects.length < NUM_BINS) rects.push(null);
+      drawSetupOverlay();
+    }
+    applySetupGating();
+  }
+
+  // Everything on this tab needs setting mode, for the same reason Tare
+  // and Calibrate do: the field goes black for the solve, and moving a
+  // rect moves the light-pass cutout off the tray. Said up front on the
+  // buttons rather than refused after the operator has done the work.
+  function applySetupGating() {
+    var on = mode === "setting";
+    [dotcalBtn, rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn]
+      .forEach(function (b) {
+        b.disabled = !on;
+        b.title = on ? "" : NEEDS_SETTING_SETUP;
+      });
+    rectsUndoBtn.disabled = !on || rectsUndo.length === 0;
+  }
+
+  function sendSetup(obj) {
+    if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+    currentWs.send(JSON.stringify(obj));
+  }
+
+  dotcalBtn.addEventListener("click", function () {
+    if (dotcalBtn.disabled) return;
+    dotcalBtn.disabled = true;
+    setStatus(dotcalStatus, "Starting…", "busy");
+    sendSetup({ t: "calibrate_dots" });
+  });
+
+  rectsSaveBtn.addEventListener("click", function () {
+    if (rectsSaveBtn.disabled) return;
+    if (rects.some(function (r) { return !r; })) {
+      setStatus(rectsStatus, "All 8 rectangles have to be placed before "
+        + "saving. Try 'Load measured layout' first.", "bad");
+      return;
+    }
+    sendSetup({ t: "set_rects", rects: rects.map(function (r) {
+      return r.map(function (v) { return Math.round(v * 10) / 10; });
+    }) });
+  });
+
+  rectsUndoBtn.addEventListener("click", function () {
+    if (rectsUndoBtn.disabled) return;
+    var prev = rectsUndo.pop();
+    if (prev) { rects = prev; drawSetupOverlay(); }
+    rectsUndoBtn.disabled = rectsUndo.length === 0;
+  });
+
+  rectsSeedBtn.addEventListener("click", function () {
+    if (rectsSeedBtn.disabled) return;
+    pushUndo();
+    sendSetup({ t: "seed_rects" });
+  });
+
+  verifyYesBtn.addEventListener("click", function () {
+    if (verifyYesBtn.disabled) return;
+    sendSetup({ t: "verify_rects", ok: true });
+  });
+  verifyNoBtn.addEventListener("click", function () {
+    if (verifyNoBtn.disabled) return;
+    sendSetup({ t: "verify_rects", ok: false });
+  });
+
+  function applyDotcalProgress(msg) {
+    setStatus(dotcalStatus, msg.message, "busy");
+  }
+
+  function applyDotcalResult(msg) {
+    dotcalBtn.disabled = mode !== "setting";
+    setStatus(dotcalStatus, msg.message,
+              msg.ok && msg.good ? "good" : "bad");
+  }
+
+  function applyRectsResult(msg) {
+    var target = msg.message && msg.message.indexOf("outlines") >= 0
+      ? verifyStatus : rectsStatus;
+    setStatus(target, msg.message, msg.ok ? "good" : "bad");
+  }
+
+  applySetupGating();
+
   // --- action bar and the mode (doc sections 12.2, 9.1 — M2.6) ---------
 
   var modeSwitch = document.getElementById("modeSwitch");
@@ -1229,6 +1611,7 @@
     // Tare and Calibrate live or dead follows the mode, so the answer
     // arrives before the operator empties a bin, not after.
     applyBinGating();
+    applySetupGating();
 
     if (msg.refused && awaitingMode) showRefusal(msg.refused);
     awaitingMode = false;
@@ -1268,6 +1651,10 @@
       else if (msg.t === "cal_result") applyCalResult(msg);
       else if (msg.t === "mode") applyMode(msg);
       else if (msg.t === "camera") applyCamera(msg);
+      else if (msg.t === "geometry") applyGeometry(msg);
+      else if (msg.t === "dotcal_progress") applyDotcalProgress(msg);
+      else if (msg.t === "dotcal_result") applyDotcalResult(msg);
+      else if (msg.t === "rects_result") applyRectsResult(msg);
     };
     ws.onclose = function () {
       // A set_mode whose reply will now never arrive. Left true, the
