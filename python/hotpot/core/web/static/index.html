@@ -26,8 +26,16 @@
        TEAL: calm, clearly not the pips' green, and luminance-matched to
        the amber so neither position reads as "the bright one". */
     --serving: #2fb0b8;
+    /* Two inks per mode, because the label appears on two different
+       grounds. `-ink` is for text sitting ON the coloured track (both
+       tracks are light, so that ink is near-black, not white). `-deep`
+       is the same hue darkened enough to read on the white knob — the
+       amber itself is 1.9:1 on white, which is not text. Both pairs are
+       measured above 5.5:1. */
     --serving-ink: #04262a;
+    --serving-deep: #0b6a72;
     --setting-ink: #2a1f00;
+    --setting-deep: #7a5200;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -123,49 +131,58 @@
      than a switch, and the mis-tap worry behind that is real, so the
      things that made it safe are unchanged: entering setting mode is
      still refused with a reason while an order is live, and exiting
-     still re-baselines every bin from the scale first. */
+     still re-baselines every bin from the scale first.
+
+     The knob is not a dot beside the words — it is a white pill that
+     CONTAINS the active word, so the label you are meant to read is the
+     one on white and the other is on the colour. The first version had
+     both words on the coloured track with the inactive one dimmed to
+     grey, and grey on teal is not text: `Setting` could not be read in
+     serving mode at all. Nothing is dimmed now; both words are legible
+     at all times and it is position and ground, not opacity, that say
+     which one is live. */
   .mode-switch {
     position: relative; flex: none;
-    display: flex; align-items: center;
-    width: 208px; height: 44px; padding: 0;
-    border: 1px solid #3a3d47; border-radius: 22px;
-    background: #22252b;
+    display: grid; grid-template-columns: 1fr 1fr; align-items: center;
+    height: 44px; padding: 4px;
+    border: none; border-radius: 22px;
+    background: #2a2d33;
     cursor: pointer;
-    transition: background-color 180ms ease, border-color 180ms ease;
+    transition: background-color 180ms ease;
     -webkit-tap-highlight-color: transparent;
   }
-  .mode-switch:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-  /* The knob. Left in setting, right in serving — the same direction of
+  .mode-switch:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+  /* Left half in setting, right half in serving — the same direction of
      travel as the switch in every settings app, so "pushed right" is on. */
   .mode-switch .knob {
-    position: absolute; top: 3px; left: 3px;
-    width: 36px; height: 36px; border-radius: 50%;
-    background: #f2f3f5;
-    transition: transform 180ms ease;
+    position: absolute; top: 4px; left: 4px;
+    width: calc(50% - 4px); height: 36px;
+    border-radius: 18px;
+    background: #ffffff;
+    transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   .mode-switch .mode-label {
-    flex: 1; text-align: center;
-    font-size: 13px; font-weight: 700;
-    font-variant-caps: all-small-caps; letter-spacing: 0.08em;
-    transition: color 180ms ease, opacity 180ms ease;
+    position: relative;          /* above the knob it sits inside */
+    text-align: center;
+    padding: 0 20px;
+    font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
+    color: var(--muted);
+    transition: color 180ms ease;
   }
-  /* Each label sits in the half it names, clear of the knob's 42px. */
-  .mode-switch .mode-label.off { padding-left: 40px; }
-  .mode-switch .mode-label.on  { padding-right: 40px; }
-  .mode-switch .mode-label { color: var(--muted); opacity: 0.55; }
 
-  .mode-switch.setting {
-    background: var(--amber); border-color: var(--amber);
-  }
-  .mode-switch.setting .mode-label.off { color: var(--setting-ink); opacity: 1; }
-  .mode-switch.serving {
-    background: var(--serving); border-color: var(--serving);
-  }
-  .mode-switch.serving .mode-label.on { color: var(--serving-ink); opacity: 1; }
-  .mode-switch.serving .knob { transform: translateX(164px); }
-  /* Before the join seed arrives the mode is genuinely unknown; the
-     switch says so rather than picking a half and being wrong. */
-  .mode-switch.unknown .knob { opacity: 0.4; }
+  .mode-switch.setting { background: var(--amber); }
+  .mode-switch.setting .mode-label.off { color: var(--setting-deep); }  /* on the white knob */
+  .mode-switch.setting .mode-label.on  { color: var(--setting-ink); }   /* on the amber track */
+
+  .mode-switch.serving { background: var(--serving); }
+  .mode-switch.serving .mode-label.on  { color: var(--serving-deep); }  /* on the white knob */
+  .mode-switch.serving .mode-label.off { color: var(--serving-ink); }   /* on the teal track */
+  .mode-switch.serving .knob { transform: translateX(100%); }
+
+  /* Before the join seed arrives the mode is genuinely unknown, so the
+     switch shows neither half: no knob, a neutral track, and both words
+     muted — the one state where dimming is honest. */
+  .mode-switch.unknown .knob { opacity: 0; }
 
   main { padding: 24px 16px; }
   .tab-panel { display: none; }
@@ -396,9 +413,12 @@
          is order-scoped, not system-scoped. -->
     <button id="modeSwitch" class="mode-switch unknown" role="switch"
             aria-checked="false" aria-label="Serving mode">
+      <!-- Knob first: it and the labels are all positioned, so paint
+           order is DOM order and a knob drawn last would cover the word
+           it is supposed to sit behind. -->
+      <span class="knob"></span>
       <span class="mode-label off">Setting</span>
       <span class="mode-label on">Serving</span>
-      <span class="knob"></span>
     </button>
     <div class="pips" id="pips"></div>
     <button id="devToggle" class="dev-toggle">Developer</button>
