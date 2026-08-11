@@ -17,6 +17,17 @@
     --green: #3ecf6e;
     --amber: #e8b33d;
     --red: #e05d5d;
+    /* The two modes get two hues of their own, and neither is the green
+       or red the pips already own — a mode is not a health state, and
+       reusing those would make "serving" look like a passing check and
+       "setting" look like a fault. Setting keeps AMBER because the
+       table's own banner is amber (I8: both surfaces say the same thing
+       in the same hue, and that one is not ours to re-pick). Serving is
+       TEAL: calm, clearly not the pips' green, and luminance-matched to
+       the amber so neither position reads as "the bright one". */
+    --serving: #2fb0b8;
+    --serving-ink: #04262a;
+    --setting-ink: #2a1f00;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -30,31 +41,25 @@
      arrangement — two sticky bottom:0 siblings would have overlapped. */
   body { display: flex; flex-direction: column; }
   main { flex: 1 1 auto; overflow-y: auto; }
+  /* ONE top bar. The tabs used to live in a second strip below this one,
+     which cost a whole row of vertical space to say "Live | Bins" and put
+     the navigation further from the brand than every site the operator
+     has ever used. Brand, tabs and the mode switch are now one line. */
   header {
     position: sticky; top: 0; z-index: 1;
     display: flex; align-items: center; gap: 16px;
-    padding: 12px 16px;
+    padding: 8px 16px;
     background: var(--panel);
     border-bottom: 1px solid #2a2c31;
   }
-  .title { font-size: 20px; font-weight: 500; white-space: nowrap; }
-  .mode, .order {
+  /* Logo slot + wordmark. Kept as two elements so the final mark and name
+     drop in here without touching anything else on the page. */
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-mark { width: 28px; height: 28px; flex: none; display: block; }
+  .title { font-size: 20px; font-weight: 600; white-space: nowrap; letter-spacing: 0.01em; }
+  .order {
     font-size: 14px; font-weight: 400; color: var(--muted);
     white-space: nowrap;
-  }
-  /* Header mode chip (doc §12.2). Neutral in serving, amber in setting —
-     matching the table's own amber chrome per I8, so the two surfaces
-     say the same thing in the same hue. Never colour alone: the chip's
-     text changes too, same rule the six pips follow with their letter
-     codes. */
-  .mode {
-    padding: 4px 10px; border-radius: 12px;
-    border: 1px solid #333640;
-    font-variant-caps: all-small-caps; letter-spacing: 0.06em;
-  }
-  .mode.setting {
-    background: var(--amber); border-color: var(--amber);
-    color: #2a1f00; font-weight: 600;
   }
   .spacer { flex: 1; }
   .pips { display: flex; gap: 10px; }
@@ -81,31 +86,86 @@
   }
   .conn-banner.show { display: block; }
 
-  /* --- tab bar (doc section 12.2) ---------------------------------------
+  /* --- tabs, now inside the top bar (doc section 12.2) ------------------
      Live (M1) and Bins (M2) have real tab bodies. Orders/Setup/Capture
      are M4/M5/M6 build items — not stubbed here, since a button leading
      to nothing is worse than a button that doesn't exist yet. */
-  nav.tabs {
-    display: flex; align-items: center; gap: 4px;
-    padding: 6px 12px;
-    background: var(--panel);
-    border-bottom: 1px solid #2a2c31;
-  }
+  nav.tabs { display: flex; align-items: center; gap: 2px; }
   .tab {
-    min-height: 44px; padding: 0 18px;         /* doc 12.1: 44x44 min touch target */
-    border: none; border-radius: 6px 6px 0 0;
+    min-height: 44px; padding: 0 16px;         /* doc 12.1: 44x44 min touch target */
+    border: none; border-radius: 6px;
     background: transparent; color: var(--muted);
     font-size: 14px; font-weight: 500;
     cursor: pointer;
   }
   .tab.active { background: var(--bg); color: var(--text); }
   .dev-toggle {
-    min-height: 44px; padding: 0 14px;
+    min-height: 36px; padding: 0 12px;
     border: 1px solid #333640; border-radius: 6px;
     background: transparent; color: var(--muted);
-    font-size: 13px; cursor: pointer;
+    font-size: 12px; cursor: pointer;
   }
   .dev-toggle.on { color: var(--amber); border-color: var(--amber); }
+  /* The six process pips are a developer instrument, not an operator's:
+     an operator cannot act on "tracker is amber", and six coloured dots
+     in the corner of every screen train them to ignore colour in the one
+     UI where colour carries the mode. They ride the developer toggle. */
+  .pips { display: none; }
+  .pips.show { display: flex; }
+
+  /* --- mode switch (doc section 12.2, M2.6) -----------------------------
+     ONE control, not a chip plus a button that said the same word twice.
+     Left half is SETTING (off), right half is SERVING (on); the filled
+     half is the mode the table is IN, and the knob sits on it. Colour is
+     never alone — the label inside the filled half changes with it.
+
+     §12.1's "one primary action per screen" argued for a button rather
+     than a switch, and the mis-tap worry behind that is real, so the
+     things that made it safe are unchanged: entering setting mode is
+     still refused with a reason while an order is live, and exiting
+     still re-baselines every bin from the scale first. */
+  .mode-switch {
+    position: relative; flex: none;
+    display: flex; align-items: center;
+    width: 208px; height: 44px; padding: 0;
+    border: 1px solid #3a3d47; border-radius: 22px;
+    background: #22252b;
+    cursor: pointer;
+    transition: background-color 180ms ease, border-color 180ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mode-switch:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  /* The knob. Left in setting, right in serving — the same direction of
+     travel as the switch in every settings app, so "pushed right" is on. */
+  .mode-switch .knob {
+    position: absolute; top: 3px; left: 3px;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #f2f3f5;
+    transition: transform 180ms ease;
+  }
+  .mode-switch .mode-label {
+    flex: 1; text-align: center;
+    font-size: 13px; font-weight: 700;
+    font-variant-caps: all-small-caps; letter-spacing: 0.08em;
+    transition: color 180ms ease, opacity 180ms ease;
+  }
+  /* Each label sits in the half it names, clear of the knob's 42px. */
+  .mode-switch .mode-label.off { padding-left: 40px; }
+  .mode-switch .mode-label.on  { padding-right: 40px; }
+  .mode-switch .mode-label { color: var(--muted); opacity: 0.55; }
+
+  .mode-switch.setting {
+    background: var(--amber); border-color: var(--amber);
+  }
+  .mode-switch.setting .mode-label.off { color: var(--setting-ink); opacity: 1; }
+  .mode-switch.serving {
+    background: var(--serving); border-color: var(--serving);
+  }
+  .mode-switch.serving .mode-label.on { color: var(--serving-ink); opacity: 1; }
+  .mode-switch.serving .knob { transform: translateX(164px); }
+  /* Before the join seed arrives the mode is genuinely unknown; the
+     switch says so rather than picking a half and being wrong. */
+  .mode-switch.unknown .knob { opacity: 0.4; }
 
   main { padding: 24px 16px; }
   .tab-panel { display: none; }
@@ -255,18 +315,8 @@
     font-weight: 600; letter-spacing: 0.04em;
     border-color: #4a4e5a; background: #2b2f37;
   }
-  /* In setting mode the primary button carries the same amber as the
-     header chip and the table's banner (I8). */
-  .action-btn.primary.setting {
-    background: var(--amber); border-color: var(--amber);
-    color: #2a1f00;
-  }
   .action-note { font-size: 13px; color: var(--amber); white-space: nowrap; }
   .action-hint { font-size: 13px; color: var(--muted); }
-  /* Chip and toggle read as one control: the chip says what the table is
-     doing, the button says what tapping will do to it. */
-  .mode-group { display: flex; align-items: center; gap: 10px; }
-  .mode-group .action-btn { min-height: 44px; padding: 0 16px; font-size: 14px; }
   .modal-btn.danger {
     background: var(--red); border-color: var(--red);
     color: #2a0000; font-weight: 600;
@@ -319,30 +369,40 @@
          zh locale data doesn't exist yet either (M1 is English-only
          end to end). Staff view isn't customer-facing, so English until
          that toggle exists. -->
-    <div class="title">Hot Pot</div>
-    <!-- Mode chip and its toggle are ADJACENT, deliberately. §12.2's
-         mockup put the chip in the header and the button in the bottom
-         action bar; on a real tablet that reads as two unrelated things,
-         and you cannot tell which control changes the state you are
-         looking at. Keeping the consequential toggle out of the bottom
-         thumb-rest also makes it harder to mis-tap, which is the same
-         worry that ruled out a two-position switch. `Cancel order` stays
-         in the action bar: it is order-scoped, not system-scoped. -->
-    <div class="mode-group">
-      <div class="mode" id="mode">—</div>
-      <button id="modeBtn" class="action-btn primary">ENTER SETTING MODE</button>
+    <div class="brand">
+      <!-- Logo slot. Placeholder mark until the project name is settled;
+           swap the <svg> and the wordmark together, nothing else. -->
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="18" r="11" fill="none" stroke="#e8b33d" stroke-width="2.5"/>
+        <path d="M11 8c0-2.5 2.5-2.5 2.5-5M16 8c0-2.5 2.5-2.5 2.5-5M21 8c0-2.5 2.5-2.5 2.5-5"
+              fill="none" stroke="#e05d5d" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div class="title">Hot Pot</div>
     </div>
-    <div class="action-note" id="modeNote"></div>
+    <!-- Tabs ride the same line as the brand, the way every site the
+         operator already uses puts them. The second strip they used to
+         live in cost a full row to say two words. -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="live">Live</button>
+      <button class="tab" data-tab="bins">Bins</button>
+    </nav>
     <div class="order" id="order">—</div>
     <div class="spacer"></div>
+    <div class="action-note" id="modeNote"></div>
+    <!-- ONE control for the mode, replacing the chip + button pair that
+         said the same word twice with the button parked in the bottom
+         action bar. Left = setting, right = serving; the filled half is
+         where the table is. `Cancel order` stays in the action bar: it
+         is order-scoped, not system-scoped. -->
+    <button id="modeSwitch" class="mode-switch unknown" role="switch"
+            aria-checked="false" aria-label="Serving mode">
+      <span class="mode-label off">Setting</span>
+      <span class="mode-label on">Serving</span>
+      <span class="knob"></span>
+    </button>
     <div class="pips" id="pips"></div>
-  </header>
-  <nav class="tabs">
-    <button class="tab active" data-tab="live">Live</button>
-    <button class="tab" data-tab="bins">Bins</button>
-    <div class="spacer"></div>
     <button id="devToggle" class="dev-toggle">Developer</button>
-  </nav>
+  </header>
   <main>
     <section class="tab-panel active" data-tab="live">
       <div class="live-shell">
@@ -485,6 +545,9 @@
   function setDevOpen(open) {
     devPanel.classList.toggle("show", open);
     devToggle.classList.toggle("on", open);
+    // The six process pips come and go with the panel: they are the same
+    // instrument, read by the same person, and neither is a default view.
+    pipsEl.classList.toggle("show", open);
     try { localStorage.setItem(DEV_KEY, open ? "1" : "0"); } catch (e) { /* private mode, etc — not fatal */ }
   }
   devToggle.addEventListener("click", function () {
@@ -874,8 +937,7 @@
 
   // --- action bar and the mode (doc sections 12.2, 9.1 — M2.6) ---------
 
-  var modeChip = document.getElementById("mode");
-  var modeBtn = document.getElementById("modeBtn");
+  var modeSwitch = document.getElementById("modeSwitch");
   var modeNote = document.getElementById("modeNote");
   var cancelBtn = document.getElementById("cancelBtn");
   var actionHint = document.getElementById("actionHint");
@@ -954,13 +1016,15 @@
     cartActive = !!msg.cart_active;
     var setting = mode === "setting";
 
-    // Never colour alone (§12.2's own rule for the pips): the chip's
-    // text changes with its hue.
-    modeChip.textContent = setting ? "Setting" : "Serving";
-    modeChip.classList.toggle("setting", setting);
-
-    modeBtn.textContent = setting ? "EXIT SETTING MODE" : "ENTER SETTING MODE";
-    modeBtn.classList.toggle("setting", setting);
+    // Never colour alone (§12.2's own rule for the pips): the knob moves
+    // and the filled half's label lights with the hue, so position and
+    // text both say it without needing to tell amber from teal.
+    modeSwitch.classList.remove("unknown");
+    modeSwitch.classList.toggle("setting", setting);
+    modeSwitch.classList.toggle("serving", !setting);
+    modeSwitch.setAttribute("aria-checked", setting ? "false" : "true");
+    modeSwitch.setAttribute("aria-label",
+      setting ? "Setting mode — not serving" : "Serving mode");
 
     // The pre-warn `cart_active` is on the wire for: the operator sees
     // the reason a tap is about to be refused before making it.
@@ -977,7 +1041,7 @@
     awaitingMode = false;
   }
 
-  modeBtn.addEventListener("click", function () {
+  modeSwitch.addEventListener("click", function () {
     sendMode(mode === "setting" ? "serving" : "setting");
   });
   cancelBtn.addEventListener("click", askCancelOrder);

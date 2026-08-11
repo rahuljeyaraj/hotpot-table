@@ -717,6 +717,43 @@ have only ever been reasoned about from the label geometry, never
 looked at. The one measurement that would settle #2 is a photograph of
 the far row with a two-line name and the banner up.
 
+### M2.6f — staff-view chrome, from looking at it on the tablet
+**2026-08-11.** Not logic, not billing — the same class as M2.6e: things
+only visible once a person was reading the page.
+- **The mode was said twice, side by side.** M2.6e's item 6 put the chip
+  and its button adjacent, and adjacent is exactly where the redundancy
+  showed: a chip reading `Setting` next to a button reading `EXIT SETTING
+  MODE`, with only the chip coloured. Both are gone, replaced by **one
+  slide switch** — left half SETTING, right half SERVING, knob on the
+  half the table is in. §12.1's "one primary action per screen" argued
+  for a button over a switch and the mis-tap worry behind that is real,
+  so **the two things that made it safe are unchanged**: entry is still
+  refused with a reason while an order is live, and exit still refreshes
+  every bin from the scale before `reset_session()`. This is a control
+  change only, no protocol or FSM change.
+- **Both modes now have a hue; neither is green or red.** Setting keeps
+  **amber** because the table's own banner is amber and I8 says both
+  surfaces say the same thing in the same hue — that one was not ours to
+  re-pick. Serving is **teal** (`--serving` #2fb0b8), deliberately not the
+  pips' green: a mode is not a health state, and green/red would make
+  serving read as a passing check and setting as a fault. Colour is still
+  never alone — the knob's position and the lit label both say it.
+- **The second strip of tabs is gone.** Live/Bins ride the top bar beside
+  the brand, where every site the operator already uses puts them.
+- **The six process pips are developer-only now**, riding the existing
+  Developer toggle with the mock panel. An operator cannot act on
+  "tracker is amber", and six coloured dots in the corner of every screen
+  train them to ignore colour in the one UI where colour carries the mode.
+
+Verified the same way M2.6 was — `node --check` on the extracted script,
+every `getElementById` target cross-checked against the DOM (a script,
+not by eye), 413 tests still passing. **Not observed on the tablet yet.**
+
+**OPEN, decided by the developer, not by code:** the project needs a
+name and a logo (it is what the contest announces), and the brand block
+in the header is built as a logo slot + wordmark so both drop in with one
+edit. `Hot Pot` and a placeholder mark are in there meanwhile.
+
 **Not fixed, and it is a real complaint:** the live weight readout
 jitters. Options are written up in the session notes rather than here
 because none has been chosen; the short version is that the display
