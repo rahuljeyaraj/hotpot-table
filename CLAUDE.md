@@ -275,10 +275,60 @@ example (214.77) suggests, that is 5-7g of noise against a ±2g settle
 band — those four bins would never settle. The first real calibration is
 what turns that from a risk into a number.
 
-Next: M2.3, calibration wired end to end — `scale.capture()` into
-`loadcell_cal.tare/calibrate`, persisted to `state/loadcell_cal.json`.
-Nothing constructs a ScaleReader yet; core/main.py is untouched (that is
-build item 5).
+M2.3 (2026-08-11) closes build item 3: `core/calibrator.py`, the seam
+where a capture window becomes a saved calibration — `scale.capture()` →
+`loadcell_cal.tare/calibrate` → `state/loadcell_cal.json`, and the only
+writer of that file. Doc §12.4's two buttons call it. Nothing constructs
+one yet; core/main.py is still untouched (that is build item 5, and the
+wiring order it needs is in the module docstring).
+Five things worth knowing before M2.4 draws the Bins tab:
+- **One shared `Calibration`.** The Calibrator takes `reader.cal` and has
+  no `cal` parameter, so it cannot calibrate a copy. A copy would save a
+  perfectly good file that the live reading never picks up, and nothing
+  would look broken until someone weighed a plate by hand.
+- **"Bin 3 reads 500 g" is a second measurement**, read live through the
+  calibration just saved — never the capture read back through its own
+  fit. `(loaded - zero) / cpg` is the reference mass by construction, so
+  that version would print "500 g" for a disconnected cell. A TRAP,
+  avoided.
+- **§12.4 step 1's "Done. Bin 3 reads 0 g." is unavailable on a
+  first-ever tare** — an uncalibrated bin has no grams at all — so that
+  screen says "Bin 3 is set as empty. Now place a known weight in it and
+  tap Calibrate." A re-tare of a calibrated bin does read 0 g, which is
+  the case the doc had in mind. **§12.4 has NOT been changed.**
+- **Calibrate refuses a bin that was never tared.** The doc orders Tare
+  then Calibrate but nothing enforced it, and this is not cosmetic: an
+  untared bin has `zero_counts` 0 while an empty cell here sits near
+  -287,000, so the fit comes out ~4x too steep, sails through §9.6's
+  `abs(cpg) < 10` check, and under-reads every gram taken from that bin
+  for the rest of the evening. "Never tared" is the bin still being
+  byte-for-byte its first-boot default, not a new §8.3 field.
+- **`noise_counts_rms` is taken from the tare capture only** (noise with
+  a mass in the bin is the mass settling and the tray rocking, not the
+  channel), and a failed *write* rolls the in-memory bin back so memory
+  can never sit ahead of disk — that failure bills correctly all evening
+  and comes back from a restart weighing against nothing.
+19 tests, 344 total, all passing. Six mutations checked red, including
+the two that would otherwise have passed by construction: verification
+read from the capture, and calibrating a copy of the Calibration.
+**Run against the live XIAO on COM5** (2026-08-11): tared all 8 bins, 21
+samples per 2s window exactly as predicted, file written and reloaded
+identical, and afterwards all 8 bins still uncalibrated with live grams
+still eight `None` — a tare alone cannot bill. Calibrate on an empty bin
+was refused in §12.4 step 3's words and wrote nothing.
+**Empty-bin rms today, a third measurement and different again:** bin0
+743, bin1 563, bin2 42, bin3 19, bin4 888, bin5 776, bin6 56, bin7 42
+(bin 1 positive again; bin 3 down from 40). The settle risk flagged above
+now has a shape: at §8.3's example 214.77 counts/gram those four loud
+channels are 2.6-4.1g against a ±2g band. **The real counts/gram is
+still unmeasured** — it needs the 500g mass.
+Nothing needing a physical mass has been observed. **Still owed from M2:
+§21's acceptance test** — 8 empty bins tared to 0 ±2g, bin 5 calibrated
+with a known 500g mass reading 500 ±3g, the same on an inverted cell, and
+the total checked by arithmetic.
+Next: M2.4, build item 4 — the staff view's Bins tab (§12.4): 8 cards,
+live grams, the noise indicator, and the one-screen-at-a-time Tare and
+Calibrate wizard driving `calibrator.Calibrator`.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
