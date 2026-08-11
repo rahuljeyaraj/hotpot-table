@@ -469,6 +469,37 @@ checked by arithmetic, and unplugging the XIAO showing a fault overlay
 with no further billing. Next milestone per the doc's dependency graph:
 M3, the camera process (depends on M0, not M2 — can run in parallel).
 
+**2026-08-11, drew the fault overlay** — the last thing blocking §21's
+acceptance test from being runnable at all. `overlay.kind` was already on
+the wire and already parsed (`StateLink::overlayKind`), but M2.5's own
+notes said outright that oF "renders nothing for any kind yet"; bullet 5's
+"table shows a fault overlay" had no visual to check. The doc gives no
+design for `error` — no colour, layout, or text, unlike e.g. `recap`
+("line items flying in, odometer total") — and this would be the first
+overlay kind ever rendered, so it sets precedent for `uncalibrated`/
+`calibrating`/`recap`/`qr` too. Proposed a design before writing any oF
+code rather than guessing: `UiLayer::drawErrorOverlay()` is a 72px banner
+strip along the top edge, reusing doc §14.5's own pattern for a
+persistent whole-table state ("STAFF MODE" there) rather than inventing a
+second mechanism, filled with the staff view's own fault colour
+(`index.html`'s `--red` #e05d5d, ink #2a0000 — the same dark-red-on-red
+pairing its red pip already uses) so the failure reads the same on both
+surfaces. Text is "SCALES OFFLINE — NOT BILLING," English only (matches
+UiLayer's current scope), drawn with the already-loaded 36px bold font —
+no new atlas. Bins and the total keep drawing underneath, frozen, same
+as §13.3's existing rule for a dead core link ("does not black out — a
+frozen table is far better... than a dead one") extended to a dead scale
+link. Sits clear of the nearest cutout (far row starts at mmToPxY(177mm)
+=~ 209px) and would be safe even if that changed — Stage's light pass
+runs after UiLayer and re-stamps every cutout white regardless (§13.2).
+Only `error` is wired; the other four kinds remain unbuilt, same as
+before.
+Builds clean (msbuild, Debug x64, 0 errors). **Not yet observed**: this
+has not been run against a live core with `overlay.kind` actually forced
+to `"error"`, and the banner has not been seen on the projected surface —
+that observation is §21's own remaining step, now unblocked rather than
+impossible.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

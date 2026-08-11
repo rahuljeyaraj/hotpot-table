@@ -55,6 +55,7 @@ private:
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
 	void drawTotal(const StateLink::Total & total) const;
 	void drawConnectionIndicator(bool connected, float staleSeconds) const;
+	void drawErrorOverlay() const;
 	void drawDevOverlay(bool hasState, const StateLink::State & state,
 		bool connected, float fps) const;
 	std::string _priceText(double amount) const;

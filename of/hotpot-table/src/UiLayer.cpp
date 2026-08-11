@@ -53,6 +53,17 @@ namespace {
 	// own comparison point (dark plates on the pre-rewrite app).
 	const ofColor kInkColor(20, 20, 20);
 
+	// M2 doc §21 acceptance test's "fault overlay" (`state.overlay.kind ==
+	// "error"`, set by core/main.py's _overlay_msg when a bin that was
+	// billing off real weight goes dark — doc §9.5's "no billing occurs
+	// from the frozen reading"). Reuses the staff view's own fault palette
+	// (web/static/index.html's --red #e05d5d, and the dark-red-on-red ink
+	// its red pip already uses, #2a0000) so the same failure reads the same
+	// way on both surfaces instead of inventing a second "red" for this
+	// table.
+	const ofColor kErrorBannerFill(224, 93, 93);   // #e05d5d
+	const ofColor kErrorBannerInk(42, 0, 0);       // #2a0000
+
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
 		if(text.empty() || !font.isLoaded()){
@@ -403,6 +414,35 @@ void UiLayer::drawConnectionIndicator(bool connected, float staleSeconds) const 
 	ofSetColor(255);
 }
 
+void UiLayer::drawErrorOverlay() const {
+	// The one `overlay.kind` this app draws so far. Doc §14.5 already
+	// establishes this app's pattern for naming a persistent, whole-table
+	// state loudly without touching the light field: "a persistent banner
+	// strip along the top edge" (there, "STAFF MODE"). Reused verbatim
+	// rather than invented fresh.
+	//
+	// Sits above every bin: the nearest cutout (far row, bins 0-3) starts
+	// at mmToPxY(177mm) =~ 209px, well clear of this 72px strip. Safe even
+	// if geometry ever changed underneath it — Stage's light pass runs
+	// after UiLayer and re-stamps every cutout white regardless of what
+	// this draws (doc §13.2's "any overlay added later" safety property).
+	//
+	// Bins and the total keep drawing underneath (draw() calls this after
+	// them, not instead of them) — doc §13.3's rule for a dead core link
+	// applies just as well to a dead scale link: "It does not black out —
+	// a frozen table is far better... than a dead one."
+	const float w = (float)PROJ_W_PX;
+	const float bannerH = 72.0f;
+
+	ofSetColor(kErrorBannerFill);
+	ofDrawRectangle(0.0f, 0.0f, w, bannerH);
+
+	ofSetColor(kErrorBannerInk);
+	drawCentered(_nameFont, "SCALES OFFLINE \xE2\x80\x94 NOT BILLING",
+		w * 0.5f, bannerH * 0.5f + _nameFont.getAscenderHeight() * 0.5f);
+	ofSetColor(255);
+}
+
 void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
 	bool connected, float fps) const {
 	char buf[128];
@@ -430,6 +470,9 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 			drawBin(i, state.bins[i], _bins[i]);
 		}
 		drawTotal(state.total);
+		if(state.overlayKind == "error"){
+			drawErrorOverlay();
+		}
 	}
 
 	drawConnectionIndicator(connected, staleSeconds);
