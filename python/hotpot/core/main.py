@@ -131,6 +131,29 @@ class Core:
         self.cart = _seed_cart()
         self.fsm = fsm.Fsm(self.cart)
 
+        # I1 says core owns all state; it does not say core touches it from
+        # one thread, and core does not. Reads happen on the 60Hz broadcast
+        # thread; writes arrive on whichever of the `websockets` library's
+        # per-connection threads a tablet is attached to. Every mutation of
+        # cart/binmap/fsm and every read that builds a `state` message takes
+        # this, so a message is always a snapshot of one instant rather than
+        # a mix of two.
+        #
+        # The damage today is one frame wide and nobody could see it. It
+        # stops being cosmetic at M2 (core/scale.py's serial thread writes
+        # grams at ~78Hz — doc §9.5 locks its own slot, which says nothing
+        # about the cart it feeds) and it stops being survivable at M6,
+        # where finalisation is `cart.finalize()` then an order write then
+        # `reset_session()`: read between the first and third and the table
+        # broadcasts snapped shown_g against a start_g that has not been
+        # re-baselined yet, which is a recap disagreeing with the bill. That
+        # is the I4 failure arriving by a door I4 does not guard.
+        #
+        # RLock, not Lock: doc §9.1's triggers already nest (fsm.cancel()
+        # calls cart.reset_session()), and a future handler that takes this
+        # and then calls one of those must not deadlock on itself.
+        self.state_lock = threading.RLock()
+
         self._state_seq = 0
         self._state_stop = threading.Event()
         self._state_thread: Optional[threading.Thread] = None
@@ -229,10 +252,11 @@ class Core:
         if not isinstance(grams, (int, float)) or grams <= 0:
             _log.warning("web: %s bin %d with bad grams %r — ignored", t, i, grams)
             return
-        if t == "mock_pick":
-            self.cart.mock_pick(i, float(grams))
-        else:
-            self.cart.mock_putback(i, float(grams))
+        with self.state_lock:
+            if t == "mock_pick":
+                self.cart.mock_pick(i, float(grams))
+            else:
+                self.cart.mock_putback(i, float(grams))
 
     # -- state broadcaster (doc section 4.3) --------------------------------
 
@@ -254,27 +278,32 @@ class Core:
                 return
 
     def _broadcast_state(self) -> None:
+        # The lock is taken inside _state_msg() and released before the
+        # send, deliberately: broadcast() does socket I/O, and holding a
+        # domain lock across it would let a wedged `of` link stall the
+        # tablet's next mock pick.
         self.control.broadcast(self._state_msg(), only=["of"])
 
     def _state_msg(self) -> Dict[str, Any]:
-        msg = {
-            "t": "state",
-            "seq": self._state_seq,
-            "ts": time.time(),
-            "mode": "diner",   # STAFF isn't a state this milestone's Fsm has
-            "locale": self.locale,
-            # M8 hasn't built the fluid renderer yet; the shape is correct
-            # per doc section 4.3, "mala" is the documented diner default,
-            # and enabled:False is the honest statement that nothing is
-            # rendering it yet.
-            "fluid": {"style": "mala", "enabled": False, "intensity": 0.6},
-            "bins": [self._bin_msg(i) for i in range(binmap.NUM_BINS)],
-            "total": self._total_msg(),
-            "widgets": [],      # no widget exists before BROTH/SPICE/etc. (M6)
-            "overlay": {"kind": "none"},
-        }
-        self._state_seq += 1
-        return msg
+        with self.state_lock:
+            msg = {
+                "t": "state",
+                "seq": self._state_seq,
+                "ts": time.time(),
+                "mode": "diner",   # STAFF isn't a state this milestone's Fsm has
+                "locale": self.locale,
+                # M8 hasn't built the fluid renderer yet; the shape is correct
+                # per doc section 4.3, "mala" is the documented diner default,
+                # and enabled:False is the honest statement that nothing is
+                # rendering it yet.
+                "fluid": {"style": "mala", "enabled": False, "intensity": 0.6},
+                "bins": [self._bin_msg(i) for i in range(binmap.NUM_BINS)],
+                "total": self._total_msg(),
+                "widgets": [],      # no widget exists before BROTH/SPICE/etc. (M6)
+                "overlay": {"kind": "none"},
+            }
+            self._state_seq += 1
+            return msg
 
     def _total_msg(self) -> Dict[str, Any]:
         # Doc §4.3's total is {amount, text} only — this adds `label`
@@ -312,7 +341,12 @@ class Core:
         if resolved:
             label = item.names.get(self.locale, item.id)
             per_100g = self.locales.currency(item.price_per_100g, self.locale)
-            sub = f"{per_100g['text']}/100g"
+            # The unit suffix is a locale string, not punctuation. I2 puts
+            # every diner-facing word on this side of the wire, and zh wants
+            # "/100克" — an f-string with "g" baked into it would have made
+            # the price line the one part of the plate that stayed English
+            # after the locale switch.
+            sub = f"{per_100g['text']}{self.locales.translate('per_100g', self.locale)}"
             price = self.locales.currency(
                 pricing.bin_price(shown, item.price_per_100g),
                 self.locale,

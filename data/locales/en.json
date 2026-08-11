@@ -1,5 +1,6 @@
 {
   "_currency": {"symbol": "₹", "rate": 1.0, "decimals": 2},
   "total": "Total",
-  "done": "Done"
+  "done": "Done",
+  "per_100g": "/100g"
 }

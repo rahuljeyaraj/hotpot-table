@@ -20,6 +20,7 @@ is right in isolation (test_pricing.py already covers that).
 import json
 import os
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -442,6 +443,107 @@ class TestDeveloperPanelMockControls(CoreCase):
                 return any(m["bins"][4]["picked"] == 45 for m in of_msgs)
         self.assertTrue(wait_for(bin4_picked_45),
                          "a valid message after a bad one never went through")
+
+
+class TestStateSnapshotIsAtomic(unittest.TestCase):
+    """Core.state_lock — a `state` message is one instant, not two.
+
+    Builds a Core and never start()s it: the real 60Hz broadcaster would
+    otherwise be racing the very thing being measured, and a test whose
+    verdict depends on which thread won is not a test.
+    """
+
+    def setUp(self):
+        hlog.reset()
+        self.addCleanup(hlog.reset)
+        self.core = coremain.Core(control_host="127.0.0.1", control_port=0,
+                                  web_host="127.0.0.1", web_port=0)
+
+    def test_a_pick_cannot_land_between_the_bins_and_the_total(self):
+        """The tear this lock exists to stop, forced rather than waited for.
+
+        _state_msg() serialises `bins` and then `total` — dict literals
+        evaluate left to right — so there is a real instant where the bins
+        array is finished and the total is not. Holding that instant open
+        and mutating the cart inside it is the whole test.
+        """
+        core = self.core
+        core.cart.mock_pick(0, 45)            # something already in the cart
+
+        bins_done = threading.Event()
+        real_total_msg = core._total_msg
+
+        def slow_total_msg():
+            bins_done.set()
+            time.sleep(0.2)                   # the window, held open
+            return real_total_msg()
+
+        core._total_msg = slow_total_msg
+
+        def picker():
+            bins_done.wait(DEADLINE)
+            core._handle_mock("mock_pick", {"bin": 7, "grams": 120})
+
+        t = threading.Thread(target=picker)
+        t.start()
+        msg = core._state_msg()
+        t.join(DEADLINE)
+        self.assertFalse(t.is_alive(), "the picker thread never finished")
+
+        self.assertAlmostEqual(
+            msg["total"]["amount"], sum(b["price"] for b in msg["bins"]),
+            places=2,
+            msg="the total counted a pick that the bins array had already missed")
+
+    def test_the_pick_is_not_lost_only_deferred(self):
+        """The lock must delay a mutation, never drop it — the next message
+        has to carry it. A 'fix' that swallowed the write would pass the
+        test above and be far worse than the tear it replaced.
+        """
+        core = self.core
+        core._handle_mock("mock_pick", {"bin": 7, "grams": 120})
+        msg = core._state_msg()
+        self.assertEqual(msg["bins"][7]["picked"], 120)
+
+
+class TestUnitSuffixIsLocalised(unittest.TestCase):
+    """The "/100g" on a bin's price line is a word, not punctuation (I2)."""
+
+    def setUp(self):
+        hlog.reset()
+        self.addCleanup(hlog.reset)
+
+    def test_the_suffix_comes_from_the_locale_file_not_the_source(self):
+        """Loads a locale whose suffix is the Chinese one. If core builds
+        the string with "/100g" baked into an f-string, the price line is
+        the one part of the plate that stays English after a locale
+        switch — which is exactly what this asserts against.
+        """
+        repo_root = os.path.join(os.path.dirname(__file__), "..", "..")
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(repo_root, "data", "catalogue.json"),
+                      encoding="utf-8") as f:
+                catalogue = f.read()
+            with open(os.path.join(tmp, "catalogue.json"), "w",
+                      encoding="utf-8") as f:
+                f.write(catalogue)
+            os.mkdir(os.path.join(tmp, "locales"))
+            with open(os.path.join(tmp, "locales", "en.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump({"_currency": {"symbol": "¥", "rate": 1.0, "decimals": 2},
+                           "total": "总计",
+                           "per_100g": "/100克"}, f, ensure_ascii=False)
+
+            core = coremain.Core(control_host="127.0.0.1", control_port=0,
+                                 web_host="127.0.0.1", web_port=0,
+                                 data_dir=tmp)
+            msg = core._state_msg()
+
+        self.assertTrue(msg["bins"][0]["resolved"], "fixture bin is not billable")
+        self.assertTrue(
+            msg["bins"][0]["sub"].endswith("/100克"),
+            f"price line kept an English unit: {msg['bins'][0]['sub']!r}")
+        self.assertEqual(msg["total"]["label"], "总计")
 
 
 class TestStop(unittest.TestCase):
