@@ -22,9 +22,29 @@ namespace {
 	// doc's old kBinOutlineMM/kLabelClearanceMM/kLabelLineGapMM (ofApp.cpp,
 	// now deleted). Redefined here rather than resurrected in
 	// TableGeometry.h, which v3 §7.1 keeps for CAD geometry only.
-	const float kOutlineMM = 3.0f;
 	const float kLabelClearanceMM = 10.0f;
 	const float kLabelLineGapMM = 4.0f;
+
+	// The plate ring: the band of colour that frames a bin's cutout and is
+	// the ONLY thing on the table carrying doc §4.3's `hl` state (I8 —
+	// "distinguish states by hue"). It replaces a 3mm outline stroked on
+	// the bin edge, which could never be seen: the light pass (§13.2)
+	// stamps opaque white over the cutout — the bin grown by
+	// CUTOUT_MARGIN_MM — last, and that patch reached 10mm past the bin
+	// edge while the stroke reached 1.5mm, so every frame drew the
+	// highlight and then buried it. The ring now sits OUTSIDE the cutout,
+	// which is also the treatment doc §14.4 already specifies for the one
+	// other per-bin decoration it describes ("an annulus outside the
+	// cutout, never over it (I9)").
+	//
+	// 6mm rather than the old 3mm because the ring's job changed. A stroke
+	// on a bin edge was an outline; this is the state channel, and it has
+	// to read at the distance its own label reads at while sitting on a
+	// near-white field (§13.2's floor lift takes even a full-chroma hue to
+	// a mid tone). 6mm is roughly the stem weight of the 36px bold bin
+	// name above it, which is §13.4's own answer to the same problem
+	// ("contrast has to come from stroke width"). One constant to change.
+	const float kRingMM = 6.0f;
 
 	// doc §13.4: "Dark ink on a light field, and set bold" — the field is
 	// near-white by construction (I9's white floor), so text has to win on
@@ -145,16 +165,47 @@ ofRectangle UiLayer::binRectPx(int i){
 	return ofRectangle(x, y, mmToPxX(b.xMM + b.wMM) - x, mmToPxY(b.yMM + b.hMM) - y);
 }
 
+ofRectangle UiLayer::cutoutRectPx(int i){
+	BinRect f = binFillRectMM(BINS[i]);
+	float x = mmToPxX(f.xMM);
+	float y = mmToPxY(f.yMM);
+	return ofRectangle(x, y, mmToPxX(f.xMM + f.wMM) - x, mmToPxY(f.yMM + f.hMM) - y);
+}
+
 std::vector<ofRectangle> UiLayer::cutoutRectsPx() const {
+	// Built from the same cutoutRectPx() drawBin() frames its ring against,
+	// so the ring and the light pass cannot drift apart — see UiLayer.h.
 	std::vector<ofRectangle> out;
 	out.reserve(BIN_COUNT);
 	for(int i = 0; i < BIN_COUNT; i++){
-		BinRect f = binFillRectMM(BINS[i]);
-		float x = mmToPxX(f.xMM);
-		float y = mmToPxY(f.yMM);
-		out.emplace_back(x, y, mmToPxX(f.xMM + f.wMM) - x, mmToPxY(f.yMM + f.hMM) - y);
+		out.push_back(cutoutRectPx(i));
 	}
 	return out;
+}
+
+void UiLayer::drawRing(const ofRectangle & cut, float widthX, float widthY,
+	const ofColor & colour){
+	// Four filled bars, not a stroked path. VERIFIED in the installed oF
+	// rather than assumed, because assuming is what put the ring under the
+	// light pass in the first place: an unfilled ofPath is drawn by
+	// ofGLRenderer::draw(const ofPath&), which calls
+	// setLineWidth(shape.getStrokeWidth()) -> glLineWidth(). So
+	// ofPath::setStrokeWidth() IS ofSetLineWidth(), the exact call doc
+	// §13.4 says never to use because Mesa on Intel caps it at 1px — and
+	// on the programmable renderer (which M8's fluid will force this app
+	// onto) that glLineWidth call is commented out entirely, so the width
+	// is ignored outright. §13.4 has been corrected to say so.
+	//
+	// Top and bottom span the full outer width so the corners are covered
+	// once each; left and right fill only the gap between them. Nothing
+	// overlaps, so this stays correct if the colour ever carries alpha.
+	ofSetColor(colour);
+	ofDrawRectangle(cut.x - widthX, cut.y - widthY,
+		cut.width + 2.0f * widthX, widthY);                       // top
+	ofDrawRectangle(cut.x - widthX, cut.y + cut.height,
+		cut.width + 2.0f * widthX, widthY);                       // bottom
+	ofDrawRectangle(cut.x - widthX, cut.y, widthX, cut.height);   // left
+	ofDrawRectangle(cut.x + cut.width, cut.y, widthX, cut.height);// right
 }
 
 ofColor UiLayer::highlightColour(const std::string & hl){
@@ -194,8 +245,14 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 		// relax it back to rest. Doc §13.3 tweens "plate scale" but leaves
 		// what drives it unspecified; a pick is the one thing M1 actually
 		// has to react to (core sends nothing else that varies per-bin).
+		//
+		// 1.6, not the 1.06 this was while it scaled a rectangle: the
+		// value now drives ring THICKNESS (drawBin), and 6% of a 6mm band
+		// is a third of a millimetre on the table — a pulse nobody could
+		// see. 1.6 is ~3.5mm of extra ring for the ~150ms the spring takes
+		// to relax, which reads as the plate acknowledging the pick.
 		if(b.picked > tw.lastPicked + 0.5f){
-			tw.scale.snapTo(1.06f);
+			tw.scale.snapTo(1.6f);
 		}
 		tw.lastPicked = b.picked;
 		tw.scale.setTarget(1.0f);
@@ -213,30 +270,25 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 
 void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const {
 	ofRectangle box = binRectPx(i);
+	ofRectangle cut = cutoutRectPx(i);
 
-	ofRectangle scaled = box;
-	float s = tw.scale.get();
-	if(fabsf(s - 1.0f) > 0.0001f){
-		glm::vec3 c = box.getCenter();   // ofRectangle::getCenter() returns vec3
-		scaled.width *= s;
-		scaled.height *= s;
-		scaled.x = c.x - scaled.width * 0.5f;
-		scaled.y = c.y - scaled.height * 0.5f;
-	}
+	// The pop thickens the ring outward instead of scaling a rectangle.
+	// Doc §13.3 asks for a tweened "plate scale", but the plate is now a
+	// frame around a hole in the table, and a physical hole cannot grow —
+	// scaling the frame would just slide it off the cutout it belongs to.
+	// Growing outward from a fixed inner edge is the same gesture with the
+	// one degree of freedom the geometry actually has.
+	const float s = tw.scale.get();
+	const float ringX = mmToPxX(kRingMM) * s;
+	const float ringY = mmToPxY(kRingMM) * s;
 
-	ofColor outline((int)roundf(tw.colR.get()), (int)roundf(tw.colG.get()), (int)roundf(tw.colB.get()));
-	ofPath path;
-	path.setFilled(false);
-	// ofPath+setStrokeWidth, never ofSetLineWidth (doc §13.4 VERIFY: Mesa
-	// on Intel — the ODYSSEY's driver family — caps ofSetLineWidth at 1px).
-	path.setStrokeWidth(mmToPxX(kOutlineMM));
-	path.setColor(outline);
-	path.rectangle(scaled);
-	path.draw();
-	// Name/detail text drawn below inherits this colour (drawCentered sets
-	// none of its own) — must be the doc §13.4 ink colour, not white, or
-	// it disappears into the white-floor background bar the bug fix here
-	// replaced.
+	ofColor ring((int)roundf(tw.colR.get()), (int)roundf(tw.colG.get()),
+		(int)roundf(tw.colB.get()));
+	drawRing(cut, ringX, ringY, ring);
+
+	// Name/detail text drawn below inherits the draw colour (drawCentered
+	// sets none of its own) — must be the doc §13.4 ink colour, not the
+	// ring's and not white, or it disappears into the white field.
 	ofSetColor(kInkColor);
 
 	if(!b.resolved){
@@ -246,6 +298,21 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	const float cx = box.getCenter().x;
 	const float clearance = mmToPxY(kLabelClearanceMM);
 	const float gap = mmToPxY(kLabelLineGapMM);
+
+	// Labels clear the ring at its RESTING width, never the popped one —
+	// anchoring them to the animation would twitch every label on every
+	// pick. And they clear the ring rather than the bin box, which is the
+	// bug this replaces: kLabelClearanceMM and CUTOUT_MARGIN_MM are both
+	// 10mm, so measuring from box.y put the far row's baseline exactly on
+	// the cutout's edge and the light pass ate every descender — the "g"
+	// in both "45g" and "₹18.00/100g".
+	const float ringRestY = mmToPxY(kRingMM);
+	const float ringTop = cut.y - ringRestY;
+	const float ringBottom = cut.y + cut.height + ringRestY;
+	// Negative for descenders below the baseline, per ofTrueTypeFont.h's
+	// own doc comment (it is FreeType's face->descender). fabsf rather
+	// than negation so a font that reported it the other way still clears.
+	const float descend = fabsf(_detailFont.getDescenderHeight());
 
 	std::string detail = b.sub;
 	if(b.picked > 0.5f){
@@ -265,8 +332,8 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	const float nameLineGap = 2.0f;   // px between a name's own wrapped lines, tighter than kLabelLineGapMM's block-to-block gap
 
 	if(i < 4){
-		// far row: label strip is ABOVE the box, into the 177mm far margin
-		float detailBaseline = box.y - clearance;
+		// far row: label strip is ABOVE the ring, into the 177mm far margin
+		float detailBaseline = ringTop - clearance - descend;
 		drawCentered(_detailFont, detail, cx, detailBaseline);
 		// nameLines.back() sits closest to detail; earlier lines stack upward.
 		float lastLineBaseline = detailBaseline - _detailFont.getLineHeight() - gap;
@@ -276,9 +343,9 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		}
 	}
 	else {
-		// near row: label strip is BELOW the box, into the 177.4mm near
+		// near row: label strip is BELOW the ring, into the 177.4mm near
 		// margin — the diner's own side of the table.
-		float firstLineBaseline = box.y + box.height + clearance + _nameFont.getAscenderHeight();
+		float firstLineBaseline = ringBottom + clearance + _nameFont.getAscenderHeight();
 		float lastLineBaseline = firstLineBaseline;
 		for(size_t li = 0; li < nameLines.size(); li++){
 			float y = firstLineBaseline + (float)li * (_nameFont.getLineHeight() + nameLineGap);

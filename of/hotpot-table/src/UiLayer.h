@@ -48,6 +48,9 @@ private:
 	};
 
 	static ofRectangle binRectPx(int i);
+	static ofRectangle cutoutRectPx(int i);
+	static void drawRing(const ofRectangle & cut, float widthX, float widthY,
+		const ofColor & colour);
 	static ofColor highlightColour(const std::string & hl);
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
 	void drawTotal(const StateLink::Total & total) const;
