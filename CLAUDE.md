@@ -11,7 +11,9 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: M3 (camera) is next per the doc's dependency graph.
+Current milestone: **M2.6 (mode) is next** — planned 2026-08-11, ahead of
+M3, see the NEXT section below and `docs/M2.6_MODE_PLAN.md`. M3 (camera)
+follows it and is what the doc's own dependency graph names.
 M2's 5 build items (load cells) are all code-complete; M1 and M2 each
 still owe their human acceptance test on the rig.
 M0's last completed step was M0.7 (core/main.py — control server,
@@ -512,6 +514,34 @@ a time. `calibrator.py`'s `DEFAULT_REF_MASS_G` and the sanity check in
 `loadcell_cal.calibrate()` are unchanged — only the entry widget moved.
 Doc §12.4 updated to match. No test changes needed; nothing tested the
 keypad's markup specifically.
+
+## NEXT — M2.6, MODE. PLANNED, NOT BUILT.
+**Read `docs/M2.6_MODE_PLAN.md` before starting anything else.** Planned
+2026-08-11; it is the agreed next step and comes **before M3**, not after.
+The doc never gave the diner/staff mode split its own milestone — `fsm.py`
+scheduled STAFF for "M2 and M7" and M2's build items never mentioned it —
+so the state that gates all billing was due five milestones after the first
+thing that needed it. Three places already show the gap: `_state_msg()`
+hardcodes `"mode": "diner"` with an apology comment, `Core._calibrating` +
+`CAL_FREEZE_TIMEOUT_S` is a per-bin "not billing" freeze standing in for
+the missing mode-wide one, and `binmap.locked` is persisted and loaded but
+has never had a writer.
+Settled in that plan, do not reopen: the modes are **SERVING** and
+**SETTING** (the old names named who was standing at the table, which is
+the wrong noun, and "staff mode" collided with "staff view" — the tablet,
+used in both modes); "staff view" and the §12.6 **Setup tab** both keep
+their names; Tare/Calibrate move behind SETTING; the setting banner takes
+precedence over the scales-offline one.
+**The trap that plan exists to prevent, restated here because it bills
+wrong and silently:** `_apply_scale_to_cart()` is disabled during SETTING,
+so on exit `live_g` still holds the weights from when SETTING was *entered*.
+`reset_session()` does `start_g[i] = live_g[i]`. Swap a tray during setting
+mode — the entire point of the mode — and exit would baseline to the old
+tray, billing the next diner for the swap. Exit must refresh `live_g` from
+the scale **before** `reset_session()`. Same hazard `cal_end` already solves
+per-bin with `seed_live_grams()`; exit is the eight-bin version.
+Chinese strings for both modes are undecided and must not be invented —
+`zh` locale data does not exist yet and §17.3 says judges will read them.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
