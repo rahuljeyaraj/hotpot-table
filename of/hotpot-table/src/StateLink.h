@@ -72,7 +72,11 @@ public:
 	struct State {
 		int64_t seq = -1;
 		double ts = 0.0;
-		std::string mode = "diner";
+		// "serving" | "setting" (doc §4.3, M2.6). Defaulting to the
+		// billing mode rather than the not-billing one is deliberate: a
+		// `state` line that somehow arrived without the field must not
+		// paint SETTING — NOT BILLING over a table that is billing.
+		std::string mode = "serving";
 		std::string locale = "en";
 		Fluid fluid;
 		std::vector<Bin> bins;

@@ -294,7 +294,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 	}
 	out.seq = j.value("seq", (int64_t)-1);
 	out.ts = j.value("ts", 0.0);
-	out.mode = j.value("mode", "diner");
+	out.mode = j.value("mode", "serving");
 	out.locale = j.value("locale", "en");
 
 	if(j.contains("fluid") && j["fluid"].is_object()){

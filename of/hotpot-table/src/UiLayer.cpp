@@ -64,6 +64,22 @@ namespace {
 	const ofColor kErrorBannerFill(224, 93, 93);   // #e05d5d
 	const ofColor kErrorBannerInk(42, 0, 0);       // #2a0000
 
+	// M2.6: setting mode's banner (doc §14.5, "a persistent banner strip
+	// along the top edge"). Amber for the same reason the error banner is
+	// red — it is the staff view's own --amber (#e8b33d) and the ink its
+	// amber pip already uses (#2a1f00), so the header chip on the tablet
+	// and the strip on the table are visibly the same statement. I8: modes
+	// are distinguished by HUE, never by brightness, and this hue is
+	// luminance-matched to the red one rather than being brighter or
+	// dimmer than it.
+	//
+	// The rest of doc §14.5 — fluid off, amber chrome throughout, the
+	// 100mm grid — stays M8 build item 6. Most of it is a no-op today
+	// since no fluid exists. The banner alone is what makes this
+	// milestone's acceptance test visible from three metres.
+	const ofColor kSettingBannerFill(232, 179, 61);   // #e8b33d
+	const ofColor kSettingBannerInk(42, 31, 0);       // #2a1f00
+
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
 		if(text.empty() || !font.isLoaded()){
@@ -414,12 +430,13 @@ void UiLayer::drawConnectionIndicator(bool connected, float staleSeconds) const 
 	ofSetColor(255);
 }
 
-void UiLayer::drawErrorOverlay() const {
-	// The one `overlay.kind` this app draws so far. Doc §14.5 already
-	// establishes this app's pattern for naming a persistent, whole-table
-	// state loudly without touching the light field: "a persistent banner
-	// strip along the top edge" (there, "STAFF MODE"). Reused verbatim
-	// rather than invented fresh.
+void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
+	const std::string & text) const {
+	// Doc §14.5's pattern for naming a persistent, whole-table state
+	// loudly without touching the light field: "a persistent banner strip
+	// along the top edge". Built for `overlay.kind == "error"` at M2 and
+	// generalised at M2.6, when setting mode became the second thing that
+	// needed exactly this — same strip, different hue and words.
 	//
 	// Sits above every bin: the nearest cutout (far row, bins 0-3) starts
 	// at mmToPxY(177mm) =~ 209px, well clear of this 72px strip. Safe even
@@ -434,13 +451,46 @@ void UiLayer::drawErrorOverlay() const {
 	const float w = (float)PROJ_W_PX;
 	const float bannerH = 72.0f;
 
-	ofSetColor(kErrorBannerFill);
+	ofSetColor(fill);
 	ofDrawRectangle(0.0f, 0.0f, w, bannerH);
 
-	ofSetColor(kErrorBannerInk);
-	drawCentered(_nameFont, "SCALES OFFLINE \xE2\x80\x94 NOT BILLING",
+	ofSetColor(ink);
+	drawCentered(_nameFont, text,
 		w * 0.5f, bannerH * 0.5f + _nameFont.getAscenderHeight() * 0.5f);
 	ofSetColor(255);
+}
+
+void UiLayer::drawTopBanner(const StateLink::State & state) const {
+	// **Precedence: SETTING wins over error.** Both claim the same strip
+	// and both can be true at once — in setting mode, someone knocks the
+	// XIAO cable out. Nothing bills in setting mode (core's
+	// _apply_scale_to_cart returns immediately there), so
+	// "SCALES OFFLINE — NOT BILLING" would be warning about a risk that
+	// cannot occur, while displacing the one message that is true. The
+	// person doing setting-mode work is holding the tablet, and the staff
+	// view's Bins tab already shows "Load cells: no connection"; this
+	// strip is for everyone *not* holding the tablet.
+	//
+	// This is the general rule for the strip, established here because
+	// `calibrating` (M4) and `recap`/`qr` (M6) will each ask the same
+	// question: the state that changes what the table is DOING outranks
+	// the state that reports a fault in a subsystem that state has
+	// already disabled.
+	//
+	// English only, matching UiLayer's current scope. Doc §14.5 pairs the
+	// banner with a Chinese string; zh locale data does not exist yet (M1
+	// is English-only end to end) and §17.3 is explicit that Chinese
+	// judges will read this, so the zh text must be confirmed by a native
+	// speaker before it ships rather than guessed at here.
+	if(state.mode == "setting"){
+		drawBanner(kSettingBannerFill, kSettingBannerInk,
+			"SETTING \xE2\x80\x94 NOT BILLING");
+		return;
+	}
+	if(state.overlayKind == "error"){
+		drawBanner(kErrorBannerFill, kErrorBannerInk,
+			"SCALES OFFLINE \xE2\x80\x94 NOT BILLING");
+	}
 }
 
 void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
@@ -470,9 +520,7 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 			drawBin(i, state.bins[i], _bins[i]);
 		}
 		drawTotal(state.total);
-		if(state.overlayKind == "error"){
-			drawErrorOverlay();
-		}
+		drawTopBanner(state);
 	}
 
 	drawConnectionIndicator(connected, staleSeconds);
