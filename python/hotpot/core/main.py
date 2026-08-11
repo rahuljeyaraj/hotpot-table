@@ -285,8 +285,14 @@ class Core:
         # Locales.translate() falls back to "en" then to the key itself,
         # so a future locale missing the key degrades to English/"total"
         # rather than a blank caption.
+        # shown_total(), not total(): the table shows the deadbanded number
+        # so it stops twitching (I5), and so it agrees with the per-bin
+        # lines above it. total() stays the billed number and is what M6
+        # writes to SQLite — see pricing.py's two docstrings for why they
+        # are separate and where they converge.
         out = self.locales.currency(
-            pricing.total(self.cart, self.binmap, self.catalogue), self.locale)
+            pricing.shown_total(self.cart, self.binmap, self.catalogue),
+            self.locale)
         out["label"] = self.locales.translate("total", self.locale)
         return out
 
@@ -297,13 +303,18 @@ class Core:
         # and braces, matching pricing.total()'s own check) a stale
         # item_id the catalogue no longer has.
         resolved = item is not None and self.binmap.resolved(i)
-        picked = round(self.cart.shown_g[i])
+        # One number drives both the grams the diner reads and the money
+        # beside it, so the line checks out when someone does the
+        # arithmetic by hand (doc section 21's M1 acceptance test asks for
+        # exactly that). Deadbanded, per I5 — see pricing.shown_total().
+        shown = pricing.display_grams(self.cart.shown_g[i])
+        picked = int(shown)
         if resolved:
             label = item.names.get(self.locale, item.id)
             per_100g = self.locales.currency(item.price_per_100g, self.locale)
             sub = f"{per_100g['text']}/100g"
             price = self.locales.currency(
-                pricing.bin_price(self.cart.removed_grams(i), item.price_per_100g),
+                pricing.bin_price(shown, item.price_per_100g),
                 self.locale,
             )["amount"]
         else:

@@ -253,6 +253,68 @@ class TestStateBroadcast(CoreCase):
         self.assertEqual(last["bins"][3]["hl"], "picked")
         self.assertEqual(last["total"]["amount"], expected_price)
 
+    def test_a_sub_deadband_pick_does_not_move_the_wire_at_all(self):
+        """I5 on the wire, not just in Cart.
+
+        45g then 6g: the second pick is inside the 10g deadband, so the
+        plate must keep saying 45g AND keep saying the price of 45g. The
+        check that can fail is the price — reading it off true removed
+        grams instead would put 5.51-worth of noodles on a plate labelled
+        45g, and would make the running total twitch on load-cell noise at
+        M2 while the grams beside it sat still.
+        """
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+
+        self.core.cart.mock_pick(0, 45)
+        self.core.cart.mock_pick(0, 6)          # 51g truly gone, 45g shown
+
+        item = self.core.catalogue.item(self.core.catalogue.ids()[0])
+        shown_price = round(45 / 100.0 * item.price_per_100g, 2)
+        true_price = round(51 / 100.0 * item.price_per_100g, 2)
+        self.assertNotEqual(shown_price, true_price,
+                            "fixture is useless if both grams price the same")
+
+        def settled():
+            with lock:
+                return msgs and msgs[-1]["bins"][0]["picked"] == 45
+        self.assertTrue(wait_for(settled), "bin 0's pick never appeared")
+
+        with lock:
+            last = msgs[-1]
+        self.assertEqual(last["bins"][0]["grams"], 449)     # live weight is truth
+        self.assertEqual(last["bins"][0]["picked"], 45)     # display is deadbanded
+        self.assertEqual(last["bins"][0]["price"], shown_price)
+        self.assertEqual(last["total"]["amount"], shown_price)
+
+    def test_every_bin_line_agrees_with_its_own_grams(self):
+        """The plate a diner reads must survive them doing the arithmetic
+        (doc section 21: "verify by arithmetic, not by watching"). Walks
+        the whole 8-bin array so this cannot pass by one bin happening to
+        line up.
+        """
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+
+        for i, grams in enumerate((45, 6, 120, 3, 25, 80, 45, 6)):
+            self.core.cart.mock_pick(i, grams)
+
+        def any_pick_visible():
+            with lock:
+                return msgs and msgs[-1]["bins"][2]["picked"] == 120
+        self.assertTrue(wait_for(any_pick_visible), "no pick reached the wire")
+
+        with lock:
+            last = msgs[-1]
+        ids = self.core.catalogue.ids()
+        for i, b in enumerate(last["bins"]):
+            item = self.core.catalogue.item(ids[i])
+            self.assertEqual(
+                b["price"], round(b["picked"] / 100.0 * item.price_per_100g, 2),
+                f"bin {i}: {b['picked']}g does not price to {b['price']}")
+        self.assertAlmostEqual(last["total"]["amount"],
+                               sum(b["price"] for b in last["bins"]), places=2)
+
     def test_seq_increases_message_to_message(self):
         c, msgs, lock = self.of_client()
         self.wait_for_n(msgs, lock, 5)

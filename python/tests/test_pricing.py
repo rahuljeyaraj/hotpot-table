@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from hotpot.core import binmap  # noqa: E402
 from hotpot.core.cart import Cart  # noqa: E402
-from hotpot.core.pricing import Catalogue, Item, bin_price, total  # noqa: E402
+from hotpot.core.pricing import (  # noqa: E402
+    Catalogue, Item, bin_price, display_grams, shown_total, total)
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CATALOGUE_PATH = os.path.join(REPO_ROOT, "data", "catalogue.json")
@@ -162,6 +163,93 @@ class TestTotal(unittest.TestCase):
 
     def test_empty_binmap_totals_zero(self):
         self.assertEqual(total(self.cart, self.binmap, self.cat), 0.0)
+
+
+class TestShownTotal(unittest.TestCase):
+    """The displayed total (I5's deadband) against the billed one (I4).
+
+    These are the checks that fail if shown_total() is ever collapsed back
+    into total(): every one of them puts the two deliberately out of step
+    and asserts on the gap, so a test that passed by both functions being
+    the same function would have to assert the gap is zero.
+    """
+
+    def setUp(self):
+        self.cart = Cart()                       # deadband 10g
+        self.binmap = binmap.BinMap()
+        self.binmap.set_bin(0, item_id="mushroom", conf=0.9, source="mock")
+        self.cart.start_g[0] = 500.0
+        self.cat = make_catalogue()
+
+    def test_deadband_holds_the_displayed_total_back(self):
+        """A sub-deadband pick moves the billed total and not the shown one.
+
+        45g then 6g, doc section 21's own M1 example: shown_g snapped to 45
+        on the first pick and cannot move again until the gap reaches 10g,
+        so the table still says 45g — and must still say the price OF 45g.
+        """
+        self.cart.set_live_grams(0, 455.0)       # 45g removed, snaps shown to 45
+        self.cart.set_live_grams(0, 449.0)       # 51g removed, gap is 6g — no snap
+
+        self.assertEqual(self.cart.shown_g[0], 45.0)
+        self.assertEqual(shown_total(self.cart, self.binmap, self.cat), 5.40)
+        self.assertEqual(total(self.cart, self.binmap, self.cat), 6.12)
+
+    def test_they_agree_once_the_deadband_snaps(self):
+        """The third pick of the acceptance test's cycle crosses 10g."""
+        self.cart.set_live_grams(0, 455.0)
+        self.cart.set_live_grams(0, 449.0)
+        self.cart.set_live_grams(0, 329.0)       # 171g removed — snaps
+
+        self.assertEqual(self.cart.shown_g[0], 171.0)
+        self.assertEqual(shown_total(self.cart, self.binmap, self.cat),
+                         total(self.cart, self.binmap, self.cat))
+
+    def test_finalize_makes_the_two_converge(self):
+        """I5's guarantee: the diner is never shown less than they are
+        charged for, only shown it later. Cart.finalize() is what closes
+        the gap, so this is the check that the promise in
+        pricing.shown_total's docstring is actually kept.
+        """
+        self.cart.set_live_grams(0, 455.0)
+        self.cart.set_live_grams(0, 449.0)
+        self.assertNotEqual(shown_total(self.cart, self.binmap, self.cat),
+                            total(self.cart, self.binmap, self.cat))
+
+        self.cart.finalize()
+        self.assertEqual(shown_total(self.cart, self.binmap, self.cat),
+                         total(self.cart, self.binmap, self.cat))
+
+    def test_shown_total_respects_the_unresolved_rule_too(self):
+        """Doc section 9.3 governs what is displayed as well as what is
+        billed — an unresolved bin renders empty and adds nothing.
+        """
+        self.binmap.set_bin(0, item_id="mushroom", conf=0.10, source="mock")
+        self.cart.set_live_grams(0, 300.0)       # 200g gone, well past the deadband
+        self.assertEqual(self.cart.shown_g[0], 200.0)
+        self.assertEqual(shown_total(self.cart, self.binmap, self.cat,
+                                     conf_floor=0.65), 0.0)
+
+
+class TestDisplayGrams(unittest.TestCase):
+
+    def test_rounds_to_a_whole_gram(self):
+        self.assertEqual(display_grams(45.4), 45.0)
+        self.assertEqual(display_grams(45.6), 46.0)
+
+    def test_the_shown_total_is_priced_from_the_rounded_figure(self):
+        """The grams the diner reads and the money beside them come from
+        one number, so the line checks out by hand (doc section 21's "verify
+        by arithmetic, not by watching"). Pricing 45.4g rather than the 45g
+        on the plate would show 5.45 against a plate reading 45g.
+        """
+        cart = Cart()
+        bm = binmap.BinMap()
+        bm.set_bin(0, item_id="mushroom", conf=0.9, source="mock")
+        cart.start_g[0] = 500.0
+        cart.set_live_grams(0, 454.6)            # 45.4g removed, snaps shown
+        self.assertAlmostEqual(cart.shown_g[0], 45.4, places=6)
+        self.assertEqual(shown_total(cart, bm, make_catalogue()), 5.40)
 
 
 if __name__ == "__main__":
