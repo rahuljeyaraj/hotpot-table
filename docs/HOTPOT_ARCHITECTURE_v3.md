@@ -1054,6 +1054,16 @@ That premise no longer holds. In a dark room with the projector as the only ligh
 - **Do not measure the illuminant** — still right, but not because measurement is unnecessary. It is unnecessary because the illuminant is *known*: it is a flat white patch at a recorded `field_level`. Record it (above); do not go photometering it.
 - **New and load-bearing:** capture must run with the bin patches lit exactly as serving mode lights them. A capture session taken with a different `field_level`, with the fluid or the staff grid bleeding into a cutout, or during calibration's black-field inversion, produces a training set the live rig will never reproduce. The Capture tab must therefore drive the same bin-patch path as serving mode, not its own.
 
+**How that is satisfied as built (M4.7), because "must drive the same path" is a rule about what the code does *not* contain:**
+
+- **The tab has no lighting control of any kind, and neither does core's capture handler.** There is nothing to keep in sync, so nothing can drift out of sync. The crops the operator previews are drawn from the *same* live `<img>` the Live and Setup tabs show, at the bin's own camera-space rect — same image, same rectangle, no second endpoint that could disagree.
+- **The one moment the field is not what serving mode shows is dot calibration's black-field inversion (I9), and a capture is refused outright while it is up.** That single check is what makes the rule unbreakable rather than merely written down. A burst overlapping a solve would write photographs of food in the dark, and they would look perfectly plausible sitting in a folder.
+- **Setting mode is required** — not for the lighting (§14.5: "the field and the bin patches are identical to serving mode" in setting mode) but because the operator is reaching over trays, which in serving mode is a pick and would bill. Same reason §12.4's Tare and Calibrate need it.
+- **The rects come from the geometry store, not from the tablet**, so an un-saved drag can never reach the dataset.
+- The label selector defaults to the bin-map item's **`class_name`**, not its display name. §8.1's hidden-label rule runs the *other* way here than it does on the table: a training folder called "Fish Ball" is a folder the model can never emit a label for.
+- The session counter is read off the filesystem, not held in memory — an operator who restarts core mid-collection must not see it reset to zero.
+- `tools/export_edgeimpulse.py` exists for three reasons beyond rearranging a tree that is already folder-per-label: the sidecars must not be uploaded, filenames must survive being flattened (two bins captured in the same millisecond differ only by their `_bin<i>` suffix), and somebody has to print how thin the thin classes are. It also counts **distinct days**, separately from images: 600 photographs of one tray under one arrangement of the light is one session's worth of information however many files it is.
+
 ### 12.8 Developer panel
 
 Hidden behind a toggle in Setup, off by default, persisted in `localStorage`. When on, a collapsible strip appears at the bottom of every tab:

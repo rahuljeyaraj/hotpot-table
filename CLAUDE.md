@@ -1481,6 +1481,71 @@ Builds clean (msbuild, Debug x64, 0 errors, 0 warnings from
 **Not observed:** the violet banner has never been on the projected
 surface, and no fresh clone has actually been booted on a rig.
 
+M4.7 (2026-08-12) closes build item 7, the last of M4: the staff view's
+Capture tab (doc §12.7) and `tools/export_edgeimpulse.py`.
+
+**Doc §21's acceptance list turns the lighting requirement into a rule
+about DESIGN, not behaviour** — "If the Capture tab has its own lighting
+path, that is a bug to fix before collecting a single image, not after" —
+so the way it is satisfied is by what the code does *not* contain:
+- **Neither the tab nor core's capture handler has any lighting control
+  at all.** There is nothing to keep in sync, so nothing can drift. The
+  crops the operator previews are drawn from the **same live `<img>`** the
+  Live and Setup tabs show, at the bin's own camera-space rect — same
+  image, same rectangle, no second endpoint to disagree.
+- **The one moment the field is not what serving mode shows is dot
+  calibration's black-field inversion, and a capture is refused outright
+  while it is up.** That single check is what makes the rule unbreakable
+  rather than merely written down. A burst overlapping a solve writes
+  photographs of food in the dark, and they look perfectly plausible
+  sitting in a folder.
+- Setting mode is required — **not for the lighting** (§14.5 makes
+  setting mode's field identical to serving mode's) but because the
+  operator is reaching over trays, which in serving mode is a pick and
+  would bill.
+- **The rects come from the geometry store, not from the tablet**, so an
+  un-saved drag can never reach the dataset.
+Three smaller decisions:
+- **The label default is the item's `class_name`, not its display name.**
+  §8.1's hidden-label rule runs the *other* way here than on the table: a
+  training folder called "Fish Ball" is one the model can never emit a
+  label for.
+- **The session counter is read off the filesystem**, not held in memory.
+  An operator who restarts core mid-collection must not see it reset.
+- The classifier writes each JPEG through `atomicio` — a capture session
+  interrupted by a power cut must not leave a half-written image that the
+  export later uploads as training data (§20.4's rule applied to the
+  dataset).
+`tools/export_edgeimpulse.py` exists for three reasons beyond rearranging
+a tree that is already folder-per-label: **the sidecars must not be
+uploaded** (they are provenance, not training data), **filenames must
+survive being flattened** (two bins captured in the same millisecond
+differ only by their `_bin<i>` suffix), and somebody has to print how thin
+the thin classes are. It also counts **distinct days** separately from
+images — §19.2 asks for 4+ sessions, and 600 photographs of one tray under
+one arrangement of the light is one session's worth of information however
+many files it is. It copies; it never moves or deletes.
+**§12.7 has been updated** with all of the above.
+26 new tests (`test_export_edgeimpulse.py` 16, `TestCaptureTab` 10), 690
+total, all passing. Eight Python mutations checked red: capture allowed
+during calibration; capture allowed in serving mode; blank labels
+tolerated; the bin index dropped from the rects (which is what puts
+`_bin<i>` in the filename); the label default switched to the display
+name; the export copying sidecars; the export not prefixing the label;
+sessions counted as images rather than days. Four more JS mutations red:
+a rect save not moving the crops (a whole session cropped off the trays);
+the setting-mode gating dropped; the crop buffer not sized to the rect;
+the burst not clamped. The shim harness is now **71 assertions**.
+**Found and fixed while writing this:** the `Write` tool put a literal NUL
+byte inside a `join(" ")` in `index.html`, which `node --check` caught
+immediately. Worth knowing that the JS verification pass is not
+ceremonial — it caught a corruption no Python test could see.
+**Nothing here has been run against a real camera, a real projector or a
+real browser.** No image has been captured, so the export tool has never
+processed a real dataset.
+
+**M4 build items 1-7 are all code-complete.**
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

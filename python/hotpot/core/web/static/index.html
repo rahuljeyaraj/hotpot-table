@@ -339,6 +339,44 @@
      take pointer events — that is the whole tab. */
   .setup-shell .live-feed-wrap canvas { pointer-events: auto; touch-action: none; cursor: crosshair; }
 
+  /* --- Capture tab (doc section 12.7, M4 build item 7) -----------------
+     Eight crops side by side "at the resolution the model will see",
+     each with a label selector. The crops are drawn out of the SAME
+     <img> the Setup tab drags on, by canvas — no second endpoint and no
+     second lighting path, which is doc §12.7's actual requirement. */
+  .capture-shell { max-width: 1100px; }
+  .crop-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px; margin-top: 14px;
+  }
+  .crop-card {
+    background: var(--panel); border: 1px solid #2a2c31; border-radius: 8px;
+    padding: 10px;
+  }
+  .crop-card canvas {
+    width: 100%; aspect-ratio: 1 / 1; display: block;
+    background: #0f1012; border-radius: 6px; object-fit: contain;
+  }
+  .crop-card .crop-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 13px; color: var(--muted); margin-bottom: 6px;
+  }
+  .crop-card select {
+    width: 100%; min-height: 44px; margin-top: 8px;
+    border: 1px solid #3a3d47; border-radius: 6px;
+    background: #22252b; color: var(--text); font-size: 14px;
+  }
+  .crop-count { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .crop-count.thin { color: var(--amber); }
+  .capture-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .capture-bar input[type="number"] {
+    width: 74px; min-height: 44px; text-align: center;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid #3a3d47; border-radius: 6px;
+    background: #22252b; color: var(--text); font-size: 15px;
+  }
+  .capture-bar label { font-size: 14px; color: var(--muted); }
+
   /* --- calibration wizard modal (doc section 12.4: "one screen at a
      time, no branching") -------------------------------------------- */
   .modal-backdrop {
@@ -484,6 +522,7 @@
       <button class="tab active" data-tab="live">Live</button>
       <button class="tab" data-tab="bins">Bins</button>
       <button class="tab" data-tab="setup">Setup</button>
+      <button class="tab" data-tab="capture">Capture</button>
     </nav>
     <div class="order" id="order">—</div>
     <div class="spacer"></div>
@@ -608,6 +647,34 @@
           </div>
           <div class="setup-status" id="verifyStatus"></div>
         </div>
+      </div>
+    </section>
+    <section class="tab-panel" data-tab="capture">
+      <!-- Doc §12.7. The lighting rule ("capture must run with the bin
+           patches lit exactly as serving mode lights them") is satisfied
+           here by there being nothing to satisfy it WITH: this tab has no
+           lighting control of any kind, the crops come out of the same
+           live feed every other tab shows, and core refuses a capture
+           while the calibration pattern is up — which is the one moment
+           the field is not what serving mode shows. -->
+      <div class="capture-shell">
+        <div class="setup-card">
+          <h2>Capture training images</h2>
+          <p>Each bin is photographed at its own rectangle and filed under
+             the label below it. Nudge the trays between shots — the
+             burst exists so the model sees more than one arrangement.</p>
+          <div class="capture-bar">
+            <button id="captureAllBtn" class="setup-btn primary">Capture all 8</button>
+            <button id="captureBurstBtn" class="setup-btn">Burst</button>
+            <label for="burstN">frames</label>
+            <input id="burstN" type="number" min="1" max="60" value="10">
+            <label for="burstSecs">over</label>
+            <input id="burstSecs" type="number" min="1" max="60" value="5">
+            <label>seconds</label>
+          </div>
+          <div class="setup-status" id="captureStatus"></div>
+        </div>
+        <div class="crop-grid" id="cropGrid"></div>
       </div>
     </section>
   </main>
@@ -1459,6 +1526,11 @@
       rects = (msg.rects || []).map(function (r) { return r ? r.slice() : null; });
       while (rects.length < NUM_BINS) rects.push(null);
       drawSetupOverlay();
+      // The Capture tab crops the same rects. Without this it would go on
+      // photographing the old rectangles after a save, which is a whole
+      // capture session of images cropped off the trays.
+      captureRects = rects.map(function (r) { return r ? r.slice() : null; });
+      drawCrops();
     }
     applySetupGating();
   }
@@ -1540,6 +1612,171 @@
   }
 
   applySetupGating();
+
+
+  // --- Capture tab (doc section 12.7, M4 build item 7) ------------------
+  // **There is no lighting code here and that is the requirement.** Doc
+  // §12.7: "The Capture tab must therefore drive the same bin-patch path
+  // as serving mode, not its own." The crops are drawn out of the same
+  // <img> the Setup tab uses, so this tab cannot have a lighting path
+  // even by accident; core refuses a capture while the calibration
+  // pattern is up, which is the one moment the field differs.
+
+  var cropGrid = document.getElementById("cropGrid");
+  var captureAllBtn = document.getElementById("captureAllBtn");
+  var captureBurstBtn = document.getElementById("captureBurstBtn");
+  var burstN = document.getElementById("burstN");
+  var burstSecs = document.getElementById("burstSecs");
+  var captureStatus = document.getElementById("captureStatus");
+
+  var MIN_PER_CLASS = 150;   // doc §19.2's target, shown not enforced
+  var cropCards = [];
+  var captureRects = [];
+  var captureCounts = {};
+
+  for (var ci = 0; ci < NUM_BINS; ci++) {
+    (function (bin) {
+      var card = document.createElement("div");
+      card.className = "crop-card";
+
+      var head = document.createElement("div");
+      head.className = "crop-head";
+      var name = document.createElement("span");
+      name.textContent = "Bin " + bin;
+      var count = document.createElement("span");
+      head.appendChild(name);
+      head.appendChild(count);
+      card.appendChild(head);
+
+      var canvas = document.createElement("canvas");
+      card.appendChild(canvas);
+
+      var select = document.createElement("select");
+      card.appendChild(select);
+
+      var note = document.createElement("div");
+      note.className = "crop-count";
+      card.appendChild(note);
+
+      cropGrid.appendChild(card);
+      cropCards[bin] = { canvas: canvas, ctx: canvas.getContext("2d"),
+                         select: select, note: note, count: count };
+    })(ci);
+  }
+
+  function applyCaptureInfo(msg) {
+    captureRects = msg.rects || [];
+    captureCounts = msg.counts || {};
+    var choices = msg.choices || [];
+    cropCards.forEach(function (c, i) {
+      // Rebuild only when the option list actually changed, or an
+      // operator part-way through relabelling bin 5 would watch their
+      // choice reset every time core broadcast.
+      var wanted = choices.join(" ");
+      if (c.select.dataset.choices !== wanted) {
+        c.select.dataset.choices = wanted;
+        c.select.innerHTML = "";
+        choices.forEach(function (label) {
+          var o = document.createElement("option");
+          o.value = label;
+          o.textContent = label;
+          c.select.appendChild(o);
+        });
+        // Doc §12.7: "a label selector defaulting to the current bin-map
+        // item." The default is the model's CLASS NAME, not the display
+        // name — a folder called "Fish Ball" is a folder the model can
+        // never emit a label for (§8.1).
+        if ((msg.labels || [])[i]) c.select.value = msg.labels[i];
+      }
+      updateCropCount(i);
+    });
+    drawCrops();
+  }
+
+  function updateCropCount(i) {
+    var c = cropCards[i];
+    if (!c) return;
+    var label = c.select.value;
+    var n = captureCounts[label] || 0;
+    c.count.textContent = n + " saved";
+    // Doc §19.2 wants 150+ per class. Amber, not a refusal — an operator
+    // mid-collection is meant to see which class to go and shoot more of.
+    c.note.textContent = n < MIN_PER_CLASS
+      ? ("needs " + (MIN_PER_CLASS - n) + " more") : "enough for training";
+    c.note.classList.toggle("thin", n < MIN_PER_CLASS);
+  }
+
+  cropCards.forEach(function (c, i) {
+    c.select.addEventListener("change", function () { updateCropCount(i); });
+  });
+
+  // The crops are drawn from the live <img> at the bin's own camera-space
+  // rect, so what the operator sees IS what the classifier will crop —
+  // same image, same rectangle, no second endpoint to disagree with.
+  function drawCrops() {
+    if (!setupImg.naturalWidth) return;
+    cropCards.forEach(function (c, i) {
+      var r = captureRects[i];
+      c.ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
+      if (!r) return;
+      // Doc §12.7: "at the resolution the model will see." The canvas
+      // buffer is the rect's own pixel size; CSS scales it to the card.
+      if (c.canvas.width !== Math.round(r[2])) c.canvas.width = Math.round(r[2]);
+      if (c.canvas.height !== Math.round(r[3])) c.canvas.height = Math.round(r[3]);
+      try {
+        c.ctx.drawImage(setupImg, r[0], r[1], r[2], r[3],
+                        0, 0, c.canvas.width, c.canvas.height);
+      } catch (e) { /* the <img> has not decoded yet */ }
+    });
+  }
+
+  var CROP_REFRESH_MS = 500;
+  setInterval(function () {
+    if (document.querySelector) drawCrops();
+  }, CROP_REFRESH_MS);
+
+  function sendCapture(burst, seconds) {
+    setStatus(captureStatus, "Capturing…", "busy");
+    sendSetup({
+      t: "capture",
+      labels: cropCards.map(function (c) { return c.select.value; }),
+      burst: burst, seconds: seconds,
+    });
+  }
+
+  captureAllBtn.addEventListener("click", function () {
+    if (captureAllBtn.disabled) return;
+    sendCapture(1, 0);
+  });
+  captureBurstBtn.addEventListener("click", function () {
+    if (captureBurstBtn.disabled) return;
+    // Doc §12.7's default is 10 over 5s; the fields carry it and the
+    // operator can overtype.
+    var n = Math.max(1, Math.min(60, parseInt(burstN.value, 10) || 10));
+    var secs = Math.max(1, Math.min(60, parseInt(burstSecs.value, 10) || 5));
+    sendCapture(n, secs);
+  });
+
+  function applyCaptureResult(msg) {
+    setStatus(captureStatus, msg.message, msg.ok ? "good" : "bad");
+    if (msg.counts) {
+      captureCounts = msg.counts;
+      cropCards.forEach(function (_c, i) { updateCropCount(i); });
+    }
+  }
+
+  function applyCaptureGating() {
+    var on = mode === "setting";
+    [captureAllBtn, captureBurstBtn].forEach(function (b) {
+      b.disabled = !on;
+      b.title = on ? "" : NEEDS_SETTING_CAPTURE;
+    });
+  }
+  var NEEDS_SETTING_CAPTURE =
+    "Enter setting mode to capture — reaching over the trays in serving "
+    + "mode would be charged as a pick.";
+
+  applyCaptureGating();
 
   // --- action bar and the mode (doc sections 12.2, 9.1 — M2.6) ---------
 
@@ -1650,6 +1887,7 @@
     // arrives before the operator empties a bin, not after.
     applyBinGating();
     applySetupGating();
+    applyCaptureGating();
 
     if (msg.refused && awaitingMode) showRefusal(msg.refused);
     awaitingMode = false;
@@ -1693,6 +1931,8 @@
       else if (msg.t === "dotcal_progress") applyDotcalProgress(msg);
       else if (msg.t === "dotcal_result") applyDotcalResult(msg);
       else if (msg.t === "rects_result") applyRectsResult(msg);
+      else if (msg.t === "capture_info") applyCaptureInfo(msg);
+      else if (msg.t === "capture_result") applyCaptureResult(msg);
     };
     ws.onclose = function () {
       // A set_mode whose reply will now never arrive. Left true, the

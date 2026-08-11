@@ -1074,6 +1074,7 @@ class TestMode(ScaleRig, CoreCase):
         second = self.recv_json(w)
         third = self.recv_json(w)
         fourth = self.recv_json(w)
+        fifth = self.recv_json(w)
         self.assertEqual(first["t"], "pips")
         self.assertEqual(second["t"], "mode")
         self.assertEqual(second["mode"], "serving")
@@ -1081,6 +1082,9 @@ class TestMode(ScaleRig, CoreCase):
         self.assertIsNone(second["refused"])
         self.assertEqual(third["t"], "camera")
         self.assertEqual(fourth["t"], "geometry")
+        # M4 build item 7: without this the Capture tab has no rects to
+        # crop previews from and no per-label counts.
+        self.assertEqual(fifth["t"], "capture_info")
 
     def test_a_tablet_joining_during_setting_mode_is_told_setting(self):
         w = self.ws()
@@ -1737,9 +1741,10 @@ class TestDotCalibrationOverTheWire(CoreCase):
 
     def test_the_join_seed_tells_a_tablet_the_geometry(self):
         ws = self.ws()
-        seeds = [self.recv_json(ws) for _ in range(4)]
+        seeds = [self.recv_json(ws) for _ in range(5)]
         kinds = {m["t"] for m in seeds}
-        self.assertEqual(kinds, {"pips", "mode", "camera", "geometry"})
+        self.assertEqual(kinds, {"pips", "mode", "camera", "geometry",
+                                 "capture_info"})
         geo_msg = next(m for m in seeds if m["t"] == "geometry")
         self.assertFalse(geo_msg["calibrated"])
         self.assertEqual(len(geo_msg["rects"]), 8)
@@ -1801,7 +1806,7 @@ class TestSetupTabRects(CoreCase):
         self.core.geometry.set_homography(self.CAM_TO_STAGE, rms_px=1.1,
                                           n_points=15)
         self.ws_ = self.ws()
-        for _ in range(4):
+        for _ in range(5):
             self.recv_json(self.ws_)
         self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
         self.drain_until("mode")
@@ -1929,6 +1934,157 @@ class TestSetupTabRects(CoreCase):
         self.assertTrue(again.has_rects)
 
 
+class TestCaptureTab(CoreCase):
+    """M4 build item 7's server half, doc section 12.7.
+
+    **The tests that matter here are the refusals**, because doc section
+    21's acceptance list turns the lighting requirement into a rule about
+    design: "Every capture is taken with the bin patches lit exactly as
+    serving mode lights them. If the Capture tab has its own lighting
+    path, that is a bug to fix before collecting a single image, not
+    after." There is no lighting code in core or in the tab, so the only
+    way that rule can break is a capture overlapping the one state where
+    the field is NOT what serving mode shows — dot calibration's black
+    field. That is the refusal below.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.ws_ = self.ws()
+        for _ in range(5):
+            self.recv_json(self.ws_)
+        self.sent_cmds = []
+
+        def on_message(msg):
+            if msg.get("t") == "cmd" and msg.get("op") == "capture":
+                self.sent_cmds.append(msg)
+                client.send({"t": "captured", "id": msg.get("id"),
+                             "files": ["a.jpg"] * len(msg.get("rects") or []),
+                             "cancelled": False})
+        client = self.wire_client("classifier", on_message=on_message)
+        self.assertTrue(client.wait_connected(DEADLINE))
+        self.enter_setting()
+
+    def enter_setting(self):
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.drain_until("mode")
+
+    def drain_until(self, want, timeout=DEADLINE):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            msg = self.recv_json(self.ws_, timeout=deadline - time.monotonic())
+            if msg.get("t") == want:
+                return msg
+        self.fail(f"no {want} message arrived")
+
+    LABELS = ["mushroom", "tofu", "egg", "baby_corn",
+              "soya_chunks", "dried_prawns", "curly_noodle", "long_noodle"]
+
+    def test_a_capture_reaches_the_classifier_with_cores_own_rects(self):
+        # Doc §4.7: "`rects` are camera space — the classifier never sees
+        # stage space." And they are CORE's rects, not the tablet's, so an
+        # unsaved drag can never reach the dataset.
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS,
+                                  "burst": 1}))
+        reply = self.drain_until("capture_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertEqual(len(self.sent_cmds), 1)
+        cmd = self.sent_cmds[0]
+        self.assertEqual(len(cmd["rects"]), 8)
+        self.assertEqual(cmd["labels"], self.LABELS)
+        for i, r in enumerate(cmd["rects"]):
+            self.assertEqual(len(r), 5)
+            self.assertEqual(r[4], i)   # doc §12.7's `_bin<i>` in the name
+            self.assertEqual(r[:4], list(self.core.geometry.cam_rects[i]))
+
+    def test_a_capture_is_refused_while_the_calibration_pattern_is_up(self):
+        """**The lighting rule (doc §12.7, §21).** The one moment the
+        field is not what serving mode shows is I9's inversion for dot
+        calibration — black table, white dots. A burst overlapping it
+        writes photographs of food in the dark, under a light the live rig
+        will never reproduce, and they look perfectly plausible sitting in
+        a folder.
+        """
+        self.core._show_calibration_dots([[100.0, 100.0, 13.0]])
+        self.addCleanup(self.core._show_calibration_dots, None)
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS}))
+        reply = self.drain_until("capture_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("calibration pattern", reply["message"])
+        self.assertEqual(self.sent_cmds, [])
+
+    def test_a_capture_is_refused_in_serving_mode(self):
+        # Not for the lighting — §14.5 makes setting mode's field
+        # identical to serving mode's. Because the operator is reaching
+        # over trays, which in serving mode is a pick and would bill.
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "serving"}))
+        self.drain_until("mode")
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS}))
+        reply = self.drain_until("capture_result")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(self.sent_cmds, [])
+
+    def test_a_capture_is_refused_with_no_bin_rects(self):
+        self.core.geometry.set_cam_rect(4, None)
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS}))
+        reply = self.drain_until("capture_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("rectangles", reply["message"])
+        self.assertEqual(self.sent_cmds, [])
+
+    def test_a_missing_label_is_refused(self):
+        # An unlabelled crop is training data nobody can use; a
+        # mislabelled one is worse than none.
+        bad = list(self.LABELS)
+        bad[5] = "   "
+        self.ws_.send(json.dumps({"t": "capture", "labels": bad}))
+        self.assertFalse(self.drain_until("capture_result")["ok"])
+        self.assertEqual(self.sent_cmds, [])
+
+    def test_a_short_label_list_is_refused(self):
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS[:5]}))
+        self.assertFalse(self.drain_until("capture_result")["ok"])
+
+    def test_a_burst_is_passed_through(self):
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS,
+                                  "burst": 10, "seconds": 5}))
+        self.drain_until("capture_result")
+        self.assertEqual(self.sent_cmds[0]["burst"], 10)
+        self.assertEqual(self.sent_cmds[0]["seconds"], 5)
+
+    def test_a_missing_classifier_is_a_sentence(self):
+        for c in self._wire_clients:
+            c.stop()
+        self._wire_clients = []
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS}))
+        reply = self.drain_until("capture_result", timeout=15.0)
+        self.assertFalse(reply["ok"])
+
+    def test_the_join_seed_carries_the_capture_tabs_defaults(self):
+        # Doc §12.7: "Each crop has a label selector defaulting to the
+        # current bin-map item."
+        ws = self.ws()
+        seeds = [self.recv_json(ws) for _ in range(5)]
+        info = next(m for m in seeds if m["t"] == "capture_info")
+        self.assertEqual(len(info["rects"]), 8)
+        self.assertEqual(len(info["labels"]), 8)
+        self.assertIn("empty", info["choices"])
+        self.assertIn("counts", info)
+
+    def test_the_label_default_is_the_class_name_not_the_display_name(self):
+        # Doc §8.1's hidden-label rule runs the OTHER way here than it
+        # does on the table: `names` is what a diner reads, `class_name`
+        # is what the model emits, and a training folder called "Fish
+        # Ball" is a folder the model can never produce a label for.
+        info = self.core._capture_msg()
+        for i, label in enumerate(info["labels"]):
+            item = self.core.catalogue.item(self.core.binmap.bins[i].item_id)
+            if item is None:
+                continue
+            self.assertEqual(label, item.class_name)
+            self.assertNotEqual(label, item.display_name("en"))
+
+
 class TestUncalibratedBoot(CoreCase):
     """M4 build item 6, doc section 9.1: "BOOT always goes to UNCALIBRATED
     if `homography.json` or `bin_rects.json` is missing… This is the
@@ -1952,7 +2108,7 @@ class TestUncalibratedBoot(CoreCase):
     def test_the_tablet_is_told_so_on_join(self):
         # Doc §9.1: "the staff view opens on the calibration wizard."
         ws = self.ws()
-        seeds = [self.recv_json(ws) for _ in range(4)]
+        seeds = [self.recv_json(ws) for _ in range(5)]
         mode = next(m for m in seeds if m["t"] == "mode")
         self.assertTrue(mode["uncalibrated"])
 
@@ -1995,7 +2151,7 @@ class TestUncalibratedBoot(CoreCase):
     def test_saving_the_geometry_completes_calibration_and_opens_the_table(self):
         self.core.geometry.set_homography(_FIXTURE_H, rms_px=1.0, n_points=15)
         ws = self.ws()
-        for _ in range(4):
+        for _ in range(5):
             self.recv_json(ws)
         ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
         deadline = time.monotonic() + DEADLINE
@@ -2030,7 +2186,7 @@ class TestUncalibratedBoot(CoreCase):
         calibration — restoring a backup, or M7 writing a bin map.
         """
         ws = self.ws()
-        for _ in range(4):
+        for _ in range(5):
             self.recv_json(ws)
         self.core.geometry.set_homography(_FIXTURE_H, rms_px=1.0, n_points=15)
         self.core.geometry.set_cam_rects(_FIXTURE_RECTS)

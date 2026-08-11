@@ -119,6 +119,11 @@ SCALE_PORT = "COM5"
 CAMERA_HOST = "localhost"
 CAMERA_PORT = 8081
 
+# Doc section 12.7's dataset tree. Core never writes into it — the
+# classifier does, because core never touches a frame (I3) — but core
+# counts what is in it for the tab's per-label session counter.
+CAPTURES_DIR = Path(__file__).resolve().parents[3] / "datasets" / "captures"
+
 # Doc section 12.4's Bins tab is "live" but does not need `state`'s 60Hz —
 # nobody reads eight numbers that fast. 10Hz (every 6th state tick) is
 # comfortably above flicker perception for a static numeric readout and a
@@ -542,7 +547,7 @@ class Core:
         a joining tablet waits at most 100ms for it.
         """
         return [self._pips_msg(), self._mode_msg(), self._camera_msg(),
-                self._geometry_msg()]
+                self._geometry_msg(), self._capture_msg()]
 
     # -- the Live tab's MJPEG source (doc §12.3, §5.4 — M3 build item 3) ----
 
@@ -644,6 +649,9 @@ class Core:
             return
         if t == "verify_rects":
             self._handle_verify_rects(msg)
+            return
+        if t == "capture":
+            self._handle_capture(msg)
             return
         _log.debug("web: unhandled message type %r from a tablet", t)
 
@@ -1126,6 +1134,123 @@ class Core:
                             "message": message})
         self.web.broadcast(self._geometry_msg())
 
+    # -- the Capture tab (doc section 12.7 — M4 build item 7) --------------
+
+    def _handle_capture(self, msg: Dict[str, Any]) -> None:
+        """Doc section 12.7's "Capture all" and "Burst".
+
+        **The lighting rule is the load-bearing part of this handler, and
+        it is enforced by refusing, not by building a second path.** Doc
+        section 12.7: "capture must run with the bin patches lit exactly
+        as serving mode lights them… The Capture tab must therefore drive
+        the same bin-patch path as serving mode, not its own." Doc section
+        21's acceptance list restates it as a rule about *design*: "If the
+        Capture tab has its own lighting path, that is a bug to fix before
+        collecting a single image, not after."
+
+        So there is no lighting code here at all. What there is instead:
+
+        - **Setting mode is required.** Not for the lighting — doc section
+          14.5 is explicit that "the field and the bin patches are
+          identical to serving mode" in setting mode, so this changes
+          nothing about the light. It is required because the operator is
+          reaching over trays and swapping them, which in serving mode is
+          a pick and would bill; the same reason Tare and Calibrate need
+          it (doc section 12.4).
+        - **A capture is refused outright while a dot calibration is
+          running.** That is the one state in the whole system where the
+          field is NOT what serving mode shows: I9's exception inverts it
+          to black. A burst that overlapped a solve would write training
+          images of food in the dark, under a light the live rig will
+          never reproduce — and they would look plausible in a folder.
+          This is the single check that stops doc section 12.7's rule from
+          being breakable at all.
+        - **The rects come from the geometry store, not from the
+          tablet.** The classifier crops camera space (doc section 4.7),
+          and the rects it should crop are the ones core owns. A tablet
+          sending its own would let an un-saved drag reach the dataset.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "capture_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        with self._overlay_lock:
+            calibrating = self._calibration_dots is not None
+        if calibrating:
+            self.web.broadcast({
+                "t": "capture_result", "ok": False,
+                "message": ("The table is showing the calibration pattern — "
+                            "wait for it to finish. Photographs taken now "
+                            "would be of food in the dark.")})
+            return
+        if not self.geometry.has_rects:
+            self.web.broadcast({
+                "t": "capture_result", "ok": False,
+                "message": ("The bin rectangles are not set yet — do that on "
+                            "the Setup tab first.")})
+            return
+
+        labels = msg.get("labels")
+        if (not isinstance(labels, list)
+                or len(labels) != binmap.NUM_BINS
+                or not all(isinstance(v, str) and v.strip() for v in labels)):
+            self.web.broadcast({
+                "t": "capture_result", "ok": False,
+                "message": f"Every one of the {binmap.NUM_BINS} bins needs a "
+                           "label before its photograph is worth keeping."})
+            return
+        burst = msg.get("burst", 1)
+        seconds = msg.get("seconds", 5.0)
+
+        # `[x, y, w, h, bin_index]` — the fifth element is what puts the
+        # bin number in the filename (doc section 12.7's
+        # `<unixms>_bin<i>.jpg`). The classifier reads it and ignores it
+        # otherwise; it never learns what a bin is.
+        rects = [list(r) + [i] for i, r in enumerate(self.geometry.cam_rects)]
+
+        reply = self._send_classifier_cmd(
+            "capture", CLASSIFIER_REPLY_TIMEOUT_S,
+            rects=rects, labels=list(labels), burst=burst, seconds=seconds)
+        if not reply or reply.get("ok") is False:
+            self.web.broadcast({
+                "t": "capture_result", "ok": False,
+                "message": str((reply or {}).get("error")
+                               or "the classifier is not answering")})
+            return
+        files = reply.get("files") or []
+        self.web.broadcast({
+            "t": "capture_result", "ok": True,
+            "message": (f"Saved {len(files)} images."
+                        + (" Cancelled part-way." if reply.get("cancelled")
+                           else "")),
+            "files": files,
+            "counts": self._capture_counts(),
+        })
+
+    def _capture_counts(self) -> Dict[str, int]:
+        """Doc section 12.7's "session counter per label, so the operator
+        can see they have 40 mushrooms and 6 prawns and go collect more
+        prawns."
+
+        Counted off the filesystem rather than kept in memory: the number
+        that matters is how many images exist, not how many this run of
+        core happened to take, and an operator who restarts core mid-
+        collection must not see the count reset to zero.
+        """
+        out: Dict[str, int] = {}
+        try:
+            if not CAPTURES_DIR.is_dir():
+                return out
+            for label_dir in CAPTURES_DIR.iterdir():
+                if not label_dir.is_dir():
+                    continue
+                out[label_dir.name] = sum(
+                    1 for f in label_dir.iterdir()
+                    if f.suffix.lower() in (".jpg", ".jpeg", ".png"))
+        except OSError:
+            _log.exception("core: could not count the captured images")
+        return out
+
     def _check_calibration_complete(self) -> None:
         """Doc section 9.1's UNCALIBRATED -> IDLE, taken the moment both
         state files exist.
@@ -1136,6 +1261,35 @@ class Core:
         """
         with self.state_lock:
             self.fsm.calibration_complete()
+
+    def _capture_msg(self) -> Dict[str, Any]:
+        """What the Capture tab needs on join: the camera-space rects to
+        crop previews out of the live feed, the label each bin defaults
+        to, and the per-label counts.
+
+        Doc section 12.7: "Each crop has a label selector defaulting to
+        the current bin-map item." The default is the item's **`id`**, not
+        its display name — doc section 8.1's hidden-label rule runs the
+        other way here than it does on the table. `names` is what a diner
+        reads; `class_name`/`id` is what the model emits, and a training
+        folder named "Fish Ball" would be a folder the model can never
+        produce a label for.
+        """
+        labels = []
+        for i in range(binmap.NUM_BINS):
+            item = self.catalogue.item(self.binmap.bins[i].item_id)
+            labels.append(item.class_name if item is not None else "")
+        return {
+            "t": "capture_info",
+            "rects": [None if r is None else [round(v, 1) for v in r]
+                      for r in self.geometry.cam_rects],
+            "labels": labels,
+            "choices": sorted({self.catalogue.item(i).class_name
+                               for i in self.catalogue.ids()
+                               if self.catalogue.item(i) is not None}
+                              | {"empty"}),
+            "counts": self._capture_counts(),
+        }
 
     def _geometry_msg(self) -> Dict[str, Any]:
         """What the Setup tab needs to render: whether the table is
