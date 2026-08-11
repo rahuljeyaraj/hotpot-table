@@ -245,8 +245,35 @@ the smoother's noise, which is what would hide bin 4.
 version of the capture test was a TRAP that passed by construction
 (alternating ±2000 survives a median-of-5 unchanged) and was rewritten
 to a one-in-five spike before it could fail.
-**Not run against the rig — no XIAO was attached for this step.** All
-evidence here is unit tests against an injected fake port.
+**Run against the live XIAO on COM5** (2026-08-11, after the commit —
+the commit message's "no XIAO attached" line is wrong, correction here).
+10s of real serial: 106 samples, 10.3Hz, **bad_lines exactly 1** — the
+truncated first line after open that §4.9 predicted, dropped, stream
+unaffected. `capture(2.0)` returned 21 samples, the number
+MIN_CAPTURE_SAMPLES' comment predicted. Grams were eight `None`
+throughout (nothing is calibrated yet) and `settled` eight `False`,
+which is the designed behaviour and not a failure: unmeasurable is not
+steady. After `stop()`, stale within 0.6s, still eight `None`.
+Not observed on the rig: unplug-and-reopen (needs a hand on the cable),
+and settle in grams (needs M2.3's calibration).
+
+**Empty-bin counts and noise differ from the 2026-08-11 numbers above.**
+Measured today over a 2s window, empty:
+
+    bin        0        1      2       3        4       5       6      7
+    counts -286992  163203  1513  -473574  -390799  46181  204281  -3617
+    rms       1068    1191     33       40      979    1485      60     48
+
+Two changes from the earlier record, both unexplained, neither
+investigated: **bin 1 now reads large POSITIVE** (it was negative), and
+**bin 4 is no longer the outlier** (1993 → 979, while bin 3 fell 54 → 40
+and bin 5 rose 1323 → 1485). Do not treat either list as settled; take a
+fresh capture before trusting a per-channel number.
+**Risk for M2.3, flagged not concluded:** bins 0, 1, 4 and 5 sit at
+1000-1500 counts rms. *If* counts/gram lands in the hundreds, as §8.3's
+example (214.77) suggests, that is 5-7g of noise against a ±2g settle
+band — those four bins would never settle. The first real calibration is
+what turns that from a risk into a number.
 
 Next: M2.3, calibration wired end to end — `scale.capture()` into
 `loadcell_cal.tare/calibrate`, persisted to `state/loadcell_cal.json`.
