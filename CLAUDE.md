@@ -1091,6 +1091,21 @@ same table the broken lock made look washed out. 1 test updated
 (asserted the old forced-off behaviour; now asserts nothing touches any
 control's auto mode with no prior settings).
 
+**Human-confirmed on this machine, 2026-08-12: exposure now auto-adjusts
+correctly in the Live tab.** Both bugs above are fixed and observed, not
+just reasoned about. This is real evidence the M3.1-M3.4 pipeline works
+end to end with a live camera — but it is `WindowsCapture` evidence, a
+dev-only backend, not `V4L2Capture`. **M3 is still not done by doc §21's
+own acceptance test**, which is specified against the rig: the live-feed
+half is now de-risked (real frames, correct colour, confirmed by a
+human) but untested on Linux/V4L2 itself, and two items haven't been
+touched at all — `kill -9` camera recovery (and the "camera stalled"
+table banner doc §21 expects for it, which was never built — see M3.3's
+notes, only the pip and the Live tab's own placeholder exist), and the
+camera elevation angle (I10), for which no measurement tool exists yet
+either (`tools/measure_camera_angle.md` is referenced in the doc but was
+never written).
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
