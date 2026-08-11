@@ -142,6 +142,37 @@ class TestOnJoin(ServerCase):
         self.assertEqual(self.recv_json(c), {"t": "seed", "n": 6})
 
 
+class TestOnJoinReturningAList(ServerCase):
+    """M2.6 build item 7: one seed message stopped being enough once a
+    tablet needed both the pips and the current mode on arrival. The
+    single-object case above must keep working unchanged — that is the
+    whole reason this is a list check rather than a signature change.
+    """
+
+    on_join = staticmethod(lambda: [{"t": "pips", "pips": []},
+                                    {"t": "mode", "mode": "serving"}])
+
+    def test_every_message_in_the_list_is_sent_in_order(self):
+        c = self.ws()
+        self.assertEqual(self.recv_json(c), {"t": "pips", "pips": []})
+        self.assertEqual(self.recv_json(c), {"t": "mode", "mode": "serving"})
+
+
+class TestOnJoinReturningAnEmptyList(ServerCase):
+    """A list is unpacked, so an empty one sends nothing at all rather
+    than a literal "[]" frame the tablet would have to parse and ignore.
+    Proven by the connection still being usable afterwards.
+    """
+
+    on_join = staticmethod(lambda: [])
+
+    def test_sends_nothing_and_the_connection_still_works(self):
+        c = self.ws()
+        self.assertTrue(wait_for(lambda: len(self.srv.hub) == 1))
+        self.srv.broadcast({"t": "later"})
+        self.assertEqual(self.recv_json(c), {"t": "later"})
+
+
 class TestBroadcast(ServerCase):
 
     def test_reaches_every_open_connection(self):

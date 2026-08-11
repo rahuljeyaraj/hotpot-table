@@ -120,6 +120,14 @@ class Server:
     tablet that opens the page a minute into the run sees the current pip
     row at once rather than waiting for the next transition.
 
+    It may return **one object or a list of them**, each sent in turn.
+    One seed message stopped being enough at M2.6: a tablet needs both
+    the pips and the current mode on arrival, or its action bar renders
+    the wrong button until someone touches something. A list rather than
+    a second callback because these are the same event — "a tablet just
+    attached, tell it everything it cannot derive" — and the Bins tab
+    will want to join that list later.
+
     `on_message`, if given, is called with the decoded JSON object for
     every text frame a tablet sends — doc section 12.8's mock controls are
     the first thing that needs this (M0 through M1 build item 4 had
@@ -207,8 +215,14 @@ class Server:
         self.hub.add(connection)
         try:
             if self._on_join is not None:
-                connection.send(json.dumps(self._on_join(), separators=(",", ":"),
-                                           ensure_ascii=False))
+                seed = self._on_join()
+                # A list means "send each of these"; anything else is one
+                # message, unchanged from M0. Only `list` is unpacked, not
+                # any iterable — a dict is iterable too, and a seed
+                # message is a dict.
+                for obj in (seed if isinstance(seed, list) else [seed]):
+                    connection.send(json.dumps(obj, separators=(",", ":"),
+                                               ensure_ascii=False))
             for frame in connection:
                 if self._on_message is None:
                     continue   # nothing wired up to want it; discard

@@ -221,7 +221,7 @@ class TestStateBroadcast(CoreCase):
         with lock:
             msg = msgs[0]
         self.assertEqual(msg["t"], "state")
-        self.assertEqual(msg["mode"], "diner")
+        self.assertEqual(msg["mode"], "serving")
         self.assertEqual(msg["locale"], "en")
         self.assertEqual(len(msg["bins"]), 8)
         self.assertEqual(msg["widgets"], [])
@@ -490,14 +490,9 @@ class TestDeveloperPanelMockControls(CoreCase):
                          "a valid message after a bad one never went through")
 
 
-class TestScaleWiredIntoCart(CoreCase):
-    """M2 build item 5 (doc section 21): Cart's live grams come from
-    core/scale.py's real reading once a bin has one — main.py's
-    _apply_scale_to_cart — replacing reliance on the M1 mock seed as an
-    ongoing source of truth. TestDeveloperPanelMockControls above is the
-    regression proof that an uncalibrated bin (every bin, in every test
-    up there — none of them ever call scale.feed()) is untouched by any
-    of this and the mock buttons still work exactly as before.
+class ScaleRig:
+    """A calibrated synthetic load cell, shared by the classes below that
+    need Cart to be driven by real weights rather than mock picks.
 
     Calibrates bins by writing straight to core.cal (the same object
     core.scale.cal is — Core.__init__'s own docstring) rather than
@@ -535,6 +530,17 @@ class TestScaleWiredIntoCart(CoreCase):
         t.start()
         self.addCleanup(stop.set)
         return counts, stop
+
+
+class TestScaleWiredIntoCart(ScaleRig, CoreCase):
+    """M2 build item 5 (doc section 21): Cart's live grams come from
+    core/scale.py's real reading once a bin has one — main.py's
+    _apply_scale_to_cart — replacing reliance on the M1 mock seed as an
+    ongoing source of truth. TestDeveloperPanelMockControls above is the
+    regression proof that an uncalibrated bin (every bin, in every test
+    up there — none of them ever call scale.feed()) is untouched by any
+    of this and the mock buttons still work exactly as before.
+    """
 
     def test_first_real_reading_baselines_instead_of_pricing_the_mock_gap(self):
         """A fresh Cart is seeded to MOCK_SEED_GRAMS (500g). Bin 0's real
@@ -717,6 +723,23 @@ class TestBinsTab(CoreCase):
         self.addCleanup(stop.set)
         return counts
 
+    def enter_setting(self, w):
+        """M2.6 decision 4: Tare and Calibrate are gated behind setting
+        mode, so every flow in this class now opens with the operator
+        tapping ENTER SETTING MODE. Doc section 12.4's own steps — empty
+        the bin, then place a reference mass in it — are ordinary picks
+        in serving mode and would bill; the mode is what makes them safe.
+
+        Sent on the same connection as the tare/calibrate that follows,
+        so ordering is guaranteed: web/server.py gives each connection
+        one thread and dispatches its frames in sequence.
+        """
+        w.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        msg = self.recv_until(
+            w, lambda m: m.get("t") == "mode" and m.get("mode") == "setting")
+        self.assertIsNotNone(msg, "never entered setting mode")
+        return msg
+
     def bins_msg(self, w, pred=lambda m: True, timeout=DEADLINE):
         return self.recv_until(
             w, lambda m: m.get("t") == "bins" and pred(m), timeout)
@@ -750,6 +773,7 @@ class TestBinsTab(CoreCase):
         self.feed(self.EMPTY)
         w = self.ws()
         self.recv_json(w)
+        self.enter_setting(w)
         w.send(json.dumps({"t": "tare", "bin": 3}))
         res = self.cal_result(w, 3, "tare")
         self.assertIsNotNone(res, "tare never produced a cal_result")
@@ -766,6 +790,7 @@ class TestBinsTab(CoreCase):
         self.feed(self.EMPTY)
         w = self.ws()
         self.recv_json(w)
+        self.enter_setting(w)
         w.send(json.dumps({"t": "calibrate", "bin": 1, "ref_mass_g": 500}))
         res = self.cal_result(w, 1, "calibrate")
         self.assertIsNotNone(res)
@@ -778,6 +803,7 @@ class TestBinsTab(CoreCase):
         counts = self.feed(self.EMPTY)
         w = self.ws()
         self.recv_json(w)
+        self.enter_setting(w)
 
         w.send(json.dumps({"t": "tare", "bin": 5}))
         self.assertTrue(self.cal_result(w, 5, "tare")["ok"])
@@ -798,6 +824,7 @@ class TestBinsTab(CoreCase):
         self.feed(self.EMPTY)
         w = self.ws()
         self.recv_json(w)
+        self.enter_setting(w)
         w.send(json.dumps({"t": "tare", "bin": 99}))
         w.send(json.dumps({"t": "tare", "bin": 2}))
         res = self.cal_result(w, 2, "tare")
@@ -812,6 +839,7 @@ class TestBinsTab(CoreCase):
         self.feed(self.EMPTY)
         w = self.ws()
         self.recv_json(w)
+        self.enter_setting(w)
         w.send(json.dumps({"t": "tare", "bin": 2}))
         self.assertTrue(self.cal_result(w, 2, "tare")["ok"])
 
@@ -823,21 +851,48 @@ class TestBinsTab(CoreCase):
         self.assertTrue(self.cal_result(w, 4, "tare")["ok"])
         self.assertFalse(self.core.cal.bins[2].calibrated)
 
-    def test_calibration_session_does_not_bill_the_reference_weight(self):
-        """The bug this guards: without cal_begin/cal_end, the instant
-        calibrate() succeeds, _apply_scale_to_cart seeds Cart to whatever
-        real weight is sitting in the bin — the reference mass, still
-        there for the wizard's verification step. Lifting it back out
-        afterwards, the ordinary next move of the calibration flow, would
-        then read as a diner picking that exact weight and bill it. The
-        wizard now brackets Tare and Calibrate each in their own
-        cal_begin/cal_end, and bin 6 must show nothing billed at any
-        point until cal_end re-baselines it to what it actually holds.
+    def test_tare_and_calibrate_are_refused_in_serving_mode(self):
+        """M2.6 decision 4. Doc section 12.4's flow needs an empty bin and
+        then a reference mass placed in it — both are ordinary picks in
+        serving mode, and both would bill. This is the check that replaced
+        the per-bin cal_begin/cal_end freeze.
+
+        MUTATION CHECKED: drop the `in_setting` guard from
+        `_handle_cal()` and both halves go red.
+        """
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        # No enter_setting() — that is the point.
+        w.send(json.dumps({"t": "tare", "bin": 3}))
+        res = self.cal_result(w, 3, "tare")
+        self.assertIsNotNone(res, "a refused tare sent no cal_result at all")
+        self.assertFalse(res["ok"])
+        self.assertIn("setting mode", res["message"])
+        self.assertFalse(self.core.cal.bins[3].tared,
+                          "a serving-mode tare reached the calibration file")
+
+        w.send(json.dumps({"t": "calibrate", "bin": 3, "ref_mass_g": 500}))
+        res = self.cal_result(w, 3, "calibrate")
+        self.assertFalse(res["ok"])
+        self.assertIn("setting mode", res["message"])
+        self.assertFalse(self.core.cal.bins[3].calibrated)
+
+    def test_the_whole_calibration_flow_bills_nothing_in_setting_mode(self):
+        """What the deleted cal_begin/cal_end freeze used to guarantee per
+        bin, now guaranteed mode-wide: an operator empties a bin by hand,
+        places a 650 g reference mass, calibrates, and lifts the mass back
+        out — and none of it is a pick.
+
+        650 g is chosen to differ from MOCK_SEED_GRAMS' 500 g so a
+        coincidental match cannot hide a regression. Exit is what
+        re-baselines, and after it the table must read zero.
         """
         counts = self.feed(self.EMPTY)
         _, of_msgs, of_lock = self.of_client()
         w = self.ws()
         self.recv_json(w)
+        self.enter_setting(w)
 
         def clear():
             with of_lock:
@@ -847,82 +902,342 @@ class TestBinsTab(CoreCase):
             with of_lock:
                 return of_msgs and all(m["bins"][6]["picked"] == 0 for m in of_msgs)
 
-        # Tare: staff empties the bin by hand (already empty here), taps
-        # Confirm, taps Done.
-        w.send(json.dumps({"t": "cal_begin", "bin": 6}))
         w.send(json.dumps({"t": "tare", "bin": 6}))
         self.assertTrue(self.cal_result(w, 6, "tare")["ok"])
-        w.send(json.dumps({"t": "cal_end", "bin": 6}))
 
-        # Calibrate: staff places a 650g reference mass (chosen to differ
-        # from MOCK_SEED_GRAMS' 500g, so a coincidental match can't hide a
-        # regression), taps Confirm.
-        w.send(json.dumps({"t": "cal_begin", "bin": 6}))
-        counts[6] = 0     # some counts value distinct from the -83422 zero
+        counts[6] = 0     # a counts value distinct from the -83422 zero
         w.send(json.dumps({"t": "calibrate", "bin": 6, "ref_mass_g": 650}))
         done = self.cal_result(w, 6, "calibrate")
         self.assertTrue(done["ok"], done)
         self.assertAlmostEqual(done["grams"], 650.0, delta=5.0)
 
-        # The reference mass is sitting in a now-calibrated bin — the
-        # wizard is still open (no cal_end yet). Nothing must bill.
+        # The reference mass is sitting in a now-calibrated bin. Nothing
+        # must bill: the mode, not a per-bin freeze, is what stops it.
         clear()
         self.wait_for_n(of_msgs, of_lock, 5)
         self.assertTrue(all_bin6_unpicked(),
-                        "the reference mass billed while the wizard was still open")
+                        "the reference mass billed while in setting mode")
 
-        # Staff lifts the reference mass back out — still before cal_end.
-        # This is the exact step that used to bill 650g as a phantom pick.
+        # The operator lifts the reference mass back out. This is the
+        # exact step that used to bill 650 g as a phantom pick.
         counts[6] = self.EMPTY[6]
         clear()
         self.wait_for_n(of_msgs, of_lock, 5)
         self.assertTrue(all_bin6_unpicked(),
-                        "removing the reference mass billed before cal_end")
+                        "removing the reference mass billed in setting mode")
 
-        # Operator taps Done: cal_end re-baselines bin 6 to what it holds
-        # now (empty) instead of pricing the whole session as a 650g pick.
+        # Exit re-baselines all eight bins against what they hold now.
         clear()
-        w.send(json.dumps({"t": "cal_end", "bin": 6}))
+        w.send(json.dumps({"t": "set_mode", "mode": "serving"}))
 
         def rebaselined():
             with of_lock:
                 return any(m["bins"][6]["grams"] == 0 for m in of_msgs)
-        self.assertTrue(wait_for(rebaselined), "bin 6 never re-baselined after cal_end")
+        self.assertTrue(wait_for(rebaselined), "bin 6 never re-baselined on exit")
         with of_lock:
             last = of_msgs[-1]
         self.assertEqual(last["bins"][6]["picked"], 0)
         self.assertEqual(last["total"]["amount"], 0.0)
 
-    def test_abandoned_wizard_auto_releases_instead_of_freezing_forever(self):
-        """cal_end can simply never arrive — a tablet dropped off Wi-Fi or
-        a browser closed mid-wizard. A bin must not stay excluded from
-        billing for the rest of the evening because of it; it self-heals
-        once CAL_FREEZE_TIMEOUT_S has passed (same tolerance-for-a-
-        dropped-link rule as wire.py's reconnect ladder), the same as any
-        ordinary reading from then on.
+
+class TestMode(ScaleRig, CoreCase):
+    """M2.6: the SERVING/SETTING mode, end to end over the real
+    WebSocket — `set_mode` in, `mode` broadcast out, and the billing gate
+    and exit re-baseline those two drive.
+    """
+
+    def mode_msg(self, w, pred=lambda m: True, timeout=DEADLINE):
+        return self.recv_until(
+            w, lambda m: m.get("t") == "mode" and pred(m), timeout)
+
+    def set_mode(self, w, mode):
+        w.send(json.dumps({"t": "set_mode", "mode": mode}))
+
+    def state_mode(self, of_msgs, of_lock, want):
+        def seen():
+            with of_lock:
+                return any(m["mode"] == want for m in of_msgs)
+        return wait_for(seen)
+
+    # -- the join seed ---------------------------------------------------
+
+    def test_a_joining_tablet_is_told_the_mode_as_well_as_the_pips(self):
+        """web/server.py's on_join now takes a list (build item 7). Both
+        messages, in order — without the second, a tablet that joins
+        mid-run renders the wrong action-bar button until someone
+        touches something.
         """
-        counts = self.feed(self.EMPTY)
+        w = self.ws()
+        first = self.recv_json(w)
+        second = self.recv_json(w)
+        self.assertEqual(first["t"], "pips")
+        self.assertEqual(second["t"], "mode")
+        self.assertEqual(second["mode"], "serving")
+        self.assertFalse(second["cart_active"])
+        self.assertIsNone(second["refused"])
+
+    def test_a_tablet_joining_during_setting_mode_is_told_setting(self):
         w = self.ws()
         self.recv_json(w)
-        w.send(json.dumps({"t": "cal_begin", "bin": 7}))
-        w.send(json.dumps({"t": "tare", "bin": 7}))
-        self.assertTrue(self.cal_result(w, 7, "tare")["ok"])
-        counts[7] = 0
-        w.send(json.dumps({"t": "calibrate", "bin": 7, "ref_mass_g": 300}))
-        self.assertTrue(self.cal_result(w, 7, "calibrate")["ok"])
-        # No cal_end: simulate the tablet having dropped, and the freeze
-        # having been open far longer than CAL_FREEZE_TIMEOUT_S allows,
-        # without an actual multi-minute sleep.
-        with self.core.state_lock:
-            self.assertIn(7, self.core._calibrating)
-            self.core._calibrating[7] = time.time() - coremain.CAL_FREEZE_TIMEOUT_S - 1.0
+        self.recv_json(w)
+        self.set_mode(w, "setting")
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "setting"))
 
-        def released():
-            with self.core.state_lock:
-                return 7 not in self.core._calibrating
-        self.assertTrue(wait_for(released), "the abandoned freeze never auto-released")
-        self.assertTrue(self.core._scale_baselined[7],
-                        "bin 7 never resumed ordinary billing after the freeze released")
+        w2 = self.ws()          # a second tablet, opened after the change
+        self.recv_json(w2)
+        self.assertEqual(self.recv_json(w2)["mode"], "setting")
+
+    # -- the toggle ------------------------------------------------------
+
+    def test_full_toggle_round_trip_over_a_real_websocket(self):
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+
+        self.set_mode(w, "setting")
+        msg = self.mode_msg(w, lambda m: m["mode"] == "setting")
+        self.assertIsNotNone(msg, "set_mode setting never came back")
+        self.assertIsNone(msg["refused"])
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.SETTING)
+
+        self.set_mode(w, "serving")
+        msg = self.mode_msg(w, lambda m: m["mode"] == "serving")
+        self.assertIsNotNone(msg, "set_mode serving never came back")
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.IDLE)
+
+    def test_the_mode_reaches_the_state_message_in_both_modes(self):
+        """Doc section 4.3's `mode` field, derived from fsm.state at last
+        — it was hardcoded "diner" from M1 until this milestone.
+
+        MUTATION CHECKED: hardcode `_state_msg()`'s mode back to
+        MODE_SERVING and this goes red on the setting half.
+        """
+        _, of_msgs, of_lock = self.of_client()
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        self.assertTrue(self.state_mode(of_msgs, of_lock, "serving"))
+
+        self.set_mode(w, "setting")
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "setting"))
+        with of_lock:
+            of_msgs.clear()
+        self.assertTrue(self.state_mode(of_msgs, of_lock, "setting"),
+                        "the state message never said setting")
+
+        self.set_mode(w, "serving")
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "serving"))
+        with of_lock:
+            of_msgs.clear()
+        self.assertTrue(self.state_mode(of_msgs, of_lock, "serving"))
+
+    def test_a_bad_mode_value_is_ignored_not_a_crash(self):
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        w.send(json.dumps({"t": "set_mode", "mode": "banana"}))
+        self.set_mode(w, "setting")      # proof the link survived
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "setting"))
+
+    # -- the refusal (doc section 9.1) -----------------------------------
+
+    def test_entering_with_an_active_cart_is_refused_and_the_reason_reaches_the_wire(self):
+        """Doc section 9.1: "One wrong keypress must not destroy a diner's
+        order. The staff view shows *why* it is refused."
+
+        MUTATION CHECKED: make can_enter_setting() always return None and
+        this goes red.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        w.send(json.dumps({"t": "mock_pick", "bin": 2, "grams": 45}))
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["cart_active"]),
+                             "cart_active never flipped after a real pick")
+
+        self.set_mode(w, "setting")
+        msg = self.mode_msg(w, lambda m: m["refused"] is not None)
+        self.assertIsNotNone(msg, "a refused set_mode said nothing at all")
+        self.assertEqual(msg["mode"], "serving", "refused and yet the mode changed")
+        self.assertTrue(msg["cart_active"])
+        self.assertIsInstance(msg["refused"], str)
+        self.assertTrue(msg["refused"].strip())
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.IDLE)
+
+    def test_cancel_order_then_entering_setting_mode_works(self):
+        """Doc section 9.1's pairing: the refusal offers "cancel the order
+        first", so that has to actually clear the way. Without core's
+        cancel handler this is the loop an operator cannot get out of.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        w.send(json.dumps({"t": "mock_pick", "bin": 2, "grams": 45}))
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["cart_active"]))
+
+        w.send(json.dumps({"t": "cancel_order"}))
+        self.assertIsNotNone(self.mode_msg(w, lambda m: not m["cart_active"]),
+                             "cancel_order never cleared the cart")
+
+        self.set_mode(w, "setting")
+        msg = self.mode_msg(w, lambda m: m["mode"] == "setting")
+        self.assertIsNotNone(msg, "setting mode was still refused after cancel_order")
+        self.assertIsNone(msg["refused"])
+
+    def test_cart_active_is_broadcast_without_being_asked(self):
+        """The action bar pre-warns off this field, so it has to arrive on
+        a change rather than on a round trip — and only on a change, not
+        on every one of the 60 state ticks a second.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        w.send(json.dumps({"t": "mock_pick", "bin": 4, "grams": 120}))
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["cart_active"]))
+
+        w.send(json.dumps({"t": "mock_putback", "bin": 4, "grams": 120}))
+        self.assertIsNotNone(self.mode_msg(w, lambda m: not m["cart_active"]))
+
+    def test_an_unchanged_mode_is_not_rebroadcast_every_tick(self):
+        """"On change, not on a timer" (build item 6). The state loop calls
+        _publish_mode() 60 times a second; if it sent every time, a tablet
+        would be taking 60 mode frames a second forever.
+
+        MUTATION CHECKED: drop the `key == self._last_mode_key` early
+        return and this goes red.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        seen = 0
+        end = time.time() + 0.5
+        while time.time() < end:
+            try:
+                msg = self.recv_json(w, timeout=max(0.05, end - time.time()))
+            except TimeoutError:
+                break
+            if msg.get("t") == "mode":
+                seen += 1
+        self.assertEqual(seen, 0,
+                          f"{seen} unsolicited mode frames in 0.5s with nothing changing")
+
+    # -- the billing gate ------------------------------------------------
+
+    def test_scale_readings_do_not_reach_cart_in_setting_mode(self):
+        """The whole point of the milestone: staff lifting a tray out is
+        not a pick.
+
+        MUTATION CHECKED: drop the `State.SETTING` early return from
+        _apply_scale_to_cart() and this goes red — the 400 g shows up as
+        a live pick while the mode is still on.
+        """
+        self.calibrate_bin(0, ref_mass_g=500.0)
+        _, of_msgs, of_lock = self.of_client()
+        counts, _ = self.feed(
+            [self.grams_to_counts(500.0) if i == 0 else self.ZERO_COUNTS
+             for i in range(8)])
+
+        def baselined():
+            with of_lock:
+                return any(m["bins"][0]["grams"] == 500 for m in of_msgs)
+        self.assertTrue(wait_for(baselined), "bin 0 never baselined")
+
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        self.set_mode(w, "setting")
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "setting"))
+
+        # The tray comes out. In serving mode this would be a 400 g pick.
+        counts[0] = self.grams_to_counts(100.0)
+        with of_lock:
+            of_msgs.clear()
+        self.wait_for_n(of_msgs, of_lock, 10)
+        with of_lock:
+            frozen = [m["bins"][0] for m in of_msgs]
+        for b in frozen:
+            self.assertEqual(b["grams"], 500, "a setting-mode weight change reached Cart")
+            self.assertEqual(b["picked"], 0)
+
+    def test_exit_rebaselines_against_current_weight_not_stale(self):
+        """**THE M2.6 TRAP, driven as the real scenario.**
+
+        Enter setting mode, swap a bin's tray for a much lighter one
+        (~400 g of difference), exit. `_apply_scale_to_cart()` was off the
+        whole time, so live_g still says 500 g while the bin now holds
+        100 g. `reset_session()` does `start_g[i] = live_g[i]`. Without
+        the weight refresh first, start_g captures 500, the next tick sets
+        live_g to 100, and `removed_g` becomes 400 — **the next diner is
+        billed for the tray swap.**
+
+        If only one test survived this milestone, it should be this one.
+
+        MUTATION CHECKED: delete the `self._refresh_weights()` call from
+        fsm.exit_setting() and this goes red with picked == 400 and a
+        non-zero total. Emptying `_refresh_weights_from_scale()`'s body in
+        core/main.py goes red the same way.
+        """
+        self.calibrate_bin(0, ref_mass_g=500.0)
+        _, of_msgs, of_lock = self.of_client()
+        counts, _ = self.feed(
+            [self.grams_to_counts(500.0) if i == 0 else self.ZERO_COUNTS
+             for i in range(8)])
+
+        def baselined():
+            with of_lock:
+                return any(m["bins"][0]["grams"] == 500 for m in of_msgs)
+        self.assertTrue(wait_for(baselined), "bin 0 never baselined to its real weight")
+
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        self.set_mode(w, "setting")
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "setting"))
+
+        # Staff swap the full tray for a nearly empty one.
+        counts[0] = self.grams_to_counts(100.0)
+        time.sleep(0.3)            # let the reader's median window catch up
+
+        self.set_mode(w, "serving")
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "serving"))
+
+        # The table must read the new tray's weight and bill nothing.
+        with of_lock:
+            of_msgs.clear()
+
+        def shows_the_new_tray():
+            with of_lock:
+                return any(m["bins"][0]["grams"] == 100 for m in of_msgs)
+        self.assertTrue(wait_for(shows_the_new_tray),
+                        "bin 0 never picked up the swapped-in tray's weight")
+
+        self.wait_for_n(of_msgs, of_lock, 5)
+        with of_lock:
+            after = list(of_msgs)
+        for m in after:
+            self.assertEqual(m["bins"][0]["picked"], 0,
+                              "the tray swap billed as a pick — the weight refresh is missing")
+            self.assertEqual(m["bins"][0]["price"], 0.0)
+            self.assertEqual(m["total"]["amount"], 0.0)
+
+    def test_exit_locks_the_bin_map(self):
+        """binmap.locked has been persisted and loaded since M1 with no
+        writer anywhere. Setting-mode exit is it (doc section 8.2), and
+        M7 build item 4 is what will need it.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        self.assertFalse(self.core.binmap.locked)
+
+        self.set_mode(w, "setting")
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "setting"))
+        self.assertFalse(self.core.binmap.locked,
+                          "the map locked on entry — doc 8.2 says it unlocks while setting")
+
+        self.set_mode(w, "serving")
+        self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "serving"))
+        self.assertTrue(self.core.binmap.locked)
 
 
 class TestNoiseDots(unittest.TestCase):

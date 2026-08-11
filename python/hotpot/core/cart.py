@@ -52,9 +52,15 @@ class Cart:
     def reset_session(self) -> None:
         """I6: re-baseline, never re-tare — `start_g[i] = live_g[i]`.
         Nothing becomes zero. Doc section 9.1: this is the one shared
-        function called from cancel, checkout completion, and staff-mode
+        function called from cancel, checkout completion, and setting-mode
         exit, once each of those exists to call it. Never re-derive this
         logic at a call site.
+
+        Setting-mode exit has an extra requirement this method cannot
+        enforce on its own: live_g must be refreshed from the scale
+        *first*, or a tray swapped during setting mode gets baselined at
+        its old weight. fsm.exit_setting() owns that ordering — read its
+        docstring before calling this from any new place.
         """
         for i in range(NUM_BINS):
             self.start_g[i] = self.live_g[i]
@@ -68,6 +74,34 @@ class Cart:
         """
         self._check_bin(i)
         return max(0.0, self.start_g[i] - self.live_g[i])
+
+    def is_active(self) -> bool:
+        """"Is a diner part-way through an order?" — doc section 9.1's
+        "staff enter, cart empty" precondition, which fsm.py's
+        can_enter_setting() is the only caller of so far.
+
+        **shown_g, NOT removed_grams().** This is the single easiest thing
+        to get wrong here and the failure is not subtle. `removed_g =
+        max(0, start_g - live_g)` is raw and moves with load-cell noise —
+        CLAUDE.md's per-channel table has four bins sitting at 500-1500
+        counts rms, which at a plausible counts/gram is several grams of
+        permanent wobble. Reading that raw number would make this true
+        essentially always on a noisy channel and **setting mode would be
+        permanently unreachable**, since an active cart is the one thing
+        that refuses entry.
+
+        shown_g is deadband-gated (set_live_grams above), so it is 0 until
+        a real >=10 g pick lands, and it is also exactly what the diner
+        can see on the table — refusing to enter setting mode because of
+        something visible is explicable to an operator; refusing because
+        of invisible noise is not.
+
+        Accepted cost: a sub-deadband pick (say 5 g) reads as inactive and
+        is discarded by exit's re-baseline. That is about Rs 0.60 and
+        invisible on the table, against a mode that could not be entered
+        at all.
+        """
+        return any(g > 0.0 for g in self.shown_g)
 
     def set_live_grams(self, i: int, grams: float) -> None:
         """The one entry point for 'the scale (or its mock) now reads

@@ -1,7 +1,7 @@
 """Core process — M0 scope (doc section 21, build item 7), M1 build item
 3 (the domain modules wired in and broadcasting `state` at 60Hz), M2
-build item 4 (the staff view's Bins tab, doc section 12.4), and now M2
-build item 5: real grams wired into pricing.
+build items 4 and 5 (the staff view's Bins tab, doc section 12.4, and
+real grams wired into pricing), and now M2.6: the SERVING/SETTING mode.
 
 What exists here: the one control server every other process dials into,
 the client registry that turns hellos and heartbeats into the six status
@@ -25,6 +25,19 @@ sentence was for. The Bins tab's grams still come straight from
 `self.scale.read()` rather than Cart, but for a bin Cart has already
 adopted the two numbers are now the same reading one tick apart, not two
 independent sources.
+
+M2.6 adds the mode itself. `_state_msg()`'s `"mode"` is now derived from
+`fsm.state` instead of the hardcoded `"diner"` it carried since M1 —
+doc section 4.3 has specified that field since v3.0 and nothing had ever
+produced it. `_apply_scale_to_cart()` returns immediately in SETTING, and
+`fsm.exit_setting()` refreshes every bin's weight (via
+`_refresh_weights_from_scale` below), re-baselines and locks the bin map
+on the way out. That mode-wide gate is what let M2.4's `_calibrating`
+dict, `CAL_FREEZE_TIMEOUT_S`, `_handle_cal_session` and the
+`cal_begin`/`cal_end` wire messages all be deleted: they were the per-bin
+stand-in for a "not billing" state that did not exist yet. Tare and
+Calibrate now require SETTING (M2.6 decision 4), and the tablet drives
+the mode with `set_mode`, answered by a broadcast `mode` message.
 
 **Do NOT** (M0 build list, doc section 21): open the camera, touch
 MediaPipe, or write any oF code. This file does none of those.
@@ -110,18 +123,11 @@ BINS_BROADCAST_EVERY = 6
 NOISE_DOTS = 8
 NOISE_BAR_SPAN_MULT = 2.0
 
-# doc section 9.1 puts calibration inside a real STAFF state that refuses
-# to bill and re-baselines the whole cart on exit — that state does not
-# exist yet (fsm.py's docstring: arrives with M2/M7). Until it does, this
-# is the narrow version, scoped to whichever one bin the Bins tab wizard
-# has open (see _handle_cal_session): the wizard sends cal_begin/cal_end
-# around the whole Tare or Calibrate screen, not just the capture, so a
-# staff member emptying a bin by hand before tapping Confirm is covered
-# too. If a tablet drops mid-wizard (Wi-Fi, closed browser) and cal_end
-# never arrives, the bin must not stay excluded from billing forever —
-# same tolerance-for-a-dropped-link rule as wire.py's reconnect ladder —
-# so _apply_scale_to_cart auto-releases the freeze after this long.
-CAL_FREEZE_TIMEOUT_S = 300.0
+# Doc section 4.3's `mode` field, both values. Derived from fsm.State, not
+# stored: two places that can disagree about which mode the table is in is
+# exactly the bug M2.6 exists to remove.
+MODE_SERVING = "serving"
+MODE_SETTING = "setting"
 
 
 def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
@@ -189,7 +195,7 @@ class Core:
             name="core",
         )
         self.web = web.Server(web_host, web_port, static_root,
-                              on_join=self._pips_msg, on_message=self._on_web_message)
+                              on_join=self._join_msgs, on_message=self._on_web_message)
         # Core beats its own pip from its own loop rather than being
         # hardcoded green (common/health.py's rationale): a wedged main
         # loop with a live web thread is a real failure and this is what
@@ -203,7 +209,13 @@ class Core:
         self.locales = i18n.Locales.load(data_dir / "locales", locales=(self.locale,))
         self.binmap = _seed_binmap(self.catalogue)
         self.cart = _seed_cart()
-        self.fsm = fsm.Fsm(self.cart)
+        # binmap and refresh_weights are both here so that fsm.py owns all
+        # three of doc section 9.1's setting-exit steps — refresh, then
+        # re-baseline, then lock — rather than leaving any of them to a
+        # caller who might do two and forget the third. Read
+        # fsm.exit_setting()'s docstring before changing either.
+        self.fsm = fsm.Fsm(self.cart, self.binmap,
+                           refresh_weights=self._refresh_weights_from_scale)
 
         # -- M2 build item 4: the Bins tab's reader and calibrator ------
         # calibrator.py's own docstring gives this exact wiring order:
@@ -240,11 +252,12 @@ class Core:
         # mock pick/put-back on top of it) — see _apply_scale_to_cart().
         self._scale_baselined = [False] * cart.NUM_BINS
 
-        # Bin index -> time.time() the Bins tab's wizard opened on it, for
-        # as long as it stays open. See CAL_FREEZE_TIMEOUT_S and
-        # _handle_cal_session: while a bin is a key here,
-        # _apply_scale_to_cart leaves Cart alone for it entirely.
-        self._calibrating: Dict[int, float] = {}
+        # The last (mode, cart_active) pair actually put on the wire. The
+        # `mode` message is broadcast on change, not on a timer (M2.6 —
+        # same model as _on_pip_change, no new clock), and this is what
+        # "on change" is compared against. None means nothing has been
+        # sent yet, so the first tick always sends one.
+        self._last_mode_key: Optional[tuple] = None
 
         # I1 says core owns all state; it does not say core touches it from
         # one thread, and core does not. Reads happen on the 60Hz broadcast
@@ -343,6 +356,62 @@ class Core:
     def _on_pip_change(self, who: str, old: str, new: str) -> None:
         self.web.broadcast(self._pips_msg())
 
+    def _join_msgs(self) -> list:
+        """Everything a tablet cannot derive on its own, sent the moment
+        it attaches (web/server.py's `on_join`, which takes a list as of
+        M2.6). The pips alone stopped being enough once the action bar
+        existed: a tablet that joins mid-run would render ENTER SETTING
+        MODE while the table was already in setting mode, and stay wrong
+        until someone touched something.
+
+        Not the `bins` message — that one is already on a 10Hz timer, so
+        a joining tablet waits at most 100ms for it.
+        """
+        return [self._pips_msg(), self._mode_msg()]
+
+    # -- the mode (doc sections 4.3, 9.1, 12.2 — M2.6) ----------------------
+
+    def _mode_msg(self, refused: Optional[str] = None) -> Dict[str, Any]:
+        """The `mode` message the staff view's action bar reads.
+
+        `cart_active` rides along so the action bar can pre-warn — grey
+        the primary button's subtitle, show "an order is in progress" —
+        without a round trip to ask. `refused` carries
+        `fsm.can_enter_setting()`'s reason on a rejected `set_mode` and is
+        null otherwise; it is the *why* doc section 9.1 requires the staff
+        view to show.
+        """
+        with self.state_lock:
+            mode = (MODE_SETTING if self.fsm.state is fsm.State.SETTING
+                    else MODE_SERVING)
+            active = self.cart.is_active()
+        return {"t": "mode", "mode": mode, "cart_active": active,
+                "refused": refused}
+
+    def _publish_mode(self, refused: Optional[str] = None) -> None:
+        """Broadcast `mode` when either field flips — or unconditionally
+        when there is a refusal to deliver, since a refused `set_mode`
+        changes neither field and would otherwise be silent.
+
+        Broadcast rather than a direct reply to the tablet that asked:
+        web/server.py's `on_message` hands this callback the decoded frame
+        with no connection handle (server.py's docstring). That is
+        actively right here rather than merely tolerated — the mode is
+        global state and every attached tablet must agree on it, so
+        answering only the asker would be the bug.
+
+        Called from the state loop, so this is also what notices a mock
+        pick or a real pick crossing the deadband and flipping
+        `cart_active`. Deliberately not on its own timer: it sends
+        nothing at all on a tick where nothing changed.
+        """
+        msg = self._mode_msg(refused)
+        key = (msg["mode"], msg["cart_active"])
+        if refused is None and key == self._last_mode_key:
+            return
+        self._last_mode_key = key
+        self.web.broadcast(msg)
+
     # -- developer-panel mock controls (doc section 12.8, build item 5) -----
     # -- and the Bins tab's Tare/Calibrate wizard (doc section 12.4, M2) ----
 
@@ -359,10 +428,71 @@ class Core:
         if t == "tare" or t == "calibrate":
             self._handle_cal(t, msg)
             return
-        if t == "cal_begin" or t == "cal_end":
-            self._handle_cal_session(t, msg)
+        if t == "set_mode":
+            self._handle_set_mode(msg)
+            return
+        if t == "cancel_order":
+            self._handle_cancel_order()
             return
         _log.debug("web: unhandled message type %r from a tablet", t)
+
+    def _handle_set_mode(self, msg: Dict[str, Any]) -> None:
+        """Doc section 12.2's action bar, both directions (M2.6).
+
+        The transition happens under state_lock and the broadcast happens
+        outside it — _broadcast_state's own rule, and it matters more
+        here: exit_setting() reads the scale and re-baselines all eight
+        bins, so holding the domain lock across the socket write would
+        let a wedged tablet stall the 60Hz state loop.
+        """
+        want = msg.get("mode")
+        if want not in (MODE_SERVING, MODE_SETTING):
+            _log.warning("web: set_mode with bad mode %r — ignored", want)
+            return
+        refused = None
+        with self.state_lock:
+            if want == MODE_SETTING:
+                # can_enter_setting() first, then enter: the refusal has a
+                # reason the tablet has to show (doc section 9.1), and
+                # enter_setting()'s bool cannot carry it.
+                refused = self.fsm.can_enter_setting()
+                if refused is None:
+                    self.fsm.enter_setting()
+            else:
+                self.fsm.exit_setting()
+        self._publish_mode(refused=refused)
+
+    def _handle_cancel_order(self) -> None:
+        """Doc section 12.2's second action-bar button, and the first
+        caller `fsm.cancel()` has ever had — it has existed since M1
+        build item 2 with nothing wired to it.
+
+        Confirmation is the tablet's job (index.html), not this one: by
+        the time a frame arrives here the operator has already said yes,
+        and re-asking over the wire would need a round trip the wire
+        protocol has no shape for.
+
+        **The fallback below is not belt-and-braces — without it this
+        button does nothing at all today, and the M2.6 plan did not
+        anticipate that.** `fsm.cancel()` is SELECTING -> IDLE, and
+        *nothing in this codebase yet moves the table into SELECTING*:
+        `hand_present()` is M5's tracker and `staff_start()` is a Start
+        button that does not exist. So a diner picking 50 g leaves the
+        cart active while the FSM sits in IDLE, `cancel()` returns False,
+        and the cart is never cleared — which would leave setting mode
+        permanently refused with a "cancel the order first" button that
+        cannot fix it. That is exactly the refusal loop doc section 9.1's
+        pairing exists to prevent.
+
+        `reset_session()` is doc section 9.1's own shared function, called
+        here rather than re-derived, so this is not the inlining that rule
+        forbids. Once M5 drives IDLE -> SELECTING for real, `cancel()`
+        will handle every live case and this falls back to unreachable.
+        """
+        with self.state_lock:
+            if not self.fsm.cancel() and self.cart.is_active():
+                self.cart.reset_session()
+        self._publish_mode()
 
     def _handle_mock(self, t: str, msg: Dict[str, Any]) -> None:
         i = msg.get("bin")
@@ -400,6 +530,20 @@ class Core:
         if not isinstance(i, int) or isinstance(i, bool) or not (0 <= i < binmap.NUM_BINS):
             _log.warning("web: %s with bad bin %r — ignored", t, i)
             return
+        # M2.6 decision 4: both flows are gated behind setting mode. Doc
+        # section 12.4's own steps require an empty bin and then a
+        # reference mass placed in it — both of those are ordinary picks
+        # in serving mode, and would bill. The mode is what makes them
+        # safe, which is why this replaced the per-bin cal_begin/cal_end
+        # freeze rather than sitting alongside it.
+        with self.state_lock:
+            in_setting = self.fsm.state is fsm.State.SETTING
+        if not in_setting:
+            self.web.broadcast({
+                "t": "cal_result", "bin": i, "op": t, "ok": False,
+                "message": "Enter setting mode first — the table is still billing.",
+            })
+            return
         try:
             if t == "tare":
                 result = self.calibrator.tare(i)
@@ -428,40 +572,6 @@ class Core:
             "noise_g": result.noise_g, "noisy": result.noisy,
         })
 
-    def _handle_cal_session(self, t: str, msg: Dict[str, Any]) -> None:
-        """The Bins tab wizard's open/close (index.html's openWizard() /
-        closeWizard()), wrapping a whole Tare or Calibrate screen rather
-        than just the capture inside `_handle_cal`.
-
-        Staff emptying a bin by hand, or lifting a reference mass back out
-        of it once Calibrate is done, is not a diner picking food, and
-        must not price as one. Between cal_begin and cal_end the bin is a
-        key in self._calibrating, and _apply_scale_to_cart leaves it alone
-        entirely. On cal_end this re-baselines the bin (cart.seed_live_
-        grams — same one-time hand-off M2 build item 5 uses for a bin's
-        very first real reading) to whatever it holds right now, so the
-        session that just ended prices as zero rather than as everything
-        that came out of it while the operator worked — the same "re-
-        baseline, never re-tare" rule doc section 9.1 gives STAFF exit,
-        just scoped to the one bin the wizard touched. A bin still
-        uncalibrated (grams still None — a first-ever tare with no
-        calibrate yet) has nothing to re-baseline to and is left exactly
-        as _apply_scale_to_cart would have left it anyway.
-        """
-        i = msg.get("bin")
-        if not isinstance(i, int) or isinstance(i, bool) or not (0 <= i < binmap.NUM_BINS):
-            _log.warning("web: %s with bad bin %r — ignored", t, i)
-            return
-        with self.state_lock:
-            if t == "cal_begin":
-                self._calibrating[i] = time.time()
-                return
-            self._calibrating.pop(i, None)
-            g = self.scale.read().grams[i]
-            if g is not None:
-                self.cart.seed_live_grams(i, g)
-                self._scale_baselined[i] = True
-
     # -- wiring the scale into Cart (doc section 21, M2 build item 5) -------
 
     def _apply_scale_to_cart(self) -> None:
@@ -469,28 +579,24 @@ class Core:
         overwrites Cart's live grams; a bin it cannot (uncalibrated, or a
         stale/missing XIAO — core/scale.py's Reading.grams is None for
         both, on purpose) is left untouched, still driven by the
-        developer panel's mock controls (doc section 12.8). A bin whose
-        Bins tab wizard is open (self._calibrating — see
-        _handle_cal_session) is also left untouched: staff moving weights
-        around to tare or calibrate it is not a diner pick and must not
-        reach Cart at all while it is happening, only be re-baselined once
-        the wizard closes.
+        developer panel's mock controls (doc section 12.8).
+
+        **In setting mode this does nothing at all.** That is the whole
+        point of M2.6: staff lifting a tray out is not a diner pick, so
+        no weight change reaches Cart while the mode is live, and
+        fsm.exit_setting() re-baselines all eight bins on the way out.
+        This one early return replaced M2.4's `_calibrating` dict, its
+        CAL_FREEZE_TIMEOUT_S dropped-tablet timeout and the
+        cal_begin/cal_end wire messages — all of which existed only
+        because there was no mode-wide "not billing" state to say this in.
 
         Caller holds state_lock — this mutates Cart, the same rule every
         other cart.py call site in this file already follows.
         """
+        if self.fsm.state is fsm.State.SETTING:
+            return
         reading = self.scale.read()
-        now = time.time()
         for i in range(cart.NUM_BINS):
-            started = self._calibrating.get(i)
-            if started is not None:
-                if now - started < CAL_FREEZE_TIMEOUT_S:
-                    continue
-                # cal_end never arrived — a dropped tablet, not a bin to
-                # exclude from billing forever (this method's docstring;
-                # CAL_FREEZE_TIMEOUT_S's own comment). Release it and fall
-                # through to an ordinary reading this same tick.
-                del self._calibrating[i]
             g = reading.grams[i]
             if g is None:
                 continue
@@ -502,6 +608,35 @@ class Core:
                 # phantom pick (cart.py's seed_live_grams docstring).
                 self.cart.seed_live_grams(i, g)
                 self._scale_baselined[i] = True
+
+    def _refresh_weights_from_scale(self) -> None:
+        """Step 1 of fsm.exit_setting(), handed to Fsm as a callback so
+        that module never has to know a serial port exists.
+
+        **Read fsm.exit_setting()'s docstring before touching this.** It
+        is the step whose absence bills the next diner for a tray swap:
+        `_apply_scale_to_cart()` above has been returning early for the
+        whole of setting mode, so every bin's live_g is still the weight
+        it had when the mode was entered, and reset_session() is about to
+        copy exactly that into start_g.
+
+        seed_live_grams(), not set_live_grams(): the point is to move the
+        bin's whole session onto its current real weight without pricing
+        the difference, which is the same one-time hand-off M2 build item
+        5 uses for a bin's first ever reading. A bin the scale cannot
+        weigh keeps its mock/placeholder value, same rule as everywhere
+        else — there is no real number to move it to.
+
+        Caller (Fsm, from a handler that already holds it) holds
+        state_lock.
+        """
+        reading = self.scale.read()
+        for i in range(cart.NUM_BINS):
+            g = reading.grams[i]
+            if g is None:
+                continue
+            self.cart.seed_live_grams(i, g)
+            self._scale_baselined[i] = True
 
     def _overlay_msg(self) -> Dict[str, Any]:
         """Doc section 9.5: "the table shows a fault overlay" when a bin
@@ -589,6 +724,11 @@ class Core:
             # running a second timer.
             if self._state_seq % BINS_BROADCAST_EVERY == 0:
                 self.web.broadcast(self._bins_tab_msg())
+            # Sends nothing unless mode or cart_active actually flipped
+            # (_publish_mode's own check), so this is the "on change, not
+            # on a timer" model reusing an existing clock rather than a
+            # 60Hz mode stream.
+            self._publish_mode()
             due += STATE_INTERVAL
             now = time.monotonic()
             if due <= now:
@@ -610,7 +750,8 @@ class Core:
                 "t": "state",
                 "seq": self._state_seq,
                 "ts": time.time(),
-                "mode": "diner",   # STAFF isn't a state this milestone's Fsm has
+                "mode": (MODE_SETTING if self.fsm.state is fsm.State.SETTING
+                          else MODE_SERVING),
                 "locale": self.locale,
                 # M8 hasn't built the fluid renderer yet; the shape is correct
                 # per doc section 4.3, "mala" is the documented diner default,

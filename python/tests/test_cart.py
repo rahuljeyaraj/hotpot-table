@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from hotpot.core.cart import Cart  # noqa: E402
+from hotpot.core.cart import NUM_BINS, Cart  # noqa: E402
 
 
 class TestFreshCart(unittest.TestCase):
@@ -213,6 +213,65 @@ class TestFinalize(unittest.TestCase):
         c.live_g = [90.0] * 8
         c.finalize()
         self.assertEqual(c.shown_g, [10.0] * 8)
+
+
+class TestIsActive(unittest.TestCase):
+    """M2.6: doc section 9.1's "cart empty" precondition on entering
+    setting mode. Reads shown_g, never removed_grams() — see the method's
+    own docstring for why the raw version makes the mode unreachable.
+    """
+
+    def seeded(self):
+        c = Cart()
+        for i in range(NUM_BINS):
+            c.set_live_grams(i, 500.0)
+        c.reset_session()
+        return c
+
+    def test_a_fresh_cart_is_inactive(self):
+        self.assertFalse(Cart().is_active())
+
+    def test_a_seeded_but_untouched_cart_is_inactive(self):
+        """Weight in every bin is not an order — 500 g of food sitting in
+        a tray is the ordinary idle table.
+        """
+        self.assertFalse(self.seeded().is_active())
+
+    def test_a_real_pick_makes_it_active(self):
+        c = self.seeded()
+        c.mock_pick(3, 45.0)
+        self.assertTrue(c.is_active())
+
+    def test_a_sub_deadband_pick_does_not(self):
+        """5 g is under doc section 9.2's display deadband: nothing on the
+        table moved, so there is nothing an operator could be shown as
+        the reason their mode change was refused.
+
+        MUTATION CHECKED: switch is_active() to removed_grams() and this
+        goes red.
+        """
+        c = self.seeded()
+        c.mock_pick(3, 5.0)
+        self.assertEqual(c.removed_grams(3), 5.0)   # raw weight did move
+        self.assertFalse(c.is_active())
+
+    def test_putting_it_all_back_makes_it_inactive_again(self):
+        c = self.seeded()
+        c.mock_pick(3, 45.0)
+        self.assertTrue(c.is_active())
+        c.mock_putback(3, 45.0)
+        self.assertFalse(c.is_active())
+
+    def test_reset_session_clears_it(self):
+        c = self.seeded()
+        c.mock_pick(0, 120.0)
+        c.reset_session()
+        self.assertFalse(c.is_active())
+
+    def test_any_one_bin_is_enough(self):
+        c = self.seeded()
+        c.mock_pick(7, 80.0)
+        self.assertTrue(c.is_active())
 
 
 if __name__ == "__main__":
