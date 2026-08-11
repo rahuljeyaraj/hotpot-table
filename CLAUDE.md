@@ -1175,6 +1175,59 @@ these tests is written out by hand or built by projecting a synthetic
 point set — the same no-hardware discipline `core/loadcell_cal.py` has
 for the other number in this system that can go silently wrong.
 
+M4.2 (2026-08-12) is build item 2, plus the process that has to answer:
+`classifier/dots.py` and a real `classifier/main.py`, which was the M0
+stub until now.
+`dots.py` is doc §21's build item verbatim and nothing else — threshold,
+contour, centroid, area filter, camera-space points out. **No ordering
+and no fitting**, deliberately: pairing a detected set against an
+expected one is `common/geometry`'s job on the core side, and the
+classifier must not need to know what pattern was drawn.
+Four rejection rules, and each is a real thing a rig produces on an
+inverted field. **The two the doc does not name are the ones that would
+have bitten:**
+- **An area ceiling.** Doc §4.7 gives `min_area` only. On a black field
+  any large bright region is a blob — a steel tray catching the
+  projector, or somebody turning the room lights on mid-solve — and its
+  centroid joins the fit as a confident, wildly wrong point.
+- **An aspect check.** A 200x4 sliver of light along a table edge is
+  800 px², comfortably inside the area window, and is not a dot. Shape
+  throws it out where size cannot.
+- A blob touching the frame border is dropped: its centroid is pulled
+  inward by the missing part and *nothing about the blob shows that* —
+  right area, right shape, wrong position. One correspondence lost beats
+  a biased solve.
+- **Centroids come from image moments, not bounding-box centres.** A box
+  centre is the middle of the extremes, so one bright speck stuck to a
+  dot's edge moves it by half the speck's reach; the moment centroid
+  moves by the speck's share of the *area*, which is almost nothing. It
+  is also sub-pixel, which is where "under ~3px RMS" has to come from.
+`classifier/main.py` is now doc §3's "vision process": frame ring,
+`detect_dots` and `capture` from §4.7, `stop`. Three notes:
+- **Work runs on a worker thread, not the link's read thread.** A capture
+  burst is 10 frames over 5s (§12.7); doing that inline would stall the
+  heartbeat and core would mark the process dead (§4.2) *during a
+  successful capture*.
+- **`classify` is answered with an error, not ignored.** It needs M7's
+  backend and a model. Core waits on a reply, and silence is a wizard
+  hung on a screen with nothing to look at.
+- **The ring is opened lazily and re-opened after any failure.** Camera
+  restarts with a *new* segment (§20.1); a classifier holding the corpse
+  would never work again after the first camera restart.
+Labels are sanitised before becoming directory names — a label is
+operator input and `../..` must not become a path.
+46 new tests (`test_dots.py`, `test_classifier_main.py`), 599 total, all
+passing. Eight mutations checked red: bounding-box centroid instead of
+moments; the area ceiling dropped; the aspect check dropped; the
+edge-touching rule dropped; `crop()` returning the whole frame; the burst
+gap set to zero (caught by the spread test AND the cancel test); `stop`
+queued behind the work instead of setting the cancel flag; the staleness
+check and the reader-drop removed.
+No camera and no shared memory anywhere in these tests: every frame is a
+numpy array of white discs on black, and `RingSource` takes an
+`open_reader` callable for exactly the reason `ScaleReader` takes
+`open_port`.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
