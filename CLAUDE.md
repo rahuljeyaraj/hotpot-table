@@ -11,11 +11,11 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: **M2.6 (mode) is next** — planned 2026-08-11, ahead of
-M3, see the NEXT section below and `docs/M2.6_MODE_PLAN.md`. M3 (camera)
-follows it and is what the doc's own dependency graph names.
-M2's 5 build items (load cells) are all code-complete; M1 and M2 each
-still owe their human acceptance test on the rig.
+Current milestone: **M2.6 (mode) is code-complete** (2026-08-11) — see the
+M2.6 section below. **M3 (camera) is next**, and is what the doc's own
+dependency graph names.
+M2's 5 build items (load cells) are all code-complete; M1, M2 and M2.6
+each still owe their human acceptance test on the rig.
 M0's last completed step was M0.7 (core/main.py — control server,
 client registry, minimal staff view; doc section 21 build item 7).
 Control server and registry are hotpot.common.wire/health, reused as-is.
@@ -515,33 +515,130 @@ a time. `calibrator.py`'s `DEFAULT_REF_MASS_G` and the sanity check in
 Doc §12.4 updated to match. No test changes needed; nothing tested the
 keypad's markup specifically.
 
-## NEXT — M2.6, MODE. PLANNED, NOT BUILT.
-**Read `docs/M2.6_MODE_PLAN.md` before starting anything else.** Planned
-2026-08-11; it is the agreed next step and comes **before M3**, not after.
-The doc never gave the diner/staff mode split its own milestone — `fsm.py`
-scheduled STAFF for "M2 and M7" and M2's build items never mentioned it —
-so the state that gates all billing was due five milestones after the first
-thing that needed it. Three places already show the gap: `_state_msg()`
-hardcodes `"mode": "diner"` with an apology comment, `Core._calibrating` +
-`CAL_FREEZE_TIMEOUT_S` is a per-bin "not billing" freeze standing in for
-the missing mode-wide one, and `binmap.locked` is persisted and loaded but
-has never had a writer.
-Settled in that plan, do not reopen: the modes are **SERVING** and
-**SETTING** (the old names named who was standing at the table, which is
-the wrong noun, and "staff mode" collided with "staff view" — the tablet,
-used in both modes); "staff view" and the §12.6 **Setup tab** both keep
-their names; Tare/Calibrate move behind SETTING; the setting banner takes
-precedence over the scales-offline one.
-**The trap that plan exists to prevent, restated here because it bills
-wrong and silently:** `_apply_scale_to_cart()` is disabled during SETTING,
-so on exit `live_g` still holds the weights from when SETTING was *entered*.
-`reset_session()` does `start_g[i] = live_g[i]`. Swap a tray during setting
-mode — the entire point of the mode — and exit would baseline to the old
-tray, billing the next diner for the swap. Exit must refresh `live_g` from
-the scale **before** `reset_session()`. Same hazard `cal_end` already solves
-per-bin with `seed_live_grams()`; exit is the eight-bin version.
-Chinese strings for both modes are undecided and must not be invented —
-`zh` locale data does not exist yet and §17.3 says judges will read them.
+## M2.6 — MODE (SERVING / SETTING). CODE-COMPLETE 2026-08-11.
+Built in four commits (M2.6a-d) from `docs/M2.6_MODE_PLAN.md`, which is
+now a design record rather than a to-do. The doc never gave the mode its
+own milestone — `fsm.py` scheduled STAFF for "M2 and M7" and M2's build
+items never mentioned it — so the state that gates all billing was due
+five milestones after the first thing that needed it. All three symptoms
+are gone: `_state_msg()` derives `mode` from `fsm.state` instead of
+hardcoding `"diner"`, the `Core._calibrating` freeze is deleted, and
+`binmap.locked` finally has its writer.
+The modes are **SERVING** and **SETTING** — the old names named who was
+standing at the table, which is the wrong noun (staff are present in
+both), and "staff mode" collided with "staff view", the tablet UI used in
+both. **"staff view", the §12.6 Setup tab and `fsm.staff_start()` all keep
+their names** — `staff_start()` means a *person* pressed Start, and the
+rename is what makes that unambiguous. Do not re-litigate any of this.
+
+**THE TRAP, and it bills wrong silently — read before touching
+`fsm.exit_setting()`.** `_apply_scale_to_cart()` returns immediately in
+SETTING, so at exit `live_g` still holds the weights from when the mode
+was *entered*, and `reset_session()` does `start_g[i] = live_g[i]`. Swap a
+tray during setting mode — the entire point of the mode — and exit
+baselines to the tray that left, billing the next diner for the swap.
+Exit refreshes every bin from the scale **before** `reset_session()`, then
+locks the bin map; all three steps are inside `exit_setting()` so no
+caller can do two of them and forget the third.
+
+Five things worth knowing before M3, four of them the plan did not
+anticipate:
+- **The step ORDER is not observable in the outcome, only the omission
+  is.** `_refresh_weights_from_scale()` uses `seed_live_grams()`, which
+  sets `start_g` itself, so a refresh running *after* `reset_session()`
+  lands on identical numbers — every outcome assertion passes with the
+  two lines swapped. That is luck, not design: swap the callback to the
+  ordinary `set_live_grams()` (a small, plausible edit — it is what every
+  other weight update in the codebase uses) and a refresh running second
+  prices the whole tray. The order is pinned by call sequence in its own
+  test, the only test in the suite that catches the swap.
+- **`fsm.cancel()` alone cannot clear the cart today**, so "Cancel the
+  order first" would have been a button that cannot fix the refusal it is
+  offered for. `cancel()` is SELECTING -> IDLE and *nothing yet drives
+  IDLE -> SELECTING* — `hand_present()` is M5's tracker, `staff_start()`
+  has no button. A diner picking 50 g leaves the cart active with the FSM
+  in IDLE. `_handle_cancel_order` calls doc §9.1's own shared
+  `reset_session()` when `cancel()` no-ops on an active cart; that
+  fallback becomes unreachable once M5 lands.
+- **`cart.is_active()` reads `shown_g`, never `removed_grams()`.** The raw
+  number moves with load-cell noise (this file's own per-channel table:
+  four bins at 500-1500 counts rms), which would hold the refusal true
+  permanently and make setting mode **unreachable on the rig**. Accepted
+  cost: a sub-deadband pick survives entry and is discarded by exit's
+  re-baseline — about ₹0.60, and invisible on the table.
+- **The `mode` reply is a broadcast to every tablet**, so a refusal would
+  have popped a modal on tablets nobody was holding. Only the tablet with
+  a `set_mode` in flight opens the dialog; all of them track the state.
+- **Banner precedence is now a general rule in §14.5, not a special
+  case:** the state that changes what the table is DOING outranks a fault
+  report from a subsystem that state has already disabled. So SETTING wins
+  over `error` — nothing bills in setting mode, so "SCALES OFFLINE — NOT
+  BILLING" would warn about a risk that cannot occur while displacing the
+  message that is true. `calibrating` (M4) and `recap`/`qr` (M6) land on
+  the same strip and are settled by the same rule.
+
+Deleted, and the deletion is the signal the mode was the right
+abstraction: `Core._calibrating`, `CAL_FREEZE_TIMEOUT_S`,
+`_handle_cal_session`, and the `cal_begin`/`cal_end` wire messages at both
+ends. They were M2.4's per-bin stand-in for a mode-wide "not billing"
+state, complete with their own dropped-tablet timeout.
+
+405 tests pass. 12 mutations checked red, each caught only by the tests
+aimed at it: the weight refresh deleted (at both the Fsm and the Core
+level — caught by the trap test alone); the refresh moved after
+`reset_session()`; `is_active()` on `removed_grams()`; the `locked` write
+dropped; `reset_session()` dropped; `can_enter_setting()` never refusing;
+the SETTING gate dropped from `_apply_scale_to_cart()` and from
+`_handle_cal()`; `mode` hardcoded back; the on-change check dropped;
+`on_join` back to one message; `on_join`'s list sent as one frame.
+
+**Found while running the suite, pre-existing and NOT fixed:**
+`test_calibrator.TestTheVerificationReading` `.test_a_stale_link_reports_
+no_number_but_still_saves` is flaky, roughly 1 run in 12. Reproduced at
+the same rate on `788ed9e` (pre-M2.6), so it is not caused by this
+milestone. A green suite here is not quite the guarantee it looks like —
+worth fixing before it hides something real.
+
+The staff view was verified without adding a browser toolchain to a repo
+that has none: `node --check` on the extracted script, every
+`getElementById` target cross-checked against the DOM, the page fetched
+over real HTTP from a live Core, and the whole IIFE driven against a
+throwaway DOM shim over 22 assertions (the pre-warn, the refusal, the
+not-mine-refusal case, confirm-then-cancel, keep-the-order sending
+nothing, and both button and chip states). The shim is scratchpad-only
+and not committed.
+
+**STILL OWED — doc §21's M2.6 acceptance test on the rig, in full.
+Nothing in this list has been observed; all of it ran only in tests or a
+framebuffer.** Somebody has to physically swap a tray:
+- `ENTER SETTING MODE` with an empty cart → chip amber, amber banner on
+  the table, unmistakable from three metres.
+- Pick ~50 g, tap `ENTER SETTING MODE` → refused, readable reason, and a
+  "Cancel the order first" that actually clears the way.
+- In setting mode, lift a whole tray out and put a different one back →
+  the total does not move and no pick registers.
+- Exit → **the total is 0 and stays 0.** This is the trap. A large phantom
+  pick here means the weight refresh is missing.
+- After exit, `state/bin_map.json` has `"locked": true`.
+- Tare and Calibrate unreachable in serving mode, working in setting mode.
+- Unplug the XIAO while in setting mode → the banner still reads
+  `SETTING — NOT BILLING`, not the scales-offline one. **The precedence
+  rule has never been seen to fire.**
+The banner has also never been drawn on the projected surface at all —
+the same gap as M2's fault overlay, which is still owed too.
+
+**Chinese strings for both modes remain undecided and must not be
+invented** — `zh` locale data does not exist and §17.3 says Chinese judges
+will read them. §14.5 now carries that as an explicit note, and the banner
+is English-only until a native speaker confirms both.
+
+**Two doc phrases the plan's §4 vocabulary map did not cover**, left alone
+deliberately rather than swept: "the staff grid" (§12.7's 100 mm
+calibration grid) and "staff scanning" (§20's failure table). Both now
+describe setting-mode activities in the old vocabulary. Change them only
+as a deliberate decision, never as a find/replace — the map was applied
+literally on purpose, because a broad sweep on "staff" is exactly what
+would have destroyed "staff view".
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

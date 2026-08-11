@@ -153,7 +153,7 @@ Never sum per-event deltas. Two absolute weights subtracted cannot bake in a dro
 2. **Nothing coloured, patterned, textured or animated ever reaches a cutout.** The objection this invariant was originally written against was real, but it was about a *coloured, patterned* image washing pink and white over the food — not about light as such. Flat white is neither. Fluid, gradients, grid lines, diagonals, text and low-stock tints are all excluded from the bin patches. §13.2 makes this structural rather than something to remember.
 3. **The rest of the table stays above a white floor**, bright enough that the back of the hand is always lit for the tracker. Colour is free above that floor; darkness is not. The floor and its mechanism are specified in §13.2.
 
-**The one exception is dot calibration** (`overlay.kind = "calibrating"`), which inverts completely: black field, white dots. The dots must stay separable from a white table top, and the solve runs the camera at a dark exposure to keep them that way — a white field there puts the dots on a background as bright as they are and the solve finds nothing. Calibration and food classification are both staff-mode activities but never run simultaneously, so the two lighting regimes never have to coexist.
+**The one exception is dot calibration** (`overlay.kind = "calibrating"`), which inverts completely: black field, white dots. The dots must stay separable from a white table top, and the solve runs the camera at a dark exposure to keep them that way — a white field there puts the dots on a background as bright as they are and the solve finds nothing. Calibration and food classification are both setting-mode activities but never run simultaneously, so the two lighting regimes never have to coexist.
 
 **I10 — Camera near-vertical.** Hand-position error = hand height ÷ tan(elevation angle). At 40° a 100mm-high hand lands 119mm off — the wrong bin. At 80° it is 18mm. **The camera elevation angle has never been measured. It must be measured before M4.**
 
@@ -167,7 +167,7 @@ Six Python processes plus one C++ process. Processes, not threads: separate inte
 |---|---|---|
 | `camera` | `/dev/video0`, the shared-memory frame ring, the MJPEG HTTP server | Any analysis. It is deliberately the dumbest process in the system and must stay that way. |
 | `tracker` | MediaPipe Hands, hand role assignment | Decide anything. It reports positions and roles. |
-| `classifier` | Food classification **and projected-dot detection** — all frame analysis that is not hand tracking | Run in diner mode. It sleeps unless core wakes it. |
+| `classifier` | Food classification **and projected-dot detection** — all frame analysis that is not hand tracking | Run in serving mode. It sleeps unless core wakes it. |
 | `voice` | The microphone (ALSA), keyword spotting | Interpret meaning. It reports which keyword fired. |
 | `core` | Everything in I1, the staff-view HTTP+WS server, the serial thread, the order database | Touch a frame (I3). Block. |
 | `of` (C++) | The projector output, the keystone homography, tweening, the fluid simulation, **audio output** | Hold state or compute logic (I2). |
@@ -181,7 +181,7 @@ The webcam's microphone is almost certainly the same physical USB device as the 
 
 ### 3.2 Why the classifier owns dot detection
 
-Projected-dot calibration needs someone to find dot centroids in a camera frame. Core cannot (I3). Camera must not (it stays dumb). The classifier already attaches to frames and already runs only in staff mode — and calibration *is* a staff-mode activity. It fits with zero new machinery. The classifier is therefore better understood as "the vision process": one process, all frame analysis except hands.
+Projected-dot calibration needs someone to find dot centroids in a camera frame. Core cannot (I3). Camera must not (it stays dumb). The classifier already attaches to frames and already runs only in setting mode — and calibration *is* a setting-mode activity. It fits with zero new machinery. The classifier is therefore better understood as "the vision process": one process, all frame analysis except hands.
 
 ### 3.3 Restart-tolerant topology
 
@@ -197,7 +197,7 @@ Three traffic classes with different failure needs. This was argued out and is s
 |---|---|---|
 | Frames | POSIX shared memory ring | Never send pixels through a socket. |
 | Cursor (tracker → oF, tracker → core) | UDP, localhost, one datagram per frame | A lost cursor packet is worthless 16ms later. TCP would *queue* stale ones — a 200ms hiccup then delivers a burst in order and the hand visibly replays through history. That is exactly the jitter six processes exist to avoid. |
-| Control (everything else) | TCP, newline-delimited JSON (JSONL), UTF-8 | These must not vanish. A dropped "enter staff mode" wedges the system. |
+| Control (everything else) | TCP, newline-delimited JSON (JSONL), UTF-8 | These must not vanish. A dropped "enter setting mode" wedges the system. |
 
 **Receiver rule for UDP: drain to latest.** Read the socket non-blocking until it is empty, keep the highest `seq`, discard the rest. Never process a backlog.
 
@@ -237,7 +237,7 @@ Sent at a fixed 60Hz, whether or not anything changed. A fixed-rate state stream
 
 ```json
 {"t":"state","seq":90211,"ts":1754838400.117,
- "mode":"diner",
+ "mode":"serving",
  "locale":"zh",
  "fluid":{"style":"mala","enabled":true,"intensity":0.6},
  "bins":[
@@ -258,6 +258,7 @@ Notes that are not optional:
 - `label` and `text` are **already resolved strings in the current locale**. oF does no lookup (I2). It only needs `locale` to pick a font.
 - `rect` is in **stage space** (§5), always `[x, y, w, h]`.
 - `hl` ∈ `none | hover | picking | picked | lowstock | disabled`.
+- `mode` ∈ `serving | setting` (§9.1). Derived from the FSM state, never stored separately — two places that can disagree about which mode the table is in is the failure this field exists to prevent. oF defaults it to `serving` when absent, deliberately: a line that somehow lost the field must not paint `SETTING — NOT BILLING` over a table that is billing.
 - `overlay.kind` ∈ `none | recap | qr | calibrating | uncalibrated | error`.
 - `bins` always has exactly 8 entries. An unresolved bin has `resolved:false`, an empty `label`, and bills nothing.
 
@@ -317,7 +318,7 @@ One datagram per camera frame, sent to both ports. Compact JSON — at 60Hz and 
 {"t":"kw","word":"done","conf":0.87,"lang":"zh","ts":1754838400.117}
 ```
 
-The voice process reports **which keyword fired**, never what it means. Meaning is per-FSM-state and only core knows the state. "Done" in staff mode and "done" in diner mode are different actions.
+The voice process reports **which keyword fired**, never what it means. Meaning is per-FSM-state and only core knows the state. "Done" in setting mode and "done" in serving mode are different actions.
 
 ### 4.9 XIAO → core (USB serial)
 
@@ -622,7 +623,7 @@ Two consequences, both enforced in `core/pricing.py`:
          {"i":1,"item_id":null,"conf":0.31,"source":"classifier"}]}
 ```
 
-`item_id: null` ⇒ unresolved ⇒ renders empty ⇒ bills nothing. `locked` is true in diner mode, false while staff mode is live-updating.
+`item_id: null` ⇒ unresolved ⇒ renders empty ⇒ bills nothing. `locked` is true in serving mode, false while setting mode is live-updating.
 
 ### 8.3 `state/loadcell_cal.json` — machine-written
 
@@ -691,16 +692,22 @@ BROTH ──(broth chosen)──► SPICE
 SPICE ──(spice chosen)──► RECAP
 RECAP ──(dwell "confirm")──► CHECKOUT
 CHECKOUT ──(receipt fetched OR timeout 90s)──► IDLE   [re-baseline, clear cart]
-any ──(staff enter, cart empty)──► STAFF
-STAFF ──(staff exit)──► IDLE   [re-baseline, clear cart, lock bin map]
+any ──(enter setting, cart not active)──► SETTING
+SETTING ──(exit setting)──► IDLE   [refresh weights, re-baseline, lock bin map]
 ```
+
+The two modes are **SERVING** (the table is billing) and **SETTING** (the table is being changed). `SETTING` is the FSM state; everything else is SERVING. The names say what the table is *doing*, not who is standing at it — staff are present in both, and a diner can walk up during either. Note that `staff "start"` above is a *person* pressing Start on the tablet and has nothing to do with the mode; that is a collision these names remove rather than create.
 
 Rules that are not negotiable:
 
-- **Staff mode is refused while a cart is active.** One wrong keypress must not destroy a diner's order. The staff view shows *why* it is refused and offers "cancel the order first."
-- **Cancel-order re-baselines** (`startWeightGrams[i] = binWeightGrams[i]`), clears the cart, and stays in diner mode. Nothing goes to zero (I6).
-- One shared function `reset_session()` is called from three places: cancel, checkout completion, and staff-mode exit. Staff-mode exit additionally locks the bin map.
-- **BOOT always goes to UNCALIBRATED if `homography.json` or `bin_rects.json` is missing.** In UNCALIBRATED, diner mode is unreachable, oF shows the `uncalibrated` overlay, and the staff view opens on the calibration wizard. This is the first-boot path and it must work on a fresh clone with an empty `state/`.
+- **Setting mode is refused while a cart is active.** One wrong keypress must not destroy a diner's order. The staff view shows *why* it is refused and offers "cancel the order first" — so the refusal must carry a plain-language reason, not just a false.
+- **"Cart is active" is the deadbanded shown grams, not raw removed grams.** Raw removed grams moves with load-cell noise, which would hold the refusal true permanently and make setting mode unreachable. It is also what the diner can see: refusing on something visible is explicable to an operator, refusing on invisible noise is not. The accepted cost is that a sub-deadband pick survives entry and is discarded by exit's re-baseline.
+- **Cancel-order re-baselines** (`startWeightGrams[i] = binWeightGrams[i]`), clears the cart, and stays in serving mode. Nothing goes to zero (I6).
+- One shared function `reset_session()` is called from three places: cancel, checkout completion, and setting-mode exit.
+- **Setting-mode exit does three things, IN THIS ORDER: refresh every bin's weight from the scale, then `reset_session()`, then lock the bin map.** All three live inside the exit transition so no caller can do two of them and forget the third.
+  - **The refresh is not optional and omitting it mis-bills silently.** Billing is disabled for the whole of setting mode, so at exit `live_g` still holds the weights from when the mode was *entered*, and `reset_session()` does `start_g[i] = live_g[i]`. Swap a full tray for an empty one during setting mode — which is the entire point of the mode — and without the refresh, exit baselines `start_g` to the tray that left. The difference becomes removed grams and **the next diner is billed for the swap.**
+  - A bin the scale cannot weigh (uncalibrated, or a dead XIAO) keeps its placeholder weight; `reset_session()` still re-baselines it where it stands.
+- **BOOT always goes to UNCALIBRATED if `homography.json` or `bin_rects.json` is missing.** In UNCALIBRATED, serving mode is unreachable, oF shows the `uncalibrated` overlay, and the staff view opens on the calibration wizard. This is the first-boot path and it must work on a fresh clone with an empty `state/`.
 
 ### 9.2 Pricing (restating I4/I5 as code shape)
 
@@ -725,7 +732,7 @@ A bin is unresolved if `bin_map[i].item_id is None` or `conf < conf_floor`. Unre
 - render with no label and a muted plate,
 - contribute 0.00 to the total no matter how much mass leaves them,
 - are listed loudly in the staff view,
-- block staff-mode exit with a confirm dialog ("2 bins unresolved — items taken from them will not be charged. Exit anyway?").
+- block setting-mode exit with a confirm dialog ("2 bins unresolved — items taken from them will not be charged. Exit anyway?").
 
 ### 9.4 Hover and dwell
 
@@ -839,7 +846,7 @@ On Linux, after all children are up, the launcher pins processes with `os.sched_
 |---|---|---|
 | 0 | `of` | **Dedicated, exclusive.** Everything else is excluded from it. This is the whole reason for the process split. |
 | 1 | `tracker` | MediaPipe inference, single-threaded by configuration so it cannot spill. |
-| 2 | `classifier`, `voice` | They never run hot at the same time — classifier is staff-mode, voice is diner-mode. |
+| 2 | `classifier`, `voice` | They never run hot at the same time — classifier is setting-mode, voice is serving-mode. |
 | 3 | `camera`, `core` | Plus the launcher, plus everything the OS does. |
 
 Because there is no fifth core, three rules follow that were optional on a bigger machine and are not here:
@@ -926,7 +933,7 @@ The staff view is not a debug page. It is the calibration surface, the diagnosti
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ 称重火锅  [ DINER MODE ]        Order: ¥41.20      ● ● ● ● ● ●  │  header, fixed
+│ 称重火锅  [ SERVING MODE ]        Order: ¥41.20      ● ● ● ● ● ●  │  header, fixed
 ├──────────────────────────────────────────────────────────────┤
 │ [Live] [Bins] [Orders] [Setup] [Capture]           EN | 中文 │  tabs
 ├──────────────────────────────────────────────────────────────┤
@@ -934,11 +941,20 @@ The staff view is not a debug page. It is the calibration surface, the diagnosti
 │                      (tab content)                           │
 │                                                              │
 ├──────────────────────────────────────────────────────────────┤
-│  [ ENTER STAFF MODE ]              [ Cancel order ]          │  action bar, fixed
+│  [ ENTER SETTING MODE ]              [ Cancel order ]          │  action bar, fixed
 └──────────────────────────────────────────────────────────────┘
 ```
 
 The six pips are `camera · tracker · classifier · voice · core · table`, each green/amber/red, each tappable for detail. `table` means oF. Colour alone is never the only signal — each pip also carries a one-letter code, because kitchen lighting and colour-blindness both exist.
+
+The **mode chip** in the header shows the live mode: neutral in serving, **amber** in setting, matching the table's own amber chrome (I8) so the tablet and the table are visibly one statement. Its text changes with its hue, per the same never-colour-alone rule as the pips.
+
+The **action bar** is fixed to the bottom, above the developer panel, on every tab:
+
+- **One primary button that names what happens next** — `ENTER SETTING MODE` / `EXIT SETTING MODE`. Not a two-position switch: §12.1 is "one primary action per screen", and a switch invites a mis-tap into the one transition that destroys a diner's order.
+- **When refused, the button stays tappable and explains.** It is never disabled silently. Tapping with an active cart shows §9.1's reason verbatim, plus a "Cancel the order first" action wired to `Cancel order` — that pairing is what §9.1 requires.
+- `Cancel order` confirms before it fires, because it re-baselines.
+- The mode message carries `cart_active` alongside the mode, so the bar can pre-warn beside the button before a tap is made rather than after a round trip.
 
 ### 12.3 Tab: Live
 
@@ -963,6 +979,8 @@ Eight cards. Each card, top to bottom:
 │  [ Tare ]    [ Calibrate ] │
 └────────────────────────────┘
 ```
+
+**Tare and Calibrate both require setting mode** (§9.1) and are refused in serving mode with a plain-language reason. The flow below asks the operator to empty a bin and then place a reference mass in it; in serving mode both of those are ordinary picks and would bill. The mode is what makes them safe — it replaced an earlier per-bin billing freeze that existed only because no mode-wide "not billing" state had been built yet.
 
 Calibration flow, one screen at a time, no branching:
 
@@ -1007,7 +1025,7 @@ That premise no longer holds. In a dark room with the projector as the only ligh
 
 - **Do not vary the lighting** — still right, and now for a stronger reason. There is nothing to vary; the field is a constant.
 - **Do not measure the illuminant** — still right, but not because measurement is unnecessary. It is unnecessary because the illuminant is *known*: it is a flat white patch at a recorded `field_level`. Record it (above); do not go photometering it.
-- **New and load-bearing:** capture must run with the bin patches lit exactly as diner mode lights them. A capture session taken with a different `field_level`, with the fluid or the staff grid bleeding into a cutout, or during calibration's black-field inversion, produces a training set the live rig will never reproduce. The Capture tab must therefore drive the same bin-patch path as diner mode, not its own.
+- **New and load-bearing:** capture must run with the bin patches lit exactly as serving mode lights them. A capture session taken with a different `field_level`, with the fluid or the staff grid bleeding into a cutout, or during calibration's black-field inversion, produces a training set the live rig will never reproduce. The Capture tab must therefore drive the same bin-patch path as serving mode, not its own.
 
 ### 12.8 Developer panel
 
@@ -1148,7 +1166,7 @@ Three, with genuinely different colour and behaviour, so the table does not beco
 
 ---
 
-**Style 1 — 麻辣 `mala` (default, diner mode)**
+**Style 1 — 麻辣 `mala` (default, serving mode)**
 
 The signature Chongqing red-oil surface. <cite index="2-1">The beef tallow base is spicy, aromatic, and visually dense</cite> — that is what this evokes.
 
@@ -1221,20 +1239,31 @@ The fluid must not just respond to hands. It must respond to the *transaction*. 
 | **Low stock** | a cool desaturated patch parked **around** that bin, slowly pulsing — an annulus outside the cutout, never over it (I9) |
 | **Idle attract** | slow automated velocity injections along a Lissajous path, one every ~4s, so the table breathes when nobody is there. Stops the instant a hand appears. |
 
-### 14.5 Staff mode — the visible difference
+### 14.5 Setting mode — the visible difference
 
-**In staff mode the fluid is off entirely.** Not dimmed — off.
+**In setting mode the fluid is off entirely.** Not dimmed — off.
 
-**Staff mode cannot go dark, and this is the correction that matters most in this section.** The earlier specification here was a flat dark slate `#0E1114` background. That is precisely backwards: per §3, **the classifier runs in staff mode and sleeps in diner mode.** Staff mode is the only time food is being classified at all, so it is the one mode where the illuminant requirement is not merely active but critical. A dark slate field would starve the classifier at the exact moment it is working — while diner mode, which needs no classification, sat brightly lit doing nothing with the light.
+**Setting mode cannot go dark, and this is the correction that matters most in this section.** The earlier specification here was a flat dark slate `#0E1114` background. That is precisely backwards: per §3, **the classifier runs in setting mode and sleeps in serving mode.** Setting mode is the only time food is being classified at all, so it is the one mode where the illuminant requirement is not merely active but critical. A dark slate field would starve the classifier at the exact moment it is working — while serving mode, which needs no classification, sat brightly lit doing nothing with the light.
 
-Staff mode look, corrected:
+Setting mode look, corrected:
 
-- **The field and the bin patches are identical to diner mode.** Same white, same `field_level`, same light pass. This is not negotiable and is not a look.
-- The mode difference is carried entirely by **hue and chrome**, per I8: amber UI chrome instead of red, a persistent banner strip along the top edge reading **STAFF MODE / 员工模式**, and every bin plate showing its numeric grams and raw confidence.
+- **The field and the bin patches are identical to serving mode.** Same white, same `field_level`, same light pass. This is not negotiable and is not a look.
+- The mode difference is carried entirely by **hue and chrome**, per I8: amber UI chrome instead of red, a persistent banner strip along the top edge reading **`SETTING — NOT BILLING`**, and every bin plate showing its numeric grams and raw confidence. The banner names the consequence, not the state — "not billing" is the thing a person three metres away needs to know.
+  - **The Chinese string is NOT decided and must not be invented.** `zh` locale data does not exist yet (M1 is English-only end to end) and §17.3 is explicit that Chinese judges will read this. Get it confirmed by a native speaker before any zh string ships. The banner is English-only until then.
 - The 100 mm calibration grid is drawn as **dark lines on the light field**, and is **masked out of the bin patches** — the light pass (§13.2) does this for free, but it is worth knowing why the grid appears to break at the cutouts. Dark lines crossing a cutout are exactly the patterned shadow I9 exists to prevent; that is not a rendering bug and must not be "fixed."
 - Fluid off plus a visible grid plus amber chrome plus a banner is still unmissable from across the room, which was the actual goal. Darkness was only ever one way to achieve it, and it was the one way that broke the classifier.
 
-**Dot calibration remains the exception** and inverts the field to black with white dots (I9). That is a distinct overlay state within staff mode, it never coincides with food classification, and it is the only time the table goes dark.
+**Dot calibration remains the exception** and inverts the field to black with white dots (I9). That is a distinct overlay state within setting mode, it never coincides with food classification, and it is the only time the table goes dark.
+
+#### Banner precedence — a general rule, not a special case
+
+There is **one** top-edge banner strip. More than one state can claim it at once, so the order is fixed here rather than re-argued each time a new one arrives:
+
+> **The state that changes what the table is DOING outranks a fault report from a subsystem that state has already disabled.**
+
+Concretely, **`SETTING` wins over `error`.** Both are true at once the moment someone knocks the XIAO cable out during setting-mode work. Nothing bills in setting mode, so `SCALES OFFLINE — NOT BILLING` would be warning about a risk that cannot occur, while displacing the message that is true. The person doing that work is holding the tablet, whose Bins tab already reads `Load cells: no connection`; the table banner is for everyone *not* holding the tablet.
+
+`calibrating` (M4) and `recap`/`qr` (M6) each land on this same strip and are settled by the same rule.
 
 ### 14.6 Adaptive quality — using the GPU fully without gambling
 
@@ -1286,8 +1315,8 @@ All short, all non-annoying at the 200th repetition, all pre-rendered WAV in `of
 | `pick_confirm` | weight settles, item added | a wooden *tok*, pitch shifted by grams — small pick high, big pick low |
 | `putback` | weight rises | the *tok* reversed |
 | `total_tick` | running total changes | tiny click per digit roll |
-| `mode_staff` | entering staff mode | two-tone descending |
-| `mode_diner` | leaving staff mode | two-tone ascending |
+| `mode_setting` | entering setting mode | two-tone descending |
+| `mode_serving` | leaving setting mode | two-tone ascending |
 | `broth_select` | broth chosen | a soft ladle-in-liquid sound |
 | `spice_select` | spice chosen | short sizzle |
 | `order_done` | order confirmed | warm three-note resolve |
@@ -1502,7 +1531,7 @@ Core is the only process holding state that cannot be recomputed. It gets a jour
 `state/session.jsonl`, append-only, `fsync` after each line:
 
 ```json
-{"t":"session_start","ts":...,"mode":"diner"}
+{"t":"session_start","ts":...,"mode":"serving"}
 {"t":"baseline","ts":...,"start_g":[418.2, 903.1, ...]}
 {"t":"binmap_locked","ts":...,"bins":[...]}
 {"t":"snapshot","ts":...,"live_g":[380.4, 903.0, ...],"total":41.20}
@@ -1625,6 +1654,39 @@ Each milestone below is written so a Claude Code instance can start it directly.
 
 ---
 
+### M2.6 — Mode (SERVING / SETTING)
+
+**Goal:** the state that gates all billing exists, before anything else branches on it.
+
+**Depends on:** M2 (a real weight to freeze).
+
+**Why here and not later:** every milestone from M3 on branches on the mode — M4's calibration wizard is a setting-mode activity, M5's hover must be inert while staff hands are over the table, M6's checkout shares `reset_session()`, M7 is built entirely on enter/exit, M8 renders the visible difference. Building it now means M4–M8 are written against a mode that exists instead of each inventing its own gate, which M2 build item 4 already had to do once.
+
+**Build:**
+1. FSM state SETTING and its two transitions (§9.1). Entry is refusable **with a reason**, not a bare false — §9.1 requires the staff view to show why.
+2. "Cart is active" as a predicate on the **deadbanded** shown grams (§9.1's second rule). Reading raw removed grams instead makes the mode unreachable on a noisy cell.
+3. Exit's three ordered steps, all inside the transition: refresh weights, `reset_session()`, lock the bin map. **The refresh is the trap — see §9.1.**
+4. Billing gated: the scale does not reach the cart at all in SETTING. `mode` on the `state` message derived from the FSM state (§4.3).
+5. Delete the per-bin calibration billing freeze M2 build item 4 added — it was the local workaround for this missing global state, and the mode makes all of it dead.
+6. Wire: `set_mode` in; `mode` out, broadcast **on change, not on a timer**, carrying `cart_active` and any refusal reason.
+7. `on_join` sends a list, so a joining tablet gets both the pips and the mode.
+8. Staff view: §12.2's action bar, the mode toggle, the header chip.
+9. oF: the §14.5 banner, and the precedence rule that goes with it.
+10. Doc edits — §9.1, §4.3, §12.2, §12.4, §14.5, §15.2 and this entry, in the same commit as the code.
+
+**Do NOT:** invent the Chinese strings for either mode (§14.5). `zh` locale data does not exist and §17.3 says Chinese judges will read them.
+
+**Acceptance (human, on the rig):**
+- Tap `ENTER SETTING MODE` with an empty cart → header chip goes amber, the table shows the amber banner, unmistakable from three metres.
+- Pick ~50 g from a bin, then tap `ENTER SETTING MODE` → **refused**, with a readable reason and a working "Cancel the order first".
+- In setting mode, lift a whole tray out and put a different one back → the total does not move and no pick is registered.
+- Exit setting mode → **the total is 0 and stays 0.** This is the trap in build item 3. A large phantom pick here means the weight refresh is missing.
+- After exit, `state/bin_map.json` has `"locked": true`.
+- Tare and Calibrate are unreachable in serving mode and work in setting mode.
+- Unplug the XIAO while in setting mode → the banner still reads `SETTING — NOT BILLING`, not the scales-offline one.
+
+---
+
 ### M3 — Camera process
 
 **Goal:** frames flow, the staff view shows them, camera death is detected.
@@ -1671,7 +1733,7 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 - Nudge the keystone → the staff view raises "calibration stale — keystone changed."
 - Capture 20 images per class and export → a folder-per-label tree ready to upload.
 - **Sweep `field_level` against camera exposure (§6.6), pick the pair, freeze it, and confirm it is written to `state/camera_settings.json`.** Then look at a bin crop and confirm the food is evenly lit with no colour cast and no visible edge from a UI element — physical observation of the projected surface, not a framebuffer capture.
-- **Every capture is taken with the bin patches lit exactly as diner mode lights them** (§12.7). If the Capture tab has its own lighting path, that is a bug to fix before collecting a single image, not after.
+- **Every capture is taken with the bin patches lit exactly as serving mode lights them** (§12.7). If the Capture tab has its own lighting path, that is a bug to fix before collecting a single image, not after.
 - **Start EI training now.** M5 and M6 do not depend on the model.
 
 ---
@@ -1736,13 +1798,13 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 **Build:**
 1. `classifier/backend_ei.py` wrapping `ImageImpulseRunner`; `backend_stub.py` kept and still selectable.
 2. Startup scan: all 8 bins at once, slow is fine.
-3. Staff-mode live classification at `live_hz`, updating a **provisional** bin map shown on the table and in the staff view.
-4. On staff-mode exit: apply the confidence floor, write `state/bin_map.json` atomically, set `locked: true`, block exit if any bin is unresolved without an explicit confirm (§9.3).
+3. Setting-mode live classification at `live_hz`, updating a **provisional** bin map shown on the table and in the staff view.
+4. On setting-mode exit: apply the confidence floor and write `state/bin_map.json` atomically. The exit transition and its `locked: true` write already exist (M2.6); what this adds is the classifier's provisional map being committed through them, and blocking exit if any bin is unresolved without an explicit confirm (§9.3).
 5. **No re-scan after normal diner picks.** The hand is still in frame and the food has not changed. Re-scanning there is pure risk.
 
 **Acceptance (human, on the rig):**
-- Enter staff mode, physically swap two trays → both labels follow within ~2s, on the table and in the staff view.
-- Exit staff mode → labels lock; swapping trays now changes nothing until staff mode is re-entered.
+- Enter setting mode, physically swap two trays → both labels follow within ~2s, on the table and in the staff view.
+- Exit setting mode → labels lock; swapping trays now changes nothing until setting mode is re-entered.
 - Cover a bin with an unrecognisable object → it goes unresolved, renders empty, and removing mass from it bills **zero**.
 - Exit is blocked with a clear confirm while that bin is unresolved.
 
@@ -1760,15 +1822,15 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 3. `FluidLayer` — density and velocity FBO injection per §14.1. Delete the `opticalFlow + combinedBridgeFlow` chain entirely.
 4. The three styles (§14.3) as named parameter presets plus palette LUTs.
 5. Event-driven injections (§14.4). Ambient hands inject; they still select nothing.
-6. Staff mode visual (§14.5) — fluid off, **field and bin patches unchanged from diner mode**, grid masked out of the cutouts, amber chrome, banner.
+6. Setting mode visual (§14.5) — fluid off, **field and bin patches unchanged from serving mode**, grid masked out of the cutouts, amber chrome. The banner itself is already built (M2.6), including its precedence rule; the rest of the §14.5 look is this build item.
 7. Adaptive quality controller (§14.6), reported in `stat`.
-8. `AudioBus` and the full sound set (§15.2). Odometer ticks paired with the total roll.
+8. `AudioBus` and the full sound set (§15.2), including `mode_setting`/`mode_serving` on the transitions M2.6 built. Odometer ticks paired with the total roll.
 
 **Acceptance (human, on the rig):**
 - Each of the three styles runs at ≥55 FPS with the full UI drawn. Record the achieved `sim_scale` for each.
 - A big pick produces a visibly bigger splash than a small pick.
 - The price stream visibly connects the bin to the total.
-- Entering staff mode is unmistakable from three metres away — **and the field does not darken when it happens** (§14.5). If the table dims on entering staff mode, the classifier has just been starved.
+- Entering setting mode is unmistakable from three metres away — **and the field does not darken when it happens** (§14.5). If the table dims on entering setting mode, the classifier has just been starved.
 - **Run all three styles at full intensity and watch the cutouts.** Not one frame of colour, texture or shadow reaches a bin, in any style, during any event burst, including the full-field `Done` impulse. Physical observation of the projected surface. If this can fail, the light pass is not last (§13.2).
 - Left hand stirs the fluid and selects nothing — verify again here, because this is where the temptation to let ambient hands "just also count" appears.
 
