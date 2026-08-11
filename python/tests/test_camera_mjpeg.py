@@ -157,6 +157,14 @@ class TestInfo(ServerCase):
         resp = self.get("/info.json")
         self.assertEqual(json.loads(resp.read())["frame_id"], 42)
 
+    def test_allows_cross_origin_fetch(self):
+        # M3 build item 4: the developer panel fetches this from the staff
+        # view's own origin (core's port), a different origin than
+        # camera's — without this header the browser's CORS check drops
+        # the response before JS ever sees it.
+        resp = self.get("/info.json")
+        self.assertEqual(resp.headers["Access-Control-Allow-Origin"], "*")
+
 
 class TestUnknownPath(ServerCase):
 

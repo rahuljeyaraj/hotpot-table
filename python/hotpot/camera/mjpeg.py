@@ -187,6 +187,13 @@ def _make_handler(frame: LatestFrame, get_info: Callable[[], Dict[str, Any]]):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            # Unlike /stream.mjpg's <img> tag, the developer panel (M3
+            # build item 4) reaches this with `fetch()` from the staff
+            # view's own origin (core's :8090) to camera's :8081 — a
+            # cross-origin request a browser blocks without this header,
+            # where an <img> load is exempt. No credentials flow here, so
+            # a wildcard origin costs nothing.
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             try:
                 self.wfile.write(body)

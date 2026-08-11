@@ -11,12 +11,16 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: **M3 (camera) is in progress** — see the M3 section
-below. M3.1 (`common/framebus.py`), M3.2 (`camera/main.py` — real
-V4L2 capture, exposure/WB/focus lock, the shm writer, the MJPEG server)
-and M3.3 (staff view Live tab — `<img>`+canvas, §5.4 scaling, the
-`camera` join message) are code-complete. M3 build item 4 (developer
-panel: capture resolution, actual FPS, frame_id, shm slot) is next.
+Current milestone: **M3 (camera) — all 4 build items are code-complete**
+— see the M3 section below. M3.1 (`common/framebus.py`), M3.2
+(`camera/main.py` — real V4L2 capture, exposure/WB/focus lock, the shm
+writer, the MJPEG server), M3.3 (staff view Live tab — `<img>`+canvas,
+§5.4 scaling, the `camera` join message) and M3.4 (developer panel:
+capture resolution, actual FPS, frame_id, shm slot, dropped frames) are
+all code-complete. Still owed from M3: doc §21's human acceptance test
+on the rig (real camera, `kill -9` recovery, camera elevation angle
+measurement) — see the M3.4 section for the full list. Next milestone
+per the doc's dependency graph: M4 (calibration and dataset capture).
 Deferred, not started: demo-video recording (capturing the table video,
 room audio, and optionally a Live-tab PIP overlay, for the contest
 submission) is designed in `docs/DEMO_RECORDING_PLAN.md`. It's
@@ -939,6 +943,59 @@ and the camera elevation-angle measurement, are both still owed and
 untouched by this step. Developer panel (capture resolution, actual FPS,
 frame_id, shm slot — build item 4) is next; `/info.json` already returns
 all four fields (M3.2), so that build item is wiring, not new data.
+
+M3.4 (2026-08-11) closes build item 4, the last of M3: the developer
+panel's Camera section, doc §12.8's "capture resolution, actual FPS,
+frame_id, shm slot in use, dropped frames." Wiring, not new data, as
+M3.3 predicted — `/info.json` already had everything except a name for
+"dropped frames"; that one is `read_failures` (a capture read that did
+not produce a frame), reusing `camera/main.py`'s own field name on the
+wire rather than inventing a second one for the same number.
+**Fetched straight from the camera process's own `/info.json`**, the same
+split the Live tab's `<img>` already uses (I3, "core never touches a
+frame") — core has no reason to proxy numbers it doesn't own, and
+`applyCamera()` already had the host/port from the `camera` join message,
+so building the second URL alongside `cameraUrl` was the natural spot.
+**This crosses an origin `<img>` never had to**, and it is a real browser
+rule, not a style choice: an `<img src>` load is CORS-exempt, but a
+`fetch()` from the staff view's own origin (core's :8090) to camera's
+:8081 is a genuine cross-origin request, and a browser drops the response
+before JS ever sees it without `Access-Control-Allow-Origin`.
+`camera/mjpeg.py`'s `_info()` now sends a wildcard — no credentials flow
+through this endpoint, so a wildcard costs nothing and is simpler than
+echoing the request origin. `/stream.mjpg` and `/snapshot.jpg` are
+untouched; neither is ever reached with `fetch()`.
+Polled every 1s, and **only while the panel is open** — `setDevOpen()`
+now starts/stops the interval alongside the pips it already toggles,
+since nobody reads these numbers with the panel closed and there is no
+reason to keep hitting camera's HTTP server for a page nobody has open.
+A failed fetch (camera down, CORS misconfigured, network blip) paints
+"camera unreachable" across all five fields rather than leaving stale
+numbers on screen or throwing.
+No Python behaviour changed beyond the one CORS header; the wiring itself
+is browser JS with no server round-trip through core. Verified the same
+way M2.6/M3.3 were: `node --check` on the extracted script, every
+`getElementById` target (five new: `camRes`/`camFps`/`camFrameId`/
+`camShmSlot`/`camDropped`) cross-checked against the DOM by script. One
+new Python test, `TestInfo.test_allows_cross_origin_fetch`, checking the
+header directly over real HTTP — the same `ServerCase` real-socket
+approach the rest of `test_camera_mjpeg.py` uses, not a mock that would
+pass regardless of whether the header was ever sent. 474 tests, all
+passing.
+**Not observed: the panel against a real camera process or a real
+browser.** Nothing here has been opened in an actual browser tab, the
+poll-only-while-open behaviour has only been read, not watched start and
+stop, and "camera unreachable" has never been triggered by an actual dead
+link — only reasoned through from the `fetch().catch()` path. Same class
+of gap as M3.2/M3.3's unverified-against-hardware notes.
+**M3 build items 1-4 are all code-complete.** Still owed from M3: doc
+§21's human acceptance test on the physical rig in full — the live feed
+at configured resolution/rate, `kill -9` camera showing red pips and a
+stalled banner within 1s then resuming automatically, and the camera
+elevation angle (I10) measured and written into this file's NUMBERS OWED
+section. None of M3 has been run against real camera hardware yet. Next
+milestone per the doc's dependency graph: M4 (calibration and dataset
+capture), which depends on M1 (done) and M3 (now code-complete).
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

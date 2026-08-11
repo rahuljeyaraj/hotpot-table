@@ -391,6 +391,15 @@
   }
   .mock-btn:active { background: #2c2f37; }
   .mock-btn.putback { color: var(--amber); }
+  /* Camera stats, doc §12.8's "capture resolution, actual FPS, frame_id,
+     shm slot in use, dropped frames" — table 12.9's own developer-panel
+     row: 13px monospace. */
+  .cam-stats {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 4px 16px; margin-top: 10px;
+    font-size: 13px; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+  .cam-stats .k { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -482,6 +491,16 @@
     <button id="cancelBtn" class="action-btn">Cancel order</button>
   </section>
   <section id="devPanel" class="dev-panel">
+    <h3>Camera
+      <span class="dev-note">— doc §12.8's capture resolution, actual FPS, frame_id, shm slot, dropped frames, polled from `/info.json` while this panel is open</span>
+    </h3>
+    <div class="cam-stats" id="camStats">
+      <div><span class="k">resolution</span> <span id="camRes">—</span></div>
+      <div><span class="k">actual fps</span> <span id="camFps">—</span></div>
+      <div><span class="k">frame_id</span> <span id="camFrameId">—</span></div>
+      <div><span class="k">shm slot</span> <span id="camShmSlot">—</span></div>
+      <div><span class="k">dropped</span> <span id="camDropped">—</span></div>
+    </div>
     <h3>Mock picks / put-backs
       <span class="dev-note">— doc §12.8's {45,6,120,3,25,80} g cycle, one shared pointer for every button below</span>
     </h3>
@@ -649,13 +668,64 @@
     scheduleCameraRetry();
   });
 
+  var cameraInfoUrl = null;      // "http://host:port/info.json", set alongside cameraUrl
+
   function applyCamera(msg) {
     // Sent once, on join (core/main.py's _camera_msg docstring: "nothing
     // in this process can make it change mid-run") — a reconnect after
     // core restarts sends it again with the same value, harmless to
     // reapply.
     cameraUrl = "http://" + msg.host + ":" + msg.port + "/stream.mjpg";
+    cameraInfoUrl = "http://" + msg.host + ":" + msg.port + "/info.json";
     loadLiveImg();
+    pollCamInfo();
+  }
+
+  // --- developer panel: camera stats (doc §12.8, M3 build item 4) -------
+  // Fetched straight from the camera process's own `/info.json`, the same
+  // "core never touches a frame" split the Live tab's <img> already uses
+  // (I3) — core has no reason to proxy numbers it doesn't own. Polled
+  // only while the panel is open: nobody reads these thirteen-point
+  // numbers with the panel closed, and there is no reason to keep hitting
+  // camera's HTTP server for a page nobody has open.
+  var CAM_POLL_MS = 1000;
+  var camPollTimer = null;
+  var camResEl = document.getElementById("camRes");
+  var camFpsEl = document.getElementById("camFps");
+  var camFrameIdEl = document.getElementById("camFrameId");
+  var camShmSlotEl = document.getElementById("camShmSlot");
+  var camDroppedEl = document.getElementById("camDropped");
+
+  function applyCamInfo(info) {
+    camResEl.textContent = (info.width != null && info.height != null)
+      ? (info.width + "×" + info.height) : "—";
+    camFpsEl.textContent = info.actual_fps != null ? info.actual_fps : "—";
+    camFrameIdEl.textContent = info.frame_id != null ? info.frame_id : "—";
+    camShmSlotEl.textContent = info.shm_slot != null ? info.shm_slot : "—";
+    // `/info.json`'s own field is `read_failures` — a capture read that
+    // did not produce a frame, which is what "dropped" means here; the
+    // wire format keeps camera/main.py's name rather than inventing a
+    // second one for the same number.
+    camDroppedEl.textContent = info.read_failures != null ? info.read_failures : "—";
+  }
+
+  function pollCamInfo() {
+    if (!cameraInfoUrl || !devPanel.classList.contains("show")) return;
+    fetch(cameraInfoUrl).then(function (r) {
+      if (!r.ok) throw new Error("bad status " + r.status);
+      return r.json();
+    }).then(applyCamInfo).catch(function () {
+      camResEl.textContent = camFpsEl.textContent = camFrameIdEl.textContent =
+        camShmSlotEl.textContent = camDroppedEl.textContent = "camera unreachable";
+    });
+  }
+
+  function setCamPolling(on) {
+    if (camPollTimer) { clearInterval(camPollTimer); camPollTimer = null; }
+    if (on) {
+      pollCamInfo();
+      camPollTimer = setInterval(pollCamInfo, CAM_POLL_MS);
+    }
   }
 
   // --- developer panel toggle (doc section 12.8: "persisted in
@@ -670,6 +740,7 @@
     // The six process pips come and go with the panel: they are the same
     // instrument, read by the same person, and neither is a default view.
     pipsEl.classList.toggle("show", open);
+    setCamPolling(open);
     try { localStorage.setItem(DEV_KEY, open ? "1" : "0"); } catch (e) { /* private mode, etc — not fatal */ }
   }
   devToggle.addEventListener("click", function () {
