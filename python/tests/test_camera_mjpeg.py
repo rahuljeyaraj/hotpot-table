@@ -1,0 +1,190 @@
+"""Tests for camera/mjpeg.py — M3 build item 2's `/stream.mjpg`,
+`/snapshot.jpg`, `/info.json` (doc section 21).
+
+Run from the repo root:
+
+    python -m unittest discover -s python/tests -v
+
+A real `MjpegServer` on an ephemeral port, hit with real HTTP requests —
+the multipart framing and the "block until a client disconnects" behaviour
+are exactly the kind of thing a mock would get right by construction and a
+real socket would not (the same reasoning `test_stub.py` gives for using a
+real `wire.Server`).
+"""
+
+import json
+import os
+import socket
+import sys
+import time
+import unittest
+import urllib.error
+import urllib.request
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from hotpot.camera import mjpeg  # noqa: E402
+
+DEADLINE = 5.0
+
+
+def wait_for(pred, timeout=DEADLINE, tick=0.01):
+    end = time.time() + timeout
+    while time.time() < end:
+        v = pred()
+        if v:
+            return v
+        time.sleep(tick)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# LatestFrame
+# ---------------------------------------------------------------------------
+
+class TestLatestFrame(unittest.TestCase):
+
+    def test_snapshot_is_none_before_any_publish(self):
+        f = mjpeg.LatestFrame()
+        self.assertIsNone(f.snapshot())
+
+    def test_publish_then_snapshot(self):
+        f = mjpeg.LatestFrame()
+        f.publish(b"jpegbytes", frame_id=7)
+        jpeg, frame_id, ts = f.snapshot()
+        self.assertEqual(jpeg, b"jpegbytes")
+        self.assertEqual(frame_id, 7)
+        self.assertGreater(ts, 0)
+
+    def test_wait_next_returns_immediately_if_already_newer(self):
+        f = mjpeg.LatestFrame()
+        f.publish(b"first", frame_id=0)
+        got = f.wait_next(after_frame_id=-1, timeout=1.0)
+        self.assertEqual(got[0], b"first")
+
+    def test_wait_next_times_out_with_nothing_newer(self):
+        f = mjpeg.LatestFrame()
+        f.publish(b"first", frame_id=0)
+        self.assertIsNone(f.wait_next(after_frame_id=0, timeout=0.1))
+
+    def test_wait_next_wakes_on_a_later_publish(self):
+        f = mjpeg.LatestFrame()
+        f.publish(b"first", frame_id=0)
+        result = {}
+
+        import threading
+
+        def waiter():
+            result["got"] = f.wait_next(after_frame_id=0, timeout=2.0)
+
+        t = threading.Thread(target=waiter)
+        t.start()
+        time.sleep(0.05)
+        f.publish(b"second", frame_id=1)
+        t.join(2.0)
+        self.assertEqual(result["got"][0], b"second")
+
+
+# ---------------------------------------------------------------------------
+# MjpegServer over real HTTP
+# ---------------------------------------------------------------------------
+
+class ServerCase(unittest.TestCase):
+
+    def setUp(self):
+        self.frame = mjpeg.LatestFrame()
+        self.info = {"width": 640, "height": 480, "frame_id": -1}
+        self.server = mjpeg.MjpegServer("127.0.0.1", 0, self.frame,
+                                        lambda: self.info)
+        self.port = self.server.start()
+        self.addCleanup(self.server.stop)
+
+    def get(self, path):
+        return urllib.request.urlopen(
+            f"http://127.0.0.1:{self.port}{path}", timeout=DEADLINE)
+
+    def raw_get(self, path, per_read_timeout=1.0, max_bytes=4096):
+        """For `/stream.mjpg`: an open-ended response with no overall
+        Content-Length, so `http.client`'s length-bounded `read(N)` either
+        blocks past whatever was actually sent or under-reads a burst.
+        Reading raw off the socket until a read times out — the server has
+        genuinely gone quiet, per `WAIT_TICK` — sidesteps guessing the
+        exact byte count of a multipart frame."""
+        s = socket.create_connection(("127.0.0.1", self.port), timeout=DEADLINE)
+        self.addCleanup(s.close)
+        s.sendall(
+            f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            f"Connection: close\r\n\r\n".encode("ascii"))
+        s.settimeout(per_read_timeout)
+        buf = b""
+        try:
+            while len(buf) < max_bytes:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+        except (socket.timeout, TimeoutError):
+            pass
+        return buf
+
+
+class TestSnapshot(ServerCase):
+
+    def test_no_frame_yet_is_503(self):
+        try:
+            self.get("/snapshot.jpg")
+            self.fail("expected an HTTPError")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 503)
+
+    def test_returns_the_latest_published_jpeg(self):
+        self.frame.publish(b"\xff\xd8fakejpeg", frame_id=3)
+        resp = self.get("/snapshot.jpg")
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.headers["Content-Type"], "image/jpeg")
+        self.assertEqual(resp.read(), b"\xff\xd8fakejpeg")
+
+
+class TestInfo(ServerCase):
+
+    def test_returns_the_info_callback_as_json(self):
+        resp = self.get("/info.json")
+        self.assertEqual(resp.headers["Content-Type"], "application/json")
+        self.assertEqual(json.loads(resp.read()), self.info)
+
+    def test_reflects_a_later_change_to_the_underlying_info(self):
+        self.info["frame_id"] = 42
+        resp = self.get("/info.json")
+        self.assertEqual(json.loads(resp.read())["frame_id"], 42)
+
+
+class TestUnknownPath(ServerCase):
+
+    def test_404(self):
+        try:
+            self.get("/nope")
+            self.fail("expected an HTTPError")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 404)
+
+
+class TestStream(ServerCase):
+
+    def test_multipart_framing_carries_a_published_frame(self):
+        self.frame.publish(b"\xff\xd8onejpeg", frame_id=1)
+        chunk = self.raw_get("/stream.mjpg")
+        self.assertIn(b"multipart/x-mixed-replace", chunk)
+        self.assertIn(mjpeg.BOUNDARY.encode(), chunk)
+        self.assertIn(b"Content-Type: image/jpeg", chunk)
+        self.assertIn(b"\xff\xd8onejpeg", chunk)
+
+    def test_a_client_connecting_after_publish_still_gets_the_current_frame(self):
+        # wait_next's after_frame_id=-1 start must match "already latest",
+        # not only frames published after the connection opens.
+        self.frame.publish(b"\xff\xd8late", frame_id=9)
+        chunk = self.raw_get("/stream.mjpg")
+        self.assertIn(b"\xff\xd8late", chunk)
+
+
+if __name__ == "__main__":
+    unittest.main()

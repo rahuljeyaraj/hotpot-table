@@ -1,0 +1,47 @@
+{
+  "core": {
+    "control_port": 8765,
+    "web_port": 8090,
+    "locale": "en",
+    "conf_floor": 0.65,
+    "deadband_g": 10.0,
+    "settle_ms": 300
+  },
+  "camera": {
+    "device": "/dev/video0",
+    "capture": [1920, 1080],
+    "fps": 30,
+    "mjpeg_port": 8081,
+    "mjpeg_width": 1920,
+    "mjpeg_fps": 8,
+    "host_for_browser": "localhost"
+  },
+  "tracker": {
+    "model_complexity": 1,
+    "max_hands": 2,
+    "emit_hz": 60,
+    "mirror_handedness": false
+  },
+  "classifier": {
+    "backend": "stub",
+    "model": "models/ingredients-x86_64.eim",
+    "live_hz": 2
+  },
+  "voice": {
+    "backend": "stub",
+    "model": "models/keywords-x86_64.eim",
+    "threshold": 0.75,
+    "enabled": false
+  },
+  "of": {
+    "stage": [1920, 1080],
+    "monitor_index": 2,
+    "fluid_sim_scale": 4,
+    "target_fps": 60,
+    "field_level": 1.0,
+    "white_floor": 0.45
+  },
+  "dev": {
+    "panel_enabled": false
+  }
+}

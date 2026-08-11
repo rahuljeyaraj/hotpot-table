@@ -12,8 +12,9 @@ It is authoritative. This file is only status + rules.
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
 Current milestone: **M3 (camera) is in progress** — see the M3 section
-below. M3.1 (`common/framebus.py`, the shared-memory frame ring) is
-code-complete; M3 build item 2 (`camera/main.py`) is next.
+below. M3.1 (`common/framebus.py`) and M3.2 (`camera/main.py` — real
+V4L2 capture, exposure/WB/focus lock, the shm writer, the MJPEG server)
+are code-complete. M3 build item 3 (staff view Live tab) is next.
 Deferred, not started: demo-video recording (capturing the table video,
 room audio, and optionally a Live-tab PIP overlay, for the contest
 submission) is designed in `docs/DEMO_RECORDING_PLAN.md`. It's
@@ -841,6 +842,51 @@ preference (§6.6), exposure/WB/focus lock, the shm writer, and the MJPEG
 HTTP server. This is also where the AVX2/board risk (CLAUDE.md's own
 "NO AVX2" line) first becomes reachable in code, and where the
 never-measured camera elevation angle (I10) has to be measured before M4.
+
+M3.2 (2026-08-11) is build item 2. Four new files: `common/config.py` plus
+committed `config/system.default.json` (doc §8.6's exact schema) — deferred
+since M0's stub.py, and M3.2 is the first reader that needs more than one
+key; `camera/capture.py` — the `Capture` backend split (`V4L2Capture` /
+`FakeCapture`, doc §19.4's "backend abstraction — mandatory" discipline
+applied to camera, the same reason `classifier`/`voice` have
+`backend_ei.py`/`backend_stub.py`); `camera/mjpeg.py` — a plain
+`http.server.ThreadingHTTPServer`, no new dependency, serving
+`/stream.mjpg` (multipart, push-not-poll via a `Condition`-backed
+`LatestFrame`), `/snapshot.jpg`, `/info.json`; and `camera/main.py`
+rewritten around `CameraProcess`, replacing the M0 stub.
+New dependency: `opencv-python-headless` (VideoCapture + imencode/resize;
+the "no AVX2" risk is about ML inference, not plain JPEG codec paths, so
+this doesn't carry it — see `capture.py`'s docstring).
+Three decisions worth not re-deriving: (1) **readiness fires later than
+`stub.py`'s did** — `run.py`'s own tier comment says tier 1 "creates the
+frame ring and serves MJPEG", so `camera/main.py` builds its own
+`wire.Client`/`health.Heartbeat` instead of calling `stub.start()`, which
+bakes `log.ready()` into client-start time. (2) **the capture loop runs on
+the main thread, not a daemon one** — doc §20.1's table has camera's
+restart "recreate shm, consumers re-attach", which is a process restart;
+30 consecutive failed reads raises `CameraError` out of `run_forever()`
+rather than looping, and only the main thread makes that reach `run.py`'s
+supervisor instead of dying quietly in `log.py`'s `threading.excepthook`.
+(3) **exposure/WB/focus lock has two paths** — if `state/camera_settings.json`
+already holds values (a prior rig sweep, doc §6.6), they're applied
+verbatim; on a first run with nothing recorded, auto-exposure/WB/focus are
+left on for `AUTO_SETTLE_S` (1.5s, unmeasured) then locked at whatever they
+converged to, and *that* becomes the recorded baseline — never a number
+invented in code. `config.of.field_level` is mirrored into the same file
+per §6.6. All control locking goes through `v4l2-ctl` (shelled out, the
+same tool doc §6.6 names for format enumeration), not OpenCV's own V4L2
+property mapping, which is inconsistent across drivers.
+40 new tests (`test_config.py`, `test_camera_capture.py` — control-locking
+logic with `subprocess.run` faked, `test_camera_mjpeg.py` — a real
+`MjpegServer` hit with real HTTP, `test_camera_main.py` — `CameraProcess`
+end to end against `FakeCapture` and a real `wire.Server`, `test_stub.py`-
+style), 471 total, all passing.
+**Not run against a real camera** — `V4L2Capture` is unverified against
+hardware, the same honest gap M3.1 left for the ring it now feeds. Two
+physical items from doc §21 remain open regardless of code: the format
+enumeration log (`v4l2-ctl --list-formats-ext`) has never seen a real
+device, and the camera elevation angle (I10) is still unmeasured.
+Build items 3 (staff view Live tab) and 4 (developer panel) are next.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

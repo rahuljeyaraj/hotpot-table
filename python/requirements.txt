@@ -28,3 +28,13 @@ websockets>=16.1
 # is what bounds that read and lets stop() be prompt — is the documented
 # one.
 pyserial>=3.5
+
+# camera/main.py (M3 build item 2) uses OpenCV to pull decoded BGR frames
+# from the webcam over V4L2 (`cv2.VideoCapture(..., cv2.CAP_V4L2)`) and to
+# encode the MJPEG HTTP stream (`cv2.imencode`). `-headless`: this process
+# never opens a window, and the non-headless wheel drags in a Qt/GTK build
+# that a minimal rig image should not need. Doc section 1.4's "no AVX2"
+# risk is about ML inference (MediaPipe/TFLite) leaning on it, not plain
+# JPEG codec paths, so this dependency does not carry that risk — see
+# camera/capture.py.
+opencv-python-headless>=4.10
