@@ -60,11 +60,10 @@
     background: var(--panel);
     border-bottom: 1px solid #2a2c31;
   }
-  /* Logo slot + wordmark. Kept as two elements so the final mark and name
-     drop in here without touching anything else on the page. */
+  /* Logo. Fixed height only, so it fits the existing header row without
+     distorting its aspect ratio; width follows from the source image. */
   .brand { display: flex; align-items: center; gap: 10px; }
-  .brand-mark { width: 28px; height: 28px; flex: none; display: block; }
-  .title { font-size: 20px; font-weight: 600; white-space: nowrap; letter-spacing: 0.01em; }
+  .brand-logo { height: 36px; width: auto; flex: none; display: block; }
   .order {
     font-size: 14px; font-weight: 400; color: var(--muted);
     white-space: nowrap;
@@ -387,14 +386,7 @@
          end to end). Staff view isn't customer-facing, so English until
          that toggle exists. -->
     <div class="brand">
-      <!-- Logo slot. Placeholder mark until the project name is settled;
-           swap the <svg> and the wordmark together, nothing else. -->
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-        <circle cx="16" cy="18" r="11" fill="none" stroke="#e8b33d" stroke-width="2.5"/>
-        <path d="M11 8c0-2.5 2.5-2.5 2.5-5M16 8c0-2.5 2.5-2.5 2.5-5M21 8c0-2.5 2.5-2.5 2.5-5"
-              fill="none" stroke="#e05d5d" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-      <div class="title">Hot Pot</div>
+      <img class="brand-logo" src="/img/hotpottery-dark-cropped.png" alt="The Hotpottery">
     </div>
     <!-- Tabs ride the same line as the brand, the way every site the
          operator already uses puts them. The second strip they used to
