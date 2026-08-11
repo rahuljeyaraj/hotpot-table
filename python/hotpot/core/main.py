@@ -946,6 +946,24 @@ class Core:
                 "t": "dotcal_result", "ok": False,
                 "message": "The calibration hit an internal error — see the log."})
             return
+        # Doc section 21 M4 build item 5: a table that has just acquired
+        # its first homography and has no rects yet gets the legacy
+        # measured layout put on screen, converted to camera space through
+        # H^-1. Without it the operator opens the rect editor onto an
+        # empty canvas with nothing to drag.
+        #
+        # Only when there are none. A re-solve on a working table must not
+        # throw away rects somebody dragged onto the trays by hand — the
+        # homography moved by a pixel or two, not the trays.
+        #
+        # Not saved (doc section 12.6's "Save is explicit"), which applies
+        # to a seed more than to anything else: nobody has looked at it.
+        if not self.geometry.has_rects:
+            try:
+                self.geometry.seed_cam_rects_from_table()
+            except geometry.GeometryError:
+                _log.exception("core: could not seed the bin rects")
+
         self.web.broadcast({
             "t": "dotcal_result", "ok": True, "good": result.good,
             "message": result.message, "rms_px": round(result.rms_px, 2),

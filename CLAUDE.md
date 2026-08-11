@@ -1383,6 +1383,35 @@ Builds clean (msbuild, Debug x64, 0 errors, 0 warnings from
 The Verify answer in particular is a mechanism with no observation behind
 it yet — that is exactly the acceptance step still owed.
 
+M4.5 (2026-08-12) closes build item 5: `state/bin_rects.json` seeded from
+`docs/legacy/bin_offsets.json`, converted to camera space.
+Most of it already existed — `geometry_store.legacy_bin_rects_stage()`
+and `seed_cam_rects_from_table()` landed with M4.1, and the Setup tab's
+`Load measured layout` button with M4.4. What this step adds is the one
+place it has to happen by itself: **a table that has just acquired its
+first homography and has no rects yet is seeded automatically**, so the
+operator opens the rect editor onto eight rectangles roughly on the trays
+rather than an empty canvas.
+Two conditions on that, both of which a test would otherwise not force:
+- **Only when there are none.** A re-solve on a working table must not
+  throw away rects somebody spent five minutes dragging onto the trays.
+  The homography moved by a pixel or two; the trays did not.
+- **Not saved.** Doc §12.6's "Save is explicit" applies to a seed more
+  than to anything else, because nobody has looked at it yet.
+The check that can actually fail here is the direction: the seed goes
+stage -> camera through `H^-1`, so deriving it back must land on the mm
+layout the legacy offsets describe. The reference is the independently
+computed millimetre geometry, **not the rects themselves** — which is
+what keeps this out of doc §5.3's TRAP. A mutation swapping `H^-1` for
+`H` was checked red by exactly that test.
+4 new tests, 654 total, all passing. Three mutations checked red: the
+seed made unconditional (caught by the hand-dragged-rects test); the seed
+removed entirely; the seed sent through `H` instead of `H^-1`.
+**Still a reconstruction, and still owed:** whether the four keys in
+`bin_offsets.json` mean what M4.1 inferred has never been checked against
+a real table. The symptom of a wrong reading is visibly offset starting
+rects that the operator then drags — not a mis-bill.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

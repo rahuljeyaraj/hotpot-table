@@ -1641,6 +1641,62 @@ class TestDotCalibrationOverTheWire(CoreCase):
         with self.core._cmd_lock:
             self.assertEqual(self.core._cmd_waiters, {})
 
+    def test_a_first_solve_seeds_the_bin_rects_from_the_measured_layout(self):
+        # M4 build item 5. Without this the operator opens the rect editor
+        # onto an empty canvas with nothing to drag.
+        self.fake_classifier()
+        ws = self.ws()
+        self.enter_setting(ws)
+        self.assertFalse(self.core.geometry.has_rects)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+        self.assertTrue(self.core.geometry.has_rects)
+
+    def test_the_seeded_rects_land_on_the_measured_tray_layout(self):
+        # The check that can fail: the seed goes stage -> camera through
+        # H^-1, so deriving it back must land on the mm layout the legacy
+        # offsets describe. A homography pointing the wrong way puts these
+        # hundreds of pixels out, or off the stage entirely.
+        #
+        # NOT the doc 5.3 TRAP: the reference is the independently
+        # computed mm geometry, not the rects themselves.
+        self.fake_classifier()
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+        want = geometry_store.legacy_bin_rects_stage()
+        for got, w in zip(self.core.geometry.stage_rects, want):
+            self.assertLessEqual(got[0], w[0] + 1.0)
+            self.assertLessEqual(got[1], w[1] + 1.0)
+            self.assertGreaterEqual(got[0] + got[2], w[0] + w[2] - 1.0)
+            self.assertGreaterEqual(got[1] + got[3], w[1] + w[3] - 1.0)
+
+    def test_the_seed_is_not_saved_until_the_operator_says_so(self):
+        self.fake_classifier()
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+        self.assertFalse(self.core.geometry.rects_path.exists())
+
+    def test_a_re_solve_does_not_throw_away_hand_dragged_rects(self):
+        # The homography moved by a pixel or two; the trays did not. An
+        # operator who has spent five minutes placing eight rects must not
+        # lose them by re-running the calibration.
+        self.fake_classifier()
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+        mine = [[500.0 + i, 600.0, 120.0, 130.0] for i in range(8)]
+        ws.send(json.dumps({"t": "set_rects", "rects": mine}))
+        self.collect(ws, "rects_result")
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+        for got, want in zip(self.core.geometry.cam_rects, mine):
+            self.assertAlmostEqual(got[0], want[0], places=1)
+
     def test_the_join_seed_tells_a_tablet_the_geometry(self):
         ws = self.ws()
         seeds = [self.recv_json(ws) for _ in range(4)]
