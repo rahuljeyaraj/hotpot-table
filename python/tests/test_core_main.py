@@ -1020,22 +1020,26 @@ class TestMode(ScaleRig, CoreCase):
     # -- the join seed ---------------------------------------------------
 
     def test_a_joining_tablet_is_told_the_mode_as_well_as_the_pips(self):
-        """web/server.py's on_join now takes a list (build item 7). Both
-        messages, in order — without the second, a tablet that joins
-        mid-run renders the wrong action-bar button until someone
-        touches something.
+        """web/server.py's on_join now takes a list (build item 7). All
+        three messages, in order — without the second, a tablet that joins
+        mid-run renders the wrong action-bar button until someone touches
+        something; without the third (M3 build item 3) the Live tab has no
+        `<img>` src until the next full reconnect.
         """
         w = self.ws()
         first = self.recv_json(w)
         second = self.recv_json(w)
+        third = self.recv_json(w)
         self.assertEqual(first["t"], "pips")
         self.assertEqual(second["t"], "mode")
         self.assertEqual(second["mode"], "serving")
         self.assertFalse(second["cart_active"])
         self.assertIsNone(second["refused"])
+        self.assertEqual(third["t"], "camera")
 
     def test_a_tablet_joining_during_setting_mode_is_told_setting(self):
         w = self.ws()
+        self.recv_json(w)
         self.recv_json(w)
         self.recv_json(w)
         self.set_mode(w, "setting")
@@ -1296,6 +1300,45 @@ class TestMode(ScaleRig, CoreCase):
         self.set_mode(w, "serving")
         self.assertIsNotNone(self.mode_msg(w, lambda m: m["mode"] == "serving"))
         self.assertTrue(self.core.binmap.locked)
+
+
+class TestCameraJoinMessage(unittest.TestCase):
+    """M3 build item 3: the Live tab's `<img>` src arrives on the join
+    seed, built from whatever `camera_host`/`camera_port` Core was given —
+    `main()` is the only caller that fills those from config.py; every
+    test-built Core takes the constructor's hardcoded defaults instead, the
+    same split cal_path/scale_open_port already use to keep a test off
+    real files. Never started — this only checks the message _camera_msg()
+    builds, no socket needed.
+    """
+
+    def setUp(self):
+        hlog.reset()
+        self.addCleanup(hlog.reset)
+        self._cal_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._cal_dir.cleanup)
+
+    def _core(self, **kwargs):
+        return coremain.Core(
+            control_host="127.0.0.1", control_port=0,
+            web_host="127.0.0.1", web_port=0,
+            cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            scale_open_port=_no_serial_port, **kwargs)
+
+    def test_defaults_match_config_system_default_json(self):
+        """MUTATION CHECKED: change CAMERA_PORT and this goes red unless
+        config/system.default.json's camera.mjpeg_port is edited to match —
+        the two are meant to agree even though nothing enforces it in code.
+        """
+        core = self._core()
+        msg = core._camera_msg()
+        self.assertEqual(msg, {"t": "camera", "host": "localhost", "port": 8081})
+
+    def test_a_custom_host_and_port_reach_the_message(self):
+        core = self._core(camera_host="odyssey.local", camera_port=9001)
+        msg = core._camera_msg()
+        self.assertEqual(msg["host"], "odyssey.local")
+        self.assertEqual(msg["port"], 9001)
 
 
 class TestNoiseDots(unittest.TestCase):

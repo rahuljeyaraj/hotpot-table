@@ -12,9 +12,11 @@ It is authoritative. This file is only status + rules.
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
 Current milestone: **M3 (camera) is in progress** — see the M3 section
-below. M3.1 (`common/framebus.py`) and M3.2 (`camera/main.py` — real
+below. M3.1 (`common/framebus.py`), M3.2 (`camera/main.py` — real
 V4L2 capture, exposure/WB/focus lock, the shm writer, the MJPEG server)
-are code-complete. M3 build item 3 (staff view Live tab) is next.
+and M3.3 (staff view Live tab — `<img>`+canvas, §5.4 scaling, the
+`camera` join message) are code-complete. M3 build item 4 (developer
+panel: capture resolution, actual FPS, frame_id, shm slot) is next.
 Deferred, not started: demo-video recording (capturing the table video,
 room audio, and optionally a Live-tab PIP overlay, for the contest
 submission) is designed in `docs/DEMO_RECORDING_PLAN.md`. It's
@@ -887,6 +889,56 @@ physical items from doc §21 remain open regardless of code: the format
 enumeration log (`v4l2-ctl --list-formats-ext`) has never seen a real
 device, and the camera elevation angle (I10) is still unmeasured.
 Build items 3 (staff view Live tab) and 4 (developer panel) are next.
+
+M3.3 (2026-08-11) closes build item 3: the staff view's Live tab, doc
+§12.3. `core/web/static/index.html`'s placeholder slot from M1.5 is now a
+real `<img id="liveImg">` over `/stream.mjpg` plus a `<canvas
+id="liveOverlay">` sized to `naturalWidth × naturalHeight` and CSS-scaled
+identically (doc §5.4) — the rule build item 3 asked to have implemented
+even though nothing is drawn on the canvas yet, since no bin rects (M4),
+hand cursor (M5), or dot pattern (M4) exist on the wire. `drawOverlay()`
+exists and is wired to the five toggle chips (now clickable and
+localStorage-persisted, matching the developer panel's own precedent) but
+currently only clears the canvas — one place for M4/M5 to add real
+drawing rather than a second path.
+**Core learned where the camera's MJPEG server lives**, which it did not
+know before: `core/main.py` gained a `camera` join message (`_camera_msg()`,
+third in `_join_msgs()` after `pips`/`mode`) carrying `host`/`port`, sourced
+from doc §8.6's `camera.host_for_browser`/`mjpeg_port`. Camera and core are
+separate processes with separate HTTP listeners (M3.2's own design — core
+never touches a frame, I3), so the tablet has to be told the URL rather than
+core proxying it. `main()` is the one place that calls `config.load()` for
+this — the second real reader after `camera/main.py`, following that
+module's own comment that config loading waits for a reader needing more
+than one key. `Core.__init__` takes `camera_host`/`camera_port` as
+constructor parameters defaulting to the same values as `config.py`'s
+committed default (localhost:8081), the same split `cal_path`/
+`scale_open_port` already use so a test-built Core never touches
+`config/system.json`.
+The `<img>` retries on its own (`onerror` -> 3s -> re-fetch with a
+cache-busting query string) since a dead MJPEG multipart connection does
+not reliably fire a DOM event a browser will act on by itself — this is
+what doc §21's "the feed resumes automatically after restart" needs, on
+top of the red pip the health link already gives.
+2 new Python tests (`TestCameraJoinMessage`), 473 total, all passing;
+`test_a_joining_tablet_is_told_the_mode_as_well_as_the_pips` now drains and
+checks all three join messages instead of two. The staff view itself was
+verified the same way M2.6 was: `node --check` on the extracted script,
+every `getElementById`/`data-toggle` target cross-checked against the DOM
+by script, and the whole IIFE driven against a throwaway DOM shim (not
+committed) that clicked a toggle chip and confirmed it persisted and
+redrew, fed a fake `naturalWidth`/`naturalHeight` `load` event and
+confirmed the canvas sized to match, and pushed a `camera` message through
+a stubbed WebSocket and confirmed `<img>.src` came out
+`http://odyssey.local:8081/stream.mjpg?t=...`.
+**Not observed: a real browser against a real camera stream.** Nothing here
+has been opened in an actual browser tab, and `V4L2Capture` is still
+unverified against hardware (M3.2's own gap, unchanged). The `kill -9`
+camera / feed-resumes-automatically half of doc §21's M3 acceptance test,
+and the camera elevation-angle measurement, are both still owed and
+untouched by this step. Developer panel (capture resolution, actual FPS,
+frame_id, shm slot — build item 4) is next; `/info.json` already returns
+all four fields (M3.2), so that build item is wiring, not new data.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

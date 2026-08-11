@@ -57,7 +57,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from hotpot.common import health, log, wire
+from hotpot.common import config, health, log, wire
 from hotpot.core import binmap, calibrator, cart, fsm, i18n, loadcell_cal, pricing, scale
 from hotpot.core.web import server as web
 
@@ -107,6 +107,16 @@ MOCK_SEED_GRAMS = 500.0
 # (CLAUDE.md, verified 2026-08-11). Not the deploy machine's port — that
 # is unmeasured and waits on config loading, same as every other §8.6 key.
 SCALE_PORT = "COM5"
+
+# doc section 8.6's `camera.host_for_browser`/`camera.mjpeg_port` defaults —
+# what the Live tab (M3 build item 3) embeds in the `<img>` src, since the
+# MJPEG server is camera's own HTTP listener, a different port than this
+# process's. Constructor params, not read from config.py here directly
+# (same reason cal_path/scale_open_port are params, not module reads): a
+# Core built by a test must never depend on config/system.json. main()
+# below is the one place that actually calls config.load().
+CAMERA_HOST = "localhost"
+CAMERA_PORT = 8081
 
 # Doc section 12.4's Bins tab is "live" but does not need `state`'s 60Hz —
 # nobody reads eight numbers that fast. 10Hz (every 6th state tick) is
@@ -193,6 +203,8 @@ class Core:
         scale_port: str = SCALE_PORT,
         cal_path: Path = calibrator.CAL_PATH,
         scale_open_port: Optional[Callable[[], Any]] = None,
+        camera_host: str = CAMERA_HOST,
+        camera_port: int = CAMERA_PORT,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -250,6 +262,12 @@ class Core:
         # this hook for exactly this: "the numbers in here can silently
         # mis-bill, so they have to be reachable from a test" with no
         # port attached.
+        # M3 build item 3: the Live tab's `<img>` src. Static for the
+        # process's whole life (doc section 8.6 has no runtime reload for
+        # it), so it rides the join seed rather than a broadcast.
+        self.camera_host = camera_host
+        self.camera_port = camera_port
+
         self.cal = loadcell_cal.Calibration.load(cal_path)
         self.scale = scale.ScaleReader(scale_port, cal=self.cal,
                                        open_port=scale_open_port)
@@ -375,7 +393,18 @@ class Core:
         Not the `bins` message — that one is already on a 10Hz timer, so
         a joining tablet waits at most 100ms for it.
         """
-        return [self._pips_msg(), self._mode_msg()]
+        return [self._pips_msg(), self._mode_msg(), self._camera_msg()]
+
+    # -- the Live tab's MJPEG source (doc §12.3, §5.4 — M3 build item 3) ----
+
+    def _camera_msg(self) -> Dict[str, Any]:
+        """Where the camera process's own MJPEG server lives. Core never
+        touches a frame (I3) and never proxies one either — this just tells
+        the tablet the URL to open directly, built from doc section 8.6's
+        `camera.host_for_browser`/`mjpeg_port`. Sent once, on join: nothing
+        in this process can make it change mid-run.
+        """
+        return {"t": "camera", "host": self.camera_host, "port": self.camera_port}
 
     # -- the mode (doc sections 4.3, 9.1, 12.2 — M2.6) ----------------------
 
@@ -915,7 +944,17 @@ def start(**kwargs: Any) -> Core:
 def main() -> None:
     """Block until killed. What `python -m hotpot.core.main` runs."""
     log.setup("core")
-    core = start()
+    # The one config.load() call in this process (module docstring's
+    # "hardcoded to the doc section 4.1 defaults" is now true of every port
+    # except this pair) — camera/main.py is the only other reader, and
+    # config.py's own docstring says a live system.json seeded from the
+    # committed default deep-merges over it, so an operator can repoint the
+    # Live tab at a different host without touching code.
+    cam_cfg = config.get(config.load(), "camera", {})
+    core = start(
+        camera_host=cam_cfg.get("host_for_browser", CAMERA_HOST),
+        camera_port=cam_cfg.get("mjpeg_port", CAMERA_PORT),
+    )
     # After both ports are bound (doc section 10.2: "say it after the
     # port is bound"), not before — run.py's tier 3 is waiting on this
     # exact line to know core is genuinely serving.

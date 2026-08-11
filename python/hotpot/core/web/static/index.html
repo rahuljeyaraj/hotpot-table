@@ -187,31 +187,48 @@
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
-  /* --- Live tab shell (doc section 12.3) --------------------------------
-     No camera (M3), no tracker (M5), no bin rects on the wire yet (core
-     doesn't send them until M4's geometry_store) — so this is structure
-     only: the slot the MJPEG <img> + overlay <canvas> will occupy, and
-     the toggle chips that will gate what the overlay draws. Disabled
-     rather than removed, so the shell is visibly the same layout the real
-     tab will use. */
+  /* --- Live tab (doc section 12.3, M3 build item 3) ----------------------
+     The MJPEG <img> at natural size, CSS-scaled to fit, with a <canvas>
+     overlay sized to naturalWidth x naturalHeight and CSS-scaled
+     identically (doc §5.4's scaling rule) — the two share one wrapper so
+     "scaled identically" is a single CSS rule (width/height: 100%) rather
+     than two elements kept in sync by hand. No bin rects (M4), no hands
+     (M5), no dots (M4) exist on the wire yet, so the overlay's draw() is
+     structurally wired to the toggle chips but currently paints nothing:
+     the naturalWidth rule has to be right before there is anything to
+     scale, not after. */
   .live-shell {
     max-width: 960px;
   }
-  .live-feed-placeholder {
+  .live-feed-wrap {
+    position: relative;
     aspect-ratio: 16 / 9;
+    background: #0f1012; border: 1px solid #333640; border-radius: 8px;
+    overflow: hidden;
+  }
+  .live-feed-wrap img,
+  .live-feed-wrap canvas {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  .live-feed-wrap img { object-fit: contain; background: #0f1012; }
+  .live-feed-wrap canvas { pointer-events: none; }  /* rect-dragging is M4's Setup tab, not this one */
+  .live-feed-placeholder {
+    position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     text-align: center; padding: 24px;
-    background: #0f1012; border: 1px dashed #333640; border-radius: 8px;
     color: var(--muted); font-size: 14px;
   }
+  .live-feed-placeholder.hide { display: none; }
   .chips { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .chip {
     min-height: 44px; padding: 0 16px;
     border: 1px solid #333640; border-radius: 20px;
     background: transparent; color: var(--muted);
-    font-size: 13px;
+    font-size: 13px; cursor: pointer;
   }
-  .chip:disabled { opacity: 0.5; cursor: default; }
+  .chip.on { color: var(--text); border-color: var(--green); }
 
   /* --- Bins tab (doc section 12.4) --------------------------------------
      8 cards: name, live grams (doc 12.9: 44px tabular-nums for the large
@@ -418,17 +435,19 @@
   <main>
     <section class="tab-panel active" data-tab="live">
       <div class="live-shell">
-        <div class="live-feed-placeholder">
-          Camera feed arrives at M3.<br>
-          This slot will hold the MJPEG image and a bin/hand overlay
-          canvas (doc §12.3).
+        <div class="live-feed-wrap">
+          <img id="liveImg" alt="">
+          <canvas id="liveOverlay"></canvas>
+          <div id="livePlaceholder" class="live-feed-placeholder">
+            Waiting for the camera…
+          </div>
         </div>
         <div class="chips">
-          <button class="chip" disabled>rects</button>
-          <button class="chip" disabled>labels</button>
-          <button class="chip" disabled>weights</button>
-          <button class="chip" disabled>hands</button>
-          <button class="chip" disabled>dots</button>
+          <button class="chip" data-toggle="rects">rects</button>
+          <button class="chip" data-toggle="labels">labels</button>
+          <button class="chip" data-toggle="weights">weights</button>
+          <button class="chip" data-toggle="hands">hands</button>
+          <button class="chip" data-toggle="dots">dots</button>
         </div>
       </div>
     </section>
@@ -547,6 +566,97 @@
       });
     });
   });
+
+  // --- Live tab (doc section 12.3, §5.4 — M3 build item 3) --------------
+  var liveImg = document.getElementById("liveImg");
+  var liveOverlay = document.getElementById("liveOverlay");
+  var livePlaceholder = document.getElementById("livePlaceholder");
+  var overlayCtx = liveOverlay.getContext("2d");
+
+  // The toggle chips. None has anything to gate yet — core sends no bin
+  // rects before M4, no hand cursor before M5, no dot pattern outside
+  // M4's calibration wizard — so drawOverlay() below reads this state but
+  // currently always clears to nothing. Persisted the same way the
+  // developer panel is (doc section 12.8's own precedent): an operator who
+  // turns "hands" off should not have it turn back on after a reload.
+  var TOGGLE_KEY_PREFIX = "hotpot.liveToggle.";
+  var toggleState = {};
+  Array.prototype.forEach.call(document.querySelectorAll(".chip[data-toggle]"), function (btn) {
+    var key = btn.dataset.toggle;
+    var stored = "0";
+    try { stored = localStorage.getItem(TOGGLE_KEY_PREFIX + key) || "0"; } catch (e) { /* private mode, etc — not fatal */ }
+    toggleState[key] = stored === "1";
+    btn.classList.toggle("on", toggleState[key]);
+    btn.addEventListener("click", function () {
+      toggleState[key] = !toggleState[key];
+      btn.classList.toggle("on", toggleState[key]);
+      try { localStorage.setItem(TOGGLE_KEY_PREFIX + key, toggleState[key] ? "1" : "0"); } catch (e) { /* ignore */ }
+      drawOverlay();
+    });
+  });
+
+  // Doc §5.4: the canvas's own pixel buffer is sized to naturalWidth x
+  // naturalHeight — camera-space pixels, the same space bin rects and hand
+  // cursors will arrive in once M4/M5 put them on the wire — and the CSS
+  // rule above (`.live-feed-wrap canvas { width:100%; height:100% }`)
+  // scales that buffer onto the page identically to the <img> sitting
+  // under it. Getting the sizing right before either message exists is
+  // the point of doing it now: nothing here has to change when they do.
+  function sizeOverlayToImage() {
+    if (!liveImg.naturalWidth || !liveImg.naturalHeight) return;
+    if (liveOverlay.width !== liveImg.naturalWidth) liveOverlay.width = liveImg.naturalWidth;
+    if (liveOverlay.height !== liveImg.naturalHeight) liveOverlay.height = liveImg.naturalHeight;
+    drawOverlay();
+  }
+
+  // Nothing to draw yet (see the toggle-chip comment above) — this exists
+  // so sizeOverlayToImage() has a real caller now, and so M4/M5 have one
+  // place to add rects/hands rather than inventing a second draw path.
+  function drawOverlay() {
+    overlayCtx.clearRect(0, 0, liveOverlay.width, liveOverlay.height);
+  }
+
+  var CAMERA_RETRY_MS = 3000;
+  var cameraUrl = null;          // set once, from the join seed's `camera` message
+  var cameraRetryTimer = null;
+
+  function loadLiveImg() {
+    if (!cameraUrl) return;
+    // Cache-bust: a dead multipart connection does not reliably fire
+    // `onerror`, and a browser will not retry a stalled MJPEG stream on
+    // its own. Re-pointing at the same URL with a fresh query string is
+    // what actually forces a new connection on retry — the doc section 21
+    // M3 acceptance test's "the feed resumes automatically after restart"
+    // needs this, not just the red pip camera's health link already gives.
+    liveImg.src = cameraUrl + "?t=" + Date.now();
+  }
+
+  function scheduleCameraRetry() {
+    if (cameraRetryTimer) return;
+    cameraRetryTimer = setTimeout(function () {
+      cameraRetryTimer = null;
+      loadLiveImg();
+    }, CAMERA_RETRY_MS);
+  }
+
+  liveImg.addEventListener("load", function () {
+    livePlaceholder.classList.add("hide");
+    sizeOverlayToImage();
+  });
+  liveImg.addEventListener("error", function () {
+    livePlaceholder.textContent = "Camera offline — retrying…";
+    livePlaceholder.classList.remove("hide");
+    scheduleCameraRetry();
+  });
+
+  function applyCamera(msg) {
+    // Sent once, on join (core/main.py's _camera_msg docstring: "nothing
+    // in this process can make it change mid-run") — a reconnect after
+    // core restarts sends it again with the same value, harmless to
+    // reapply.
+    cameraUrl = "http://" + msg.host + ":" + msg.port + "/stream.mjpg";
+    loadLiveImg();
+  }
 
   // --- developer panel toggle (doc section 12.8: "persisted in
   // localStorage") -----------------------------------------------------
@@ -1086,6 +1196,7 @@
       else if (msg.t === "bins") applyBins(msg);
       else if (msg.t === "cal_result") applyCalResult(msg);
       else if (msg.t === "mode") applyMode(msg);
+      else if (msg.t === "camera") applyCamera(msg);
     };
     ws.onclose = function () {
       // A set_mode whose reply will now never arrive. Left true, the
