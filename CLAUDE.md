@@ -111,8 +111,51 @@ TestDeveloperPanelMockControls — WS-driven pick/put-back, the full
 cycle in sequence, bad bin, negative grams), all passing, 228/228 total.
 Manually confirmed core serves the updated index.html over real HTTP
 with the new markup and UTF-8 title intact.
-Last completed step: M1.5. **M1 build items 1-5 are all code-complete.**
-Next: M1's human acceptance test (doc §21) on the physical rig, then M2.
+Last completed step: M1.5, then two fix passes on 2026-08-11.
+**M1 build items 1-5 are all code-complete.** 239 tests pass.
+
+Pass (a), commit 0d79f33 — bugs found running the acceptance test on the
+rig: white-on-white labels, name overflow, missing ₹ glyph, dev overlay
+always on, no total caption.
+
+Pass (b) — an audit of every M0/M1 build item against the doc. Five
+holes, all fixed, each with tests checked capable of failing by reverting
+the fix and watching them go red:
+- **The plate ring was drawn and then erased.** UiLayer stroked it on the
+  bin rect; the light pass stamps white over the bin +10mm, last. The
+  outline, the pick pop and the entire `hl` highlight never reached the
+  projector, so I8 (hue carries state) had no rendering channel at all.
+  The ring now frames the cutout from outside it, per §14.4's annulus
+  rule. **Never seen on the table — only built.**
+- **Doc §13.4's stroke rule was WRONG and has been corrected in the doc.**
+  `ofPath::setStrokeWidth()` IS `ofSetLineWidth()` — verified in the
+  installed `ofGLRenderer.cpp` — and is ignored outright by the
+  programmable renderer M8's fluid will force. Rings must be filled
+  geometry. **Read §13.4 before building M5's dwell ring or M8's halos.**
+- Per-bin price came from true removed grams while the grams beside it
+  came from the deadband: a plate could read "45g" next to the price of
+  51g, and at M2 load-cell noise would have twitched the total while the
+  grams sat still — the deadband failing at its one job.
+  `pricing.shown_total()` is now what the table shows; `pricing.total()`
+  is untouched and is still what bills. They converge at `finalize()`.
+- Core had no lock around cart/binmap/fsm — the 60Hz broadcaster raced
+  the tablet's WebSocket thread. `Core.state_lock`. One frame wide today;
+  it matters at M2 (serial thread) and breaks M6 (finalize + order write
+  + reset_session must be atomic against a read).
+- Far-row labels lost their descenders to the light pass, and "/100g" was
+  hardcoded English inside core.
+
+Known gaps, named in the doc but in no M0/M1 build item — decide, don't
+assume they were missed:
+- `config/system.default.json` (§7's tree) does not exist and nothing
+  loads config. Every port and threshold is a hardcoded doc default.
+- run.py marks a child `failed` after 5 crashes in 60s (§20.2) but never
+  tells core, so the staff view cannot tell `failed` from `down`.
+  `health.Registry.mark_failed` exists, is tested, and nothing calls it.
+- `welcome.cfg` is always `{}`. Nothing needs it before M5's tracker.
+
+Next: M1's human acceptance test (doc §21) on the physical rig. The plate
+ring, the pick pop and the descender fix have never been observed. Then M2.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
