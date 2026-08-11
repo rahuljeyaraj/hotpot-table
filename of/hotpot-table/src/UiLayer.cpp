@@ -105,7 +105,7 @@ namespace {
 	// Height is developer-tuned (not a doc value); top margin is
 	// clearance from the table's far edge; the gap is breathing room
 	// between the mark's bottom and the banner's top when both are up.
-	const float kBrandHeightPx = 220.0f;
+	const float kBrandHeightPx = 170.0f;
 	const float kBrandTopMarginPx = 20.0f;
 	const float kBrandBannerGapPx = 24.0f;
 
