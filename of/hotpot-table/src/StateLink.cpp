@@ -355,5 +355,48 @@ bool StateLink::parseState(const ofJson & j, State & out){
 		}
 	}
 
+	// doc §4.3's `widgets` (M5 build item 3). Unlike `bins` this is NOT a
+	// fixed-length array — it is empty in IDLE, one entry (language) in
+	// most states and three in SELECTING — so it is rebuilt every line
+	// rather than padded. A widget with a degenerate rect is dropped
+	// rather than drawn: a zero-size button is an invisible dwell target,
+	// which is worse than a missing one because the diner cannot see why
+	// nothing is happening.
+	out.widgets.clear();
+	if(j.contains("widgets") && j["widgets"].is_array()){
+		for(const auto & wj : j["widgets"]){
+			if(!wj.is_object()){
+				continue;
+			}
+			if(!wj.contains("rect") || !wj["rect"].is_array() || wj["rect"].size() != 4){
+				continue;
+			}
+			const ofJson & r = wj["rect"];
+			if(!r[0].is_number() || !r[1].is_number()
+				|| !r[2].is_number() || !r[3].is_number()){
+				continue;
+			}
+			Widget w;
+			w.x = r[0].get<float>();
+			w.y = r[1].get<float>();
+			w.w = r[2].get<float>();
+			w.h = r[3].get<float>();
+			if(w.w <= 0.0f || w.h <= 0.0f){
+				continue;
+			}
+			w.id = wj.value("id", "");
+			w.kind = wj.value("kind", "button");
+			w.label = wj.value("label", "");
+			// Clamped rather than trusted: the ring's sweep is drawn
+			// straight from this, and a value above 1 would wrap the arc
+			// past its own start and read as an empty ring at the exact
+			// moment the dwell is about to fire.
+			w.dwell = std::max(0.0f, std::min(1.0f, wj.value("dwell", 0.0f)));
+			w.enabled = wj.value("enabled", true);
+			w.style = wj.value("style", "primary");
+			out.widgets.push_back(w);
+		}
+	}
+
 	return true;
 }

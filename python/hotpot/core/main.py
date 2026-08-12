@@ -163,6 +163,13 @@ NOT_IN_SETTING_MSG = ("Turn Serving off first — the table is still "
 # copy of its own.
 TRACKER_EMIT_HZ = 60.0
 
+# How long a cursor may go without a NEW datagram before core treats the
+# pointer as gone rather than merely between frames (doc section 21's M5
+# build item 4, found while verifying it on the rig — see _apply_cursor's
+# docstring). Matches oF's own CursorLink::kCursorHoldSeconds so the table
+# and core agree about when a hand is "still here".
+POINTER_STALE_S = 0.35
+
 # How long core waits for a classifier reply to one of doc section 4.7's
 # commands — the capture case is a whole burst (doc section 12.7: 10 frames
 # over 5 s) plus the JPEG writes.
@@ -418,6 +425,12 @@ class Core:
         # the hands have gone quiet, so a tablet does not draw a marker for
         # a hand that left.
         self._hands: list = []
+        # The pointer as of the last REAL new datagram, and when that
+        # datagram arrived (`time.monotonic()`). Sticky across ticks with
+        # nothing new — see `_apply_cursor`'s docstring for why that is
+        # load-bearing, not incidental.
+        self._pointer: Optional[cursorbus.Hand] = None
+        self._pointer_at: Optional[float] = None
         self._hover_bin: Optional[int] = None
         self._widgets: list = []
 
@@ -1034,6 +1047,26 @@ class Core:
         enforces it; this method must not be given a loop that reads more
         than one frame, or a 200ms stall would replay the hand through
         history — which is the entire reason cursors are UDP.
+
+        **`self._pointer` is sticky across ticks with no new datagram, and
+        that is the fix for a real bug found on the rig, not a style
+        choice.** The tracker emits at camera rate — doc section 6.5 puts
+        that at ~30Hz — while this runs at the state loop's 60Hz. So on
+        roughly half of every tick, `self.cursor.recv_latest()` genuinely
+        returns `None` — "nothing NEW arrived" (cursorbus.py's own
+        docstring), the ordinary shape of two independent clocks, not a
+        fault. The first version of this method built a fresh `pointer`
+        local from `frame` alone every call, so every one of those ordinary
+        empty ticks fed `DwellTracker.update()` a bare `None` — which
+        `DwellTracker` correctly reads as "the pointer left" and starts
+        decaying through the 150ms grace. Sent to a real running core and
+        watched over real UDP: a hand held on Done for six full seconds
+        never moved the dwell fraction off 0.0. The unit tests never caught
+        this because a Core built in-process (`CoreCase`) and driven by a
+        tight Python send loop in the SAME test process happens to interleave
+        closely enough that a fresh frame is very often there each tick —
+        an accident of two threads sharing one process, not a property the
+        real two-OS-process, two-independent-clocks system has.
         """
         frame = self.cursor.recv_latest()
         if frame is not None:
@@ -1042,12 +1075,28 @@ class Core:
             # dropped datagram is normal), while a frame with no hands must
             # clear it. Only the second is a statement about the table.
             self._hands = list(frame.hands)
+            # The pointer itself is likewise only ever changed by a REAL
+            # new frame — see the docstring above. `frame.pointer()` can
+            # legitimately come back None here (an explicit "ambient hands
+            # only, or an empty table" frame), and that DOES clear it —
+            # the distinction is "no new information" (frame is None, keep
+            # the old pointer) versus "new information saying gone" (frame
+            # exists and says no pointer, clear it).
+            self._pointer = frame.pointer()
+            self._pointer_at = now
 
-        pointer = hover.pick_pointer(frame) if frame is not None else None
-        if frame is not None and pointer is None:
-            # An explicit "no pointer this frame" — ambient hands only, or
-            # an empty table. Hover clears; dwell decays through its grace.
-            self._hover_bin = None
+        pointer = self._pointer
+        if (pointer is not None and self._pointer_at is not None
+                and now - self._pointer_at > POINTER_STALE_S):
+            # The stream has gone properly silent for a while — not just
+            # "no new datagram this tick" but long enough that the tracker
+            # itself is plausibly dead or the camera has gone stale (doc
+            # section 6.4). A hover/dwell frozen on a hand that is
+            # provably no longer being reported is worse than clearing it.
+            # Matches oF's own `CursorLink::kCursorHoldSeconds` so the
+            # table and core's own idea of "is a hand still here" agree.
+            pointer = None
+            self._pointer = None
 
         # Doc section 9.1's IDLE -> SELECTING edge, which has had no driver
         # since M1 (`fsm.hand_present()` existed with nothing calling it —
@@ -1062,15 +1111,18 @@ class Core:
             selecting=self.fsm.state is fsm.State.SELECTING,
             locales_available=len(self.locales.available()))
 
-        if pointer is not None:
-            was = self._hover_bin
-            self._hover_bin = hover.bin_under(self.camera_grid.rects(), pointer)
-            if self._hover_bin is not None and self._hover_bin != was:
-                # Doc section 15.2's `hover`, "very soft tick, -18 dB". Sent
-                # as a one-shot `evt` rather than riding `state`, because
-                # `state` repeats at 60Hz and a repeated sound would fire
-                # sixty times a second (doc section 4.4's whole rationale).
-                self._send_evt({"t": "evt", "kind": "sound", "id": "hover"})
+        # `hover.bin_under` already answers None for a None hand (its own
+        # docstring), so this runs unconditionally rather than duplicating
+        # that check here — one place decides what "no pointer" means for
+        # a hit test.
+        was = self._hover_bin
+        self._hover_bin = hover.bin_under(self.camera_grid.rects(), pointer)
+        if self._hover_bin is not None and self._hover_bin != was:
+            # Doc section 15.2's `hover`, "very soft tick, -18 dB". Sent
+            # as a one-shot `evt` rather than riding `state`, because
+            # `state` repeats at 60Hz and a repeated sound would fire
+            # sixty times a second (doc section 4.4's whole rationale).
+            self._send_evt({"t": "evt", "kind": "sound", "id": "hover"})
 
         fired = self.dwell.update(self._widgets, pointer, now)
         if fired is not None:

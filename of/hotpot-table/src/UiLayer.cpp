@@ -125,6 +125,42 @@ namespace {
 	const float kBrandTopMarginPx = 20.0f;
 	const float kBrandBannerGapPx = 24.0f;
 
+	// --- M5: the pointer cursor and the dwell ring ------------------------
+	// Sizes in px because they are screen furniture, not table geometry —
+	// nothing about a cursor is measured in millimetres of plywood. The
+	// numbers are set against the one thing that does matter physically:
+	// a hand is not a mouse, so the cursor has to be visible under a hand
+	// that is partly covering it, from three metres, on a near-white field.
+	const float kCursorDotRadius = 13.0f;    // the solid centre
+	const float kCursorRingInner = 22.0f;    // thin ring around it, so the
+	const float kCursorRingOuter = 28.0f;    // dot reads even over a label
+	// The dwell ring sits OUTSIDE the cursor's own ring rather than
+	// replacing it: the cursor must not change shape as the ring fills, or
+	// the diner reads it as the cursor breaking rather than as progress.
+	const float kDwellRingInner = 36.0f;
+	const float kDwellRingOuter = 52.0f;
+
+	// I8: hue at full chroma, never brightness — the field is near-white by
+	// requirement (I9) so a "dimmer" cursor would read as a rendering
+	// fault. Dark ink for the cursor itself (doc §13.4's rule for anything
+	// that has to be read on a light field) and the `picking` amber from
+	// highlightColour() for the dwell sweep, so a filling ring on the table
+	// is the same hue as a bin mid-pick.
+	const ofColor kCursorColor(24, 24, 24);
+	const ofColor kDwellTrackColor(150, 150, 150);
+	const ofColor kDwellFillColor(200, 120, 0);
+
+	// --- M5: the projected buttons ----------------------------------------
+	// A button is drawn the same way a plate is — a filled rect ring with
+	// the label inside it — so the two read as one system rather than as a
+	// UI pasted onto a table. 5mm rather than the plate's 6mm because a
+	// button's ring encloses text rather than a physical hole and a heavier
+	// frame starts to compete with its own label.
+	const float kWidgetRingMM = 5.0f;
+	const ofColor kWidgetPrimary(0, 115, 0);      // the `picked` green, equiluminant
+	const ofColor kWidgetSecondary(98, 98, 98);
+	const ofColor kWidgetDisabled(190, 190, 190);
+
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
 		if(text.empty() || !font.isLoaded()){
@@ -330,6 +366,36 @@ void UiLayer::drawRing(const ofRectangle & cut, float widthX, float widthY,
 		cut.width + 2.0f * widthX, widthY);                       // bottom
 	ofDrawRectangle(cut.x - widthX, cut.y, widthX, cut.height);   // left
 	ofDrawRectangle(cut.x + cut.width, cut.y, widthX, cut.height);// right
+}
+
+void UiLayer::drawAnnulus(float cx, float cy, float rOuter, float rInner,
+	const ofColor & colour, float startDeg, float endDeg){
+	// **A FILLED ofPath — outer arc, then an inner arcNegative.** Doc §13.4
+	// spells this out and the reason is not style: an UNfilled ofPath is
+	// drawn by ofGLRenderer::draw(const ofPath&), which calls
+	// setLineWidth(shape.getStrokeWidth()) -> glLineWidth(). So
+	// ofPath::setStrokeWidth() IS ofSetLineWidth(), which Mesa on Intel
+	// (the ODYSSEY's driver family) caps at 1px — and on the programmable
+	// renderer M8's fluid will force, that glLineWidth call is commented
+	// out entirely and the width is ignored outright. A stroked ring would
+	// therefore work on this dev machine today and become a hairline on
+	// the deploy board, on the day the fluid lands, for reasons nobody
+	// would connect.
+	//
+	// Two ofDrawCircle calls with the background punched through the middle
+	// is the other tempting version and is also wrong: over M8's fluid
+	// there is no background colour to punch with.
+	if(endDeg <= startDeg || rOuter <= rInner){
+		return;
+	}
+	ofPath path;
+	path.setFilled(true);
+	path.setFillColor(colour);
+	path.setCircleResolution(96);   // 64 shows facets at this radius
+	path.arc(cx, cy, rOuter, rOuter, startDeg, endDeg);
+	path.arcNegative(cx, cy, rInner, rInner, endDeg, startDeg);
+	path.close();
+	path.draw();
 }
 
 ofColor UiLayer::highlightColour(const std::string & hl){
@@ -692,6 +758,66 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	}
 }
 
+void UiLayer::drawWidget(const StateLink::Widget & w) const {
+	const ofRectangle box(w.x, w.y, w.w, w.h);
+	ofColor ring = kWidgetSecondary;
+	if(!w.enabled){
+		ring = kWidgetDisabled;
+	}
+	else if(w.style == "primary"){
+		ring = kWidgetPrimary;
+	}
+
+	const float ringX = mmToPxX(kWidgetRingMM);
+	const float ringY = mmToPxY(kWidgetRingMM);
+	// drawRing frames the rect from OUTSIDE it, the same annulus rule the
+	// plates follow (§14.4), so the label inside is never touched by its
+	// own frame however thick the frame becomes.
+	drawRing(box, ringX, ringY, ring);
+
+	// Dark ink on a light field (§13.4) — and a disabled button's label is
+	// greyed rather than hidden, because a button whose label vanished
+	// would read as a rendering fault rather than as unavailable.
+	ofSetColor(w.enabled ? kInkColor : kWidgetDisabled);
+	drawCentered(_nameFont, w.label, box.getCenter().x,
+		box.getCenter().y + _nameFont.getAscenderHeight() * 0.5f);
+	ofSetColor(255);
+}
+
+void UiLayer::drawWidgets(const StateLink::State & state) const {
+	for(const StateLink::Widget & w : state.widgets){
+		drawWidget(w);
+	}
+}
+
+void UiLayer::drawCursor(const CursorLink::Hand & pointer, float dwell) const {
+	// doc §11.4: "oF draws NO cursor and NO dwell ring for [ambient hands]."
+	// The caller only ever passes the pointer, and that is where the
+	// isolation lives on this side — ofApp asks CursorLink for pointer()
+	// and never iterates hands looking for one.
+	const float cx = pointer.x;
+	const float cy = pointer.y;
+
+	// Dwell first, so the cursor itself is never drawn under its own ring.
+	if(dwell > 0.0f){
+		// The unfilled track, then the filled sweep on top of it. The track
+		// matters: without it a 5%-full ring is a tiny stub with nothing to
+		// read it against, and the diner cannot tell "the table has started
+		// counting" from "the table has not noticed me".
+		drawAnnulus(cx, cy, kDwellRingOuter, kDwellRingInner, kDwellTrackColor);
+		// -90 so the sweep starts at 12 o'clock rather than at 3 o'clock,
+		// which is what every progress ring a person has ever seen does.
+		const float start = -90.0f;
+		drawAnnulus(cx, cy, kDwellRingOuter, kDwellRingInner, kDwellFillColor,
+			start, start + 360.0f * dwell);
+	}
+
+	drawAnnulus(cx, cy, kCursorRingOuter, kCursorRingInner, kCursorColor);
+	ofSetColor(kCursorColor);
+	ofDrawCircle(cx, cy, kCursorDotRadius);
+	ofSetColor(255);
+}
+
 void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
 	bool connected, float fps) const {
 	char buf[128];
@@ -703,7 +829,9 @@ void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
 }
 
 void UiLayer::draw(bool hasState, const StateLink::State & state,
-	bool connected, float staleSeconds, float fps, bool showDevOverlay) const {
+	bool connected, float staleSeconds, float fps, bool showDevOverlay,
+	const std::vector<CursorLink::Hand> & hands,
+	const CursorLink::Hand * pointer) const {
 	if(!_fontsLoaded){
 		drawConnectionIndicator(connected, staleSeconds);
 		return;
@@ -727,7 +855,28 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 			drawBin(i, state.bins[i], _bins[i]);
 		}
 		drawTotal(state.total);
+		drawWidgets(state);
 		drawTopBanner(state);
+	}
+
+	// The cursor goes on LAST of everything the diner reads, so it is never
+	// buried under a label or a button it is sitting on top of. (It still
+	// cannot reach a bin cutout: Stage's light pass runs after all of this
+	// and re-stamps every cutout white — doc §13.2's safety property, which
+	// covers "any overlay added later" and this is one.)
+	if(pointer != nullptr){
+		// The dwell fraction comes from CORE, per widget (doc §9.4: "oF
+		// does not time anything"). It is looked up by the widget the
+		// pointer is inside rather than by remembering which one core said
+		// was active — there is no such field on the wire, and adding one
+		// would be a second source of truth for something already implied.
+		float dwell = 0.0f;
+		for(const StateLink::Widget & w : state.widgets){
+			if(w.dwell > dwell){
+				dwell = w.dwell;
+			}
+		}
+		drawCursor(*pointer, dwell);
 	}
 
 	drawConnectionIndicator(connected, staleSeconds);

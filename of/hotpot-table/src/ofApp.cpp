@@ -12,6 +12,11 @@ namespace {
 	const std::string kCoreHost = "127.0.0.1";
 	const int kCorePort = 8765;
 
+	// doc §4.1's `cursor.of_port`. Hardcoded to the documented default for
+	// the same reason kCorePort is — this app still has no config reader
+	// (see kWhiteFloor's comment) and this is the one port oF listens on.
+	const int kCursorPort = 8770;
+
 	// doc §4.5/§12: telemetry cadence. Not the 60Hz state rate — `stat` is
 	// a developer/staff-view number, once a second is plenty.
 	const float kStatInterval = 1.0f;
@@ -55,11 +60,19 @@ void ofApp::setup(){
 	// Runs its own thread from here on — see StateLink's class comment for
 	// why setup() itself must never block.
 	_link.setup(kCoreHost, kCorePort, "of");
+	// The cursor link needs no thread and takes none — see CursorLink's
+	// class comment on why it differs from StateLink here.
+	_cursor.setup(kCursorPort);
 }
 
 //--------------------------------------------------------------
 void ofApp::update(){
 	float dt = ofGetLastFrameTime();
+	// Drained once per frame, before anything reads it. Drain-to-latest, so
+	// a frame that arrives late is thrown away rather than replayed
+	// (doc §4) — CursorLink::update() is the only place that rule lives on
+	// this side.
+	_cursor.update();
 	bool hasState = _link.hasState();
 	if(hasState){
 		StateLink::State state = _link.getState();
@@ -90,7 +103,8 @@ void ofApp::draw(){
 
 	_stage.beginContent();
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
-		ofGetFrameRate(), _devOverlayVisible);
+		ofGetFrameRate(), _devOverlayVisible,
+		_cursor.hands(), _cursor.pointer());
 	_stage.endContent();
 
 	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx());
@@ -114,6 +128,7 @@ void ofApp::exit(){
 	// thread: shutdown() must actually join, or the process can outlive
 	// its own window with a link thread still trying to reconnect.
 	_link.shutdown();
+	_cursor.close();
 }
 
 //--------------------------------------------------------------

@@ -20,6 +20,7 @@ Two ways of driving it, on purpose:
 import os
 import socket
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -308,6 +309,61 @@ class TestOverRealUdp(unittest.TestCase):
         rx = cursorbus.Receiver(host="127.0.0.1", port=0)
         self.addCleanup(rx.close)
         self.assertNotEqual(rx.port, 0)
+
+    def test_a_real_datagram_survives_a_preceding_icmp_port_unreachable(self):
+        """**Reproduces the bug that made every real-machine verification of
+        this module look like silence, until it was chased down to here.**
+
+        Windows (not POSIX — the failure this guards is Windows-only)
+        delivers a queued `WSAECONNRESET` to the FIRST `recvfrom()` a
+        socket makes on a LOCAL PORT that ever drew back an ICMP "port
+        unreachable" — even a brand-new socket that never sent anything
+        itself, and even when a real, correctly-addressed datagram is
+        already queued behind it. On this dev machine, before the fix in
+        `_disable_windows_connreset`, this made a freshly-bound `Receiver`
+        never accept a single frame for the rest of the process's life —
+        because every `run.py` restart leaves exactly this kind of stale
+        ICMP behind on these two well-known ports, and this reproduces that
+        directly rather than trusting the dev-rig observation alone.
+
+        The steps: bind a throwaway port, close it (nobody home now), send
+        a datagram INTO it from a still-open local socket bound to a
+        second, target port (drawing the ICMP unreachable back to that
+        target port), close the sender, then bind cursorbus.Receiver to
+        that SAME target port and send it one real, well-formed cursor
+        frame. Before the fix, that frame is eaten by the queued reset and
+        this test times out with `frame is None`.
+        """
+        # A port that will definitely refuse the datagram sent to it below.
+        dead = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        dead.bind(("127.0.0.1", 0))
+        dead_port = dead.getsockname()[1]
+        dead.close()
+
+        # The port a Receiver will bind to in a moment. Used first by a
+        # plain socket to draw the ICMP unreachable back onto it.
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.bind(("127.0.0.1", 0))
+        target_port = probe.getsockname()[1]
+        probe.sendto(b"x", ("127.0.0.1", dead_port))
+        time.sleep(0.05)     # let the ICMP reply queue against target_port
+        probe.close()
+
+        rx = cursorbus.Receiver(host="127.0.0.1", port=target_port)
+        self.addCleanup(rx.close)
+        tx = cursorbus.Sender(targets=[("127.0.0.1", target_port)])
+        self.addCleanup(tx.close)
+        tx.send([hand(9, cursorbus.ROLE_POINTER, 42.0, 7.0, 0.9)], ts=1.0)
+
+        frame = None
+        for _ in range(200):
+            frame = rx.recv_latest()
+            if frame is not None:
+                break
+            time.sleep(0.005)
+        self.assertIsNotNone(
+            frame, "the real datagram was lost behind a stale ICMP reset")
+        self.assertAlmostEqual(frame.pointer().x, 42.0, places=1)
         self.assertEqual(rx.port, rx._sock.getsockname()[1])
 
 

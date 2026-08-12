@@ -67,6 +67,20 @@ public:
 		float rx = 0.0f, ry = 0.0f, rw = 0.0f, rh = 0.0f;
 	};
 
+	// doc §4.3's `widgets`, and §9.4's dwell fraction (M5 build item 3).
+	// oF draws these and times NOTHING: `dwell` arrives as a 0..1 fraction
+	// core computed, so the ring's fill is core's answer, not a second
+	// clock here that could disagree with the one that actually fires.
+	struct Widget {
+		std::string id;      // done|cancel|language
+		std::string kind = "button";
+		std::string label;   // already resolved in the current locale (I2)
+		float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;   // stage space
+		float dwell = 0.0f;  // 0..1
+		bool enabled = true;
+		std::string style = "primary";
+	};
+
 	struct Fluid {
 		std::string style = "mala";
 		bool enabled = false;
@@ -93,6 +107,7 @@ public:
 		std::string locale = "en";
 		Fluid fluid;
 		std::vector<Bin> bins;
+		std::vector<Widget> widgets;
 		Total total;
 		std::string overlayKind = "none";
 	};

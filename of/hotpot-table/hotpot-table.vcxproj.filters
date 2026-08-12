@@ -7,6 +7,9 @@
 		<ClCompile Include="src\main.cpp">
 			<Filter>src</Filter>
 		</ClCompile>
+		<ClCompile Include="src\CursorLink.cpp">
+			<Filter>src</Filter>
+		</ClCompile>
 		<ClCompile Include="src\StateLink.cpp">
 			<Filter>src</Filter>
 		</ClCompile>
@@ -23,6 +26,9 @@
 			<Filter>addons\ofxNetwork\src</Filter>
 		</ClCompile>
 		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPManager.cpp">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClCompile>
+		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxUDPManager.cpp">
 			<Filter>addons\ofxNetwork\src</Filter>
 		</ClCompile>
 		<ClCompile Include="..\..\..\..\..\addons\ofxFlowTools\src\core\fluid\ftFluidFlow.cpp">
@@ -230,6 +236,9 @@
 		<ClInclude Include="src\Spring.h">
 			<Filter>src</Filter>
 		</ClInclude>
+		<ClInclude Include="src\CursorLink.h">
+			<Filter>src</Filter>
+		</ClInclude>
 		<ClInclude Include="src\StateLink.h">
 			<Filter>src</Filter>
 		</ClInclude>
@@ -252,6 +261,12 @@
 			<Filter>addons\ofxNetwork\src</Filter>
 		</ClInclude>
 		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPSettings.h">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxUDPManager.h">
+			<Filter>addons\ofxNetwork\src</Filter>
+		</ClInclude>
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxUDPSettings.h">
 			<Filter>addons\ofxNetwork\src</Filter>
 		</ClInclude>
 		<ClInclude Include="..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\ftBridgeFlow.h">

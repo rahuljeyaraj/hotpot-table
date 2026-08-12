@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
+#include "CursorLink.h"
 #include "StateLink.h"
 #include "Stage.h"
 #include "UiLayer.h"
@@ -36,6 +37,7 @@ private:
 	void logWindowState(const std::string & when);
 
 	StateLink _link;
+	CursorLink _cursor;
 	Stage _stage;
 	UiLayer _ui;
 

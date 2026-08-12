@@ -228,12 +228,14 @@
 	<ItemGroup>
 		<ClCompile Include="src\main.cpp" />
 		<ClCompile Include="src\ofApp.cpp" />
+		<ClCompile Include="src\CursorLink.cpp" />
 		<ClCompile Include="src\StateLink.cpp" />
 		<ClCompile Include="src\Stage.cpp" />
 		<ClCompile Include="src\UiLayer.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPClient.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPManager.cpp" />
+		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxUDPManager.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxFlowTools\src\core\fluid\ftFluidFlow.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxFlowTools\src\core\ftFlow.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxFlowTools\src\core\ftUtil.cpp" />
@@ -268,6 +270,7 @@
 		<ClInclude Include="src\ofApp.h" />
 		<ClInclude Include="src\TableGeometry.h" />
 		<ClInclude Include="src\Spring.h" />
+		<ClInclude Include="src\CursorLink.h" />
 		<ClInclude Include="src\StateLink.h" />
 		<ClInclude Include="src\Stage.h" />
 		<ClInclude Include="src\UiLayer.h" />
@@ -276,6 +279,8 @@
 		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPClient.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPManager.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPSettings.h" />
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxUDPManager.h" />
+		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxUDPSettings.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\ftBridgeFlow.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\ftCombinedBridgeFlow.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxFlowTools\src\core\bridge\ftDensityBridgeFlow.h" />

@@ -113,13 +113,25 @@ def centre_column_px() -> Tuple[float, float]:
 
 
 # The free band between the banner block (brand + banner, which end around
-# y=320 in UiLayer's own layout) and the running total (whose label starts
-# around y=930). Stated as stage px because both neighbours are: the brand
-# mark's height is developer-tuned in px and the total's baseline is a px
-# offset from the near edge, so converting to mm here would only add a
-# round trip that hides the adjacency this has to respect.
+# y=320 in UiLayer's own layout) and the running total. Stated as stage px
+# because both neighbours are: the brand mark's height is developer-tuned
+# in px and the total's baseline is a px offset from the near edge, so
+# converting to mm here would only add a round trip that hides the
+# adjacency this has to respect.
+#
+# **BAND_BOTTOM_PX was 900 and it was wrong — found on the rig, not by
+# arithmetic.** `UiLayer::drawTotal`'s label sits at a baseline computed
+# from `_totalNumFont.getAscenderHeight()`, a FreeType metric this module
+# has no access to (it lives in oF, in C++, resolved at font-load time).
+# The value used to derive 900 assumed a modest ascender; a real screenshot
+# of the projected table (M5 build item 3's verification pass) showed the
+# Done button's ring overlapping the word "Total" by several pixels — the
+# same class of gap doc section 0 warns about generally: a number reasoned
+# out in code and never checked against the thing it draws next to. 820
+# leaves a wide margin instead of a tight, font-metric-dependent one, so
+# this stays correct even if the total's font or its size changes later.
 BAND_TOP_PX = 350.0
-BAND_BOTTOM_PX = 900.0
+BAND_BOTTOM_PX = 820.0
 
 # Button sizes, largest for the primary action. Dwell targets have to be
 # comfortably bigger than the cursor's own wander — a hand is not a mouse,

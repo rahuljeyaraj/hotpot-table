@@ -49,10 +49,72 @@ from __future__ import annotations
 import json
 import logging
 import socket
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 _log = logging.getLogger("hotpot.cursorbus")
+
+# **VERIFIED on this dev machine (Windows), not remembered — and it silently
+# broke every Receiver until it was found.** Windows has a UDP behaviour
+# POSIX does not: if ANY earlier send to this local port ever drew back an
+# ICMP "port unreachable" (the ordinary case here — this exact port has no
+# listener during every gap between one process's death and the next one's
+# bind, and this codebase restarts these processes constantly), the kernel
+# queues a WSAECONNRESET and delivers it to the FIRST recvfrom() a socket
+# makes on that port afterward — even a brand-new socket that never sent
+# anything itself, and even when real, correctly-addressed datagrams are
+# already sitting in the same queue behind it. Caught as `ConnectionResetError
+# (OSError)` in `recv_latest()`'s loop, this is genuinely indistinguishable
+# from "nothing more to read" — no seq, no sender info, nothing that says
+# a real packet is one call away. It reproduced 100% on this machine: with it
+# unfixed, a Receiver bound after ANY prior traffic on its port never
+# accepted a single frame, forever, mid-session, with no exception escaping
+# past `recv_latest()`'s own broad catch — silence that reads exactly like
+# "the tracker has not started yet."
+#
+# The fix is the one Windows documents for this: `SIO_UDP_CONNRESET`,
+# disabling the OS's own connection-reset delivery for an unconnected UDP
+# socket. **`socket.socket.ioctl()` cannot issue it — checked, not
+# assumed.** CPython's `sock_ioctl` only whitelists `SIO_RCVALL`,
+# `SIO_KEEPALIVE_VALS` and `SIO_LOOPBACK_FAST_PATH`; any other control code
+# raises `ValueError: invalid ioctl command`, which is what happened the
+# first time this was tried, against a live process on this machine. The
+# raw Winsock2 `WSAIoctl` has no such whitelist, so it is called directly
+# through `ctypes` — the same escape hatch this module already uses for
+# nothing else, reached for only because the stdlib genuinely has no path
+# to this one call.
+_SIO_UDP_CONNRESET = 0x9800000C
+
+
+def _disable_windows_connreset(sock: "socket.socket") -> None:
+    """No-op on POSIX (the failure mode this exists for is Windows-only —
+    Linux/macOS UDP recv never raises for a peer's ICMP unreachable). Best-
+    effort even on Windows: never allowed to be fatal, because a Receiver
+    that cannot be constructed is a worse failure than one that occasionally
+    eats a `ConnectionResetError` the old way — `recv_latest()`'s own
+    `continue` (not `break`) on that exception is the fallback if this
+    fails or if `sock` was supplied by a caller that bypassed this path.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        val = ctypes.c_ulong(0)          # FALSE: do not report the reset
+        bytes_returned = ctypes.c_ulong(0)
+        ret = ctypes.windll.ws2_32.WSAIoctl(
+            ctypes.c_void_p(sock.fileno()), ctypes.c_ulong(_SIO_UDP_CONNRESET),
+            ctypes.byref(val), ctypes.c_ulong(ctypes.sizeof(val)),
+            None, ctypes.c_ulong(0),
+            ctypes.byref(bytes_returned), None, None)
+        if ret != 0:
+            raise OSError(
+                f"WSAIoctl(SIO_UDP_CONNRESET) returned {ret}, "
+                f"WSAGetLastError={ctypes.windll.ws2_32.WSAGetLastError()}")
+    except (AttributeError, OSError, ValueError) as e:
+        _log.warning("cursorbus: could not disable SIO_UDP_CONNRESET (%s) — "
+                     "a stale ICMP port-unreachable may intermittently "
+                     "blank out a drain on this socket", e)
 
 # Doc section 4.1's defaults.
 OF_PORT = 8770        # cursor.of_port    — oF's listener
@@ -294,6 +356,11 @@ class Receiver:
             # Port 0 means "let the OS pick", which is how a test binds
             # without racing whatever else is on this machine.
             self.port = self._sock.getsockname()[1]
+            # See the module-level comment on _disable_windows_connreset:
+            # only for a socket THIS class created and bound — a caller
+            # that injects its own `sock` (every test in this repo) owns
+            # that socket's options and is not touched.
+            _disable_windows_connreset(self._sock)
         self._sock.setblocking(False)
 
         # Rule 2 in the module docstring. -1 rather than 0 so that a
@@ -319,11 +386,22 @@ class Receiver:
             except BlockingIOError:
                 break
             except OSError as e:
-                # See Sender.send: on Windows a UDP socket can surface an
-                # earlier ICMP error here. Not fatal, and not a reason to
-                # stop draining what is already buffered behind it.
+                # **Found on this machine, reproduced 100%: this used to
+                # `break` here, and that was the bug, not a defensive
+                # measure.** `_disable_windows_connreset` (module docstring)
+                # stops Windows from raising this in the first place, for a
+                # socket this class bound itself — but a caller-supplied
+                # `sock` (every test in this file) does not go through that
+                # path, and a stale ICMP reset delivered to THIS recvfrom
+                # call says nothing about the datagrams still queued behind
+                # it. `continue`, not `break`: the real data that this
+                # error was standing in front of is one more recvfrom()
+                # away, and MAX_DRAIN already bounds how many attempts a
+                # single call will make, so retrying costs nothing when
+                # the socket really is empty (it fails the very next call).
+                self.malformed += 1
                 _log.debug("cursorbus: recv on %d failed: %s", self.port, e)
-                break
+                continue
             frame = decode(data)
             if frame is None:
                 self.malformed += 1

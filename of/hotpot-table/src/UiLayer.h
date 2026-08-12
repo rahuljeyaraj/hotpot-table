@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
+#include "CursorLink.h"
 #include "Spring.h"
 #include "StateLink.h"
 
@@ -30,8 +31,14 @@ public:
 	// showDevOverlay gates only the fps/link/seq corner readout — off by
 	// default (diner-facing table, not a debug console), toggled by ofApp
 	// on a keypress.
+	// `hands` is CursorLink's latest, already gated to nothing when the
+	// tracker has gone quiet. UiLayer draws a cursor for the POINTER only
+	// (doc §11.4) — an ambient hand is passed in because M8's fluid will
+	// want its position, not because anything is drawn at it.
 	void draw(bool hasState, const StateLink::State & state,
-		bool connected, float staleSeconds, float fps, bool showDevOverlay) const;
+		bool connected, float staleSeconds, float fps, bool showDevOverlay,
+		const std::vector<CursorLink::Hand> & hands = {},
+		const CursorLink::Hand * pointer = nullptr) const;
 
 	// Stage's light pass needs exactly these rects, in stage px, and they
 	// must be the SAME rects the plates are drawn against — that identity
@@ -58,6 +65,16 @@ private:
 	static ofRectangle cadBinRectPx(int i);
 	static void drawRing(const ofRectangle & cut, float widthX, float widthY,
 		const ofColor & colour);
+	// A FILLED annulus, and an arc of one — doc §13.4: "circular rings —
+	// the M5 dwell ring, M8's halos: a filled ofPath built from an outer
+	// arc and an inner arcNegative. Never two ofDrawCircle calls with the
+	// background colour punched through the middle: over a fluid there is
+	// no background colour to punch with."
+	static void drawAnnulus(float cx, float cy, float rOuter, float rInner,
+		const ofColor & colour, float startDeg = 0.0f, float endDeg = 360.0f);
+	void drawWidgets(const StateLink::State & state) const;
+	void drawWidget(const StateLink::Widget & w) const;
+	void drawCursor(const CursorLink::Hand & pointer, float dwell) const;
 	static ofColor highlightColour(const std::string & hl);
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
 	void drawTotal(const StateLink::Total & total) const;
