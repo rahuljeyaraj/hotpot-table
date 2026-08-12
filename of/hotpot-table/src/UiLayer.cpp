@@ -249,12 +249,31 @@ ofRectangle UiLayer::cadBinRectPx(int i){
 }
 
 ofRectangle UiLayer::binRectPx(int i) const {
-	// Core's rect when there is one — doc §5.3 makes core the owner of
-	// the bin rects in both spaces, and this is the stage-space half
-	// arriving. The CAD layout is the fallback for an uncalibrated table
-	// (M4 build item 6), which is visibly approximately right rather than
-	// visibly broken.
-	if(_hasCoreRect[i]){
+	// **kUseCoreRects is a deliberate kill-switch, OFF — 2026-08-12.**
+	// Core's rect when there is one is normally used here (doc §5.3: core
+	// owns the bin rects in both spaces), with the CAD layout as the
+	// fallback for an uncalibrated table (M4 build item 6). But "core has
+	// a rect" and "core's rect is TRUSTWORTHY" are different claims, and
+	// the same day's rig run showed they can come apart in the worst way:
+	// `geometry.calibrated: true, rms_px: 0.0, n_points: 4` — a solve that
+	// LOOKS perfect while being computed from an unresolved 180-degree
+	// camera mount, doc §5.3's TRAP arriving exactly as warned. The result
+	// was projected squares landing nowhere near the real trays.
+	//
+	// Forcing the CAD fallback here is not "no calibration" — it is
+	// falling back to the one geometry this file can vouch for without a
+	// homography: the table's own physical drawing. Visibly approximate,
+	// never visibly wrong, which is the whole reason M4 built the fallback
+	// this way in the first place.
+	//
+	// **Flip back to true only after a fresh dot calibration reports a
+	// real inlier count (not the marker-refusal / few-dots-agree failure
+	// this rig hit) AND a human has run the Verify step and answered
+	// honestly that the projected outlines sit on the real trays.** See
+	// CLAUDE.md's M4h/M4i entries. Until then this is the correct value,
+	// not a stopgap to feel bad about.
+	constexpr bool kUseCoreRects = false;
+	if(kUseCoreRects && _hasCoreRect[i]){
 		return _coreRects[i];
 	}
 	return cadBinRectPx(i);
