@@ -71,6 +71,41 @@ DEFAULT_THRESHOLD = 200
 # this is loose by a wide margin and is only catching slivers).
 DEFAULT_MIN_ASPECT = 0.45
 
+# ---------------------------------------------------------------------------
+# Background flattening and the threshold sweep — both restored from
+# tools/calibration/solve_homography.py, which is still in this repo and
+# which earned every number below on this rig in 2026-08.
+#
+# **The single fixed threshold above is not enough, and that is measured,
+# not suspected.** The old solver's own comments record what the rig
+# actually looks like during a solve: the plywood runs from ~29 to ~58 grey
+# ACROSS ONE FRAME, because the projector does not light the table evenly
+# and the camera views it at an angle, while a dot sits only ~25-50 grey
+# levels above whatever happens to be under it. Those two ranges overlap.
+# No single global threshold separates every dot from the board, and the
+# 2026-08-12 rig run showed exactly that failure: 4 of 15 dots not found.
+#
+# A white top-hat subtracts everything structurally larger than the kernel,
+# which removes the board's gradient and leaves the dots standing on a flat
+# near-zero floor. After it, one threshold does work everywhere in frame.
+# ---------------------------------------------------------------------------
+
+# **The kernel must be LARGER than the biggest dot's diameter or it eats
+# the dot** — a top-hat keeps what is smaller than the structuring element
+# and discards what is larger. At M4's marker radius of 40 px the largest
+# blob is ~80 px across, so this default clears it with room to spare.
+# `core/dotcal.py` sizes it from the pattern it just drew and sends it on
+# the `detect_dots` command rather than trusting this default, because core
+# is the only thing that knows how big the dots are (I2).
+DEFAULT_TOPHAT_PX = 101
+
+# The sweep, from the old solver verbatim. Ranges high to low; every level
+# is cheap because the top-hat runs once and only the threshold-and-contour
+# step repeats.
+DEFAULT_SWEEP_MAX = 200
+DEFAULT_SWEEP_MIN = 8
+DEFAULT_SWEEP_STEP = 4
+
 
 class DotDetectionError(Exception):
     """The frame could not be examined at all — wrong shape, wrong dtype.
@@ -108,9 +143,55 @@ class Dot:
         return f"<Dot ({self.x:.1f},{self.y:.1f}) area={self.area:.0f}>"
 
 
+def to_grey(image):
+    """BGR/BGRA/grey array in, uint8 grey out. Raises DotDetectionError on
+    anything that is not an image."""
+    import cv2      # noqa: WPS433 - local, same reason as geometry.fit
+    import numpy as np    # noqa: WPS433
+
+    arr = np.asarray(image)
+    if arr.ndim == 3:
+        if arr.shape[2] not in (3, 4):
+            raise DotDetectionError(
+                f"expected a BGR or BGRA frame, got {arr.shape[2]} channels")
+        grey = cv2.cvtColor(arr[:, :, :3], cv2.COLOR_BGR2GRAY)
+    elif arr.ndim == 2:
+        grey = arr
+    else:
+        raise DotDetectionError(
+            f"expected a 2-D or 3-D image array, got {arr.ndim} dimensions")
+    if grey.dtype != np.uint8:
+        grey = np.clip(grey, 0, 255).astype(np.uint8)
+    return grey
+
+
+def flatten_background(grey, tophat_px: int = DEFAULT_TOPHAT_PX):
+    """White top-hat: `grey` minus its morphological opening, which is
+    `grey` minus everything structurally larger than `tophat_px`.
+
+    What survives is small bright things — the dots — standing on a flat
+    floor, with the projector's uneven illumination and the camera's
+    oblique view of the plywood subtracted out. `tophat_px <= 0` returns
+    the image untouched, which is the escape hatch for a frame that is
+    already flat (every synthetic test image is).
+
+    **Sizing it is the one way to get this wrong.** A kernel smaller than a
+    dot removes the dot along with the background, and the symptom is the
+    biggest dot vanishing while the small ones survive — the exact opposite
+    of what an operator would expect from "the marker is too big".
+    """
+    import cv2      # noqa: WPS433
+    if tophat_px <= 0:
+        return grey
+    size = int(tophat_px) | 1   # cv2 wants an odd kernel
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+    return cv2.morphologyEx(grey, cv2.MORPH_TOPHAT, kernel)
+
+
 def detect_dots(image,
                 *,
                 threshold: int = DEFAULT_THRESHOLD,
+                tophat_px: int = 0,
                 min_area: float = DEFAULT_MIN_AREA_PX,
                 max_area: float = DEFAULT_MAX_AREA_PX,
                 min_aspect: float = DEFAULT_MIN_ASPECT,
@@ -140,22 +221,19 @@ def detect_dots(image,
     almost nothing. Sub-pixel too, which is where the "under ~3 px RMS"
     in doc section 21's acceptance test has to come from.
     """
-    import cv2      # noqa: WPS433 - local, same reason as geometry.fit
-    import numpy as np    # noqa: WPS433
+    grey = flatten_background(to_grey(image), tophat_px)
+    return _blobs_at(grey, threshold, min_area=min_area, max_area=max_area,
+                     min_aspect=min_aspect,
+                     touching_edge_ok=touching_edge_ok)
 
-    arr = np.asarray(image)
-    if arr.ndim == 3:
-        if arr.shape[2] not in (3, 4):
-            raise DotDetectionError(
-                f"expected a BGR or BGRA frame, got {arr.shape[2]} channels")
-        grey = cv2.cvtColor(arr[:, :, :3], cv2.COLOR_BGR2GRAY)
-    elif arr.ndim == 2:
-        grey = arr
-    else:
-        raise DotDetectionError(
-            f"expected a 2-D or 3-D image array, got {arr.ndim} dimensions")
-    if grey.dtype != np.uint8:
-        grey = np.clip(grey, 0, 255).astype(np.uint8)
+
+def _blobs_at(grey, threshold: int, *, min_area: float, max_area: float,
+              min_aspect: float, touching_edge_ok: bool) -> List[Dot]:
+    """One threshold level against an already-grey, already-flattened
+    image. Split out from `detect_dots` so `detect_best`'s sweep can run
+    dozens of levels without repeating the top-hat, which is by far the
+    expensive step."""
+    import cv2      # noqa: WPS433 - local, same reason as geometry.fit
 
     height, width = grey.shape[:2]
     _ret, mask = cv2.threshold(grey, int(threshold), 255, cv2.THRESH_BINARY)
@@ -193,6 +271,83 @@ def detect_dots(image,
 
     out.sort(key=lambda d: d.area, reverse=True)
     return out
+
+
+def detect_best(image, expect: int, *,
+                tophat_px: int = DEFAULT_TOPHAT_PX,
+                sweep_min: int = DEFAULT_SWEEP_MIN,
+                sweep_max: int = DEFAULT_SWEEP_MAX,
+                sweep_step: int = DEFAULT_SWEEP_STEP,
+                min_area: float = DEFAULT_MIN_AREA_PX,
+                max_area: float = DEFAULT_MAX_AREA_PX,
+                min_aspect: float = DEFAULT_MIN_ASPECT,
+                touching_edge_ok: bool = False) -> Tuple[List[Dot], int]:
+    """Flatten the background once, then sweep the threshold and return the
+    set of blobs from the most stable level that found `expect` of them,
+    along with the level chosen.
+
+    **Why a sweep rather than a number.** After the top-hat a dot's height
+    above the floor is its local contrast against the plywood, and on this
+    rig that was measured at 25-50 grey levels — which moves with the
+    projector's field level, the camera's exposure, and where in the frame
+    the dot is. Any constant picked here would be right for one rig state.
+    The sweep asks the only question that has a stable answer: at which
+    level do exactly the expected number of round blobs appear?
+
+    **Stability decides between levels, not luck.** Several levels usually
+    find `expect` blobs, and the old solver handed every such set to the
+    homography and let the fit choose. Detection cannot fit anything (see
+    the module docstring), so the tie is broken on a property detection
+    can see: the LONGEST UNBROKEN RUN of levels agreeing on the count, with
+    the middle of that run taken as the operating point. A run is evidence
+    the answer is insensitive to the threshold; a lone level that happens
+    to hit the right count — a reflection appearing just as a real dot
+    drops out — is exactly what that outvotes.
+
+    Falls back to the level whose count is closest to `expect` when no
+    level hits it exactly, preferring more blobs over fewer on a tie: a
+    spurious extra is dropped downstream by area or by the match gate,
+    whereas a dot that was never detected cannot be recovered at all.
+    """
+    grey = flatten_background(to_grey(image), tophat_px)
+    levels = list(range(int(sweep_max), int(sweep_min) - 1,
+                        -abs(int(sweep_step)) or -1))
+    found_by_level: List[Tuple[int, List[Dot]]] = []
+    for level in levels:
+        found_by_level.append(
+            (level, _blobs_at(grey, level, min_area=min_area,
+                              max_area=max_area, min_aspect=min_aspect,
+                              touching_edge_ok=touching_edge_ok)))
+
+    best_run: Optional[Tuple[int, int]] = None   # (length, start index)
+    run_start: Optional[int] = None
+    for i, (_level, found) in enumerate(found_by_level + [(0, [])]):
+        hit = i < len(found_by_level) and len(found) == expect
+        if hit and run_start is None:
+            run_start = i
+        elif not hit and run_start is not None:
+            length = i - run_start
+            if best_run is None or length > best_run[0]:
+                best_run = (length, run_start)
+            run_start = None
+
+    if best_run is not None:
+        length, start = best_run
+        chosen = start + length // 2
+        _log.info("dots: threshold %d found %d dots (stable over %d levels)",
+                  found_by_level[chosen][0], expect, length)
+        return found_by_level[chosen][1], found_by_level[chosen][0]
+
+    if not found_by_level:
+        return [], int(sweep_max)
+    # Closest count wins; more beats fewer at equal distance.
+    chosen = min(range(len(found_by_level)),
+                 key=lambda i: (abs(len(found_by_level[i][1]) - expect),
+                                -len(found_by_level[i][1])))
+    level, found = found_by_level[chosen]
+    _log.warning("dots: no threshold found exactly %d dots; best was %d at "
+                 "level %d", expect, len(found), level)
+    return found, level
 
 
 def detect_points(image, **kwargs) -> List[List[float]]:

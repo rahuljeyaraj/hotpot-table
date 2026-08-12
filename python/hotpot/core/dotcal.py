@@ -134,6 +134,18 @@ CORNER_DOT_RADIUS_PX = 24.0
 # 180-degree camera producing a perfectly-fitting inverted calibration.
 MARKER_DOT_RADIUS_PX = 40.0
 
+# Top-hat kernel as a multiple of the biggest dot's diameter. The kernel
+# must exceed the dot or the background flattening removes the dot with the
+# background — see `classifier/dots.flatten_background`.
+TOPHAT_SCALE = 1.25
+
+# Camera frames averaged into the one the dots are found in. The old
+# solver used 40 and measured why: dot-over-board contrast is the same
+# order as this sensor's frame-to-frame noise, so averaging "is what makes
+# the outer dots separable at all". At doc section 8.6's 30 fps that is
+# ~1.3 s per pass, which is time an operator is already waiting through.
+AVERAGE_FRAMES = 40
+
 # How long the pattern is up before the classifier is asked to look. The
 # projector has a frame to draw it and the camera has a frame to expose
 # it, and neither is instantaneous: at doc section 8.6's 30 fps capture
@@ -279,6 +291,12 @@ class DotCalibrator:
                                            MARKER_DOT_RADIUS_PX))
         self.min_marker_ratio = float(cfg.get("min_marker_ratio",
                                               geometry.DEFAULT_MIN_MARKER_RATIO))
+        # Multiplier on the biggest dot's DIAMETER for the top-hat kernel.
+        # 1.25 leaves a quarter of a dot's width of margin, enough for
+        # projector defocus spreading the disc without shrinking the kernel
+        # so far that the board's own gradient starts surviving it.
+        self.tophat_scale = float(cfg.get("tophat_scale", TOPHAT_SCALE))
+        self.average_frames = int(cfg.get("average_frames", AVERAGE_FRAMES))
         self.min_area = float(cfg.get("min_dot_area_px", 40.0))
         self.max_area = float(cfg.get("max_dot_area_px", 20000.0))
         self.match_gate_px = float(cfg.get("match_gate_px", MATCH_GATE_PX))
@@ -442,7 +460,15 @@ class DotCalibrator:
         """
         self._show(overlay_dots(stage_points, radius, first_radius))
         self._sleep(self.settle_s)
-        reply = self._ask(len(stage_points), self.min_area)
+        # The top-hat kernel has to clear the biggest dot in THIS pass or
+        # the flattening removes it (see `dots.flatten_background`). Core
+        # sizes it because core is the only side that knows the pattern —
+        # the same I2 argument that has core send dot positions rather than
+        # a "draw the pattern" flag.
+        biggest = max(radius, first_radius or 0.0)
+        tophat = int(self.tophat_scale * 2.0 * biggest) | 1
+        reply = self._ask(len(stage_points), self.min_area, tophat,
+                          self.average_frames)
         if not isinstance(reply, dict):
             raise DotCalError(
                 "the classifier did not answer — is it running?")

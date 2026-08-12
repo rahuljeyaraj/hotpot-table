@@ -67,6 +67,37 @@ class FakeReader:
         self.closed = True
 
 
+class NoisyReader(FakeReader):
+    """A reader that advances `frame_id` and adds a different, deterministic
+    noise pattern to each frame — what a real sensor does, and the only
+    thing averaging can actually help with.
+
+    `served` counts frames handed out and `repeat` makes it serve each
+    frame_id more than once, which is what a consumer polling faster than
+    the camera writes will really see.
+    """
+
+    def __init__(self, image, *, amplitude=40, repeat=1):
+        super().__init__(image)
+        self.amplitude = amplitude
+        self.repeat = repeat
+        self.served = 0
+        self.distinct_ids = set()
+
+    def read(self):
+        self.reads += 1
+        fid = self.served // self.repeat
+        self.served += 1
+        self.distinct_ids.add(fid)
+        # Zero-mean over a full cycle of 4 ids, so the average of any
+        # multiple of 4 frames is exactly the clean image. Deterministic:
+        # a random fixture would make the assertion below flaky.
+        offset = (fid % 4) - 1.5
+        noisy = np.clip(self._image.astype(np.float32)
+                        + offset * self.amplitude / 1.5, 0, 255)
+        return FakeFrame(noisy.astype(np.uint8).tobytes(), frame_id=fid)
+
+
 def dot_field(w=640, h=480):
     img = np.zeros((h, w, 3), dtype=np.uint8)
     ys, xs = np.ogrid[:h, :w]
@@ -364,6 +395,70 @@ class TestRingRecovery(WorkerCase):
         reply = self.wait()
         self.assertEqual(reply["t"], "dots")
         self.assertEqual(len(opens), 2)
+
+
+class TestFrameAveraging(unittest.TestCase):
+    """Restored from the old solver, which measured why it is needed: at
+    calibration exposure a dot stands only 25-50 grey levels above the
+    board, "which is the same order as this sensor's frame-to-frame noise".
+    """
+
+    def source(self, reader):
+        return cmain.RingSource(open_reader=lambda: reader)
+
+    def clean_field(self):
+        """Mid-grey rather than `dot_field`'s 0/255. The noise has to fit
+        inside the representable range at every pixel or clipping makes it
+        asymmetric, and asymmetric noise does not cancel — the fixture
+        would then be testing clipping rather than averaging.
+        """
+        img = np.full((240, 320, 3), 60, dtype=np.uint8)
+        ys, xs = np.ogrid[:240, :320]
+        for cx, cy in ((80, 60), (240, 60), (240, 180), (80, 180)):
+            img[(xs - cx) ** 2 + (ys - cy) ** 2 <= 144] = 200
+        return img
+
+    def test_averaging_cancels_the_noise(self):
+        clean = self.clean_field()
+        reader = NoisyReader(clean)
+        got = self.source(reader).averaged_frame(8)
+        # 8 frames spans two full noise cycles, so the average is the clean
+        # image to within rounding.
+        self.assertLess(float(np.abs(got.astype(np.float32)
+                                     - clean.astype(np.float32)).max()), 2.0)
+
+    def test_a_single_frame_is_much_worse(self):
+        # The control. Without it, the assertion above could be passing on
+        # a fixture that was never noisy.
+        clean = self.clean_field()
+        reader = NoisyReader(clean)
+        one = self.source(reader).frame()
+        self.assertGreater(float(np.abs(one.astype(np.float32)
+                                        - clean.astype(np.float32)).max()), 20.0)
+
+    def test_it_collects_distinct_frames_not_one_frame_n_times(self):
+        # THE TRAP. `frame()` returns whatever is currently in the ring, so
+        # a loop that just called it `count` times would average a frame
+        # with itself — a no-op that produces a clean-looking result and a
+        # plausible runtime. Serving each frame_id 3 times simulates a
+        # consumer polling faster than the camera writes.
+        reader = NoisyReader(dot_field(), repeat=3)
+        self.source(reader).averaged_frame(6)
+        self.assertGreaterEqual(len(reader.distinct_ids), 6)
+
+    def test_a_count_of_one_or_less_is_just_a_frame(self):
+        reader = NoisyReader(dot_field())
+        self.assertEqual(self.source(reader).averaged_frame(1).shape,
+                         dot_field().shape)
+        self.assertEqual(reader.reads, 1)
+
+    def test_a_stalled_ring_falls_back_rather_than_hanging(self):
+        # FakeReader never advances frame_id, so nothing new ever arrives.
+        # Degrading to one frame is right: a slow camera should cost the
+        # calibration its noise floor, not the ability to calibrate.
+        reader = FakeReader(dot_field())
+        got = self.source(reader).averaged_frame(40, timeout_s=0.2)
+        self.assertEqual(got.shape, dot_field().shape)
 
 
 if __name__ == "__main__":

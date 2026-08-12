@@ -151,6 +151,61 @@ class RingSource:
         arr = np.frombuffer(f.data, dtype=np.uint8)
         return arr.reshape((reader.height, reader.width, reader.channels))
 
+    def averaged_frame(self, count: int, *, timeout_s: float = 3.0):
+        """`count` DISTINCT frames, averaged into one.
+
+        **Restored from the old solver, which measured why it is needed**
+        (`tools/calibration/solve_homography.py`): during a solve the dots
+        sit only 25-50 grey levels above the board, "which is the same
+        order as this sensor's frame-to-frame noise. Averaging is what
+        makes the outer dots separable at all." Nothing is warped or
+        shifted, so the result is still an ordinary camera frame — it is
+        the same scene with the noise divided by sqrt(count).
+
+        Distinct is the load-bearing word. `frame()` returns whatever is
+        currently in the ring, so a tight loop would re-read one frame
+        `count` times and average noise with itself, which is a no-op that
+        looks exactly like a working one. Frames are collected by watching
+        `frame_id` change.
+
+        Falls back to however many arrived before `timeout_s`, and to a
+        single `frame()` if the ring is not advancing at all — a slow or
+        stalled camera should degrade the calibration's noise floor, not
+        refuse to calibrate.
+        """
+        import numpy as np      # noqa: WPS433 - local, see geometry.fit
+
+        if count <= 1:
+            return self.frame()
+        reader = self._ensure()
+        acc = None
+        collected = 0
+        seen_ids = set()
+        deadline = time.monotonic() + timeout_s
+        while collected < count and time.monotonic() < deadline:
+            if reader.is_stale(timeout_s=STALE_S):
+                raise ClassifierError(
+                    "the camera stopped sending frames — nothing to look at")
+            f = reader.read()
+            if f is None or f.frame_id in seen_ids:
+                # Nothing new yet. The ring is written at capture rate and
+                # read here as fast as the loop goes round, so this is the
+                # ordinary case, not an error.
+                time.sleep(0.005)
+                continue
+            seen_ids.add(f.frame_id)
+            arr = np.frombuffer(f.data, dtype=np.uint8).astype(np.float32)
+            acc = arr if acc is None else acc + arr
+            collected += 1
+        if acc is None or collected == 0:
+            return self.frame()
+        if collected < count:
+            _log.warning("classifier: averaged only %d of %d frames before "
+                         "the timeout — is the camera keeping up?",
+                         collected, count)
+        out = (acc / collected).astype(np.uint8)
+        return out.reshape((reader.height, reader.width, reader.channels))
+
     @property
     def size(self) -> Optional[Tuple[int, int]]:
         if self._reader is None:
@@ -285,17 +340,33 @@ class Classifier:
 
     def _detect_dots(self, msg: Dict[str, Any]) -> None:
         started = time.monotonic()
-        frame = self.source.frame()
+        average = msg.get("average")
+        average = int(average) if isinstance(average, (int, float)) else 1
+        frame = (self.source.averaged_frame(average) if average > 1
+                 else self.source.frame())
         kwargs: Dict[str, Any] = {}
         if isinstance(msg.get("min_area"), (int, float)):
             kwargs["min_area"] = float(msg["min_area"])
         if isinstance(msg.get("max_area"), (int, float)):
             kwargs["max_area"] = float(msg["max_area"])
-        if isinstance(msg.get("threshold"), (int, float)):
-            kwargs["threshold"] = int(msg["threshold"])
-        found = dots_mod.detect_dots(frame, **kwargs)
+        if isinstance(msg.get("tophat"), (int, float)):
+            kwargs["tophat_px"] = int(msg["tophat"])
         expect = msg.get("expect")
         expect = expect if isinstance(expect, int) else None
+
+        # **Sweep when core said how many dots it drew; use the fixed
+        # threshold only when it did not.** The sweep needs a target to
+        # recognise the right level by, and `expect` is that target. Doc
+        # section 4.7 already carries it, so nothing new is asked for.
+        # A caller pinning `threshold` explicitly is overriding the sweep on
+        # purpose (the developer panel), so that still wins.
+        if expect is not None and "threshold" not in msg:
+            found, level = dots_mod.detect_best(frame, expect, **kwargs)
+            kwargs["threshold"] = level
+        else:
+            if isinstance(msg.get("threshold"), (int, float)):
+                kwargs["threshold"] = int(msg["threshold"])
+            found = dots_mod.detect_dots(frame, **kwargs)
         _log.info("classifier: detect_dots %s", dots_mod.summarise(found, expect))
         # Doc section 4.7's reply shape exactly: `{"t":"dots","id":..,
         # "points":[[cx,cy],..],"ms":..}`. `expect` is echoed back because

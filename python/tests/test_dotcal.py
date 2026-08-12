@@ -94,7 +94,7 @@ class FakeRig:
     def show(self, dots):
         self.shown.append(dots)
 
-    def ask(self, expect, min_area):
+    def ask(self, expect, min_area, tophat=0, average=1):
         self.asks.append((expect, min_area))
         if self.reply_override is not None:
             return self.reply_override
@@ -386,7 +386,7 @@ class TestDegradedRigs(DotCalCase):
         rig = FakeRig()
         rig.reply_override = None
 
-        def silent(expect, min_area):
+        def silent(expect, min_area, tophat=0, average=1):
             return None
         cal = dotcal.DotCalibrator(self.store, show_dots=rig.show,
                                    ask_dots=silent, settle_s=0.0,
@@ -436,7 +436,7 @@ class TestDegradedRigs(DotCalCase):
         cal = self.calibrator(rig)
         seen = []
 
-        def reentrant(expect, min_area):
+        def reentrant(expect, min_area, tophat=0, average=1):
             if not seen:
                 seen.append(1)
                 with self.assertRaises(dotcal.DotCalError):

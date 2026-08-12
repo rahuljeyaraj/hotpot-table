@@ -494,14 +494,20 @@ class Core:
         waiter[1] = msg
         waiter[0].set()
 
-    def _ask_dots(self, expect: int, min_area: float) -> Dict[str, Any]:
+    def _ask_dots(self, expect: int, min_area: float,
+                  tophat: int, average: int) -> Dict[str, Any]:
         """`dotcal.DotCalibrator`'s hook into doc section 4.7's
         `detect_dots`. Kept as a one-line adapter so that module knows
         nothing about the wire.
+
+        `tophat` is the background-flattening kernel, sized by `dotcal`
+        from the pattern it just drew — the classifier cannot work it out
+        because it is never told how big the dots are (I2).
         """
         return self._send_classifier_cmd(
             "detect_dots", dotcal.REPLY_TIMEOUT_S,
-            expect=expect, min_area=min_area) or {}
+            expect=expect, min_area=min_area, tophat=tophat,
+            average=average) or {}
 
     # -- the calibrating overlay (doc sections 4.3, 14.5, I9) --------------
 
