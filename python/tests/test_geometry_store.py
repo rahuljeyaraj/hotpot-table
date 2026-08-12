@@ -194,6 +194,75 @@ class TestPersistence(StoreCase):
         self.assertFalse(s.has_homography)
 
 
+class TestManualCorners(StoreCase):
+    """The manual 4-corner calibration flow (replaces the dot-pattern solve
+    for the table's own boundary): the operator clicks the table's 4 real
+    corners on the live feed, in a fixed physical order, instead of a
+    pattern being projected and detected.
+
+    Same discipline as `test_geometry.py`'s `TestFit`: every homography here
+    is a hand-written ground truth, "clicks" are produced by projecting the
+    known stage corners *back* through its inverse, and the check is a probe
+    point never in the click set — never a reprojection of the fitted points
+    themselves (doc section 5.3's TRAP).
+    """
+
+    def _corners_stage(self):
+        w, h = gs.STAGE_SIZE
+        return [(0.0, 0.0), (float(w), 0.0),
+                (float(w), float(h)), (0.0, float(h))]
+
+    def _recovers(self, cam_to_stage):
+        s = self.store()
+        stage_to_cam = geometry.invert(cam_to_stage)
+        clicks = [geometry.apply(stage_to_cam, p) for p in self._corners_stage()]
+        fit = s.fit_from_corners(clicks)
+        probe_stage = (700.0, 400.0)
+        probe_cam = geometry.apply(stage_to_cam, probe_stage)
+        got = geometry.apply(fit.h, probe_cam)
+        self.assertAlmostEqual(got[0], probe_stage[0], places=2)
+        self.assertAlmostEqual(got[1], probe_stage[1], places=2)
+
+    def test_recovers_a_known_homography(self):
+        self._recovers(CAM_TO_STAGE)
+
+    def test_recovers_the_homography_through_a_180_degree_mount(self):
+        # This rig's actual measured mount (test_dotcal.py's own
+        # FLIPPED_CAM_TO_STAGE, commit b847c0f). A screen-position-based
+        # ordering (geometry.order_quad) pairs every corner with its
+        # opposite here and still reports zero error -- the exact bug this
+        # design exists to avoid. fit_from_corners never reorders by screen
+        # position; it trusts the click order it was given, so it must
+        # still recover the true matrix even though the feed is upside
+        # down.
+        self._recovers([
+            [-1.0, 0.0, 1920.0],
+            [0.0, -1.0, 1080.0],
+            [0.0, 0.0, 1.0],
+        ])
+
+    def test_wrong_point_count_is_refused(self):
+        s = self.store()
+        with self.assertRaises(geometry.GeometryError):
+            s.fit_from_corners([(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)])
+
+    def test_collinear_clicks_are_refused(self):
+        s = self.store()
+        with self.assertRaises(geometry.GeometryError):
+            s.fit_from_corners([(0.0, 0.0), (100.0, 0.0),
+                                (200.0, 0.0), (300.0, 0.0)])
+
+    def test_the_fit_is_returned_unsaved(self):
+        # Matches core/dotcal.py's own split: fit_from_corners only
+        # computes. Installing it is set_homography()'s job, so a caller
+        # that never calls it must not find the store calibrated.
+        s = self.store()
+        stage_to_cam = geometry.invert(CAM_TO_STAGE)
+        clicks = [geometry.apply(stage_to_cam, p) for p in self._corners_stage()]
+        s.fit_from_corners(clicks)
+        self.assertFalse(s.has_homography)
+
+
 class TestKeystoneStaleness(StoreCase):
     """Doc section 8.5: "oF reports its fingerprint in `stat`; if it
     differs from the one recorded here, core raises 'calibration stale —

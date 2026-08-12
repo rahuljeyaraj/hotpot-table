@@ -406,6 +406,40 @@ class GeometryStore:
                                  else time.time())
         self._derive_stage_rects()
 
+    def fit_from_corners(self, cam_points: Sequence[Point]) -> geometry.Fit:
+        """The manual calibration flow: the operator clicks the table's 4
+        real corners on the live feed, in a **fixed physical order** — from
+        where the operator stands, front-left, front-right, back-right,
+        back-left — and this pairs them against the matching stage corners.
+
+        Order is pinned to the click *sequence*, never inferred from where a
+        point lands on screen. `common.geometry.order_quad` does the latter
+        and is explicitly banned for calibration: on this rig's 180-degree-
+        mounted camera, a screen-position labelling silently pairs every
+        corner with its opposite, and four points always fit a homography
+        exactly, so the wrong answer comes back with zero error and no
+        warning. An operator standing at the table knows which corner is
+        physically "front-left" regardless of how the feed looks on screen —
+        the code never has to guess, so it never has to get it wrong.
+
+        Returns the `Fit` **unsaved** — installing it is `set_homography()`'s
+        job, the same split `core/dotcal.py`'s `_run()` uses for the dot
+        pattern's solve.
+        """
+        if len(cam_points) != 4:
+            raise geometry.GeometryError(
+                f"table calibration needs exactly 4 corners, got {len(cam_points)}")
+        return geometry.fit(list(cam_points), self._manual_corners_stage())
+
+    def _manual_corners_stage(self) -> List[Point]:
+        """The 4 stage corners, in the same front-left / front-right /
+        back-right / back-left order `fit_from_corners()` expects its camera
+        points in.
+        """
+        w, h = self.stage_size
+        return [(0.0, 0.0), (float(w), 0.0),
+                (float(w), float(h)), (0.0, float(h))]
+
     def keystone_is_stale(self, live_fingerprint: Optional[str]) -> bool:
         """Doc section 8.5: oF reports its keystone fingerprint in `stat`;
         if it differs from the one recorded beside the homography, the
