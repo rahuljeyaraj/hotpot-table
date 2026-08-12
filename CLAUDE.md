@@ -2424,12 +2424,14 @@ removed identifier (`verifyYesBtn`, `pgSaveBtn`, `pgVerified`, etc.).
 **Run on the rig this time, not just reasoned about:** `run.py --stop`,
 a real `msbuild` that actually linked, `python run.py` again — camera,
 core (COM5 open), tracker, classifier, voice and `of` all reached
-HOTPOT-READY / StateLink-connected in the merged log. **Still not
-physically confirmed:** nobody has watched a line actually move on the
-projected table yet from inside this session — the restart proves the
-new code is what's running, not that a nudge visibly lands on a tray.
-That observation is the developer's next step, not something this
-session could produce from a terminal.
+HOTPOT-READY / StateLink-connected in the merged log.
+
+**Physically confirmed, after the restart above:** the developer opened
+the Setup tab, saved the projector grid, and watched it reach the real
+table — "Projector grid saved," a line actually moving under an arrow
+key, on the projected surface, not a framebuffer. This is the first
+thing in the whole M4n/M4n-fix arc confirmed by physical observation
+rather than reasoned from code or a syntax check.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
