@@ -655,6 +655,9 @@ class Core:
         if t == "calibrate_dots":
             self._handle_calibrate_dots()
             return
+        if t == "manual_calibrate":
+            self._handle_manual_calibrate(msg)
+            return
         if t == "set_rects":
             self._handle_set_rects(msg)
             return
@@ -1026,6 +1029,73 @@ class Core:
             "message": result.message, "rms_px": round(result.rms_px, 2),
             "n_points": result.n_points, "n_inliers": result.n_inliers,
         })
+        self.web.broadcast(self._geometry_msg())
+
+    def _handle_manual_calibrate(self, msg: Dict[str, Any]) -> None:
+        """The manual replacement for `_handle_calibrate_dots`: doc section
+        12.6's "Calibrate projector <-> camera", solved from the 4 table
+        corners the operator clicked on the live feed instead of a
+        projected dot pattern the camera has to find and pair.
+
+        **Setting mode required**, same rule as `_handle_set_rects`: a new
+        homography moves every rect and cutout on the table, and that must
+        not happen under a live diner.
+
+        Synchronous — unlike `_handle_calibrate_dots`, there is no pattern
+        to project and no classifier round trip to wait on, so this never
+        blocks the calling tablet's thread for more than a 4-point fit.
+        `GeometryStore.fit_from_corners` pins each click to a fixed
+        physical corner by its position in `points`, never by where it
+        lands on screen — see that method's docstring for why the other
+        way round is the exact bug this replaces.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "manual_calibrate_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        points = msg.get("points")
+        if (not isinstance(points, list) or len(points) != 4
+                or not all(isinstance(p, list) and len(p) == 2
+                           and all(isinstance(v, (int, float))
+                                   and not isinstance(v, bool)
+                                   and math.isfinite(v) for v in p)
+                           for p in points)):
+            self.web.broadcast({
+                "t": "manual_calibrate_result", "ok": False,
+                "message": "Expected exactly 4 corner points."})
+            return
+        parsed = [(float(p[0]), float(p[1])) for p in points]
+        try:
+            fit = self.geometry.fit_from_corners(parsed)
+            self.geometry.set_homography(
+                fit.h, rms_px=fit.rms_px, n_points=fit.n_points,
+                keystone_fingerprint=self._keystone_fingerprint,
+                camera_size=self.geometry.camera_size)
+            # A new solve invalidates the last human Verify answer, same as
+            # the dot flow (doc section 12.6) — the rects have just moved
+            # under it.
+            self.geometry.clear_verified()
+            self.geometry.save_homography()
+        except geometry.GeometryError as e:
+            self.web.broadcast({"t": "manual_calibrate_result", "ok": False,
+                                "message": str(e)})
+            return
+        # Same seed `_handle_calibrate_dots` makes: a table that has just
+        # acquired its first homography and has no rects yet gets the
+        # legacy measured layout put on screen, converted to camera space
+        # through H^-1, rather than an empty canvas to drag rects onto from
+        # nothing. Not saved (doc section 12.6's "Save is explicit"), and
+        # no call to `_check_calibration_complete()` for the same reason —
+        # nobody has looked at a seed yet, so it must not be what takes the
+        # table out of UNCALIBRATED.
+        if not self.geometry.has_rects:
+            try:
+                self.geometry.seed_cam_rects_from_table()
+            except geometry.GeometryError:
+                _log.exception("core: could not seed the bin rects")
+        self.web.broadcast({
+            "t": "manual_calibrate_result", "ok": True,
+            "message": "Table corners saved."})
         self.web.broadcast(self._geometry_msg())
 
     def _handle_set_rects(self, msg: Dict[str, Any]) -> None:

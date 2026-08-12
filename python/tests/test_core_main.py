@@ -1816,6 +1816,162 @@ class TestDotCalibrationOverTheWire(CoreCase):
         self.assertTrue(self.core._geometry_msg()["keystone_stale"])
 
 
+class TestManualCalibrationOverTheWire(CoreCase):
+    """The manual replacement for `calibrate_dots`: 4 clicked corners in,
+    over the real WebSocket, a homography out. No classifier, no overlay,
+    no pattern to project — that is the whole point of the design, and
+    this class checks it holds end to end, not just in
+    `test_geometry_store.py`'s `TestManualCorners`.
+    """
+
+    # An empty `state/`, same reason TestDotCalibrationOverTheWire uses one:
+    # this whole class is about producing the geometry a calibrated table
+    # already has.
+    calibrated_fixture = False
+
+    CAM_TO_STAGE = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0],
+                    [0.00012, 0.00007, 1.0]]
+
+    def _clicks(self, cam_to_stage=None):
+        """The 4 "operator clicks" for a given camera<-stage truth, in the
+        fixed front-left/front-right/back-right/back-left order
+        `GeometryStore.fit_from_corners` expects.
+        """
+        from hotpot.common import geometry as geo
+        h = cam_to_stage or self.CAM_TO_STAGE
+        stage_to_cam = geo.invert(h)
+        w, ht = geometry_store.STAGE_SIZE
+        corners = [(0.0, 0.0), (float(w), 0.0),
+                   (float(w), float(ht)), (0.0, float(ht))]
+        return [list(geo.apply(stage_to_cam, p)) for p in corners]
+
+    def enter_setting(self, ws):
+        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        deadline = time.monotonic() + DEADLINE
+        while time.monotonic() < deadline:
+            msg = self.recv_json(ws)
+            if msg.get("t") == "mode" and msg.get("mode") == "setting":
+                return
+        self.fail("never entered setting mode")
+
+    def collect(self, ws, want, timeout=DEADLINE):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            msg = self.recv_json(ws, timeout=deadline - time.monotonic())
+            if msg.get("t") == want:
+                return msg
+        self.fail(f"no {want} message arrived")
+
+    def test_four_clicks_write_a_homography(self):
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
+        result = self.collect(ws, "manual_calibrate_result")
+        self.assertTrue(result["ok"], result.get("message"))
+        self.assertTrue(self.core.geometry.has_homography)
+
+    def test_the_solved_homography_matches_the_clicks_it_was_built_from(self):
+        # The reference is the matrix the clicks were generated from, which
+        # core never saw — not a reprojection of core's own points (§5.3).
+        from hotpot.common import geometry as geo
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
+        self.collect(ws, "manual_calibrate_result")
+        probe = (700.0, 400.0)
+        probe_cam = geo.apply(geo.invert(self.CAM_TO_STAGE), probe)
+        got = geo.apply(self.core.geometry.h, probe_cam)
+        self.assertAlmostEqual(got[0], probe[0], places=1)
+        self.assertAlmostEqual(got[1], probe[1], places=1)
+
+    def test_recovers_the_homography_through_a_180_degree_mount(self):
+        # The click-order convention, end to end this time: a screen-
+        # position-based ordering would silently invert here and still
+        # report zero error. test_geometry_store.py's TestManualCorners
+        # proves the same thing against the bare method.
+        from hotpot.common import geometry as geo
+        flipped = [[-1.0, 0.0, 1920.0], [0.0, -1.0, 1080.0], [0.0, 0.0, 1.0]]
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "manual_calibrate",
+                            "points": self._clicks(flipped)}))
+        self.collect(ws, "manual_calibrate_result")
+        probe = (700.0, 400.0)
+        probe_cam = geo.apply(geo.invert(flipped), probe)
+        got = geo.apply(self.core.geometry.h, probe_cam)
+        self.assertAlmostEqual(got[0], probe[0], places=1)
+        self.assertAlmostEqual(got[1], probe[1], places=1)
+
+    def test_calibration_is_refused_in_serving_mode(self):
+        ws = self.ws()
+        ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
+        result = self.collect(ws, "manual_calibrate_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("setting mode", result["message"])
+        self.assertFalse(self.core.geometry.has_homography)
+
+    def test_wrong_point_count_is_refused(self):
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "manual_calibrate",
+                            "points": self._clicks()[:3]}))
+        result = self.collect(ws, "manual_calibrate_result")
+        self.assertFalse(result["ok"])
+        self.assertFalse(self.core.geometry.has_homography)
+
+    def test_a_nan_coordinate_is_refused(self):
+        ws = self.ws()
+        self.enter_setting(ws)
+        bad = self._clicks()
+        bad[0] = [float("nan"), 0.0]
+        ws.send(json.dumps({"t": "manual_calibrate", "points": bad}))
+        result = self.collect(ws, "manual_calibrate_result")
+        self.assertFalse(result["ok"])
+        self.assertFalse(self.core.geometry.has_homography)
+
+    def test_collinear_clicks_are_refused(self):
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "manual_calibrate",
+                            "points": [[0.0, 0.0], [100.0, 0.0],
+                                       [200.0, 0.0], [300.0, 0.0]]}))
+        result = self.collect(ws, "manual_calibrate_result")
+        self.assertFalse(result["ok"])
+        self.assertFalse(self.core.geometry.has_homography)
+
+    def test_a_first_solve_seeds_the_bin_rects_from_the_measured_layout(self):
+        # M4 build item 5's seed, reused here exactly as
+        # `_handle_calibrate_dots` uses it — without it the operator opens
+        # the rect editor onto an empty canvas with nothing to drag.
+        ws = self.ws()
+        self.enter_setting(ws)
+        self.assertFalse(self.core.geometry.has_rects)
+        ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
+        self.collect(ws, "manual_calibrate_result")
+        self.assertTrue(self.core.geometry.has_rects)
+
+    def test_the_seed_is_not_saved_until_the_operator_says_so(self):
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
+        self.collect(ws, "manual_calibrate_result")
+        self.assertFalse(self.core.geometry.rects_path.exists())
+
+    def test_a_re_solve_does_not_throw_away_hand_dragged_rects(self):
+        # The homography moved by a pixel or two; the trays did not.
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
+        self.collect(ws, "manual_calibrate_result")
+        mine = [[500.0 + i, 600.0, 120.0, 130.0] for i in range(8)]
+        ws.send(json.dumps({"t": "set_rects", "rects": mine}))
+        self.collect(ws, "rects_result")
+        ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
+        self.collect(ws, "manual_calibrate_result")
+        for got, want in zip(self.core.geometry.cam_rects, mine):
+            self.assertAlmostEqual(got[0], want[0], places=1)
+
+
 class TestSetupTabRects(CoreCase):
     """M4 build item 4's server half: rect dragging saved explicitly, the
     legacy seed, and doc section 12.6's Verify step.
