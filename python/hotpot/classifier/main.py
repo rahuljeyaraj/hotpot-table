@@ -217,8 +217,15 @@ class RingSource:
 # The commands
 # ---------------------------------------------------------------------------
 
-def crop(frame, rect) -> Any:
-    """One camera-space rect out of a frame, clamped to the frame.
+def crop_rect(frame, rect) -> Tuple[Any, int, int]:
+    """One camera-space rect out of a frame, clamped to the frame, plus
+    the top-left corner it was actually cropped at.
+
+    The offset is what lets a caller put a detected point back into full
+    camera-space after finding it in the crop — see `_detect_dots`'s ROI,
+    which crops away everything outside the table (a room lamp at the
+    frame edge, chiefly — CLAUDE.md's M4i) before running the detector,
+    and then has to undo exactly this offset on every point it gets back.
 
     Clamped rather than refused when a rect hangs off the edge: an
     operator dragging a rect on the Setup tab can easily push one a few
@@ -236,7 +243,14 @@ def crop(frame, rect) -> Any:
     if x1 <= x0 or y1 <= y0:
         raise ClassifierError(
             f"rect {rect} is outside the {fw}x{fh} camera frame")
-    return frame[y0:y1, x0:x1]
+    return frame[y0:y1, x0:x1], x0, y0
+
+
+def crop(frame, rect) -> Any:
+    """`crop_rect` without the offset — dataset capture (`_capture` below)
+    writes camera-space rects into the sidecar itself, so it has no need
+    for where the crop landed."""
+    return crop_rect(frame, rect)[0]
 
 
 def _safe_label(label: Any) -> str:
@@ -344,6 +358,19 @@ class Classifier:
         average = int(average) if isinstance(average, (int, float)) else 1
         frame = (self.source.averaged_frame(average) if average > 1
                  else self.source.frame())
+
+        # **ROI, doc CLAUDE.md's M4i fix.** `core/dotcal.py`'s fine pass
+        # sends the table's own footprint in camera pixels — derived from
+        # the coarse pass it just ran, not guessed — so a room lamp or
+        # anything else sitting outside the table never reaches the
+        # detector at all. `x0, y0` default to 0 so an absent `roi` (the
+        # coarse pass, which has no footprint yet to crop to) behaves
+        # exactly as before this existed.
+        x0 = y0 = 0
+        roi = msg.get("roi")
+        if isinstance(roi, (list, tuple)) and len(roi) == 4:
+            frame, x0, y0 = crop_rect(frame, roi)
+
         kwargs: Dict[str, Any] = {}
         if isinstance(msg.get("min_area"), (int, float)):
             kwargs["min_area"] = float(msg["min_area"])
@@ -370,6 +397,14 @@ class Classifier:
         # table-cropped ROI to be safe against a lamp or a tray reflection
         # outweighing a real dot, neither of which exists yet.
         found = dots_mod.detect_dots(frame, **kwargs)
+        if x0 or y0:
+            # Points are camera-space by contract (doc §4.7's wire shape
+            # and §5.3's "camera-space rects are ground truth" both assume
+            # it) — the crop above must not leak into the reply as a
+            # second coordinate space nothing downstream expects.
+            for d in found:
+                d.x += x0
+                d.y += y0
         _log.info("classifier: detect_dots %s", dots_mod.summarise(found, expect))
         # Doc section 4.7's reply shape exactly: `{"t":"dots","id":..,
         # "points":[[cx,cy],..],"ms":..}`. `expect` is echoed back because

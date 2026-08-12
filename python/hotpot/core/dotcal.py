@@ -166,6 +166,15 @@ REPLY_TIMEOUT_S = 12.0
 # is easily tens of pixels.
 MATCH_GATE_PX = 120.0
 
+# The fine pass's ROI margin, in camera pixels — CLAUDE.md's M4i fix for
+# the room lamp that fragments into several 13px-dot-sized blobs once the
+# field inverts to black. **Tied to MATCH_GATE_PX, not picked
+# independently**: a real dot can legitimately land up to the match gate
+# away from where the coarse fit expected it, so a tighter ROI would crop
+# away a dot the matcher was still willing to accept. Anything outside the
+# gate could never have matched anyway, so cropping it off costs nothing.
+ROI_MARGIN_PX = MATCH_GATE_PX
+
 # Doc section 21's M4 acceptance test: "RMS error reported, under ~3 px."
 RMS_WARN_PX = 3.0
 
@@ -243,6 +252,21 @@ def overlay_dots(points: Sequence[Point], radius: float,
 # The session
 # ---------------------------------------------------------------------------
 
+def pad_rect(rect: Sequence[float], margin_px: float) -> List[float]:
+    """`rect` grown by `margin_px` on every side.
+
+    Not clamped to the camera frame here — a negative `x`/`y` is fine, the
+    classifier's `crop_rect` clamps to whatever frame it actually has (see
+    `classifier/main.py`), and this module has no camera size to clamp
+    against in the general case (`camera_size` is optional and often
+    unset in tests). Clamping twice would just be two places that could
+    disagree about where the edge is.
+    """
+    x, y, w, h = (float(v) for v in rect)
+    return [x - margin_px, y - margin_px,
+            max(0.0, w + 2.0 * margin_px), max(0.0, h + 2.0 * margin_px)]
+
+
 class DotCalResult:
     def __init__(self, h: List[List[float]], rms_px: float, n_points: int,
                  n_inliers: int, message: str, good: bool) -> None:
@@ -271,7 +295,9 @@ class DotCalibrator:
 
     def __init__(self, store: gstore.GeometryStore, *,
                  show_dots: Callable[[Optional[List[List[float]]]], None],
-                 ask_dots: Callable[[int, float], Dict[str, Any]],
+                 ask_dots: Callable[[int, float, int, int,
+                                    Optional[Sequence[float]]],
+                                   Dict[str, Any]],
                  cfg: Optional[Dict[str, Any]] = None,
                  settle_s: float = SETTLE_S,
                  sleep: Callable[[float], None] = time.sleep) -> None:
@@ -300,6 +326,7 @@ class DotCalibrator:
         self.min_area = float(cfg.get("min_dot_area_px", 40.0))
         self.max_area = float(cfg.get("max_dot_area_px", 20000.0))
         self.match_gate_px = float(cfg.get("match_gate_px", MATCH_GATE_PX))
+        self.roi_margin_px = float(cfg.get("roi_margin_px", ROI_MARGIN_PX))
         self.ransac_reproj_px = float(cfg.get("ransac_reproj_px",
                                               geometry.DEFAULT_RANSAC_REPROJ_PX))
         self.rms_warn_px = float(cfg.get("rms_warn_px", RMS_WARN_PX))
@@ -369,13 +396,28 @@ class DotCalibrator:
         coarse_fit = geometry.fit(ordered, coarse_stage,
                                   ransac_reproj_px=self.ransac_reproj_px)
 
-        fine_stage = grid_points(self.cols, self.rows, self.inset,
-                                 self.store.stage_size)
-        fine_cam, _fine_areas = self._pass(fine_stage, self.dot_radius, "fine")
-
         # Where the coarse fit says each expected dot should appear in the
         # camera. This is what removes the row-sorting assumption entirely.
         stage_to_cam = geometry.invert(coarse_fit.h)
+
+        # **The ROI, CLAUDE.md's M4i fix.** The table's own footprint in
+        # camera pixels — not a config guess, not a hardcoded margin — is
+        # whatever the coarse fit (just confirmed 4/4, marker resolved)
+        # says the FULL stage rectangle projects to. A room lamp outside
+        # the table, at the edge of the camera's field of view, is outside
+        # this box by construction and never reaches the fine pass's
+        # detector, which is what removes it rather than merely hoping a
+        # threshold does. Padded by `roi_margin_px` (= the match gate) so
+        # nothing the matcher would have accepted gets cropped away first.
+        sw, sh = self.store.stage_size
+        table_bbox_cam = geometry.apply_rect(stage_to_cam, (0.0, 0.0, sw, sh))
+        roi = pad_rect(table_bbox_cam, self.roi_margin_px)
+
+        fine_stage = grid_points(self.cols, self.rows, self.inset,
+                                 self.store.stage_size)
+        fine_cam, _fine_areas = self._pass(fine_stage, self.dot_radius, "fine",
+                                           roi=roi)
+
         expected_cam = [geometry.apply(stage_to_cam, p) for p in fine_stage]
         pairing = geometry.match_nearest(expected_cam, fine_cam,
                                          max_distance_px=self.match_gate_px)
@@ -448,7 +490,8 @@ class DotCalibrator:
                             message=message, good=good)
 
     def _pass(self, stage_points: Sequence[Point], radius: float,
-              name: str, first_radius: Optional[float] = None
+              name: str, first_radius: Optional[float] = None,
+              roi: Optional[Sequence[float]] = None
               ) -> Tuple[List[Point], List[float]]:
         """Draw a pattern, wait for it to be on the table and exposed, ask
         the classifier what it sees, return camera-space points **and their
@@ -457,6 +500,11 @@ class DotCalibrator:
         The areas are what identify the oversized marker in the coarse pass.
         They travel on the reply `classifier/main.py` already sends, so
         nothing about the wire changed to get them here.
+
+        `roi`, when given, is a camera-space `[x, y, w, h]` the classifier
+        crops to before it looks for anything — see `_run`'s comment on
+        where it comes from. **Never passed for the coarse pass**: there is
+        no table footprint to crop to until the coarse pass has found one.
         """
         self._show(overlay_dots(stage_points, radius, first_radius))
         self._sleep(self.settle_s)
@@ -473,13 +521,13 @@ class DotCalibrator:
         # of 4 real corners against 4 of 4 for a fixed threshold), because
         # a tray reflection or the room lamp outweighs a real dot under
         # this top-hat sizing. `tophat` is left wired here, harmless and
-        # unread, so the plumbing does not have to be rebuilt once a safe
-        # way to use it (background subtraction or an ROI crop) exists —
-        # see CLAUDE.md's M4h/M4i.
+        # unread, in case a *correctly* sized top-hat is worth revisiting
+        # once the ROI above has been confirmed sufficient on its own — see
+        # CLAUDE.md's M4h/M4i.
         biggest = max(radius, first_radius or 0.0)
         tophat = int(self.tophat_scale * 2.0 * biggest) | 1
         reply = self._ask(len(stage_points), self.min_area, tophat,
-                          self.average_frames)
+                          self.average_frames, roi)
         if not isinstance(reply, dict):
             raise DotCalError(
                 "the classifier did not answer — is it running?")

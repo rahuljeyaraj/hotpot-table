@@ -82,6 +82,7 @@ class FakeRig:
         self.jitter = jitter
         self.shown = []
         self.asks = []
+        self.rois = []
         self.drop_indices = set()
         # pass index (0 = coarse, 1 = fine) -> extra blobs the "camera"
         # reports that were never drawn. Per-pass rather than global
@@ -94,8 +95,9 @@ class FakeRig:
     def show(self, dots):
         self.shown.append(dots)
 
-    def ask(self, expect, min_area, tophat=0, average=1):
+    def ask(self, expect, min_area, tophat=0, average=1, roi=None):
         self.asks.append((expect, min_area))
+        self.rois.append(roi)
         if self.reply_override is not None:
             return self.reply_override
         pattern = self.shown[-1] or []
@@ -258,6 +260,37 @@ class TestTheSolve(DotCalCase):
         self.assertEqual(len(rig.shown[0]), 4)
         self.assertEqual(len(rig.shown[1]), 15)
 
+    def test_the_coarse_pass_asks_for_no_roi(self):
+        # Doc CLAUDE.md's M4i fix. There is no table footprint to crop to
+        # until the coarse pass has found one — asking for an ROI here
+        # would be cropping blind.
+        rig = FakeRig()
+        self.calibrator(rig).run()
+        self.assertIsNone(rig.rois[0])
+
+    def test_the_fine_pass_roi_is_the_table_footprint_padded_by_the_match_gate(self):
+        # The ROI must be the coarse fit's own view of where the table is
+        # — not a hardcoded guess — or it would not track a camera that
+        # moved between rigs. Computed independently here (through the
+        # SAME known matrix the fake rig was built from, which the code
+        # under test never sees) so this cannot pass by construction the
+        # way doc section 5.3's TRAP would.
+        rig = FakeRig()
+        cal = self.calibrator(rig)
+        cal.run()
+        self.assertIsNotNone(rig.rois[1])
+        x, y, w, h = rig.rois[1]
+        sw, sh = gstore.STAGE_SIZE
+        corners = [geometry.apply(rig.stage_to_cam, p)
+                   for p in ((0.0, 0.0), (sw, 0.0), (sw, sh), (0.0, sh))]
+        xs = [c[0] for c in corners]
+        ys = [c[1] for c in corners]
+        margin = cal.roi_margin_px
+        self.assertAlmostEqual(x, min(xs) - margin, places=0)
+        self.assertAlmostEqual(y, min(ys) - margin, places=0)
+        self.assertAlmostEqual(x + w, max(xs) + margin, places=0)
+        self.assertAlmostEqual(y + h, max(ys) + margin, places=0)
+
     def test_the_corner_dots_are_drawn_larger_than_the_grid_dots(self):
         rig = FakeRig()
         self.calibrator(rig).run()
@@ -386,7 +419,7 @@ class TestDegradedRigs(DotCalCase):
         rig = FakeRig()
         rig.reply_override = None
 
-        def silent(expect, min_area, tophat=0, average=1):
+        def silent(expect, min_area, tophat=0, average=1, roi=None):
             return None
         cal = dotcal.DotCalibrator(self.store, show_dots=rig.show,
                                    ask_dots=silent, settle_s=0.0,
@@ -436,7 +469,7 @@ class TestDegradedRigs(DotCalCase):
         cal = self.calibrator(rig)
         seen = []
 
-        def reentrant(expect, min_area, tophat=0, average=1):
+        def reentrant(expect, min_area, tophat=0, average=1, roi=None):
             if not seen:
                 seen.append(1)
                 with self.assertRaises(dotcal.DotCalError):

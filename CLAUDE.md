@@ -1787,6 +1787,180 @@ queued in the M4h note above. They are the same screen and share the
 same coordinate-space decision (display-only rectification vs composing
 into `H`) — do them together, not as two separate passes.
 
+### M4j — the ROI crop, built and run on the rig; bin-box reorientation
+built alongside it; a NEW lighting problem found, not fixed (2026-08-12)
+
+**The coordinate-space decision, made explicit before any code:
+display-only.** `H_cam->stage` still maps raw camera pixels to stage
+pixels, exactly as doc §5.3 says. Every rect `core` stores, sends to the
+classifier, or accepts from `set_rects` is still raw camera-space —
+nothing about how a rect is held or matched changed. The crop only
+changes what the Setup tab's browser DRAWS for the operator to look at
+while dragging. This is the decision M4h's note asked for before writing
+any of this; the alternative (composing the crop into `H` itself) was not
+built, and nothing here is half of each.
+
+**1. The ROI crop that closes M4i's gap.** `core/dotcal.py`'s fine pass
+now computes the table's own footprint in camera pixels — `geometry.
+apply_rect(stage_to_cam, (0,0,stage_w,stage_h))`, padded by
+`roi_margin_px` (config `calibration.roi_margin_px`, default tied to
+`MATCH_GATE_PX` = 120px, **not picked independently**: a real dot can
+legitimately land up to the match gate away from where the coarse fit
+expected it, so a tighter ROI would crop away a dot the matcher was still
+willing to accept) — and sends it as `roi:[x,y,w,h]` on the fine pass's
+`detect_dots` command only. **Never the coarse pass**: there is no table
+footprint to crop to before the coarse pass has found one. `classifier/
+main.py._detect_dots` crops the frame to it (`crop_rect`, a small
+refactor of the existing `capture()` crop that now also returns the
+offset it actually clamped to) before running the detector, then adds
+that offset back onto every returned point — camera-space in, camera-space
+out, same contract as before, ROI invisible to anything downstream. The
+bounding-box helper (`dotcal.pad_rect`, promoted from a private
+`_padded_bbox` once a second caller needed it — see part 2) is pure
+Python, no camera, fully covered by `test_dotcal.py`'s two new tests
+against an independently-computed reference (not `apply_rect` itself,
+to avoid the fix passing by construction against its own code path).
+
+**Measured on the rig, three consecutive real solves, same lighting:**
+10, then 11, then 11 of 15 fine-grid dots agreed (`good: true` every
+time), RMS 0.95–1.15 px. Up from M4i's own measured 6 of 15. This is the
+actual acceptance bar (doc §21: "under ~3 px over at least 10 of 15")
+being met on real hardware for the first time in M4, not reasoned about.
+
+**Confirmed NOT a fluke by an A/B, not just repetition:** `ROI_MARGIN_PX`
+was temporarily set to 5000 px (large enough that `crop_rect`'s clamping
+makes the "requested" ROI cover the whole frame regardless — equivalent
+to no cropping at all), core restarted, and the calibration was re-run.
+It still failed, 4 of 15 — proving the failure that showed up a few
+minutes later (below) was not the ROI cropping away real dots.
+
+**2. A NEW problem, found by testing, not by reasoning: a room light
+came on (or brightened) partway through this session and broke
+calibration again — independent of the ROI fix.** After the three good
+runs, four further attempts all failed (4 of 15, then progressively
+fewer real blobs — 10, then 7, then 6 — even as coarse-pass noise stayed
+high). A snapshot grabbed mid-solve (`classifier`'s own `<img>`, fetched
+directly, not reasoned about) shows why: a bright light is visible at the
+extreme top-left edge of the frame, and the "black" field the projector
+is supposed to be showing reads as a light cream colour, not black — the
+room's ambient light is now bright enough to wash out the projector's
+black field broadly, not just contaminate one corner. That collapses
+dot-to-board contrast (already only ~25–50 grey levels per `dots.py`'s
+own docstring) across the WHOLE frame, which an ROI crop cannot fix — ROI
+removes a light source that is spatially outside the table, it cannot
+restore contrast that ambient light has removed everywhere. The A/B
+above (part 1) confirms this reading: disabling the crop entirely did
+not change the failure at all.
+**This is the same room lamp M4i named**, photographed for the first
+time rather than merely inferred, now apparently brighter than it was
+during the three good runs. **Not fixed here — it is a physical/
+operational problem, not a code one.** Recommended before the next
+calibration attempt: turn the light off, shield it, or point the camera
+away from it. No further code mitigation was attempted this session;
+background subtraction (M4i's other named option) would help the
+spatially-local case but not a broad contrast collapse either, and
+burning more time on detector tuning against a room light that might
+simply be a mistake (someone left it on) was judged not worthwhile
+before that's ruled out.
+**Consequence for `state/homography.json` on disk right now:** the file
+holds the FIRST of the three good runs (10 points, rms 0.95 px),
+deliberately restored there after the later bad-lighting runs overwrote
+it with a degenerate 4-point solve — `dotcal.py` saves whatever it
+solves regardless of `good`, which is correct (an operator retrying needs
+to see the last attempt's numbers) but means a string of bad attempts
+left a genuinely bad homography on disk until this was noticed and fixed
+by hand. **This is real data from this session, not synthetic** — but it
+predates the room-light problem and has not been re-verified since ROI
+work landed. Doc §12.6's Verify step (a human looking at the real trays)
+is still owed, is still the only check that can catch a wrong-direction
+homography (§5.3's TRAP), and matters more than usual right now given
+how the file got into its current state.
+
+**3. The bin-box reorientation/cropping work, built on the same ROI.**
+Doc §5.4's `toCam()` staff-view scaling relied on the raw, un-rotated
+`<img>` naturally sizing itself; that still works with no `camera_roi`
+(unchanged fallback — a table with no homography yet shows the raw feed
+exactly as M4.4 built it). With one:
+- `core/main.py._geometry_msg()` gains `camera_roi: [x,y,w,h] | null` —
+  **the SAME padded bounding box the classifier's ROI crop uses**
+  (`dotcal.pad_rect` again, called from `_camera_roi_msg` against the
+  saved `H`, not a second computation that could quietly drift from the
+  first). `null` before any homography exists.
+- The Setup tab's `<canvas id="setupOverlay">` — previously a transparent
+  rect-only overlay drawn on top of the visible `<img>` — now draws the
+  video itself when a `camera_roi` is present: crop to the ROI, flip 180
+  degrees (`ctx.scale(-1,-1)`, exact, no trig — the camera's mount is
+  exactly 180°, not approximately, per M4i / commit `b847c0f`), into a
+  canvas sized to the ROI rather than the full frame. `setupImg` is
+  hidden (`visibility`, not `display`, so it keeps decoding the MJPEG
+  stream the canvas is sampling from) while this is active. A
+  `setInterval` at ~10fps redraws it — MJPEG has no per-frame JS hook to
+  redraw from, unlike the old scheme where the browser painted the
+  visible `<img>` natively with zero JS involved.
+- **Rects stay in raw camera space on the wire, exactly as doc §5.4
+  requires** — `toCam()` now undoes the same flip (`cameraRoi[0]+
+  cameraRoi[2]-lx, cameraRoi[1]+cameraRoi[3]-ly`), and drawing goes
+  through the equivalent forward transform (`toDisplay`/`rectToDisplay`).
+  Nothing about `rects`, `set_rects`, or what reaches core changed.
+- **Explicitly NOT full perspective rectification.** The camera is not
+  square to the table edge (M4h's still-open note) and a pure 180-degree
+  flip does not fix that — the table still appears slightly rotated in
+  the cropped view, visible in the verification screenshot below. Full
+  unwarping via the homography was considered and deliberately not
+  built: it needs either a continuous per-pixel canvas warp or a CSS
+  `matrix3d` derived from `H`, materially more code and risk, for a
+  cosmetic improvement over what shipped. Named here so it reads as a
+  scope decision, not a forgotten half-measure.
+
+**Verification actually performed, and what was not:**
+- 10 new/changed Python tests (`test_dotcal.py` +2, `test_classifier_
+  main.py` +6, `test_core_main.py` +1 new method +1 assertion), 718
+  total, all passing.
+- The 180-degree flip's closed-form algebra (`toDisplay`/`rectToDisplay`/
+  `toCam`) checked standalone in Node against hand-picked cases and a
+  16-point round-trip grid — independent of the DOM, no shim needed for
+  pure math.
+- `node --check` on the extracted script — clean (doc's own M4.7 note:
+  this check alone caught a real corrupted-file bug once).
+- **Actually opened in a real browser** (headless Chrome via the Chrome
+  DevTools Protocol — no `chromium-cli` or Playwright installed on this
+  machine, so a small throwaway CDP driver script did the `nav`/`click`/
+  `screenshot` loop by hand) **against the real running server and real
+  camera feed.** Screenshot confirms: the table renders right-way-up
+  (the "Curly Noodles"/"Long Noodles" labels and the logo read correctly,
+  where the raw feed is upside-down), background clutter is mostly
+  cropped away, and all eight green bin-rect outlines sit correctly on
+  the physical trays — which only happens if `rectToDisplay` has the
+  correct sign, so this is real evidence for the transform, not just the
+  video crop.
+- **Not verified: an actual pointer drag through the browser.**
+  `toCam()`'s ROI branch is the algebraic inverse of `toDisplay` (proved
+  standalone) and `toDisplay` is now empirically confirmed correct by the
+  screenshot above, so `toCam` is correct by construction — but no
+  session actually dragged a rect on a live cropped view and watched it
+  track the cursor. A CDP-driven synthetic drag was attempted and
+  abandoned: the app's `rects`/`mode`/`toCam` live inside the page's IIFE
+  closure, invisible to `Runtime.evaluate`'s global scope, and reaching
+  them without adding debug-only globals to production code would have
+  needed pixel-scanning the canvas instead of reading state directly —
+  judged not worth the added script complexity given the algebraic proof
+  already in hand. Owed before this is trusted with a real drag.
+- oF (`UiLayer.cpp`) untouched. `kUseCoreRects` stays `false` — **do not
+  flip it**, both because that policy already required a fresh calibration
+  with enough real inliers AND a human Verify, and because the homography
+  on disk right now predates the room-light discovery above and has not
+  been re-verified since.
+
+**Next session starts here:** fix the room light (or confirm it was a
+one-off — turn it off, re-run calibration several times, not just once,
+before trusting the number), then doc §12.6's Verify step on whatever
+calibration results. Once both are done: flip `kUseCoreRects`. Separately
+owed, lower priority: an actual browser-driven drag test, and a decision
+on whether `roi_margin_px` (currently borrowed from `match_gate_px`) needs
+its own tuning once several clean runs exist to tune it against — the one
+run that came in at exactly 10 (the floor) suggests the margin is not
+generous to spare.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

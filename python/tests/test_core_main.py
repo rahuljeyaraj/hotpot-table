@@ -1757,6 +1757,34 @@ class TestDotCalibrationOverTheWire(CoreCase):
         geo_msg = next(m for m in seeds if m["t"] == "geometry")
         self.assertFalse(geo_msg["calibrated"])
         self.assertEqual(len(geo_msg["rects"]), 8)
+        # No homography yet, so there is no table footprint in camera
+        # space to crop the Setup tab's feed to — it must fall back to
+        # the raw feed, not guess.
+        self.assertIsNone(geo_msg["camera_roi"])
+
+    def test_camera_roi_appears_once_a_homography_exists(self):
+        # CLAUDE.md's M4i bin-box reorientation work: the Setup tab's crop
+        # is the SAME table footprint the fine pass's ROI crops the
+        # classifier to (`dotcal.pad_rect` on the same bounding box), not
+        # a second, independently-drifting computation of it.
+        from hotpot.common import geometry as geo
+        self.fake_classifier()
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "calibrate_dots"}))
+        self.collect(ws, "dotcal_result")
+
+        geo_msg = self.core._geometry_msg()
+        roi = geo_msg["camera_roi"]
+        self.assertIsNotNone(roi)
+        self.assertEqual(len(roi), 4)
+
+        stage_to_cam = geo.invert(self.CAM_TO_STAGE)
+        sw, sh = self.core.geometry.stage_size
+        bbox = geo.apply_rect(stage_to_cam, (0.0, 0.0, sw, sh))
+        want = coremain.dotcal.pad_rect(bbox, self.core.dotcal.roi_margin_px)
+        for got, exp in zip(roi, want):
+            self.assertAlmostEqual(got, exp, places=1)
 
     def test_ofs_keystone_fingerprint_reaches_the_staleness_check(self):
         # Doc §8.5: oF reports its fingerprint in `stat`; a different one

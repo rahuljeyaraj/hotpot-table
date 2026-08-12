@@ -203,6 +203,57 @@ class TestDetectDots(WorkerCase):
         self.assertEqual(len(self.wait()["points"]), 1)
 
 
+class TestDetectDotsROI(WorkerCase):
+    """CLAUDE.md's M4i fix: a room lamp at the frame edge fragments into
+    blobs the same size as a real dot once the field inverts to black, and
+    no area/aspect/edge filter tells them apart. An ROI removes it from
+    the image before the detector ever sees it.
+    """
+
+    def _field_with_lamp(self):
+        # dot_field()'s four real dots sit at (160,120) (480,120) (480,360)
+        # (160,360) in a 640x480 frame. A fifth blob near the top-left
+        # corner, well outside where the real dots are, stands in for the
+        # lamp: right size, right shape, wrong place.
+        img = dot_field()
+        ys, xs = np.ogrid[:480, :640]
+        img[(xs - 20) ** 2 + (ys - 20) ** 2 <= 144] = 255
+        return img
+
+    def test_with_no_roi_the_lamp_is_seen_too(self):
+        w = self.build(image=self._field_with_lamp())
+        w.on_message({"t": "cmd", "id": 1, "op": "detect_dots", "expect": 4})
+        self.assertEqual(len(self.wait()["points"]), 5)
+
+    def test_an_roi_around_the_table_crops_the_lamp_out(self):
+        w = self.build(image=self._field_with_lamp())
+        w.on_message({"t": "cmd", "id": 2, "op": "detect_dots", "expect": 4,
+                      "roi": [100, 80, 420, 320]})
+        self.assertEqual(len(self.wait()["points"]), 4)
+
+    def test_points_from_a_cropped_roi_are_still_camera_space(self):
+        # The crop must not leak into the reply as a second coordinate
+        # space — doc §5.3 makes camera-space the one classifier points
+        # are ever in.
+        w = self.build(image=dot_field())
+        w.on_message({"t": "cmd", "id": 3, "op": "detect_dots", "expect": 4,
+                      "roi": [100, 80, 420, 320]})
+        points = sorted(self.wait()["points"])
+        expected = sorted([[160.0, 120.0], [480.0, 120.0],
+                           [480.0, 360.0], [160.0, 360.0]])
+        for (px, py), (ex, ey) in zip(points, expected):
+            self.assertAlmostEqual(px, ex, delta=1.0)
+            self.assertAlmostEqual(py, ey, delta=1.0)
+
+    def test_an_roi_entirely_off_the_frame_is_a_sentence_not_a_traceback(self):
+        w = self.build(image=dot_field())
+        w.on_message({"t": "cmd", "id": 4, "op": "detect_dots", "expect": 4,
+                      "roi": [5000, 5000, 100, 100]})
+        reply = self.wait()
+        self.assertFalse(reply["ok"])
+        self.assertIn("outside", reply["error"])
+
+
 class TestUnknownCommands(WorkerCase):
 
     def test_classify_says_it_is_not_built_yet(self):
@@ -242,6 +293,19 @@ class TestCrop(unittest.TestCase):
     def test_a_rect_entirely_outside_the_frame_raises(self):
         with self.assertRaises(cmain.ClassifierError):
             cmain.crop(food_field(), (2000, 2000, 50, 50))
+
+    def test_crop_rect_reports_the_offset_it_actually_used(self):
+        patch, x0, y0 = cmain.crop_rect(food_field(), (330, 250, 100, 100))
+        self.assertEqual((x0, y0), (330, 250))
+        self.assertTrue((patch == 250).all())
+
+    def test_crop_rect_offset_reflects_clamping_not_the_request(self):
+        # A caller that adds the offset back to a point found in the crop
+        # must get where the crop actually started, not where it asked to
+        # start — otherwise a clamped ROI would shift every point by
+        # however much it hung off the edge.
+        _patch, x0, y0 = cmain.crop_rect(food_field(), (-50, -30, 100, 100))
+        self.assertEqual((x0, y0), (0, 0))
 
 
 class TestSafeLabel(unittest.TestCase):

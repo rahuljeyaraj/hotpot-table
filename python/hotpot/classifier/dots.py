@@ -31,21 +31,27 @@ Testable with no camera: every function takes an image array, and
 a black field, plus the failure cases that matter (a highlight smaller
 than a dot, two dots that merged, a dot cut by the frame edge).
 
-**NOT fixed here, measured on the rig 2026-08-12, real cause of the
-homography being unusable even after the 180-degree fix and the exposure
-lock:** a room lamp sitting outside the table, at the extreme edge of the
-camera's field of view, is bright enough after the field inverts to black
-that it fragments into several blobs any single threshold has to either
-miss real dots to exclude, or admit alongside them. `min_area`/`max_area`
-do not separate it — its fragments span the same size range as a real
-dot. The touches-the-frame-edge filter does not either — the lamp is
-fully in frame, just at the margin. Two real fixes exist and neither is
-built: an ROI crop to the table (also wanted for the tracker's own
-performance — see CLAUDE.md's M4i) removes it from the image entirely;
-subtracting a black-field reference frame from the pattern frame removes
-it by not being part of what changed. `DEFAULT_THRESHOLD` below is tuned
-against real corner/marker dots and gets closer on the grid, but is a
-mitigation, not the fix.
+**Root cause measured on the rig 2026-08-12 (M4i), ROI crop built and
+confirmed 2026-08-12 (M4j) — this module itself is unchanged, the crop
+happens one layer up:** a room lamp sitting outside the table, at the
+extreme edge of the camera's field of view, is bright enough after the
+field inverts to black that it fragments into several blobs any single
+threshold has to either miss real dots to exclude, or admit alongside
+them. `min_area`/`max_area` do not separate it — its fragments span the
+same size range as a real dot. The touches-the-frame-edge filter does not
+either — the lamp is fully in frame, just at the margin. **This module
+does not crop anything itself** — doc §3.2's "the classifier must not
+need to know what pattern was drawn" extends to not knowing the table's
+footprint either. `classifier/main.py._detect_dots` crops the frame
+before calling `detect_dots` here, when `core/dotcal.py`'s fine pass
+sends an `roi` — computed from the coarse fit's own view of the table,
+not a guess (CLAUDE.md's M4j). Measured result: 6 of 15 fine-grid dots
+agreeing, up to 10-11 of 15, three consecutive real solves. **Not a
+complete fix for every lighting condition**: a room light bright enough
+to wash out the WHOLE black field (not just contaminate one corner) — a
+different, newly-observed failure, also in M4j — collapses dot contrast
+everywhere at once, which no crop of any size can restore.
+`DEFAULT_THRESHOLD` below is tuned against real corner/marker dots.
 """
 
 from __future__ import annotations

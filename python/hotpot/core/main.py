@@ -55,7 +55,7 @@ import math
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from hotpot.common import config, geometry, health, log, wire
 from hotpot.core import (binmap, calibrator, cart, dotcal, fsm, geometry_store,
@@ -495,7 +495,8 @@ class Core:
         waiter[0].set()
 
     def _ask_dots(self, expect: int, min_area: float,
-                  tophat: int, average: int) -> Dict[str, Any]:
+                  tophat: int, average: int,
+                  roi: Optional[Sequence[float]] = None) -> Dict[str, Any]:
         """`dotcal.DotCalibrator`'s hook into doc section 4.7's
         `detect_dots`. Kept as a one-line adapter so that module knows
         nothing about the wire.
@@ -503,11 +504,18 @@ class Core:
         `tophat` is the background-flattening kernel, sized by `dotcal`
         from the pattern it just drew — the classifier cannot work it out
         because it is never told how big the dots are (I2).
+
+        `roi`, sent only for the fine pass, is the table's own footprint
+        in camera pixels (CLAUDE.md's M4i) — omitted, not sent as null,
+        when `dotcal` has none (the coarse pass), so an older classifier
+        that has never heard of `roi` still gets a message it understands.
         """
+        kwargs: Dict[str, Any] = dict(expect=expect, min_area=min_area,
+                                      tophat=tophat, average=average)
+        if roi is not None:
+            kwargs["roi"] = [float(v) for v in roi]
         return self._send_classifier_cmd(
-            "detect_dots", dotcal.REPLY_TIMEOUT_S,
-            expect=expect, min_area=min_area, tophat=tophat,
-            average=average) or {}
+            "detect_dots", dotcal.REPLY_TIMEOUT_S, **kwargs) or {}
 
     # -- the calibrating overlay (doc sections 4.3, 14.5, I9) --------------
 
@@ -1317,7 +1325,39 @@ class Core:
             "keystone_stale": g.keystone_is_stale(self._keystone_fingerprint),
             "rects": [None if r is None else [round(v, 1) for v in r]
                       for r in g.cam_rects],
+            "camera_roi": self._camera_roi_msg(g),
         }
+
+    def _camera_roi_msg(self, g: geometry_store.GeometryStore
+                        ) -> Optional[List[float]]:
+        """The table's own footprint in camera pixels — `[x, y, w, h]` —
+        for the Setup tab to crop and un-rotate its live feed to (see
+        CLAUDE.md's M4i note on the bin-box reorientation work). **The
+        SAME padded bounding box `core/dotcal.py`'s fine pass crops the
+        classifier to**, not a second computation of it: one ROI decision
+        per calibrated table, not two that could quietly disagree.
+
+        `None` before any homography exists — there is no table footprint
+        in camera space to crop to yet, and the Setup tab falls back to
+        the raw, uncropped feed exactly as it always has (M4.4).
+
+        **Display-only, by design (this session's coordinate-space
+        decision).** `H_cam->stage` keeps meaning what doc §5.3 says it
+        means — raw camera pixels to stage pixels — and every rect this
+        process stores or sends stays in raw camera space. This field
+        only tells the *browser* what to crop and flip for the operator
+        to look at; it never reaches the classifier, never reaches oF,
+        and nothing about how a rect is stored or matched changes because
+        it exists.
+        """
+        if g.h_inv is None:
+            return None
+        try:
+            bbox = geometry.apply_rect(g.h_inv, (0.0, 0.0) + tuple(g.stage_size))
+        except geometry.GeometryError:
+            return None
+        return [round(v, 1) for v in
+                dotcal.pad_rect(bbox, self.dotcal.roi_margin_px)]
 
     # -- the Bins tab (doc section 12.4, M2 build item 4) --------------------
 
