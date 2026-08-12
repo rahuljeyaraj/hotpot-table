@@ -2433,6 +2433,25 @@ key, on the projected surface, not a framebuffer. This is the first
 thing in the whole M4n/M4n-fix arc confirmed by physical observation
 rather than reasoned from code or a syntax check.
 
+**Also physically confirmed, same session:** the camera grid (drag lines
+on the rectified feed, Setup tab, M4m — "not opened in a real browser"
+was M4m's own caveat, now closed) and the Capture tab (photograph bins,
+export a labelled dataset, M4.7/§12.7). Both "all good," developer's
+words. Of doc §21's M4 acceptance list, what remains open: the
+`field_level`/camera-exposure sweep (exposure is already locked at -6
+per the boot log, but nobody has done the deliberate "look at a bin crop
+under swept light" check the doc asks for — see the answer given
+in-session, since `field_level` is not actually wired into oF's render
+at all yet, only into Python-side dataset metadata, which the developer
+now has that explanation of); the keystone-stale warning (mechanism is
+built and believed correct — `geometry_store.keystone_is_stale` compares
+oF's live keystone fingerprint against the one recorded at the last
+homography solve — but the developer sets `keystone.json` by hand,
+once, with no in-app tool to bump it, so the scenario this warns about
+does not arise in normal use and has not been deliberately triggered to
+confirm the warning actually fires); and Edge Impulse training, blocked
+on hardware on order, not a code gap.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
