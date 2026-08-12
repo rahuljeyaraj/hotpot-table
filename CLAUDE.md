@@ -1682,6 +1682,111 @@ first:** rects dragged on a rectified feed live in rectified space while
 display-only, or compose it into `H`, but never half of each. It belongs
 with the bin-box selection work, which is the same screen.
 
+### M4i — M4h actually run on the rig, same day (2026-08-12)
+
+**Verdict up front: 2 of 3 M4h fixes confirmed correct on real hardware.
+The third (detector) was wrong as shipped and has been corrected, still
+short of a working calibration, and the real fix (ROI crop or background
+subtraction) is not built. Bin-square rendering is force-disabled below
+until that's done — do not re-enable it as a side effect of other work.**
+
+**1. White balance — CONFIRMED FIXED, and the "still there" report was a
+different thing.** Measured directly: table lit by the app's own white
+field, R/B=0.96 (neutral). The projector as illuminant (I9) means the
+table's colour IS the room's colour whenever the app isn't actually
+projecting the field — the earlier "still yellow" report was almost
+certainly the sepia desktop wallpaper showing through with no process
+running, not the fix failing. `state/camera_settings.json` now correctly
+shows `"locked": false` for an unlocked prior. No code change needed.
+
+**2. The 180-degree marker fix — CONFIRMED WORKING, exactly as designed.**
+Log from a real coarse pass: `marker dot is blob 0 of 4 (area 682 px2) —
+camera orientation resolved from it, not from error`, immediately after
+`detect_dots found all 4 dots`. Photographed too: the marker drawn
+top-left in stage space appears bottom-right in the camera frame, which
+is the 180-degree mount made visible. Do not touch this mechanism.
+
+**3. The threshold sweep — WRONG, reverted.** Never should have shipped
+without running it. Ground truth from a real coarse-pass frame with 4
+known corner dots: a PLAIN FIXED threshold of 150, top-4-by-area, found
+4 of 4 real corners. `detect_best`'s sweep — with or without the top-hat —
+found 0-1 of 4. Its "longest stable run" tie-break was locking onto a
+room lamp's plateau, not the dots'. `classifier/main.py._detect_dots` no
+longer calls `detect_best` automatically; `dots.detect_best` and
+`dots.flatten_background` are UNTOUCHED and still tested, just not wired
+in. `DEFAULT_THRESHOLD` moved 200 -> 150, also measured: the fine pass's
+smaller 13px grid dots did not reliably clear 200 even with exposure
+locked (a real run found only 11 of 15 at 200; 150 found 14 plausible
+grid-sized blobs on the same frame).
+
+**Also found and fixed on the same rig session, not part of M4h:**
+- **Camera was running at 4.2 fps.** `WindowsCapture.open()` asked for
+  MJPG, then set resolution, then fps — and setting resolution OR fps
+  each independently reset DirectShow back to its default format (YUY2 on
+  this camera), which at 1920x1080 is ~6 MB/frame and saturates USB to
+  4.2 fps. FOURCC must be the LAST `set()` call. Fixed and measured:
+  4.19 -> 26.26 fps, same resolution, same camera. This was silently
+  capping frame averaging (40 frames at 4 fps timed out at 15) and is
+  directly on the tracker's MediaPipe budget.
+- **Exposure convergence now genuinely locks, on Windows too.** The
+  2026-08-12-morning fix left every auto running forever on Windows as a
+  safe stop-gap, because the DirectShow manual-exposure trigger value was
+  unverified and an unconverged lock had looked worse than the OS camera
+  app. Both blockers tested directly on this rig, same day: `.set(
+  CAP_PROP_EXPOSURE, v)` forces manual mode by itself (no separate
+  trigger call needed — `CAP_PROP_AUTO_EXPOSURE`'s readback is always -1
+  on this driver regardless), and a plain `AUTO_SETTLE_S` sleep with no
+  reads during the wait converges identically to reading during it
+  (DirectShow keeps the capture graph running independently). Watched 5s
+  post-lock: 40.3-40.4 mean, dead stable, where the auto had been visibly
+  ramping (70 -> 92 over ~2s) during a calibration run minutes earlier.
+  `WindowsCapture` now mirrors `V4L2Capture`'s converge-then-lock exactly.
+
+**End-to-end result, both fixes together, measured, not reasoned:**
+coarse pass perfect (4/4, marker resolved). Fine pass **6 of 15 dots
+agree** (up from 4, and this time `rms_px=0.95` — a real fit over
+multiple points, not the earlier `0.0` degenerate 4-point case) — still
+short of the 10 the code requires. **Root cause identified, not fixed:** a
+room lamp outside the table, at the extreme edge of the camera's field of
+view, fragments into several blobs once the field inverts to black, and
+those fragments span the same size range as a real 13px grid dot. No
+threshold separates them — they are not brighter or dimmer than real
+dots, just differently shaped and positioned. `min_area`/`max_area` don't
+catch it (same size range); the frame-edge filter doesn't either (the
+lamp is fully in frame). **Two real fixes, neither built:** an ROI crop
+to the table (`classifier/dots.py`'s module docstring now names this,
+2026-08-12) removes the lamp from the image entirely and is also wanted
+for the tracker's own MediaPipe performance — cropping the area of
+interest is the same piece of work serving both M4's calibration and
+M5's tracking; or subtract a black-field reference frame from the pattern
+frame so only what changed (the dots) survives.
+
+**Bin-square rendering force-disabled, deliberately, pending the above.**
+`UiLayer::binRectPx` had a `kUseCoreRects = false` kill-switch added
+2026-08-12 — the table was projecting squares computed from exactly the
+`rms_px: 0.0, n_points: 4` TRAP calibration M4i's own section 3
+diagnosed, i.e. squares that do not correspond to anything real. Forces
+the CAD-layout fallback (M4 build item 6's own "visibly approximately
+right rather than visibly broken" design) unconditionally. **Flip
+`kUseCoreRects` back to `true` only after:** a fresh dot calibration
+reports enough real inliers (not a 4-point degenerate fit), AND a human
+has run the Verify step and answered honestly that the projected outlines
+sit on the real trays. Builds clean, msbuild, 0 errors.
+
+709 tests pass, 8 new/changed (`WindowsCapture` lock behaviour). All
+python-side changes verified against real hardware this session — fps,
+exposure stability, marker resolution, and the coarse/fine pass counts
+are measured numbers, not reasoning. The oF change is unverified beyond
+"builds clean" — nobody has looked at the projected table since it was
+added.
+
+**Next session starts here, per the developer's own framing:** the ROI
+crop / background-subtraction work above, which unblocks both the
+remaining calibration gap and the bin-box rectification work already
+queued in the M4h note above. They are the same screen and share the
+same coordinate-space decision (display-only rectification vs composing
+into `H`) — do them together, not as two separate passes.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
