@@ -57,9 +57,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from hotpot.common import config, geometry, health, log, wire
+from hotpot.common import config, cursorbus, geometry, health, log, wire
 from hotpot.core import (bin_grid, binmap, calibrator, cart, fsm,
-                         geometry_store, i18n, loadcell_cal, pricing, scale)
+                         geometry_store, hover, i18n, loadcell_cal, pricing,
+                         scale)
 from hotpot.core.web import server as web
 
 _log = logging.getLogger("hotpot.core")
@@ -231,6 +232,8 @@ class Core:
         view_rotation_path: Path = geometry_store.VIEW_ROTATION_PATH,
         mirror_handedness: bool = False,
         emit_hz: float = TRACKER_EMIT_HZ,
+        cursor_port: int = cursorbus.CORE_PORT,
+        dwell_ms: float = hover.DEFAULT_DWELL_MS,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -397,6 +400,27 @@ class Core:
 
         self.emit_hz = emit_hz
 
+        # -- M5 build item 4: hover and dwell (doc section 9.4) ----------
+        # The UDP listener the tracker sends to (doc section 4.1's
+        # `cursor.core_port`). Bound in __init__ rather than start() so a
+        # test can ask which port it got before anything is running, the
+        # same as `control_port`/`web_port`.
+        #
+        # A bind failure is fatal here and deliberately so: unlike a
+        # missing XIAO or an absent camera, there is no degraded mode —
+        # something else is already holding the port this system's cursors
+        # arrive on, and a core that came up "fine" with a dead hand link
+        # would look identical to a dead tracker.
+        self.cursor = cursorbus.Receiver("127.0.0.1", cursor_port)
+        self.dwell = hover.DwellTracker(dwell_ms=dwell_ms)
+        # The last cursor frame acted on, kept for the staff view's hand
+        # markers (doc section 12.3). Not the raw datagram — `None` once
+        # the hands have gone quiet, so a tablet does not draw a marker for
+        # a hand that left.
+        self._hands: list = []
+        self._hover_bin: Optional[int] = None
+        self._widgets: list = []
+
         self._state_seq = 0
         self._state_stop = threading.Event()
         self._state_thread: Optional[threading.Thread] = None
@@ -429,6 +453,7 @@ class Core:
             self._state_thread.join(2.0)
         self._self_beat.stop()
         self.scale.stop()
+        self.cursor.close()
         self.web.stop()
         self.control.stop()
         self.registry.stop()
@@ -993,6 +1018,157 @@ class Core:
             self.cart.seed_live_grams(i, g)
             self._scale_baselined[i] = True
 
+    # -- hover and dwell (doc section 9.4 — M5 build item 4) ---------------
+
+    def _apply_cursor(self, now: float) -> None:
+        """Drain the cursor socket and turn the newest frame into hover,
+        dwell and (if a dwell completed) an action.
+
+        Called from `_state_msg`, so it runs at the 60Hz state rate under
+        `state_lock` — the same instant the message it feeds is built. That
+        is deliberate: hover, dwell fraction and the bins they describe are
+        one snapshot or they are three, and three would let a widget report
+        a dwell of 1.0 in the same message that no longer lists it.
+
+        **Drain-to-latest, never a backlog** (doc section 4). `Receiver`
+        enforces it; this method must not be given a loop that reads more
+        than one frame, or a 200ms stall would replay the hand through
+        history — which is the entire reason cursors are UDP.
+        """
+        frame = self.cursor.recv_latest()
+        if frame is not None:
+            # `None` means nothing new arrived, which is NOT the same as an
+            # empty table: silence must leave the last hover alone (a
+            # dropped datagram is normal), while a frame with no hands must
+            # clear it. Only the second is a statement about the table.
+            self._hands = list(frame.hands)
+
+        pointer = hover.pick_pointer(frame) if frame is not None else None
+        if frame is not None and pointer is None:
+            # An explicit "no pointer this frame" — ambient hands only, or
+            # an empty table. Hover clears; dwell decays through its grace.
+            self._hover_bin = None
+
+        # Doc section 9.1's IDLE -> SELECTING edge, which has had no driver
+        # since M1 (`fsm.hand_present()` existed with nothing calling it —
+        # CLAUDE.md's M2.6 notes say so outright, and `_handle_cancel_order`
+        # carries a fallback that becomes unreachable the moment this line
+        # lands). Only a POINTER starts a session: a bowl set down on the
+        # table must not open an order.
+        if pointer is not None:
+            self.fsm.hand_present()
+
+        self._widgets = hover.widgets_for(
+            selecting=self.fsm.state is fsm.State.SELECTING,
+            locales_available=len(self.locales.available()))
+
+        if pointer is not None:
+            was = self._hover_bin
+            self._hover_bin = hover.bin_under(self.camera_grid.rects(), pointer)
+            if self._hover_bin is not None and self._hover_bin != was:
+                # Doc section 15.2's `hover`, "very soft tick, -18 dB". Sent
+                # as a one-shot `evt` rather than riding `state`, because
+                # `state` repeats at 60Hz and a repeated sound would fire
+                # sixty times a second (doc section 4.4's whole rationale).
+                self._send_evt({"t": "evt", "kind": "sound", "id": "hover"})
+
+        fired = self.dwell.update(self._widgets, pointer, now)
+        if fired is not None:
+            self._fire_widget(fired)
+
+    def _send_evt(self, msg: Dict[str, Any]) -> None:
+        """Doc section 4.4's one-shot events. Fire-and-forget: "if oF misses
+        one because it just restarted, nothing breaks."
+        """
+        self.control.broadcast(msg, only=["of"])
+
+    def _fire_widget(self, widget_id: str) -> None:
+        """A dwell completed. One dispatch table, so a widget that fires
+        and does nothing is visible as a missing entry rather than as
+        silence.
+
+        Caller holds `state_lock`.
+        """
+        self._send_evt({"t": "evt", "kind": "sound", "id": "dwell_fire"})
+        if widget_id == hover.CANCEL:
+            # The same path the staff view's Cancel order button takes, not
+            # a second implementation — doc section 9.1 has exactly one
+            # `reset_session()` and this is one of its three callers.
+            if not self.fsm.cancel() and self.cart.is_active():
+                self.cart.reset_session()
+            return
+        if widget_id == hover.LANGUAGE:
+            self._cycle_locale()
+            return
+        if widget_id == hover.DONE:
+            # **Doc section 9.1's SELECTING -> BROTH edge is M6 and is not
+            # invented here.** Doc section 21's M5 acceptance test asks only
+            # that "the ring fills over 1.2s and fires", which it now does:
+            # the dwell completes, the ring resets, and the sound event
+            # above goes out. M6 build item 1 adds the BROTH/SPICE/RECAP/
+            # CHECKOUT states and attaches them at this line.
+            _log.info("core: Done fired (dwell complete). Checkout is M6 — "
+                      "no state change yet.")
+            return
+        _log.warning("core: widget %r fired with nothing bound to it",
+                     widget_id)
+
+    def _cycle_locale(self) -> None:
+        """Doc section 17.1: "locale switches via: a projected button
+        (dwell)". Cycles rather than toggles so a third locale needs no
+        change here.
+
+        Unreachable while only one locale is loaded — `widgets_for` marks
+        the button disabled and `DwellTracker` will not accumulate on a
+        disabled widget — but written to be correct anyway, because the day
+        `zh.json` lands the only thing that should have to change is that
+        file.
+        """
+        names = self.locales.available()
+        if len(names) < 2:
+            return
+        nxt = names[(names.index(self.locale) + 1) % len(names)]
+        self.locale = nxt
+        _log.info("core: locale switched to %s by dwell", nxt)
+
+    def _widget_msgs(self) -> list:
+        """Doc section 4.3's `widgets`, with labels **already resolved**
+        (I2: "oF does no lookup") and `dwell` as a 0..1 fraction (doc
+        section 9.4: "oF does not time anything").
+        """
+        out = []
+        for w in self._widgets:
+            out.append({
+                "id": w.id,
+                "kind": w.kind,
+                "rect": [round(v, 1) for v in w.rect],
+                "label": self.locales.translate(w.label_key, self.locale),
+                "dwell": round(self.dwell.fraction(w.id), 3),
+                "enabled": w.enabled,
+                "style": w.style,
+            })
+        return out
+
+    def _hands_msg(self) -> Dict[str, Any]:
+        """Doc section 12.3's "hand marker for each tracked hand, with the
+        pointer drawn differently from ambient", for the staff view.
+
+        Stage-space, exactly as it arrived — the tablet converts into its
+        own rectified canvas, which is the same space (see
+        `common/geometry.warp_frame_to_stage`), so no conversion happens on
+        this side.
+        """
+        return {
+            "t": "hands",
+            "hands": [{"id": h.id, "role": h.role,
+                       "x": round(h.x, 1), "y": round(h.y, 1),
+                       "conf": round(h.conf, 2)} for h in self._hands],
+            "hover_bin": self._hover_bin,
+            "dwell": {"id": self.dwell.active_id,
+                      "fraction": round(
+                          self.dwell.fraction(self.dwell.active_id or ""), 3)},
+        }
+
     def _overlay_msg(self) -> Dict[str, Any]:
         """Doc section 4.3's `overlay`, and the order it is decided in.
 
@@ -1534,6 +1710,11 @@ class Core:
             # running a second timer.
             if self._state_seq % BINS_BROADCAST_EVERY == 0:
                 self.web.broadcast(self._bins_tab_msg())
+                # Doc section 12.3's hand markers, on the same divided
+                # clock as the Bins tab and for the same reason: a tablet
+                # over Wi-Fi does not need 60Hz to show where a hand is,
+                # and the table already gets it at full rate over UDP.
+                self.web.broadcast(self._hands_msg())
             # Sends nothing unless mode or cart_active actually flipped
             # (_publish_mode's own check), so this is the "on change, not
             # on a timer" model reusing an existing clock rather than a
@@ -1555,6 +1736,7 @@ class Core:
 
     def _state_msg(self) -> Dict[str, Any]:
         with self.state_lock:
+            self._apply_cursor(time.monotonic())
             self._apply_scale_to_cart()
             msg = {
                 "t": "state",
@@ -1570,7 +1752,7 @@ class Core:
                 "fluid": {"style": "mala", "enabled": False, "intensity": 0.6},
                 "bins": [self._bin_msg(i) for i in range(binmap.NUM_BINS)],
                 "total": self._total_msg(),
-                "widgets": [],      # no widget exists before BROTH/SPICE/etc. (M6)
+                "widgets": self._widget_msgs(),
                 "overlay": self._overlay_msg(),
             }
             self._state_seq += 1
@@ -1647,10 +1829,22 @@ class Core:
             "grams": round(self.cart.live_g[i]),
             "picked": picked,
             "price": price,
-            # hover/dwell (hl in {hover,disabled}) is M5's tracker; low
-            # stock (lowstock) needs a threshold nothing sets yet (doc
-            # section 22, P3). M1 only ever says picked or none.
-            "hl": "picked" if picked > 0 else "none",
+            # Doc section 4.3's `hl`. **Hover outranks picked while the
+            # hand is actually there**, and that ordering is the point of
+            # the field: `picked` is a fact about the whole session and
+            # stays true for the rest of it, while `hover` is live feedback
+            # that the table has seen this hand right now. A bin the diner
+            # has already taken from would otherwise stop responding to
+            # them for the rest of the order.
+            #
+            # Hover never bills (doc section 9.4: "hover on a bin is
+            # feedback only. It never bills. Billing is weight, always").
+            # Nothing in this branch touches Cart.
+            #
+            # lowstock still needs a threshold nothing sets yet (doc
+            # section 22, P3).
+            "hl": ("hover" if self._hover_bin == i
+                   else "picked" if picked > 0 else "none"),
             "stock": "ok",
             "resolved": resolved,
         }
@@ -1685,6 +1879,10 @@ def main() -> None:
         mirror_handedness=bool(config.get(cfg, "tracker.mirror_handedness",
                                           False)),
         emit_hz=float(config.get(cfg, "tracker.emit_hz", TRACKER_EMIT_HZ)),
+        cursor_port=int(config.get(cfg, "cursor.core_port",
+                                   cursorbus.CORE_PORT)),
+        dwell_ms=float(config.get(cfg, "core.dwell_ms",
+                                  hover.DEFAULT_DWELL_MS)),
     )
     # After both ports are bound (doc section 10.2: "say it after the
     # port is bound"), not before — run.py's tier 3 is waiting on this

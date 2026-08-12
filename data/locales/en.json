@@ -2,5 +2,7 @@
   "_currency": {"symbol": "₹", "rate": 1.0, "decimals": 2},
   "total": "Total",
   "done": "Done",
+  "cancel": "Cancel",
+  "language": "Language",
   "per_100g": "/100g"
 }

@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from websockets.sync.client import connect  # noqa: E402
 
 from hotpot.common import atomicio  # noqa: E402
+from hotpot.common import cursorbus  # noqa: E402
 from hotpot.common import geometry  # noqa: E402
 from hotpot.common import health  # noqa: E402
 from hotpot.common import log as hlog  # noqa: E402
@@ -137,6 +138,12 @@ class CoreCase(unittest.TestCase):
             homography_path=self.h_path, camera_grid_path=self.g_path,
             projector_grid_path=self.pg_path,
             view_rotation_path=self.v_path,
+            # An ephemeral cursor port, never doc section 4.1's real 8771
+            # (M5). Same class of reason as `cal_path` and the grid paths:
+            # a test that bound the live port would fight a running rig on
+            # this machine, and — worse — would quietly receive a real
+            # tracker's hands and start hovering bins mid-test.
+            cursor_port=0,
             scale_open_port=_no_serial_port)
         self._wire_clients = []
         self._ws_clients = []
@@ -275,7 +282,10 @@ class TestStateBroadcast(CoreCase):
         self.assertEqual(msg["mode"], "serving")
         self.assertEqual(msg["locale"], "en")
         self.assertEqual(len(msg["bins"]), 8)
-        self.assertEqual(msg["widgets"], [])
+        # Not empty any more (M5 build item 4). Doc section 17.1 makes the
+        # language button a standing offer rather than something that only
+        # exists mid-order, so it is the one widget present in IDLE.
+        self.assertEqual([w["id"] for w in msg["widgets"]], ["language"])
         self.assertEqual(msg["overlay"], {"kind": "none"})
         self.assertIn("style", msg["fluid"])
         self.assertIn("amount", msg["total"])
@@ -2342,6 +2352,280 @@ class TestStop(unittest.TestCase):
                                   scale_open_port=_no_serial_port)
             core.stop()
             core.stop()   # must not raise
+
+
+class TestHoverAndDwellOverTheWire(CoreCase):
+    """Doc section 9.4 through a real Core: real UDP datagrams in, real
+    `state` messages out over a real socket.
+
+    Not `DwellTracker` driven directly — `test_hover.py` does that. What
+    this covers is the wiring: that a datagram reaches the hit test, that
+    the hover reaches `state.bins[].hl`, and that ambient hands are gone by
+    the time either happens.
+    """
+
+    def cursor_sender(self):
+        tx = cursorbus.Sender(targets=[("127.0.0.1", self.core.cursor.port)])
+        self.addCleanup(tx.close)
+        return tx
+
+    def bin_centre(self, i):
+        rect = self.core.camera_grid.rects()[i]
+        return rect[0] + rect[2] / 2, rect[1] + rect[3] / 2
+
+    def send_pointer(self, tx, x, y):
+        tx.send([cursorbus.Hand(id=1, role=cursorbus.ROLE_POINTER,
+                                x=x, y=y, conf=0.9)], ts=time.time())
+
+    def send_ambient(self, tx, x, y):
+        tx.send([cursorbus.Hand(id=2, role=cursorbus.ROLE_AMBIENT,
+                                x=x, y=y, conf=0.9)], ts=time.time())
+
+    def wait_for_state(self, msgs, lock, pred, timeout=DEADLINE):
+        """Wait for a `state` message satisfying `pred`, keeping the cursor
+        stream alive — a single datagram may land between two ticks, so a
+        test that sent once and waited could time out for a reason that has
+        nothing to do with the behaviour being checked.
+        """
+        end = time.time() + timeout
+        while time.time() < end:
+            with lock:
+                for m in reversed(msgs[-30:]):
+                    if pred(m):
+                        return m
+            time.sleep(0.02)
+        return None
+
+    def test_a_pointer_over_a_bin_lights_that_bin(self):
+        c, msgs, lock = self.of_client()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(3)
+        for _ in range(20):
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+        got = self.wait_for_state(
+            msgs, lock, lambda m: m["bins"][3]["hl"] == "hover")
+        self.assertIsNotNone(got, "bin 3 never went to hover")
+        # ...and only that bin.
+        self.assertEqual([b["i"] for b in got["bins"] if b["hl"] == "hover"],
+                         [3])
+
+    def test_an_ambient_hand_over_a_bin_lights_nothing(self):
+        # Doc section 21's M5 acceptance test: "Left hand over bin 3 →
+        # nothing happens to the UI. Try hard to make it select."
+        c, msgs, lock = self.of_client()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(3)
+        for _ in range(30):
+            self.send_ambient(tx, x, y)
+            time.sleep(0.02)
+        self.wait_for_n(msgs, lock, 10)
+        with lock:
+            recent = list(msgs[-10:])
+        for m in recent:
+            self.assertTrue(all(b["hl"] != "hover" for b in m["bins"]),
+                            "an ambient hand produced a hover")
+
+    def test_a_pointer_starts_a_session(self):
+        # Doc section 9.1's IDLE -> SELECTING, which has had no driver
+        # since M1 (`fsm.hand_present()` existed with nothing calling it).
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.IDLE)
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(0)
+        end = time.time() + DEADLINE
+        while (time.time() < end
+               and self.core.fsm.state is not coremain.fsm.State.SELECTING):
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.SELECTING)
+
+    def test_an_ambient_hand_alone_does_not_start_a_session(self):
+        # A bowl set down on the table must not open an order.
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(0)
+        for _ in range(25):
+            self.send_ambient(tx, x, y)
+            time.sleep(0.02)
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.IDLE)
+
+    def test_done_and_cancel_appear_once_a_session_starts(self):
+        c, msgs, lock = self.of_client()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(0)
+        end = time.time() + DEADLINE
+        got = None
+        while time.time() < end and got is None:
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+            got = self.wait_for_state(
+                msgs, lock,
+                lambda m: {w["id"] for w in m["widgets"]} ==
+                {"language", "cancel", "done"},
+                timeout=0.1)
+        self.assertIsNotNone(got, "Done/Cancel never appeared in SELECTING")
+        done = [w for w in got["widgets"] if w["id"] == "done"][0]
+        # Doc section 4.3's widget shape, and doc section 9.4's "core sends
+        # dwell as a 0..1 fraction".
+        self.assertEqual(done["kind"], "button")
+        self.assertEqual(len(done["rect"]), 4)
+        self.assertEqual(done["label"], "Done")     # resolved, not a key (I2)
+        self.assertGreaterEqual(done["dwell"], 0.0)
+        self.assertLessEqual(done["dwell"], 1.0)
+        self.assertIs(done["enabled"], True)
+
+    def test_a_dwell_on_done_fills_the_ring_and_fires(self):
+        # Doc section 21's M5 acceptance test, end to end. A short dwell so
+        # the test is not 1.2s of sleeping per run.
+        self.core.dwell.dwell_ms = 300.0
+        c, msgs, lock = self.of_client()
+        evts = []
+
+        def on_msg(m):
+            if m.get("t") == "evt":
+                evts.append(m)
+
+        # A second `of` link would supersede the first (wire.py closes the
+        # stale one), so the event listener rides the same connection the
+        # state messages arrive on.
+        c.stop()
+        self._wire_clients.remove(c)
+        msgs2, lock2 = [], threading.Lock()
+
+        def both(m):
+            if m.get("t") == "state":
+                with lock2:
+                    msgs2.append(m)
+            elif m.get("t") == "evt":
+                evts.append(m)
+
+        c2 = self.wire_client("of", on_message=both)
+        self.assertTrue(c2.wait_connected(DEADLINE))
+
+        tx = self.cursor_sender()
+        bx, by = self.bin_centre(0)
+        # Start the session, then move onto Done and hold.
+        end = time.time() + DEADLINE
+        while (time.time() < end
+               and self.core.fsm.state is not coremain.fsm.State.SELECTING):
+            self.send_pointer(tx, bx, by)
+            time.sleep(0.02)
+
+        rects = coremain.hover.layout()
+        dx = rects["done"][0] + rects["done"][2] / 2
+        dy = rects["done"][1] + rects["done"][3] / 2
+
+        seen_partial = False
+        end = time.time() + DEADLINE
+        while time.time() < end:
+            self.send_pointer(tx, dx, dy)
+            time.sleep(0.02)
+            with lock2:
+                recent = list(msgs2[-20:])
+            for m in recent:
+                for w in m["widgets"]:
+                    if w["id"] == "done" and 0.0 < w["dwell"] < 1.0:
+                        seen_partial = True
+            if any(e.get("id") == "dwell_fire" for e in evts):
+                break
+        self.assertTrue(seen_partial,
+                        "the ring never showed a partial fill on the wire")
+        self.assertTrue(any(e.get("id") == "dwell_fire" for e in evts),
+                        "the dwell never fired")
+
+    def test_a_dwell_on_cancel_clears_the_cart(self):
+        self.core.dwell.dwell_ms = 200.0
+        with self.core.state_lock:
+            self.core.cart.mock_pick(0, 120.0)
+        self.assertTrue(self.core.cart.is_active())
+
+        tx = self.cursor_sender()
+        bx, by = self.bin_centre(0)
+        end = time.time() + DEADLINE
+        while (time.time() < end
+               and self.core.fsm.state is not coremain.fsm.State.SELECTING):
+            self.send_pointer(tx, bx, by)
+            time.sleep(0.02)
+
+        rects = coremain.hover.layout()
+        cx = rects["cancel"][0] + rects["cancel"][2] / 2
+        cy = rects["cancel"][1] + rects["cancel"][3] / 2
+        end = time.time() + DEADLINE
+        while time.time() < end and self.core.cart.is_active():
+            self.send_pointer(tx, cx, cy)
+            time.sleep(0.02)
+        self.assertFalse(self.core.cart.is_active(),
+                         "dwelling Cancel did not clear the order")
+
+    def test_the_language_button_is_disabled_with_one_locale(self):
+        # `data/locales/zh.json` does not exist. The button still ships —
+        # doc section 4.3's `enabled` is what says it is not available —
+        # so the mechanism is visible and lights up when the file lands.
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            widgets = msgs[0]["widgets"]
+        lang = [w for w in widgets if w["id"] == "language"][0]
+        self.assertIs(lang["enabled"], False)
+
+    def test_hover_outranks_picked_on_a_bin_already_taken_from(self):
+        # A bin the diner has already taken from must still respond to
+        # their hand. `picked` is a fact about the whole session and stays
+        # true for the rest of it; `hover` is live feedback that the table
+        # has seen this hand right now. Ordering them the other way round
+        # makes every bin go dead after its first pick — and it passes
+        # every other test in this class, because they all hover an
+        # untouched bin.
+        with self.core.state_lock:
+            self.core.cart.mock_pick(5, 120.0)
+        c, msgs, lock = self.of_client()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(5)
+        for _ in range(30):
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+        got = self.wait_for_state(
+            msgs, lock, lambda m: m["bins"][5]["hl"] == "hover")
+        self.assertIsNotNone(
+            got, "a bin that had been picked from never showed hover")
+        self.assertGreater(got["bins"][5]["picked"], 0,
+                           "the fixture did not actually register a pick")
+
+    def test_hover_never_bills(self):
+        # Doc section 9.4: "hover on a bin is feedback only. It never
+        # bills. Billing is weight, always" (I4).
+        c, msgs, lock = self.of_client()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(2)
+        for _ in range(30):
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+        got = self.wait_for_state(
+            msgs, lock, lambda m: m["bins"][2]["hl"] == "hover")
+        self.assertIsNotNone(got)
+        self.assertEqual(got["bins"][2]["picked"], 0)
+        self.assertEqual(got["total"]["amount"], 0.0)
+
+    def test_the_staff_view_is_told_where_the_hands_are(self):
+        # Doc section 12.3's hand markers.
+        ws = self.ws()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(1)
+        # BOTH hands in ONE datagram. A datagram is a complete snapshot of
+        # the table (doc section 4.6), so sending two single-hand frames
+        # would be two statements — "one pointer", then "one ambient" —
+        # and drain-to-latest would correctly keep only the second.
+        for _ in range(30):
+            tx.send([cursorbus.Hand(id=1, role=cursorbus.ROLE_POINTER,
+                                    x=x, y=y, conf=0.9),
+                     cursorbus.Hand(id=2, role=cursorbus.ROLE_AMBIENT,
+                                    x=50.0, y=50.0, conf=0.8)],
+                    ts=time.time())
+            time.sleep(0.02)
+        msg = self.recv_until(ws, lambda m: (m.get("t") == "hands"
+                                             and m.get("hands")))
+        self.assertIsNotNone(msg, "no `hands` message reached the tablet")
+        roles = {h["role"] for h in msg["hands"]}
+        self.assertIn("pointer", roles)
 
 
 class TestTrackerWelcomeConfig(CoreCase):

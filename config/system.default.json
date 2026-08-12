@@ -5,7 +5,8 @@
     "locale": "en",
     "conf_floor": 0.65,
     "deadband_g": 10.0,
-    "settle_ms": 300
+    "settle_ms": 300,
+    "dwell_ms": 1200
   },
   "camera": {
     "device": "/dev/video0",

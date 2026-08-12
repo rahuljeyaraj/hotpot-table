@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from hotpot.common import atomicio
 
@@ -62,6 +62,18 @@ class Locales:
 
     def has(self, locale: str) -> bool:
         return locale in self._tables
+
+    def available(self) -> List[str]:
+        """Every locale actually loaded, sorted.
+
+        Added at M5 for doc section 17.1's projected language button: it is
+        offered only when there is somewhere to switch TO, and the honest
+        answer to "how many locales are there" is "how many files loaded",
+        not "how many the doc names". `zh.json` does not exist yet, so this
+        returns one entry and the button renders disabled — and lights up
+        by itself the day that file lands, with no code change.
+        """
+        return sorted(self._tables)
 
     def translate(self, key: str, locale: Optional[str] = None) -> str:
         """Doc section 17.1. Falls back to the default locale, then to the

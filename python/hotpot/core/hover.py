@@ -1,0 +1,337 @@
+"""core/hover.py — doc section 9.4's hover and dwell, and the widget layout
+they hit-test against (doc section 21, M5 build item 4).
+
+Doc section 9.4 in full:
+
+    Core receives stage-space cursors from the tracker and hit-tests them
+    against stage-space bin rects and widget rects.
+    - Only `role == "pointer"` hands are hit-tested. Ambient hands are
+      ignored entirely for selection.
+    - Dwell: a widget accumulates dwell time while the pointer is
+      continuously inside it. Leaving resets to 0 after a 150ms grace.
+    - Default dwell to fire: 1200ms. Configurable.
+    - Core sends `dwell` as a 0..1 fraction so oF can draw a filling ring.
+      oF does not time anything.
+    - Hover on a *bin* is feedback only. It never bills.
+
+Pure: no sockets, no clock of its own, no `Core`. `now` is passed in, the
+same discipline `tracker/tracking.py` follows and for the same reason —
+"a dwell fires at 1200ms and not at 900ms" should be a test, not a
+stopwatch on a rig.
+
+**Ambient hands are dropped at the door, in `pick_pointer`, not filtered
+at each hit test.** Doc section 11.4 wants the isolation "at the
+consumer", and one function that no ambient hand gets past is a much
+stronger guarantee than remembering to check the role at every call site.
+There are three call sites today and there will be more at M6.
+
+Where the widgets are, and why there
+-------------------------------------
+Doc section 4.3's example rect is `[1480,880,380,140]` — the near-right
+margin. **That is not where they go, and the reason is measured rather
+than aesthetic.** The near margin is where `UiLayer::drawBin` draws every
+near-row bin's name and price, downward from the ring: a two-line name
+puts ink from about y=890 to y=1010, straight through that example rect.
+The doc's number predates any label ever having been measured in a bin —
+the same class of thing as section 13.4's 36px, which M2.6g had to correct
+after looking at the real table.
+
+So widgets live in the **centre column**: the 440mm pot gap between bin 1's
+right edge and bin 2's left edge, which is the one horizontal span on the
+table with no bin and no label in it *by construction*. That is already
+this codebase's own established answer — `UiLayer::drawBanner` moved there
+for exactly this reason, and the brand mark and the running total are
+there too. The column's top holds the brand and the banner and its bottom
+holds the total; the widgets take the free band between them, with the
+primary action nearest the diner.
+
+Rects are derived from `TableGeometry.h`'s chain (mirrored in
+`geometry_store`) rather than hardcoded, so moving a bin moves the buttons
+with it — the same rule `drawBanner` follows.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Sequence, Tuple
+
+from hotpot.common import cursorbus
+from hotpot.core import geometry_store as gs
+
+Rect = Tuple[float, float, float, float]
+
+# Doc section 9.4's two numbers. `DWELL_MS` is "long enough not to misfire
+# and short enough not to feel broken"; `GRACE_MS` is what stops one
+# jittery frame from throwing away a nearly-complete dwell.
+DEFAULT_DWELL_MS = 1200.0
+DEFAULT_GRACE_MS = 150.0
+
+# Doc section 4.3's `widgets[].id` values that exist at M5 (build item 4:
+# "Widgets: Done, Cancel, Language").
+DONE = "done"
+CANCEL = "cancel"
+LANGUAGE = "language"
+
+
+@dataclass
+class Widget:
+    """One dwellable target, in stage space.
+
+    `label` is **already resolved** — doc section 4.3: "label and text are
+    already resolved strings in the current locale. oF does no lookup."
+    This dataclass carries the i18n *key* instead (`label_key`), and core
+    resolves it on the way out, because the layout has to be describable
+    without a locale table in scope.
+    """
+
+    id: str
+    rect: Rect
+    label_key: str
+    kind: str = "button"
+    style: str = "primary"
+    enabled: bool = True
+
+    def contains(self, x: float, y: float) -> bool:
+        rx, ry, rw, rh = self.rect
+        return rx <= x <= rx + rw and ry <= y <= ry + rh
+
+
+# ---------------------------------------------------------------------------
+# Layout
+# ---------------------------------------------------------------------------
+
+def centre_column_px() -> Tuple[float, float]:
+    """`(x, width)` of the pot gap in stage pixels — bin 1's right edge to
+    bin 2's left edge, derived rather than hardcoded (see the module
+    docstring).
+    """
+    left_mm = gs.BIN_ORIGINS_MM[1][0] + gs.BIN_W_MM
+    right_mm = gs.BIN_ORIGINS_MM[2][0]
+    x0 = gs.mm_to_stage(left_mm, 0.0)[0]
+    x1 = gs.mm_to_stage(right_mm, 0.0)[0]
+    return x0, x1 - x0
+
+
+# The free band between the banner block (brand + banner, which end around
+# y=320 in UiLayer's own layout) and the running total (whose label starts
+# around y=930). Stated as stage px because both neighbours are: the brand
+# mark's height is developer-tuned in px and the total's baseline is a px
+# offset from the near edge, so converting to mm here would only add a
+# round trip that hides the adjacency this has to respect.
+BAND_TOP_PX = 350.0
+BAND_BOTTOM_PX = 900.0
+
+# Button sizes, largest for the primary action. Dwell targets have to be
+# comfortably bigger than the cursor's own wander — a hand is not a mouse,
+# and landmark 9 moves a few px per frame even on a still hand — so these
+# are far larger than a tablet's 44px rule. `DONE` at 440x150 px is about
+# 350x127 mm on the plywood.
+DONE_SIZE = (440.0, 150.0)
+SECONDARY_SIZE = (360.0, 110.0)
+TERTIARY_SIZE = (260.0, 90.0)
+
+
+def _centred(width: float, height: float, y: float) -> Rect:
+    x0, col_w = centre_column_px()
+    return (x0 + (col_w - width) * 0.5, y, width, height)
+
+
+def layout() -> Dict[str, Rect]:
+    """The three widget rects, stacked in the centre column.
+
+    Ordered by reach, not by importance: `DONE` sits nearest the diner
+    because it is the one a hand goes to most and the one doc section 21's
+    acceptance test dwells on. `LANGUAGE` sits furthest away because it is
+    pressed once a session at most.
+    """
+    return {
+        LANGUAGE: _centred(*TERTIARY_SIZE, y=BAND_TOP_PX),
+        CANCEL: _centred(*SECONDARY_SIZE, y=BAND_TOP_PX + 130.0),
+        DONE: _centred(*DONE_SIZE, y=BAND_BOTTOM_PX - DONE_SIZE[1]),
+    }
+
+
+def widgets_for(*, selecting: bool, locales_available: int) -> List[Widget]:
+    """Which widgets exist right now.
+
+    Empty in every state but SELECTING except for `LANGUAGE`, which doc
+    section 17.1 makes a standing offer ("locale switches via: a projected
+    button (dwell)") rather than something only available mid-order.
+
+    **`LANGUAGE` is `enabled: False` while only one locale is loaded, and
+    that is the honest shape rather than hiding it.** `data/locales/zh.json`
+    does not exist yet (CLAUDE.md: the Chinese strings "must not be
+    invented"), so there is nothing to switch to — but the mechanism is
+    built and the button lights up on its own the day that file lands, with
+    no code change. Doc section 4.3 already carries `enabled` for exactly
+    this.
+    """
+    rects = layout()
+    out = [Widget(id=LANGUAGE, rect=rects[LANGUAGE], label_key="language",
+                  style="tertiary", enabled=locales_available > 1)]
+    if selecting:
+        out.append(Widget(id=CANCEL, rect=rects[CANCEL], label_key="cancel",
+                          style="secondary"))
+        out.append(Widget(id=DONE, rect=rects[DONE], label_key="done",
+                          style="primary"))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Hit testing
+# ---------------------------------------------------------------------------
+
+def pick_pointer(frame: Optional[cursorbus.CursorFrame]
+                 ) -> Optional[cursorbus.Hand]:
+    """The one hand allowed to select, or None.
+
+    Doc section 11.4: core "discards [ambient hands] entirely before
+    hit-testing". This is that discard, and it is the ONLY route a hand
+    takes into any hit test below — see the module docstring on why it is
+    one door rather than a check repeated at each call site.
+    """
+    if frame is None:
+        return None
+    return frame.pointer()
+
+
+def bin_under(rects: Sequence[Optional[Rect]], hand: Optional[cursorbus.Hand]
+              ) -> Optional[int]:
+    """Index of the bin the pointer is over, or None.
+
+    `rects` are the **camera** grid's, not the projector grid's — see
+    `core/bin_grid.py`: "This is the grid MediaPipe, the classifier's crop,
+    and core's hand-entered-bin hit test all read." A consequence worth
+    recognising rather than debugging: the ring that lights up is drawn on
+    the *projector* grid, so if a human has set the two grids differently
+    the highlight appears slightly off the hand. That is inherent in two
+    independently-authored grids and is the price of neither being derived
+    from the other.
+
+    An unset bin (`None`) is skipped rather than treated as the whole
+    table; first match wins, and the grid's own construction means two bins
+    cannot overlap.
+    """
+    if hand is None:
+        return None
+    for i, rect in enumerate(rects):
+        if rect is None:
+            continue
+        rx, ry, rw, rh = rect
+        if rx <= hand.x <= rx + rw and ry <= hand.y <= ry + rh:
+            return i
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Dwell
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DwellTracker:
+    """One accumulating dwell at a time, because a pointer is one point.
+
+    Deliberately not a per-widget dictionary of timers: with one cursor
+    only one widget can ever be accumulating, and a dictionary of them
+    invites a version where two rings fill at once because a stale entry
+    was never cleared.
+    """
+
+    dwell_ms: float = DEFAULT_DWELL_MS
+    grace_ms: float = DEFAULT_GRACE_MS
+
+    active_id: Optional[str] = None
+    accumulated_ms: float = 0.0
+    # When the pointer left `active_id`. None while it is inside. This is
+    # what the grace is measured from, and it is stamped ONCE on leaving
+    # rather than refreshed per frame — refreshing it would make the grace
+    # never expire and a dwell never reset.
+    _left_at: Optional[float] = None
+    _last_now: Optional[float] = None
+    # The widget that just fired, held until the pointer LEAVES it.
+    #
+    # Resetting the accumulator on fire is not enough on its own, and a
+    # test caught that: the hand is still inside the widget on the very
+    # next tick, so the accumulator starts filling again and the widget
+    # fires a second time 1200ms later, and again, for as long as a hand
+    # rests there. Done leads to a state change, so a diner who simply did
+    # not move their hand would be walked through the whole checkout flow.
+    # Re-arming requires an actual exit.
+    _fired_id: Optional[str] = None
+
+    def update(self, widgets: Sequence[Widget],
+               hand: Optional[cursorbus.Hand], now: float) -> Optional[str]:
+        """Advance the clock. Returns the widget id that FIRED this tick,
+        or None.
+
+        Fires at most once per crossing: the accumulator resets on fire, so
+        a hand left resting on Done does not re-fire every 1200ms. That is
+        not a nicety — Done leads to a state change, and a diner whose hand
+        has not moved would otherwise walk the whole checkout flow.
+        """
+        dt = 0.0 if self._last_now is None else max(0.0, now - self._last_now)
+        self._last_now = now
+
+        inside = None
+        if hand is not None:
+            for widget in widgets:
+                # A disabled widget is not a dwell target. It still draws
+                # (doc section 4.3's `enabled`), so the diner can see it
+                # exists and is not available, but a ring that filled and
+                # then did nothing would be worse than no ring at all.
+                if widget.enabled and widget.contains(hand.x, hand.y):
+                    inside = widget.id
+                    break
+
+        # The re-arm latch. Cleared the instant the pointer is anywhere
+        # else — including nowhere at all — so leaving and coming back
+        # works normally.
+        if self._fired_id is not None:
+            if inside == self._fired_id:
+                self._left_at = None
+                return None
+            self._fired_id = None
+
+        if inside is not None and inside == self.active_id:
+            self._left_at = None
+            self.accumulated_ms += dt * 1000.0
+        elif inside is not None:
+            # A different widget (or the first one). Start fresh — dwell
+            # accumulated over Cancel must never count toward Done.
+            self.active_id = inside
+            self.accumulated_ms = dt * 1000.0
+            self._left_at = None
+        else:
+            # Outside everything, or no pointer at all. Doc section 9.4:
+            # "leaving resets to 0 after a 150ms grace (so a jittery frame
+            # does not reset a nearly-complete dwell)". So the accumulator
+            # is HELD, not cleared, until the grace expires.
+            if self.active_id is not None:
+                if self._left_at is None:
+                    self._left_at = now
+                elif (now - self._left_at) * 1000.0 >= self.grace_ms:
+                    self.reset()
+
+        if self.active_id is not None and self.accumulated_ms >= self.dwell_ms:
+            fired = self.active_id
+            self.reset()
+            self._fired_id = fired
+            return fired
+        return None
+
+    def fraction(self, widget_id: str) -> float:
+        """Doc section 9.4's "0..1 fraction in `state.widgets[].dwell` so oF
+        can draw a filling ring. oF does not time anything."
+        """
+        if widget_id != self.active_id or self.dwell_ms <= 0:
+            return 0.0
+        return max(0.0, min(1.0, self.accumulated_ms / self.dwell_ms))
+
+    def reset(self) -> None:
+        """Clears the accumulator, NOT the re-arm latch — `update` sets
+        `_fired_id` immediately after calling this on a fire, and the latch
+        is cleared only by the pointer actually leaving.
+        """
+        self.active_id = None
+        self.accumulated_ms = 0.0
+        self._left_at = None
