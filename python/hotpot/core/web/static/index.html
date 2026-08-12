@@ -320,6 +320,13 @@
     color: #062b12; font-weight: 600;
   }
   .setup-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Without this, "hide" toggled onto Rotate/Confirm by JS (cornersReset,
+     cornersBtn's click handler) had no CSS rule to act on and both
+     buttons stayed visible at all times, defeating the "only while
+     editing corners" gating entirely — .live-feed-placeholder.hide and
+     .setup-warn.hide already had their own copy of this same rule; the
+     setup-btn one was simply missing. */
+  .setup-btn.hide { display: none; }
   .setup-status { font-size: 14px; margin-top: 12px; line-height: 1.5; }
   .setup-status.good { color: var(--green); }
   .setup-status.bad { color: var(--red); }
@@ -606,11 +613,6 @@
                ends up), the same rule the old click-order tool used and
                for the same reason: it is what makes this immune to the
                camera's mount angle. -->
-          <p>Tap "Set table corners", then drag each handle onto the
-             table's real corner: nearest you on the left, nearest you on
-             the right, far side on the right, far side on the left.
-             Rotate flips the view if it looks upside down. Confirm once
-             the outline traces the table edge.</p>
           <!-- The shared live-feed view (doc §5.4's scaling rule, one
                implementation for the whole tab): used here first, and
                left in place for "Bin rectangles" below — whose own drag
@@ -1405,6 +1407,16 @@
   // the other three.
   var CORNER_ROLE_NAMES = ["nearest you, on the left", "nearest you, on the right",
                            "far side, on the right", "far side, on the left"];
+  // Short on-canvas labels for the same 4 roles, in the same order. Drawn
+  // next to each handle by drawCornerQuad — without this there was
+  // nothing distinguishing the 4 dots from one another, so which one an
+  // operator happened to drag to a given physical corner was a guess, not
+  // a choice. Since the roles are fixed by INDEX (never inferred from
+  // where the drag ends up — see cornersPoints' own note above), a guess
+  // that swaps two roles produces a homography that quietly rotates or
+  // mirrors the whole rectified preview, which is exactly the bug this
+  // label exists to prevent.
+  var CORNER_ROLE_SHORT = ["near-left", "near-right", "far-right", "far-left"];
   var cornersEditing = false;   // true from "Set table corners" to Confirm
   var cornersPoints = [];       // 4 camera-space [x, y] points while editing
   var cornersDragIndex = null;  // index into cornersPoints currently held, or null
@@ -1516,6 +1528,20 @@
   // about it) — cross-checked point-for-point in the standalone script.
   function drawRotatedVideo(ctx, img, roi, rotationDeg, dispW, dispH) {
     var r = ((rotationDeg % 360) + 360) % 360;
+    // The box drawn BEFORE the rotate/translate below, sized so that
+    // AFTER it the content exactly fills dispW x dispH: 90/270 swap it
+    // relative to dispW/dispH (mirroring rotatedDims' own swap), 0/180
+    // don't. Every caller until the magnifier passed dispW/dispH ==
+    // rotatedDims(roi[2], roi[3], rotationDeg) — i.e. exactly the source
+    // roi's own size, 1:1 — so this reduces to roi[2] x roi[3] for all of
+    // them, byte-for-byte the old hardcoded behaviour. The magnifier is
+    // the first caller whose dispW/dispH is a ZOOM (4x the roi size, not
+    // its own rotatedDims), and drawImage's destination size has to
+    // track dispW/dispH for that to stretch to fill rather than paint at
+    // 1x into a corner of the destination canvas, leaving the rest of it
+    // as the canvas's own fill colour.
+    var localW = (r === 90 || r === 270) ? dispH : dispW;
+    var localH = (r === 90 || r === 270) ? dispW : dispH;
     ctx.save();
     if (r === 90) {
       ctx.translate(dispW, 0);
@@ -1527,7 +1553,7 @@
       ctx.translate(0, dispH);
       ctx.rotate(-Math.PI / 2);
     }
-    ctx.drawImage(img, roi[0], roi[1], roi[2], roi[3], 0, 0, roi[2], roi[3]);
+    ctx.drawImage(img, roi[0], roi[1], roi[2], roi[3], 0, 0, localW, localH);
     ctx.restore();
   }
 
@@ -1879,6 +1905,30 @@
       setupCtx.arc(p[0], p[1], r, 0, Math.PI * 2);
       setupCtx.fill();
     });
+    // Each handle's role, so which of the 4 identical-looking dots is
+    // "near-left" vs "far-right" etc. is read off the screen instead of
+    // guessed — see CORNER_ROLE_SHORT's own note for why a guess is a
+    // real, silent failure mode here. Offset away from the quad's own
+    // centroid (not a fixed direction) so the text lands outside the
+    // traced outline at every corner regardless of the quad's shape.
+    var cx = (d[0][0] + d[1][0] + d[2][0] + d[3][0]) / 4;
+    var cy = (d[0][1] + d[1][1] + d[2][1] + d[3][1]) / 4;
+    setupCtx.font = "bold " + Math.max(13, setupOverlay.width / 70) + "px sans-serif";
+    setupCtx.textBaseline = "middle";
+    d.forEach(function (p, i) {
+      var dx = p[0] - cx, dy = p[1] - cy;
+      var len = Math.sqrt(dx * dx + dy * dy) || 1;
+      var lx = p[0] + (dx / len) * (CORNER_HANDLE_CAM_PX + 18);
+      var ly = p[1] + (dy / len) * (CORNER_HANDLE_CAM_PX + 18);
+      setupCtx.textAlign = dx >= 0 ? "left" : "right";
+      setupCtx.fillStyle = "#000";
+      setupCtx.lineWidth = 3;
+      setupCtx.strokeStyle = "#000";
+      setupCtx.strokeText(CORNER_ROLE_SHORT[i], lx, ly);
+      setupCtx.fillStyle = "#ffb020";
+      setupCtx.fillText(CORNER_ROLE_SHORT[i], lx, ly);
+    });
+    setupCtx.textBaseline = "top";   // restore drawSetupOverlay's own setting
   }
 
   // Whether the shared canvas is currently the resting rectified preview
