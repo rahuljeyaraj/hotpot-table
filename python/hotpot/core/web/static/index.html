@@ -619,6 +619,25 @@
         </div>
 
         <div class="setup-card">
+          <h2>Or: set the table corners by hand</h2>
+          <!-- The manual replacement for the dot pattern above: no dark
+               room, nothing detected. Tap the button, then click the 4
+               real table corners on the live feed below, in this fixed
+               order — never by where they land on screen, which is what
+               makes this immune to the camera's 180-degree mount. -->
+          <p>No dark room needed. Tap "Set table corners", then click the
+             table's 4 real corners on the live feed below, in this order:
+             nearest you on the left, nearest you on the right, far side
+             on the right, far side on the left.</p>
+          <div class="setup-actions">
+            <button id="cornersBtn" class="setup-btn primary">Set table corners</button>
+            <button id="cornersRedoBtn" class="setup-btn hide">Redo</button>
+            <button id="cornersConfirmBtn" class="setup-btn primary hide">Confirm</button>
+          </div>
+          <div class="setup-status" id="cornersStatus"></div>
+        </div>
+
+        <div class="setup-card">
           <h2>Bin rectangles</h2>
           <p>Drag each rectangle onto its tray. Drag inside to move it, drag
              a corner to resize. Nothing is saved until you tap Save.</p>
@@ -1374,6 +1393,19 @@
   var geoVerified = document.getElementById("geoVerified");
   var keystoneWarn = document.getElementById("keystoneWarn");
 
+  var cornersBtn = document.getElementById("cornersBtn");
+  var cornersRedoBtn = document.getElementById("cornersRedoBtn");
+  var cornersConfirmBtn = document.getElementById("cornersConfirmBtn");
+  var cornersStatus = document.getElementById("cornersStatus");
+  // Fixed and physical, never inferred from screen position — see
+  // core/geometry_store.py's fit_from_corners() docstring for why a
+  // screen-position ordering is the exact bug this design avoids on a
+  // 180-degree-mounted camera.
+  var CORNER_NAMES = ["nearest you, on the left", "nearest you, on the right",
+                      "far side, on the right", "far side, on the left"];
+  var cornersPicking = false;   // true from "Set table corners" to Confirm/Redo
+  var cornersPoints = [];       // camera-space [x, y] pairs, up to 4
+
   var rectsSaveBtn = document.getElementById("rectsSaveBtn");
   var rectsUndoBtn = document.getElementById("rectsUndoBtn");
   var rectsSeedBtn = document.getElementById("rectsSeedBtn");
@@ -1494,6 +1526,22 @@
 
   function onPointerDown(ev) {
     if (mode !== "setting") return;
+    if (cornersPicking) {
+      if (cornersPoints.length >= 4) return;   // waiting on Confirm/Redo
+      var cp = toCam(ev);
+      cornersPoints.push([cp.x, cp.y]);
+      if (cornersPoints.length < 4) {
+        setStatus(cornersStatus,
+          "Click the corner " + CORNER_NAMES[cornersPoints.length] + ".", "busy");
+      } else {
+        setStatus(cornersStatus, "Does the outline trace the table edge? "
+          + "Confirm, or Redo to click again.", "busy");
+        cornersConfirmBtn.classList.remove("hide");
+      }
+      drawSetupOverlay();
+      ev.preventDefault();
+      return;
+    }
     var pt = toCam(ev);
     var hit = hitTest(pt);
     if (!hit) return;
@@ -1588,6 +1636,28 @@
                         handleCentre[1] - HANDLE_CAM_PX / 2,
                         HANDLE_CAM_PX, HANDLE_CAM_PX);
     }
+    // The manual corner-picking tool's own markers — numbered dots for
+    // each click so far, and once all 4 are down, the quad they trace, so
+    // the operator can see whether it actually follows the table edge
+    // before confirming.
+    if (cornersPicking && cornersPoints.length) {
+      var cdisp = cornersPoints.map(function (p) { return toDisplay(p[0], p[1]); });
+      setupCtx.strokeStyle = "#ffb020";
+      setupCtx.fillStyle = "#ffb020";
+      if (cdisp.length === 4) {
+        setupCtx.beginPath();
+        setupCtx.moveTo(cdisp[0][0], cdisp[0][1]);
+        for (var qi = 1; qi < 4; qi++) setupCtx.lineTo(cdisp[qi][0], cdisp[qi][1]);
+        setupCtx.closePath();
+        setupCtx.stroke();
+      }
+      cdisp.forEach(function (d, i) {
+        setupCtx.beginPath();
+        setupCtx.arc(d[0], d[1], HANDLE_CAM_PX / 4, 0, Math.PI * 2);
+        setupCtx.fill();
+        setupCtx.fillText(String(i + 1), d[0] + 10, d[1] + 10);
+      });
+    }
   }
 
   // The video half of `drawSetupOverlay` needs to keep running while the
@@ -1649,12 +1719,16 @@
   // buttons rather than refused after the operator has done the work.
   function applySetupGating() {
     var on = mode === "setting";
-    [dotcalBtn, rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn]
+    [dotcalBtn, rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn, cornersBtn]
       .forEach(function (b) {
         b.disabled = !on;
         b.title = on ? "" : NEEDS_SETTING_SETUP;
       });
     rectsUndoBtn.disabled = !on || rectsUndo.length === 0;
+    // Leaving setting mode mid-pick (the mode switch is one tap, reachable
+    // from anyone at the table) must not leave Confirm/Redo sitting there
+    // able to send a homography for a mode that is no longer active.
+    if (!on && cornersPicking) cornersReset();
   }
 
   function sendSetup(obj) {
@@ -1667,6 +1741,44 @@
     dotcalBtn.disabled = true;
     setStatus(dotcalStatus, "Starting…", "busy");
     sendSetup({ t: "calibrate_dots" });
+  });
+
+  function cornersReset() {
+    cornersPicking = false;
+    cornersPoints = [];
+    cornersConfirmBtn.classList.add("hide");
+    cornersRedoBtn.classList.add("hide");
+    // Undo the disabled state Confirm sets while a save is in flight —
+    // otherwise a re-shown Redo/Confirm from the *next* pick would still
+    // be stuck unclickable from the last one.
+    cornersConfirmBtn.disabled = false;
+    cornersRedoBtn.disabled = false;
+    drawSetupOverlay();
+  }
+
+  cornersBtn.addEventListener("click", function () {
+    if (cornersBtn.disabled) return;
+    cornersPicking = true;
+    cornersPoints = [];
+    cornersConfirmBtn.classList.add("hide");
+    cornersRedoBtn.classList.remove("hide");
+    setStatus(cornersStatus, "Click the corner " + CORNER_NAMES[0] + ".", "busy");
+    drawSetupOverlay();
+  });
+
+  cornersRedoBtn.addEventListener("click", function () {
+    setStatus(cornersStatus, "");
+    cornersReset();
+  });
+
+  cornersConfirmBtn.addEventListener("click", function () {
+    if (cornersConfirmBtn.disabled || cornersPoints.length !== 4) return;
+    cornersConfirmBtn.disabled = true;
+    cornersRedoBtn.disabled = true;
+    setStatus(cornersStatus, "Saving…", "busy");
+    sendSetup({ t: "manual_calibrate", points: cornersPoints.map(function (p) {
+      return [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10];
+    }) });
   });
 
   rectsSaveBtn.addEventListener("click", function () {
@@ -1711,6 +1823,19 @@
     dotcalBtn.disabled = mode !== "setting";
     setStatus(dotcalStatus, msg.message,
               msg.ok && msg.good ? "good" : "bad");
+  }
+
+  function applyManualCalibrateResult(msg) {
+    if (msg.ok) {
+      cornersReset();
+      setStatus(cornersStatus, msg.message, "good");
+      return;
+    }
+    // Left up rather than reset — e.g. a setting-mode refusal is fixed by
+    // flipping the switch, not by re-clicking all 4 corners again.
+    cornersConfirmBtn.disabled = false;
+    cornersRedoBtn.disabled = false;
+    setStatus(cornersStatus, msg.message, "bad");
   }
 
   function applyRectsResult(msg) {
@@ -2038,6 +2163,7 @@
       else if (msg.t === "geometry") applyGeometry(msg);
       else if (msg.t === "dotcal_progress") applyDotcalProgress(msg);
       else if (msg.t === "dotcal_result") applyDotcalResult(msg);
+      else if (msg.t === "manual_calibrate_result") applyManualCalibrateResult(msg);
       else if (msg.t === "rects_result") applyRectsResult(msg);
       else if (msg.t === "capture_info") applyCaptureInfo(msg);
       else if (msg.t === "capture_result") applyCaptureResult(msg);
