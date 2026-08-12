@@ -218,6 +218,7 @@ class Core:
         camera_port: int = CAMERA_PORT,
         homography_path: Path = geometry_store.HOMOGRAPHY_PATH,
         rects_path: Path = geometry_store.BIN_RECTS_PATH,
+        view_rotation_path: Path = geometry_store.VIEW_ROTATION_PATH,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -302,7 +303,8 @@ class Core:
         # two files decide where every bin rect is, and a test run must
         # never read or write the rig's own.
         self.geometry = geometry_store.GeometryStore(
-            homography_path=homography_path, rects_path=rects_path)
+            homography_path=homography_path, rects_path=rects_path,
+            view_rotation_path=view_rotation_path)
 
         # Doc section 8.5's staleness check needs oF's live fingerprint,
         # which arrives on the `stat` message (doc section 4.5). None
@@ -600,6 +602,9 @@ class Core:
             return
         if t == "manual_calibrate":
             self._handle_manual_calibrate(msg)
+            return
+        if t == "set_view_rotation":
+            self._handle_set_view_rotation(msg)
             return
         if t == "set_rects":
             self._handle_set_rects(msg)
@@ -937,7 +942,8 @@ class Core:
             self.geometry.set_homography(
                 fit.h, rms_px=fit.rms_px, n_points=fit.n_points,
                 keystone_fingerprint=self._keystone_fingerprint,
-                camera_size=self.geometry.camera_size)
+                camera_size=self.geometry.camera_size,
+                corner_points=parsed)
             # A new solve invalidates the last human Verify answer, same as
             # the dot flow (doc section 12.6) — the rects have just moved
             # under it.
@@ -963,6 +969,27 @@ class Core:
         self.web.broadcast({
             "t": "manual_calibrate_result", "ok": True,
             "message": "Table corners saved."})
+        self.web.broadcast(self._geometry_msg())
+
+    def _handle_set_view_rotation(self, msg: Dict[str, Any]) -> None:
+        """The Setup tab's Rotate button (drag-corner rebuild step 4 — no
+        UI sends this yet). A display preference, not calibration data, so
+        it saves immediately rather than waiting on a Confirm — but it is
+        still gated behind setting mode like every other Setup-tab action,
+        since it is still something only staff should be changing.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "set_view_rotation_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        try:
+            self.geometry.set_view_rotation(msg.get("deg"))
+        except ValueError as e:
+            self.web.broadcast({"t": "set_view_rotation_result", "ok": False,
+                                "message": str(e)})
+            return
+        self.web.broadcast({"t": "set_view_rotation_result", "ok": True,
+                            "message": "View rotation saved."})
         self.web.broadcast(self._geometry_msg())
 
     def _handle_set_rects(self, msg: Dict[str, Any]) -> None:
@@ -1228,8 +1255,10 @@ class Core:
     def _geometry_msg(self) -> Dict[str, Any]:
         """What the Setup tab needs to render: whether the table is
         calibrated, the last solve's numbers, the camera-space rects to
-        drag, and whether oF's keystone has moved under the solve (doc
-        section 8.5).
+        drag, whether oF's keystone has moved under the solve (doc
+        section 8.5), the last confirmed 4 corner points (drag-corner
+        rebuild step 4's seed for its handles — `null` if none yet), and
+        the display-only view rotation.
         """
         g = self.geometry
         return {
@@ -1245,6 +1274,9 @@ class Core:
             "keystone_stale": g.keystone_is_stale(self._keystone_fingerprint),
             "rects": [None if r is None else [round(v, 1) for v in r]
                       for r in g.cam_rects],
+            "corner_points": (None if g.corner_points is None
+                              else [list(p) for p in g.corner_points]),
+            "view_rotation_deg": g.view_rotation_deg,
         }
 
     # -- the Bins tab (doc section 12.4, M2 build item 4) --------------------

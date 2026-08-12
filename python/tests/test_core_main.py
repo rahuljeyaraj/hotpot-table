@@ -113,6 +113,7 @@ class CoreCase(unittest.TestCase):
         # and a test that saved one would silently move the rig's trays.
         self.h_path = os.path.join(self._cal_dir.name, "homography.json")
         self.r_path = os.path.join(self._cal_dir.name, "bin_rects.json")
+        self.v_path = os.path.join(self._cal_dir.name, "view_rotation.json")
         # **A CALIBRATED table by default (M4.6).** Doc section 9.1 boots
         # an empty `state/` to UNCALIBRATED, where nothing bills at all —
         # so every test in this file that is about pricing, the mode, or
@@ -128,6 +129,7 @@ class CoreCase(unittest.TestCase):
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
             homography_path=self.h_path, rects_path=self.r_path,
+            view_rotation_path=self.v_path,
             scale_open_port=_no_serial_port)
         self._wire_clients = []
         self._ws_clients = []
@@ -1651,6 +1653,23 @@ class TestManualCalibrationOverTheWire(CoreCase):
         self.collect(ws, "manual_calibrate_result")
         self.assertTrue(self.core.geometry.has_rects)
 
+    def test_a_confirmed_solve_persists_the_corner_points(self):
+        # Step 3: the 4 clicks that produced the homography ride along
+        # with it, so step 4's drag-corner UI can re-seed its handles
+        # instead of opening onto a blind default rect.
+        ws = self.ws()
+        self.enter_setting(ws)
+        clicks = self._clicks()
+        ws.send(json.dumps({"t": "manual_calibrate", "points": clicks}))
+        self.collect(ws, "manual_calibrate_result")
+        self.assertEqual(self.core.geometry.corner_points,
+                         [tuple(p) for p in clicks])
+        again = geometry_store.GeometryStore(
+            homography_path=self.core.geometry.homography_path,
+            rects_path=self.core.geometry.rects_path)
+        self.assertEqual(again.corner_points, [tuple(p) for p in clicks])
+        self.assertEqual(self.core._geometry_msg()["corner_points"], clicks)
+
     def test_the_seed_is_not_saved_until_the_operator_says_so(self):
         ws = self.ws()
         self.enter_setting(ws)
@@ -1681,6 +1700,10 @@ class TestManualCalibrationOverTheWire(CoreCase):
         geo_msg = next(m for m in seeds if m["t"] == "geometry")
         self.assertFalse(geo_msg["calibrated"])
         self.assertEqual(len(geo_msg["rects"]), 8)
+        # step 3: the corner-points seed and the display rotation, both
+        # present on the very first join, before any calibration exists.
+        self.assertIsNone(geo_msg["corner_points"])
+        self.assertEqual(geo_msg["view_rotation_deg"], 180)
 
     def test_ofs_keystone_fingerprint_reaches_the_staleness_check(self):
         # Doc §8.5: oF reports its fingerprint in `stat`; a different one
@@ -1709,6 +1732,62 @@ class TestManualCalibrationOverTheWire(CoreCase):
                and time.monotonic() < deadline):
             time.sleep(0.02)
         self.assertTrue(self.core._geometry_msg()["keystone_stale"])
+
+
+class TestSetViewRotationOverTheWire(CoreCase):
+    """Step 3's other new wire message: the Setup tab's future Rotate
+    control (drag-corner rebuild step 4 — no UI sends this yet). A
+    display preference, not calibration data, gated the same way as every
+    other Setup-tab action.
+    """
+
+    calibrated_fixture = False
+
+    def enter_setting(self, ws):
+        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        deadline = time.monotonic() + DEADLINE
+        while time.monotonic() < deadline:
+            msg = self.recv_json(ws)
+            if msg.get("t") == "mode" and msg.get("mode") == "setting":
+                return
+        self.fail("never entered setting mode")
+
+    def collect(self, ws, want, timeout=DEADLINE):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            msg = self.recv_json(ws, timeout=deadline - time.monotonic())
+            if msg.get("t") == want:
+                return msg
+        self.fail(f"no {want} message arrived")
+
+    def test_a_rotation_over_the_socket_is_saved_and_broadcast(self):
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "set_view_rotation", "deg": 90}))
+        result = self.collect(ws, "set_view_rotation_result")
+        self.assertTrue(result["ok"], result.get("message"))
+        self.assertEqual(self.core.geometry.view_rotation_deg, 90)
+        geo_msg = self.collect(ws, "geometry")
+        self.assertEqual(geo_msg["view_rotation_deg"], 90)
+
+    def test_it_survives_a_reload(self):
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "set_view_rotation", "deg": 270}))
+        self.collect(ws, "set_view_rotation_result")
+        again = geometry_store.GeometryStore(
+            homography_path=self.core.geometry.homography_path,
+            rects_path=self.core.geometry.rects_path,
+            view_rotation_path=self.core.geometry.view_rotation_path)
+        self.assertEqual(again.view_rotation_deg, 270)
+
+    def test_refused_outside_setting_mode(self):
+        ws = self.ws()
+        ws.send(json.dumps({"t": "set_view_rotation", "deg": 90}))
+        result = self.collect(ws, "set_view_rotation_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("setting mode", result["message"])
+        self.assertEqual(self.core.geometry.view_rotation_deg, 180)
 
 
 class TestSetupTabRects(CoreCase):

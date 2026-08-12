@@ -46,10 +46,12 @@ class StoreCase(unittest.TestCase):
         self.addCleanup(self.dir.cleanup)
         self.h_path = Path(self.dir.name) / "homography.json"
         self.r_path = Path(self.dir.name) / "bin_rects.json"
+        self.v_path = Path(self.dir.name) / "view_rotation.json"
 
     def store(self):
         return gs.GeometryStore(homography_path=self.h_path,
-                                rects_path=self.r_path)
+                                rects_path=self.r_path,
+                                view_rotation_path=self.v_path)
 
     def calibrated_store(self):
         s = self.store()
@@ -192,6 +194,104 @@ class TestPersistence(StoreCase):
         })
         s = self.store()
         self.assertFalse(s.has_homography)
+
+
+class TestCornerPoints(StoreCase):
+    """The drag-corner rebuild's step 3: `corner_points` rides alongside
+    the homography so step 4's UI can re-seed its drag handles from the
+    last confirmed calibration instead of a blind default rect.
+    """
+
+    CORNERS = [(10.0, 20.0), (1900.0, 15.0), (1905.0, 1060.0), (12.0, 1055.0)]
+
+    def test_a_fresh_store_has_no_corner_points(self):
+        self.assertIsNone(self.store().corner_points)
+
+    def test_set_homography_without_corner_points_leaves_it_unset(self):
+        # Every call in this file's own fixtures (calibrated_store()
+        # included) omits it — that must not crash or fabricate a value.
+        s = self.calibrated_store()
+        self.assertIsNone(s.corner_points)
+
+    def test_corner_points_are_recorded_verbatim(self):
+        s = self.store()
+        s.set_homography(CAM_TO_STAGE, corner_points=self.CORNERS)
+        self.assertEqual(s.corner_points, self.CORNERS)
+
+    def test_corner_points_persist_through_save_and_load(self):
+        s = self.store()
+        s.set_homography(CAM_TO_STAGE, corner_points=self.CORNERS)
+        s.save_homography()
+        again = self.store()
+        self.assertEqual(again.corner_points, self.CORNERS)
+
+    def test_a_second_solve_without_corner_points_clears_the_first(self):
+        # set_homography records what it is given, not what it remembers —
+        # a caller that solves some other way must not inherit a stale
+        # seed from the manual-corners flow.
+        s = self.store()
+        s.set_homography(CAM_TO_STAGE, corner_points=self.CORNERS)
+        s.set_homography(CAM_TO_STAGE)
+        self.assertIsNone(s.corner_points)
+
+    def test_a_corrupt_corners_field_is_dropped_not_fatal(self):
+        atomicio.write_json(self.h_path, {
+            "schema": 3, "H_cam_to_stage": CAM_TO_STAGE,
+            "corners": "not a list of points",
+        })
+        s = self.store()
+        self.assertTrue(s.has_homography)
+        self.assertIsNone(s.corner_points)
+
+
+class TestViewRotation(StoreCase):
+    """The Setup tab's future Rotate control (drag-corner rebuild step 4).
+    A display preference, not calibration data — its own file, its own
+    default, and it must survive with no homography ever solved.
+    """
+
+    def test_the_default_is_180_degrees(self):
+        # This rig's measured mount (CLAUDE.md's M4i) — nobody who never
+        # touches Rotate should see a regression from before this existed.
+        self.assertEqual(self.store().view_rotation_deg, 180)
+
+    def test_the_default_holds_with_no_homography_at_all(self):
+        s = self.store()
+        self.assertFalse(s.has_homography)
+        self.assertEqual(s.view_rotation_deg, 180)
+
+    def test_set_view_rotation_persists_and_reloads(self):
+        s = self.store()
+        s.set_view_rotation(90)
+        self.assertEqual(self.store().view_rotation_deg, 90)
+
+    def test_set_view_rotation_survives_before_any_homography_exists(self):
+        s = self.store()
+        s.set_view_rotation(270)
+        again = self.store()
+        self.assertFalse(again.has_homography)
+        self.assertEqual(again.view_rotation_deg, 270)
+
+    def test_set_view_rotation_rejects_an_invalid_degree(self):
+        s = self.store()
+        with self.assertRaises(ValueError):
+            s.set_view_rotation(45)
+        # Refused, not defaulted-and-saved: the bad value must not reach
+        # disk or replace the value already in memory.
+        self.assertEqual(s.view_rotation_deg, 180)
+        self.assertFalse(self.v_path.exists())
+
+    def test_set_view_rotation_rejects_a_bool(self):
+        # isinstance(True, int) is True in Python — the exact trap
+        # _handle_manual_calibrate's own point validation guards against.
+        s = self.store()
+        with self.assertRaises(ValueError):
+            s.set_view_rotation(True)
+
+    def test_a_corrupt_view_rotation_file_falls_back_to_the_default(self):
+        atomicio.write_json(self.v_path, {"view_rotation_deg": "sideways"})
+        s = self.store()
+        self.assertEqual(s.view_rotation_deg, 180)
 
 
 class TestManualCorners(StoreCase):

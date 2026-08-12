@@ -55,7 +55,16 @@ NUM_BINS = 8
 _ROOT = Path(__file__).resolve().parents[3]
 HOMOGRAPHY_PATH = _ROOT / "state" / "homography.json"
 BIN_RECTS_PATH = _ROOT / "state" / "bin_rects.json"
+VIEW_ROTATION_PATH = _ROOT / "state" / "view_rotation.json"
 LEGACY_OFFSETS_PATH = _ROOT / "docs" / "legacy" / "bin_offsets.json"
+
+# The Setup tab's Rotate control (drag-corner rebuild, step 4 — not yet
+# built). A display preference, not calibration data, so it lives in its
+# own tiny file and must survive even before any homography exists.
+VALID_VIEW_ROTATIONS = (0, 90, 180, 270)
+# This rig's measured mount (CLAUDE.md's M4i / commit b847c0f) — the
+# default so nobody who never touches the Rotate button sees a regression.
+DEFAULT_VIEW_ROTATION_DEG = 180
 
 # Doc sections 8.4 and 8.5 both say `"schema": 3`.
 SCHEMA = 3
@@ -209,9 +218,11 @@ class GeometryStore:
 
     def __init__(self, homography_path: Path = HOMOGRAPHY_PATH,
                  rects_path: Path = BIN_RECTS_PATH,
+                 view_rotation_path: Path = VIEW_ROTATION_PATH,
                  stage_size: Tuple[int, int] = STAGE_SIZE) -> None:
         self.homography_path = Path(homography_path)
         self.rects_path = Path(rects_path)
+        self.view_rotation_path = Path(view_rotation_path)
         self.stage_size = tuple(stage_size)
 
         self._h: Optional[List[List[float]]] = None
@@ -221,11 +232,20 @@ class GeometryStore:
         self.computed_at: Optional[float] = None
         self.keystone_fingerprint: Optional[str] = None
         self.camera_size: Tuple[int, int] = DEFAULT_CAMERA_SIZE
+        # The last 4 confirmed raw camera-space corners, in
+        # fit_from_corners()'s fixed front-left/front-right/back-right/
+        # back-left order. Set only alongside a confirmed set_homography()
+        # call (see its docstring) — never a mid-drag position.
+        self.corner_points: Optional[List[Point]] = None
 
         self._cam_rects: List[Optional[Rect]] = [None] * NUM_BINS
         self._stage_rects: List[Optional[Rect]] = [None] * NUM_BINS
         self.rects_written_at: Optional[float] = None
         self.verified_at: Optional[float] = None
+
+        # A display preference, not calibration data (see set_view_rotation
+        # below) — defaulted here so it is correct even before load() runs.
+        self.view_rotation_deg: int = DEFAULT_VIEW_ROTATION_DEG
 
         self.load()
 
@@ -384,13 +404,21 @@ class GeometryStore:
                        n_points: int = 0,
                        keystone_fingerprint: Optional[str] = None,
                        camera_size: Optional[Tuple[int, int]] = None,
-                       computed_at: Optional[float] = None) -> None:
+                       computed_at: Optional[float] = None,
+                       corner_points: Optional[Sequence[Point]] = None) -> None:
         """Install a solved homography and re-derive every stage rect.
 
         The inverse is computed once, here, rather than per call: it is
         needed on every classifier crop and every rect seed, and inverting
         a 3x3 per frame to save nine floats of memory would be a strange
         trade.
+
+        `corner_points`, when given, is recorded as-is (not re-derived from
+        `h`) so the Setup tab's drag-corner UI can re-seed its handles from
+        the last confirmed calibration instead of a blind default rect next
+        time it opens. A call that omits it — every call in this file's own
+        tests, and any future caller that installs a homography some other
+        way — leaves it unset rather than guessing.
         """
         matrix = [[float(v) for v in row] for row in h]
         if len(matrix) != 3 or any(len(row) != 3 for row in matrix):
@@ -404,6 +432,9 @@ class GeometryStore:
             self.camera_size = (int(camera_size[0]), int(camera_size[1]))
         self.computed_at = float(computed_at if computed_at is not None
                                  else time.time())
+        self.corner_points = (None if corner_points is None
+                              else [(float(p[0]), float(p[1]))
+                                    for p in corner_points])
         self._derive_stage_rects()
 
     def fit_from_corners(self, cam_points: Sequence[Point]) -> geometry.Fit:
@@ -439,6 +470,30 @@ class GeometryStore:
         w, h = self.stage_size
         return [(0.0, 0.0), (float(w), 0.0),
                 (float(w), float(h)), (0.0, float(h))]
+
+    # -- view rotation (Setup tab Rotate control, drag-corner rebuild step 4) -
+
+    def set_view_rotation(self, deg: Any) -> None:
+        """The Setup tab's Rotate button: cycles the operator's display of
+        the live feed through 0/90/180/270 degrees.
+
+        A **display preference, not calibration data** — it does not touch
+        `H_cam->stage`, a rect, or anything the classifier/oF receive, so
+        it lives in its own file and saves immediately rather than waiting
+        on a Confirm the way a dragged corner does. Validated here rather
+        than left to whatever calls this, because doc section 20.4's rule
+        for every state file applies just as much to a 4-way enum as to a
+        homography: a bad value on disk must never look like a plausible
+        rotation.
+        """
+        if (not isinstance(deg, int) or isinstance(deg, bool)
+                or deg not in VALID_VIEW_ROTATIONS):
+            raise ValueError(
+                f"view rotation must be one of {VALID_VIEW_ROTATIONS}, "
+                f"got {deg!r}")
+        self.view_rotation_deg = deg
+        atomicio.write_json(self.view_rotation_path,
+                            {"view_rotation_deg": self.view_rotation_deg})
 
     def keystone_is_stale(self, live_fingerprint: Optional[str]) -> bool:
         """Doc section 8.5: oF reports its keystone fingerprint in `stat`;
@@ -479,6 +534,7 @@ class GeometryStore:
         self._load_homography()
         self._load_rects()
         self._derive_stage_rects()
+        self._load_view_rotation()
 
     def _load_homography(self) -> None:
         data = atomicio.read_json(self.homography_path, None)
@@ -490,6 +546,20 @@ class GeometryStore:
             _log.error("geometry: %s has no usable H_cam_to_stage — treating "
                        "the table as uncalibrated", self.homography_path)
             return
+        corners = data.get("corners")
+        if corners is not None and (
+                not isinstance(corners, list) or len(corners) != 4
+                or not all(isinstance(p, list) and len(p) == 2
+                           and all(isinstance(v, (int, float)) for v in p)
+                           for p in corners)):
+            # Dropped, not fatal — corners are informational (Step 4's UI
+            # seed), not something the homography's own validity depends
+            # on. A dropped dot in the old dot-cal parser got the same
+            # tolerance for the same reason: losing this must not cost the
+            # calibration itself.
+            _log.error("geometry: %s has an unusable corners field — "
+                       "dropping it", self.homography_path)
+            corners = None
         try:
             self.set_homography(
                 h,
@@ -498,6 +568,7 @@ class GeometryStore:
                 keystone_fingerprint=data.get("keystone_fingerprint"),
                 camera_size=tuple(data.get("camera_size", DEFAULT_CAMERA_SIZE)),
                 computed_at=data.get("computed_at"),
+                corner_points=corners,
             )
         except (geometry.GeometryError, TypeError, ValueError):
             # A singular or malformed matrix on disk is UNCALIBRATED, not a
@@ -508,6 +579,7 @@ class GeometryStore:
                            "table as uncalibrated", self.homography_path)
             self._h = None
             self._h_inv = None
+            self.corner_points = None
 
     def _load_rects(self) -> None:
         data = atomicio.read_json(self.rects_path, None)
@@ -534,6 +606,28 @@ class GeometryStore:
                 _log.error("geometry: bin %s in %s has an unusable rect %r",
                            i, self.rects_path, cam)
 
+    def _load_view_rotation(self) -> None:
+        """Doc section 12.6's Rotate control must survive even before any
+        homography exists, so this reads its own file rather than piggy-
+        backing on `_load_homography()`. A missing file is a normal first
+        boot (`self.view_rotation_deg` already holds the default, set in
+        `__init__` before `load()` runs) and is not logged; a present-but-
+        malformed file falls back to the same default, logged, the same
+        tolerance `_load_homography` gives a bad matrix.
+        """
+        data = atomicio.read_json(self.view_rotation_path, None)
+        if data is None:
+            return
+        deg = data.get("view_rotation_deg") if isinstance(data, dict) else None
+        if (isinstance(deg, int) and not isinstance(deg, bool)
+                and deg in VALID_VIEW_ROTATIONS):
+            self.view_rotation_deg = deg
+            return
+        _log.error("geometry: %s has no usable view_rotation_deg — keeping "
+                   "the default (%d)", self.view_rotation_path,
+                   DEFAULT_VIEW_ROTATION_DEG)
+        self.view_rotation_deg = DEFAULT_VIEW_ROTATION_DEG
+
     def save_homography(self) -> None:
         """Doc section 8.5's exact schema, written atomically."""
         if self._h is None:
@@ -547,6 +641,8 @@ class GeometryStore:
             "keystone_fingerprint": self.keystone_fingerprint,
             "camera_size": list(self.camera_size),
             "stage_size": list(self.stage_size),
+            "corners": (None if self.corner_points is None
+                       else [list(p) for p in self.corner_points]),
         })
 
     def save_rects(self) -> None:
