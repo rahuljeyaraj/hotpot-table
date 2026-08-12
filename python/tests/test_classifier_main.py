@@ -150,110 +150,6 @@ class WorkerCase(unittest.TestCase):
         return self.sent[-1]
 
 
-class TestDetectDots(WorkerCase):
-
-    def test_a_dot_pattern_comes_back_as_doc_4_7s_points(self):
-        w = self.build()
-        w.on_message({"t": "cmd", "id": 20, "op": "detect_dots", "expect": 4})
-        reply = self.wait()
-        self.assertEqual(reply["t"], "dots")
-        self.assertEqual(reply["id"], 20)
-        self.assertEqual(len(reply["points"]), 4)
-        self.assertEqual(len(reply["points"][0]), 2)
-        self.assertIn("ms", reply)
-
-    def test_the_expect_count_is_echoed_back(self):
-        # Core matches a reply to the pass it asked for; a late reply from
-        # the previous pass has to be recognisable as one.
-        w = self.build()
-        w.on_message({"t": "cmd", "id": 7, "op": "detect_dots", "expect": 15})
-        self.assertEqual(self.wait()["expect"], 15)
-
-    def test_a_stale_camera_is_refused_rather_than_analysed(self):
-        # Doc section 6.4. Solving a homography against the last frame
-        # before the camera died produces a calibration nobody can explain.
-        w = self.build(stale=True)
-        w.on_message({"t": "cmd", "id": 1, "op": "detect_dots", "expect": 4})
-        reply = self.wait()
-        self.assertFalse(reply["ok"])
-        self.assertIn("stopped sending frames", reply["error"])
-
-    def test_no_ring_at_all_is_a_sentence_not_a_traceback(self):
-        def boom():
-            raise FileNotFoundError("no ring")
-        worker = cmain.Classifier(source=cmain.RingSource(open_reader=boom),
-                                  send=self._send,
-                                  captures_dir=self.captures)
-        worker.start()
-        self.addCleanup(worker.stop)
-        worker.on_message({"t": "cmd", "id": 1, "op": "detect_dots"})
-        reply = self.wait()
-        self.assertFalse(reply["ok"])
-        self.assertIn("camera process running", reply["error"])
-
-    def test_the_threshold_can_be_overridden_from_the_command(self):
-        img = np.zeros((200, 200, 3), dtype=np.uint8)
-        ys, xs = np.ogrid[:200, :200]
-        img[(xs - 100) ** 2 + (ys - 100) ** 2 <= 144] = 150   # dim dots
-        w = self.build(image=img)
-        w.on_message({"t": "cmd", "id": 1, "op": "detect_dots"})
-        self.assertEqual(self.wait()["points"], [])
-        w.on_message({"t": "cmd", "id": 2, "op": "detect_dots",
-                      "threshold": 100})
-        self.assertEqual(len(self.wait()["points"]), 1)
-
-
-class TestDetectDotsROI(WorkerCase):
-    """CLAUDE.md's M4i fix: a room lamp at the frame edge fragments into
-    blobs the same size as a real dot once the field inverts to black, and
-    no area/aspect/edge filter tells them apart. An ROI removes it from
-    the image before the detector ever sees it.
-    """
-
-    def _field_with_lamp(self):
-        # dot_field()'s four real dots sit at (160,120) (480,120) (480,360)
-        # (160,360) in a 640x480 frame. A fifth blob near the top-left
-        # corner, well outside where the real dots are, stands in for the
-        # lamp: right size, right shape, wrong place.
-        img = dot_field()
-        ys, xs = np.ogrid[:480, :640]
-        img[(xs - 20) ** 2 + (ys - 20) ** 2 <= 144] = 255
-        return img
-
-    def test_with_no_roi_the_lamp_is_seen_too(self):
-        w = self.build(image=self._field_with_lamp())
-        w.on_message({"t": "cmd", "id": 1, "op": "detect_dots", "expect": 4})
-        self.assertEqual(len(self.wait()["points"]), 5)
-
-    def test_an_roi_around_the_table_crops_the_lamp_out(self):
-        w = self.build(image=self._field_with_lamp())
-        w.on_message({"t": "cmd", "id": 2, "op": "detect_dots", "expect": 4,
-                      "roi": [100, 80, 420, 320]})
-        self.assertEqual(len(self.wait()["points"]), 4)
-
-    def test_points_from_a_cropped_roi_are_still_camera_space(self):
-        # The crop must not leak into the reply as a second coordinate
-        # space — doc §5.3 makes camera-space the one classifier points
-        # are ever in.
-        w = self.build(image=dot_field())
-        w.on_message({"t": "cmd", "id": 3, "op": "detect_dots", "expect": 4,
-                      "roi": [100, 80, 420, 320]})
-        points = sorted(self.wait()["points"])
-        expected = sorted([[160.0, 120.0], [480.0, 120.0],
-                           [480.0, 360.0], [160.0, 360.0]])
-        for (px, py), (ex, ey) in zip(points, expected):
-            self.assertAlmostEqual(px, ex, delta=1.0)
-            self.assertAlmostEqual(py, ey, delta=1.0)
-
-    def test_an_roi_entirely_off_the_frame_is_a_sentence_not_a_traceback(self):
-        w = self.build(image=dot_field())
-        w.on_message({"t": "cmd", "id": 4, "op": "detect_dots", "expect": 4,
-                      "roi": [5000, 5000, 100, 100]})
-        reply = self.wait()
-        self.assertFalse(reply["ok"])
-        self.assertIn("outside", reply["error"])
-
-
 class TestUnknownCommands(WorkerCase):
 
     def test_classify_says_it_is_not_built_yet(self):
@@ -269,6 +165,17 @@ class TestUnknownCommands(WorkerCase):
         w = self.build()
         w.on_message({"t": "cmd", "id": 3, "op": "levitate"})
         self.assertFalse(self.wait()["ok"])
+
+    def test_detect_dots_is_gone_along_with_automated_calibration(self):
+        # Automated dot-projection calibration was removed outright (it
+        # needed a dark, room-light-free rig this project never achieved —
+        # CLAUDE.md's M4h/M4i/M4j); `detect_dots` must not silently still
+        # work.
+        w = self.build()
+        w.on_message({"t": "cmd", "id": 4, "op": "detect_dots"})
+        reply = self.wait()
+        self.assertFalse(reply["ok"])
+        self.assertIn("unknown command", reply["error"])
 
     def test_a_non_cmd_message_is_ignored(self):
         w = self.build()
@@ -437,8 +344,10 @@ class TestRingRecovery(WorkerCase):
     def test_a_dead_segment_is_dropped_and_reattached_next_time(self):
         # Doc section 20.1: camera's restart "recreates shm, consumers
         # re-attach". A classifier that held a corpse reader forever would
-        # never work again after the first camera restart.
-        reader = FakeReader(dot_field())
+        # never work again after the first camera restart. `capture` is
+        # just a convenient command that touches the ring — any command
+        # that reads a frame exercises the same reattachment path.
+        reader = FakeReader(food_field())
         reader.next_read_raises = OSError("segment gone")
         opens = []
 
@@ -451,13 +360,16 @@ class TestRingRecovery(WorkerCase):
         worker.start()
         self.addCleanup(worker.stop)
 
-        worker.on_message({"t": "cmd", "id": 1, "op": "detect_dots"})
+        cmd = {"t": "cmd", "id": 1, "op": "capture",
+               "rects": [[10, 10, 100, 100, 0]], "labels": ["mushroom"],
+               "burst": 1}
+        worker.on_message(cmd)
         self.assertFalse(self.wait()["ok"])
         self.assertTrue(reader.closed)
 
-        worker.on_message({"t": "cmd", "id": 2, "op": "detect_dots"})
+        worker.on_message({**cmd, "id": 2})
         reply = self.wait()
-        self.assertEqual(reply["t"], "dots")
+        self.assertEqual(reply["t"], "captured")
         self.assertEqual(len(opens), 2)
 
 

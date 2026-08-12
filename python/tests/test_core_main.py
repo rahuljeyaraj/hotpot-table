@@ -1519,314 +1519,16 @@ class TestUnitSuffixIsLocalised(unittest.TestCase):
         self.assertEqual(msg["total"]["label"], "总计")
 
 
-class TestDotCalibrationOverTheWire(CoreCase):
-    """M4 build item 3, end to end over the real WebSocket and the real
-    control link: a tablet asks, core drives oF's overlay and a stand-in
-    classifier, and a homography comes out.
-
-    The "classifier" here is a `wire.Client` that answers `detect_dots`
-    by projecting whatever dots core just put in the overlay through a
-    known matrix — the same `FakeRig` idea as `test_dotcal.py`, but
-    running over a socket so the id correlation and the overlay plumbing
-    are exercised too, not just the solve.
-    """
-
-    # An empty `state/`, because this whole class is about producing the
-    # geometry that a calibrated table already has.
-    calibrated_fixture = False
-
-    CAM_TO_STAGE = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0],
-                    [0.00012, 0.00007, 1.0]]
-
-    def fake_classifier(self, *, answer=True):
-        from hotpot.common import geometry as geo
-        stage_to_cam = geo.invert(self.CAM_TO_STAGE)
-        seen = []
-
-        def on_message(msg):
-            if msg.get("t") != "cmd" or msg.get("op") != "detect_dots":
-                return
-            seen.append(msg)
-            if not answer:
-                return
-            dots = self.core._overlay_msg().get("dots") or []
-            points = [list(geo.apply(stage_to_cam, (d[0], d[1])))
-                      for d in dots]
-            # Areas from the radius core asked for, so the oversized
-            # orientation marker comes back oversized — without them the
-            # coarse pass cannot tell which corner is which.
-            areas = [math.pi * float(d[2]) ** 2 for d in dots]
-            client.send({"t": "dots", "id": msg.get("id"),
-                         "points": list(reversed(points)),
-                         "areas": list(reversed(areas))})
-
-        client = self.wire_client("classifier", on_message=on_message)
-        self.assertTrue(client.wait_connected(DEADLINE))
-        return client, seen
-
-    def enter_setting(self, ws):
-        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
-        deadline = time.monotonic() + DEADLINE
-        while time.monotonic() < deadline:
-            msg = self.recv_json(ws)
-            if msg.get("t") == "mode" and msg.get("mode") == "setting":
-                return
-        self.fail("never entered setting mode")
-
-    def collect(self, ws, want, timeout=25.0):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            msg = self.recv_json(ws, timeout=deadline - time.monotonic())
-            if msg.get("t") == want:
-                return msg
-        self.fail(f"no {want} message arrived")
-
-    def test_a_full_solve_writes_a_homography_and_reports_the_rms(self):
-        self.fake_classifier()
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        result = self.collect(ws, "dotcal_result")
-        self.assertTrue(result["ok"], result.get("message"))
-        self.assertTrue(result["good"])
-        self.assertLess(result["rms_px"], 1.0)
-        self.assertTrue(self.core.geometry.has_homography)
-
-    def test_the_solved_homography_matches_the_fake_rig_it_was_built_from(self):
-        # The reference is the fake classifier's own matrix, which core
-        # never saw — not a reprojection of core's own points (doc §5.3).
-        from hotpot.common import geometry as geo
-        self.fake_classifier()
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-        probe = (700.0, 400.0)
-        want = geo.apply(self.CAM_TO_STAGE, probe)
-        got = geo.apply(self.core.geometry.h, probe)
-        self.assertAlmostEqual(got[0], want[0], places=1)
-        self.assertAlmostEqual(got[1], want[1], places=1)
-
-    def test_the_table_shows_the_calibrating_overlay_while_it_runs(self):
-        # Doc §4.3's overlay kind, with the dot POSITIONS on the wire —
-        # I2: oF is told where the dots are, it does not know the pattern.
-        seen_kinds = []
-
-        from hotpot.common import geometry as geo
-        stage_to_cam = geo.invert(self.CAM_TO_STAGE)
-
-        def on_message(msg):
-            if msg.get("t") != "cmd" or msg.get("op") != "detect_dots":
-                return
-            overlay = self.core._overlay_msg()
-            seen_kinds.append(overlay)
-            dots = overlay.get("dots") or []
-            points = [list(geo.apply(stage_to_cam, (d[0], d[1])))
-                      for d in dots]
-            areas = [math.pi * float(d[2]) ** 2 for d in dots]
-            client.send({"t": "dots", "id": msg.get("id"),
-                         "points": points, "areas": areas})
-
-        client = self.wire_client("classifier", on_message=on_message)
-        self.assertTrue(client.wait_connected(DEADLINE))
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-
-        self.assertEqual(len(seen_kinds), 2)
-        for overlay in seen_kinds:
-            self.assertEqual(overlay["kind"], "calibrating")
-            self.assertTrue(overlay["dots"])
-            self.assertEqual(len(overlay["dots"][0]), 3)
-        self.assertEqual(len(seen_kinds[0]["dots"]), 4)
-        self.assertEqual(len(seen_kinds[1]["dots"]), 15)
-
-    def test_the_overlay_is_back_to_none_afterwards(self):
-        self.fake_classifier()
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-        self.assertEqual(self.core._overlay_msg()["kind"], "none")
-
-    def test_calibration_is_refused_in_serving_mode(self):
-        # The field goes black for several seconds. Doing that to a diner
-        # mid-order is not something a tablet gets to ask for.
-        client, seen = self.fake_classifier()
-        ws = self.ws()
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        result = self.collect(ws, "dotcal_result")
-        self.assertFalse(result["ok"])
-        self.assertIn("setting mode", result["message"])
-        self.assertEqual(seen, [])
-
-    def test_a_missing_classifier_is_a_sentence_not_a_hang(self):
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        result = self.collect(ws, "dotcal_result")
-        self.assertFalse(result["ok"])
-        self.assertIn("classifier is not connected", result["message"])
-
-    def test_a_silent_classifier_times_out_rather_than_wedging_core(self):
-        self.fake_classifier(answer=False)
-        original = coremain.dotcal.REPLY_TIMEOUT_S
-        coremain.dotcal.REPLY_TIMEOUT_S = 0.5
-        self.addCleanup(setattr, coremain.dotcal, "REPLY_TIMEOUT_S", original)
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        result = self.collect(ws, "dotcal_result")
-        self.assertFalse(result["ok"])
-        self.assertIn("did not answer", result["message"])
-        # And the table is not left black with dots on it.
-        self.assertEqual(self.core._overlay_msg()["kind"], "none")
-
-    def test_a_late_reply_to_a_dead_command_is_not_handed_to_the_next_one(self):
-        # Correlation by id, not "the next reply that arrives". Without
-        # it, a late coarse-pass answer would be handed to the fine pass
-        # and the solve would be fitted to four points labelled fifteen.
-        self.core._resolve_classifier_reply({"t": "dots", "id": 9999,
-                                             "points": [[1, 1]]})
-        with self.core._cmd_lock:
-            self.assertEqual(self.core._cmd_waiters, {})
-
-    def test_a_first_solve_seeds_the_bin_rects_from_the_measured_layout(self):
-        # M4 build item 5. Without this the operator opens the rect editor
-        # onto an empty canvas with nothing to drag.
-        self.fake_classifier()
-        ws = self.ws()
-        self.enter_setting(ws)
-        self.assertFalse(self.core.geometry.has_rects)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-        self.assertTrue(self.core.geometry.has_rects)
-
-    def test_the_seeded_rects_land_on_the_measured_tray_layout(self):
-        # The check that can fail: the seed goes stage -> camera through
-        # H^-1, so deriving it back must land on the mm layout the legacy
-        # offsets describe. A homography pointing the wrong way puts these
-        # hundreds of pixels out, or off the stage entirely.
-        #
-        # NOT the doc 5.3 TRAP: the reference is the independently
-        # computed mm geometry, not the rects themselves.
-        self.fake_classifier()
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-        want = geometry_store.legacy_bin_rects_stage()
-        for got, w in zip(self.core.geometry.stage_rects, want):
-            self.assertLessEqual(got[0], w[0] + 1.0)
-            self.assertLessEqual(got[1], w[1] + 1.0)
-            self.assertGreaterEqual(got[0] + got[2], w[0] + w[2] - 1.0)
-            self.assertGreaterEqual(got[1] + got[3], w[1] + w[3] - 1.0)
-
-    def test_the_seed_is_not_saved_until_the_operator_says_so(self):
-        self.fake_classifier()
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-        self.assertFalse(self.core.geometry.rects_path.exists())
-
-    def test_a_re_solve_does_not_throw_away_hand_dragged_rects(self):
-        # The homography moved by a pixel or two; the trays did not. An
-        # operator who has spent five minutes placing eight rects must not
-        # lose them by re-running the calibration.
-        self.fake_classifier()
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-        mine = [[500.0 + i, 600.0, 120.0, 130.0] for i in range(8)]
-        ws.send(json.dumps({"t": "set_rects", "rects": mine}))
-        self.collect(ws, "rects_result")
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-        for got, want in zip(self.core.geometry.cam_rects, mine):
-            self.assertAlmostEqual(got[0], want[0], places=1)
-
-    def test_the_join_seed_tells_a_tablet_the_geometry(self):
-        ws = self.ws()
-        seeds = [self.recv_json(ws) for _ in range(5)]
-        kinds = {m["t"] for m in seeds}
-        self.assertEqual(kinds, {"pips", "mode", "camera", "geometry",
-                                 "capture_info"})
-        geo_msg = next(m for m in seeds if m["t"] == "geometry")
-        self.assertFalse(geo_msg["calibrated"])
-        self.assertEqual(len(geo_msg["rects"]), 8)
-        # No homography yet, so there is no table footprint in camera
-        # space to crop the Setup tab's feed to — it must fall back to
-        # the raw feed, not guess.
-        self.assertIsNone(geo_msg["camera_roi"])
-
-    def test_camera_roi_appears_once_a_homography_exists(self):
-        # CLAUDE.md's M4i bin-box reorientation work: the Setup tab's crop
-        # is the SAME table footprint the fine pass's ROI crops the
-        # classifier to (`dotcal.pad_rect` on the same bounding box), not
-        # a second, independently-drifting computation of it.
-        from hotpot.common import geometry as geo
-        self.fake_classifier()
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-
-        geo_msg = self.core._geometry_msg()
-        roi = geo_msg["camera_roi"]
-        self.assertIsNotNone(roi)
-        self.assertEqual(len(roi), 4)
-
-        stage_to_cam = geo.invert(self.CAM_TO_STAGE)
-        sw, sh = self.core.geometry.stage_size
-        bbox = geo.apply_rect(stage_to_cam, (0.0, 0.0, sw, sh))
-        want = coremain.dotcal.pad_rect(bbox, self.core.dotcal.roi_margin_px)
-        for got, exp in zip(roi, want):
-            self.assertAlmostEqual(got, exp, places=1)
-
-    def test_ofs_keystone_fingerprint_reaches_the_staleness_check(self):
-        # Doc §8.5: oF reports its fingerprint in `stat`; a different one
-        # after a solve means somebody nudged the keystone.
-        self.fake_classifier()
-        of_client = self.wire_client("of")
-        self.assertTrue(of_client.wait_connected(DEADLINE))
-        of_client.send({"t": "stat", "fps": 60.0,
-                        "keystone_fingerprint": "aaaa"})
-        deadline = time.monotonic() + DEADLINE
-        while (self.core._keystone_fingerprint != "aaaa"
-               and time.monotonic() < deadline):
-            time.sleep(0.02)
-        self.assertEqual(self.core._keystone_fingerprint, "aaaa")
-
-        ws = self.ws()
-        self.enter_setting(ws)
-        ws.send(json.dumps({"t": "calibrate_dots"}))
-        self.collect(ws, "dotcal_result")
-        self.assertEqual(self.core.geometry.keystone_fingerprint, "aaaa")
-        self.assertFalse(self.core._geometry_msg()["keystone_stale"])
-
-        of_client.send({"t": "stat", "fps": 60.0,
-                        "keystone_fingerprint": "bbbb"})
-        deadline = time.monotonic() + DEADLINE
-        while (self.core._keystone_fingerprint != "bbbb"
-               and time.monotonic() < deadline):
-            time.sleep(0.02)
-        self.assertTrue(self.core._geometry_msg()["keystone_stale"])
-
-
 class TestManualCalibrationOverTheWire(CoreCase):
-    """The manual replacement for `calibrate_dots`: 4 clicked corners in,
-    over the real WebSocket, a homography out. No classifier, no overlay,
-    no pattern to project — that is the whole point of the design, and
-    this class checks it holds end to end, not just in
-    `test_geometry_store.py`'s `TestManualCorners`.
+    """The only calibration path — automated dot-projection calibration was
+    removed (it needed a dark, room-light-free rig this project never
+    achieved; see CLAUDE.md's M4h/M4i/M4j). 4 corner points in, over the
+    real WebSocket, a homography out — this class checks it holds end to
+    end, not just in `test_geometry_store.py`'s `TestManualCorners`.
     """
 
-    # An empty `state/`, same reason TestDotCalibrationOverTheWire uses one:
-    # this whole class is about producing the geometry a calibrated table
-    # already has.
+    # An empty `state/`: this whole class is about producing the geometry a
+    # calibrated table already has.
     calibrated_fixture = False
 
     CAM_TO_STAGE = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0],
@@ -1940,9 +1642,8 @@ class TestManualCalibrationOverTheWire(CoreCase):
         self.assertFalse(self.core.geometry.has_homography)
 
     def test_a_first_solve_seeds_the_bin_rects_from_the_measured_layout(self):
-        # M4 build item 5's seed, reused here exactly as
-        # `_handle_calibrate_dots` uses it — without it the operator opens
-        # the rect editor onto an empty canvas with nothing to drag.
+        # M4 build item 5's seed — without it the operator opens the rect
+        # editor onto an empty canvas with nothing to drag.
         ws = self.ws()
         self.enter_setting(ws)
         self.assertFalse(self.core.geometry.has_rects)
@@ -1970,6 +1671,44 @@ class TestManualCalibrationOverTheWire(CoreCase):
         self.collect(ws, "manual_calibrate_result")
         for got, want in zip(self.core.geometry.cam_rects, mine):
             self.assertAlmostEqual(got[0], want[0], places=1)
+
+    def test_the_join_seed_tells_a_tablet_the_geometry(self):
+        ws = self.ws()
+        seeds = [self.recv_json(ws) for _ in range(5)]
+        kinds = {m["t"] for m in seeds}
+        self.assertEqual(kinds, {"pips", "mode", "camera", "geometry",
+                                 "capture_info"})
+        geo_msg = next(m for m in seeds if m["t"] == "geometry")
+        self.assertFalse(geo_msg["calibrated"])
+        self.assertEqual(len(geo_msg["rects"]), 8)
+
+    def test_ofs_keystone_fingerprint_reaches_the_staleness_check(self):
+        # Doc §8.5: oF reports its fingerprint in `stat`; a different one
+        # after a solve means somebody nudged the keystone.
+        of_client = self.wire_client("of")
+        self.assertTrue(of_client.wait_connected(DEADLINE))
+        of_client.send({"t": "stat", "fps": 60.0,
+                        "keystone_fingerprint": "aaaa"})
+        deadline = time.monotonic() + DEADLINE
+        while (self.core._keystone_fingerprint != "aaaa"
+               and time.monotonic() < deadline):
+            time.sleep(0.02)
+        self.assertEqual(self.core._keystone_fingerprint, "aaaa")
+
+        ws = self.ws()
+        self.enter_setting(ws)
+        ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
+        self.collect(ws, "manual_calibrate_result")
+        self.assertEqual(self.core.geometry.keystone_fingerprint, "aaaa")
+        self.assertFalse(self.core._geometry_msg()["keystone_stale"])
+
+        of_client.send({"t": "stat", "fps": 60.0,
+                        "keystone_fingerprint": "bbbb"})
+        deadline = time.monotonic() + DEADLINE
+        while (self.core._keystone_fingerprint != "bbbb"
+               and time.monotonic() < deadline):
+            time.sleep(0.02)
+        self.assertTrue(self.core._geometry_msg()["keystone_stale"])
 
 
 class TestSetupTabRects(CoreCase):
@@ -2189,22 +1928,6 @@ class TestCaptureTab(CoreCase):
             self.assertEqual(len(r), 5)
             self.assertEqual(r[4], i)   # doc §12.7's `_bin<i>` in the name
             self.assertEqual(r[:4], list(self.core.geometry.cam_rects[i]))
-
-    def test_a_capture_is_refused_while_the_calibration_pattern_is_up(self):
-        """**The lighting rule (doc §12.7, §21).** The one moment the
-        field is not what serving mode shows is I9's inversion for dot
-        calibration — black table, white dots. A burst overlapping it
-        writes photographs of food in the dark, under a light the live rig
-        will never reproduce, and they look perfectly plausible sitting in
-        a folder.
-        """
-        self.core._show_calibration_dots([[100.0, 100.0, 13.0]])
-        self.addCleanup(self.core._show_calibration_dots, None)
-        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS}))
-        reply = self.drain_until("capture_result")
-        self.assertFalse(reply["ok"])
-        self.assertIn("calibration pattern", reply["message"])
-        self.assertEqual(self.sent_cmds, [])
 
     def test_a_capture_is_refused_in_serving_mode(self):
         # Not for the lighting — §14.5 makes setting mode's field

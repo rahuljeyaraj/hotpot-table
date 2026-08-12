@@ -55,10 +55,10 @@ import math
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Optional
 
 from hotpot.common import config, geometry, health, log, wire
-from hotpot.core import (binmap, calibrator, cart, dotcal, fsm, geometry_store,
+from hotpot.core import (binmap, calibrator, cart, fsm, geometry_store,
                          i18n, loadcell_cal, pricing, scale)
 from hotpot.core.web import server as web
 
@@ -154,9 +154,8 @@ NOT_IN_SETTING_MSG = ("Enter setting mode first — the table is still "
                       "serving.")
 
 # How long core waits for a classifier reply to one of doc section 4.7's
-# commands. Longer than `dotcal.REPLY_TIMEOUT_S` for the capture case,
-# which is a whole burst (doc section 12.7: 10 frames over 5 s) plus the
-# JPEG writes.
+# commands — the capture case is a whole burst (doc section 12.7: 10 frames
+# over 5 s) plus the JPEG writes.
 CLASSIFIER_REPLY_TIMEOUT_S = 30.0
 
 
@@ -219,7 +218,6 @@ class Core:
         camera_port: int = CAMERA_PORT,
         homography_path: Path = geometry_store.HOMOGRAPHY_PATH,
         rects_path: Path = geometry_store.BIN_RECTS_PATH,
-        calibration_cfg: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -305,20 +303,6 @@ class Core:
         # never read or write the rig's own.
         self.geometry = geometry_store.GeometryStore(
             homography_path=homography_path, rects_path=rects_path)
-        self.dotcal = dotcal.DotCalibrator(
-            self.geometry, show_dots=self._show_calibration_dots,
-            ask_dots=self._ask_dots, cfg=calibration_cfg,
-            settle_s=float((calibration_cfg or {}).get(
-                "settle_s", dotcal.SETTLE_S)))
-
-        # The `calibrating` overlay's payload while a solve is running, or
-        # None. Read by `_overlay_msg()` on the 60Hz thread and written by
-        # the wizard's own thread, so it is guarded — but by its own lock,
-        # not `state_lock`: it is not part of the billing snapshot, and
-        # taking the domain lock for a whole two-pass solve would stall
-        # every state broadcast for two seconds.
-        self._overlay_lock = threading.Lock()
-        self._calibration_dots: Optional[list] = None
 
         # Doc section 8.5's staleness check needs oF's live fingerprint,
         # which arrives on the `stat` message (doc section 4.5). None
@@ -494,44 +478,6 @@ class Core:
         waiter[1] = msg
         waiter[0].set()
 
-    def _ask_dots(self, expect: int, min_area: float,
-                  tophat: int, average: int,
-                  roi: Optional[Sequence[float]] = None) -> Dict[str, Any]:
-        """`dotcal.DotCalibrator`'s hook into doc section 4.7's
-        `detect_dots`. Kept as a one-line adapter so that module knows
-        nothing about the wire.
-
-        `tophat` is the background-flattening kernel, sized by `dotcal`
-        from the pattern it just drew — the classifier cannot work it out
-        because it is never told how big the dots are (I2).
-
-        `roi`, sent only for the fine pass, is the table's own footprint
-        in camera pixels (CLAUDE.md's M4i) — omitted, not sent as null,
-        when `dotcal` has none (the coarse pass), so an older classifier
-        that has never heard of `roi` still gets a message it understands.
-        """
-        kwargs: Dict[str, Any] = dict(expect=expect, min_area=min_area,
-                                      tophat=tophat, average=average)
-        if roi is not None:
-            kwargs["roi"] = [float(v) for v in roi]
-        return self._send_classifier_cmd(
-            "detect_dots", dotcal.REPLY_TIMEOUT_S, **kwargs) or {}
-
-    # -- the calibrating overlay (doc sections 4.3, 14.5, I9) --------------
-
-    def _show_calibration_dots(self, dots: Optional[list]) -> None:
-        """`dotcal`'s other hook: put the dot pattern on the table, or
-        take it down (`None`).
-
-        Core sends the *positions*, not a "draw the pattern" flag. I2 —
-        oF computes nothing it could be told — and here that is not
-        pedantry: if oF held the pattern and core assumed it, one edit on
-        either side would have core solving against dots that were never
-        where it thought, with a perfect RMS to prove it.
-        """
-        with self._overlay_lock:
-            self._calibration_dots = dots
-
     def _on_disconnect(self, conn: wire.Connection, reason: str) -> None:
         self.registry.disconnected(conn.who, reason)
 
@@ -651,9 +597,6 @@ class Core:
             return
         if t == "cancel_order":
             self._handle_cancel_order()
-            return
-        if t == "calibrate_dots":
-            self._handle_calibrate_dots()
             return
         if t == "manual_calibrate":
             self._handle_manual_calibrate(msg)
@@ -939,28 +882,15 @@ class Core:
     def _overlay_msg(self) -> Dict[str, Any]:
         """Doc section 4.3's `overlay`, and the order it is decided in.
 
-        **`calibrating` outranks everything, and that is a lighting rule,
-        not a UI preference.** I9's one exception inverts the whole field
-        to black with white dots, and the camera is sitting at a dark
-        exposure looking for exactly those dots. Anything else drawn in
-        that moment — a fault banner, a setting-mode panel — is a bright
-        shape on a black field, which is the definition of a dot as far as
-        `classifier/dots.py` is concerned. So while a solve is running the
-        overlay says `calibrating` and nothing else may claim the table.
-
-        After that, doc section 9.5's fault overlay: `error` when a bin
-        that was billing from real weight can no longer be read — not
-        merely "the scale has never been calibrated", which is the
-        ordinary state of the M1 mock-only demo (doc section 12.8) and
-        must not permanently cover the table in a fault screen. Only a
-        bin that has crossed into `_scale_baselined` and then lost its
-        reading counts: that is the "dead XIAO mid-session" case doc
-        section 21's M2 acceptance test means, not "never plugged in".
+        Doc section 9.5's fault overlay: `error` when a bin that was
+        billing from real weight can no longer be read — not merely "the
+        scale has never been calibrated", which is the ordinary state of
+        the M1 mock-only demo (doc section 12.8) and must not permanently
+        cover the table in a fault screen. Only a bin that has crossed into
+        `_scale_baselined` and then lost its reading counts: that is the
+        "dead XIAO mid-session" case doc section 21's M2 acceptance test
+        means, not "never plugged in".
         """
-        with self._overlay_lock:
-            dots = self._calibration_dots
-        if dots is not None:
-            return {"kind": "calibrating", "dots": dots}
         if self.fsm.state is fsm.State.UNCALIBRATED:
             return {"kind": "uncalibrated"}
         reading = self.scale.read()
@@ -968,86 +898,23 @@ class Core:
                   for i in range(cart.NUM_BINS))
         return {"kind": "error"} if lost else {"kind": "none"}
 
-    # -- the Setup tab's dot calibration (doc sections 12.6, 21 M4.3) ------
-
-    def _handle_calibrate_dots(self) -> None:
-        """Doc section 12.6's "Calibrate projector <-> camera": one big
-        button, a progress line, then a result with the RMS in pixels and
-        a plain-language verdict.
-
-        Setting mode is required, for the same reason Tare and Calibrate
-        are (doc section 12.4): the field inverts to black for several
-        seconds, so every bin patch goes dark and the table stops looking
-        like a table. Doing that to a diner mid-order is not a thing to
-        allow because a tablet asked nicely.
-
-        Runs on the calling tablet's own WebSocket thread and blocks it
-        for the length of the solve, the same as `_handle_cal`'s 2 s
-        capture windows: that is the thread whose screen is showing the
-        progress line.
-        """
-        if not self._in_setting():
-            self.web.broadcast({"t": "dotcal_result", "ok": False,
-                                "message": NOT_IN_SETTING_MSG})
-            return
-        self.web.broadcast({"t": "dotcal_progress",
-                            "message": "Showing the dot pattern on the table…"})
-        try:
-            result = self.dotcal.run(
-                keystone_fingerprint=self._keystone_fingerprint,
-                camera_size=self.geometry.camera_size)
-        except (dotcal.DotCalError, geometry.GeometryError) as e:
-            self.web.broadcast({"t": "dotcal_result", "ok": False,
-                                "message": str(e)})
-            return
-        except Exception:      # noqa: BLE001 - a wizard must not kill core
-            _log.exception("core: dot calibration failed unexpectedly")
-            self.web.broadcast({
-                "t": "dotcal_result", "ok": False,
-                "message": "The calibration hit an internal error — see the log."})
-            return
-        # Doc section 21 M4 build item 5: a table that has just acquired
-        # its first homography and has no rects yet gets the legacy
-        # measured layout put on screen, converted to camera space through
-        # H^-1. Without it the operator opens the rect editor onto an
-        # empty canvas with nothing to drag.
-        #
-        # Only when there are none. A re-solve on a working table must not
-        # throw away rects somebody dragged onto the trays by hand — the
-        # homography moved by a pixel or two, not the trays.
-        #
-        # Not saved (doc section 12.6's "Save is explicit"), which applies
-        # to a seed more than to anything else: nobody has looked at it.
-        if not self.geometry.has_rects:
-            try:
-                self.geometry.seed_cam_rects_from_table()
-            except geometry.GeometryError:
-                _log.exception("core: could not seed the bin rects")
-
-        self.web.broadcast({
-            "t": "dotcal_result", "ok": True, "good": result.good,
-            "message": result.message, "rms_px": round(result.rms_px, 2),
-            "n_points": result.n_points, "n_inliers": result.n_inliers,
-        })
-        self.web.broadcast(self._geometry_msg())
-
     def _handle_manual_calibrate(self, msg: Dict[str, Any]) -> None:
-        """The manual replacement for `_handle_calibrate_dots`: doc section
-        12.6's "Calibrate projector <-> camera", solved from the 4 table
-        corners the operator clicked on the live feed instead of a
-        projected dot pattern the camera has to find and pair.
+        """Doc section 12.6's "Calibrate projector <-> camera", solved from
+        the 4 table corners the operator placed on the live feed — the
+        only calibration path; automated dot-projection calibration was
+        removed (it needed a dark, room-light-free rig this project never
+        achieved — see CLAUDE.md's M4h/M4i/M4j).
 
         **Setting mode required**, same rule as `_handle_set_rects`: a new
         homography moves every rect and cutout on the table, and that must
         not happen under a live diner.
 
-        Synchronous — unlike `_handle_calibrate_dots`, there is no pattern
-        to project and no classifier round trip to wait on, so this never
-        blocks the calling tablet's thread for more than a 4-point fit.
-        `GeometryStore.fit_from_corners` pins each click to a fixed
-        physical corner by its position in `points`, never by where it
-        lands on screen — see that method's docstring for why the other
-        way round is the exact bug this replaces.
+        Synchronous — there is no pattern to project and no classifier
+        round trip to wait on, so this never blocks the calling tablet's
+        thread for more than a 4-point fit. `GeometryStore.fit_from_corners`
+        pins each point to a fixed physical corner by its position in
+        `points`, never by where it lands on screen — see that method's
+        docstring for why the other way round is the exact bug this avoids.
         """
         if not self._in_setting():
             self.web.broadcast({"t": "manual_calibrate_result", "ok": False,
@@ -1080,11 +947,11 @@ class Core:
             self.web.broadcast({"t": "manual_calibrate_result", "ok": False,
                                 "message": str(e)})
             return
-        # Same seed `_handle_calibrate_dots` makes: a table that has just
-        # acquired its first homography and has no rects yet gets the
-        # legacy measured layout put on screen, converted to camera space
-        # through H^-1, rather than an empty canvas to drag rects onto from
-        # nothing. Not saved (doc section 12.6's "Save is explicit"), and
+        # A table that has just acquired its first homography and has no
+        # rects yet gets the legacy measured layout put on screen,
+        # converted to camera space through H^-1, rather than an empty
+        # canvas to drag rects onto from nothing. Not saved (doc section
+        # 12.6's "Save is explicit"), and
         # no call to `_check_calibration_complete()` for the same reason —
         # nobody has looked at a seed yet, so it must not be what takes the
         # table out of UNCALIBRATED.
@@ -1241,14 +1108,6 @@ class Core:
           reaching over trays and swapping them, which in serving mode is
           a pick and would bill; the same reason Tare and Calibrate need
           it (doc section 12.4).
-        - **A capture is refused outright while a dot calibration is
-          running.** That is the one state in the whole system where the
-          field is NOT what serving mode shows: I9's exception inverts it
-          to black. A burst that overlapped a solve would write training
-          images of food in the dark, under a light the live rig will
-          never reproduce — and they would look plausible in a folder.
-          This is the single check that stops doc section 12.7's rule from
-          being breakable at all.
         - **The rects come from the geometry store, not from the
           tablet.** The classifier crops camera space (doc section 4.7),
           and the rects it should crop are the ones core owns. A tablet
@@ -1257,15 +1116,6 @@ class Core:
         if not self._in_setting():
             self.web.broadcast({"t": "capture_result", "ok": False,
                                 "message": NOT_IN_SETTING_MSG})
-            return
-        with self._overlay_lock:
-            calibrating = self._calibration_dots is not None
-        if calibrating:
-            self.web.broadcast({
-                "t": "capture_result", "ok": False,
-                "message": ("The table is showing the calibration pattern — "
-                            "wait for it to finish. Photographs taken now "
-                            "would be of food in the dark.")})
             return
         if not self.geometry.has_rects:
             self.web.broadcast({
@@ -1395,39 +1245,7 @@ class Core:
             "keystone_stale": g.keystone_is_stale(self._keystone_fingerprint),
             "rects": [None if r is None else [round(v, 1) for v in r]
                       for r in g.cam_rects],
-            "camera_roi": self._camera_roi_msg(g),
         }
-
-    def _camera_roi_msg(self, g: geometry_store.GeometryStore
-                        ) -> Optional[List[float]]:
-        """The table's own footprint in camera pixels — `[x, y, w, h]` —
-        for the Setup tab to crop and un-rotate its live feed to (see
-        CLAUDE.md's M4i note on the bin-box reorientation work). **The
-        SAME padded bounding box `core/dotcal.py`'s fine pass crops the
-        classifier to**, not a second computation of it: one ROI decision
-        per calibrated table, not two that could quietly disagree.
-
-        `None` before any homography exists — there is no table footprint
-        in camera space to crop to yet, and the Setup tab falls back to
-        the raw, uncropped feed exactly as it always has (M4.4).
-
-        **Display-only, by design (this session's coordinate-space
-        decision).** `H_cam->stage` keeps meaning what doc §5.3 says it
-        means — raw camera pixels to stage pixels — and every rect this
-        process stores or sends stays in raw camera space. This field
-        only tells the *browser* what to crop and flip for the operator
-        to look at; it never reaches the classifier, never reaches oF,
-        and nothing about how a rect is stored or matched changes because
-        it exists.
-        """
-        if g.h_inv is None:
-            return None
-        try:
-            bbox = geometry.apply_rect(g.h_inv, (0.0, 0.0) + tuple(g.stage_size))
-        except geometry.GeometryError:
-            return None
-        return [round(v, 1) for v in
-                dotcal.pad_rect(bbox, self.dotcal.roi_margin_px)]
 
     # -- the Bins tab (doc section 12.4, M2 build item 4) --------------------
 

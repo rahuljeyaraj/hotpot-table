@@ -5,13 +5,15 @@ Was `common/stub.py` from M0 through M4.1. From here on it is what doc
 section 3 gives `classifier`: it attaches to the shared-memory frame ring,
 sleeps until core wakes it, and does **all frame analysis that is not hand
 tracking**. Doc section 3.2's phrasing is the right mental model — this is
-"the vision process", and dot detection lives here for the same reason
-food classification does: core cannot touch a frame (I3) and camera must
-stay dumb.
+"the vision process". Camera-to-projector calibration is table geometry the
+operator places by hand (`core/geometry_store.fit_from_corners`) rather than
+anything detected from a frame — automated dot-projection calibration
+(`detect_dots`, formerly `classifier/dots.py`) was removed: it needed a
+dark, room-light-free rig this project never achieved (CLAUDE.md's
+M4h/M4i/M4j).
 
-Three of doc section 4.7's four commands are implemented here:
+Of doc section 4.7's commands, this process implements:
 
-    detect_dots   M4 build item 2 — `classifier/dots.py`, answered `dots`
     capture       M4 build item 7 — dataset crops, answered `captured`
     stop          cancels a live command
 
@@ -51,7 +53,6 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from hotpot.classifier import dots as dots_mod
 from hotpot.common import atomicio, config, framebus, health, log, wire
 
 _log = logging.getLogger("hotpot.classifier")
@@ -333,9 +334,7 @@ class Classifier:
 
     def _dispatch(self, msg: Dict[str, Any]) -> None:
         op = msg.get("op")
-        if op == "detect_dots":
-            self._detect_dots(msg)
-        elif op == "capture":
+        if op == "capture":
             self._capture(msg)
         elif op == "classify":
             # Doc section 19.4's backends and a trained model — M7. Said
@@ -349,75 +348,6 @@ class Classifier:
     def _error(self, msg: Dict[str, Any], text: str) -> None:
         self.send({"t": "result", "id": msg.get("id"), "op": msg.get("op"),
                    "ok": False, "error": text})
-
-    # -- detect_dots (doc section 4.7, M4 build item 2) --------------------
-
-    def _detect_dots(self, msg: Dict[str, Any]) -> None:
-        started = time.monotonic()
-        average = msg.get("average")
-        average = int(average) if isinstance(average, (int, float)) else 1
-        frame = (self.source.averaged_frame(average) if average > 1
-                 else self.source.frame())
-
-        # **ROI, doc CLAUDE.md's M4i fix.** `core/dotcal.py`'s fine pass
-        # sends the table's own footprint in camera pixels — derived from
-        # the coarse pass it just ran, not guessed — so a room lamp or
-        # anything else sitting outside the table never reaches the
-        # detector at all. `x0, y0` default to 0 so an absent `roi` (the
-        # coarse pass, which has no footprint yet to crop to) behaves
-        # exactly as before this existed.
-        x0 = y0 = 0
-        roi = msg.get("roi")
-        if isinstance(roi, (list, tuple)) and len(roi) == 4:
-            frame, x0, y0 = crop_rect(frame, roi)
-
-        kwargs: Dict[str, Any] = {}
-        if isinstance(msg.get("min_area"), (int, float)):
-            kwargs["min_area"] = float(msg["min_area"])
-        if isinstance(msg.get("max_area"), (int, float)):
-            kwargs["max_area"] = float(msg["max_area"])
-        if isinstance(msg.get("threshold"), (int, float)):
-            kwargs["threshold"] = int(msg["threshold"])
-        expect = msg.get("expect")
-        expect = expect if isinstance(expect, int) else None
-
-        # **The threshold-sweep + top-hat path (2026-08-12) is reverted —
-        # measured worse than a plain fixed threshold on the actual rig,
-        # same day.** Ground truth from a real coarse-pass frame (4 known
-        # corner dots): a fixed threshold of 150, top-4-by-area, found
-        # 4 of 4. `detect_best`'s sweep, with or without the top-hat, found
-        # 0-1 of 4 — its "longest stable run" tie-break was locking onto a
-        # tray reflection's plateau, not the dots'. `dots.detect_best` and
-        # `dots.flatten_background` are UNTOUCHED and still tested — the
-        # sweep by itself (no top-hat) correctly found all 15 fine-grid
-        # dots that same run — but the automatic combination is not
-        # trustworthy yet and is not wired in here. See CLAUDE.md's M4h/M4i
-        # entries before re-enabling either piece; it needs a background
-        # subtraction (pattern-frame minus black-field frame) or a
-        # table-cropped ROI to be safe against a lamp or a tray reflection
-        # outweighing a real dot, neither of which exists yet.
-        found = dots_mod.detect_dots(frame, **kwargs)
-        if x0 or y0:
-            # Points are camera-space by contract (doc §4.7's wire shape
-            # and §5.3's "camera-space rects are ground truth" both assume
-            # it) — the crop above must not leak into the reply as a
-            # second coordinate space nothing downstream expects.
-            for d in found:
-                d.x += x0
-                d.y += y0
-        _log.info("classifier: detect_dots %s", dots_mod.summarise(found, expect))
-        # Doc section 4.7's reply shape exactly: `{"t":"dots","id":..,
-        # "points":[[cx,cy],..],"ms":..}`. `expect` is echoed back because
-        # core matches the answer to the pass it asked for, and a reply
-        # that arrived late from a previous pass must be recognisable.
-        self.send({
-            "t": "dots",
-            "id": msg.get("id"),
-            "points": [d.as_list() for d in found],
-            "areas": [round(d.area, 1) for d in found],
-            "expect": expect,
-            "ms": round((time.monotonic() - started) * 1000.0, 1),
-        })
 
     # -- capture (doc sections 4.7, 12.7 — M4 build item 7) ----------------
 

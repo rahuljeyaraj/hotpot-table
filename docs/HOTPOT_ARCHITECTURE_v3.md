@@ -153,7 +153,7 @@ Never sum per-event deltas. Two absolute weights subtracted cannot bake in a dro
 2. **Nothing coloured, patterned, textured or animated ever reaches a cutout.** The objection this invariant was originally written against was real, but it was about a *coloured, patterned* image washing pink and white over the food — not about light as such. Flat white is neither. Fluid, gradients, grid lines, diagonals, text and low-stock tints are all excluded from the bin patches. §13.2 makes this structural rather than something to remember.
 3. **The rest of the table stays above a white floor**, bright enough that the back of the hand is always lit for the tracker. Colour is free above that floor; darkness is not. The floor and its mechanism are specified in §13.2.
 
-**The one exception is dot calibration** (`overlay.kind = "calibrating"`), which inverts completely: black field, white dots. The dots must stay separable from a white table top, and the solve runs the camera at a dark exposure to keep them that way — a white field there puts the dots on a background as bright as they are and the solve finds nothing. Calibration and food classification are both setting-mode activities but never run simultaneously, so the two lighting regimes never have to coexist.
+**There is no longer any exception.** M4.3's dot-projection calibration was the one thing that inverted the field completely (black field, white dots, a dark exposure to keep them separable), and it has been removed outright — replaced by a manual 4-corner tool (§12.6) that reads the already-lit field like every other setting-mode activity. See §24.1 for why the dot-pattern approach was abandoned rather than tuned further.
 
 **I10 — Camera near-vertical.** Hand-position error = hand height ÷ tan(elevation angle). At 40° a 100mm-high hand lands 119mm off — the wrong bin. At 80° it is 18mm. **The camera elevation angle has never been measured. It must be measured before M4.**
 
@@ -259,8 +259,7 @@ Notes that are not optional:
 - `rect` is in **stage space** (§5), always `[x, y, w, h]`.
 - `hl` ∈ `none | hover | picking | picked | lowstock | disabled`.
 - `mode` ∈ `serving | setting` (§9.1). Derived from the FSM state, never stored separately — two places that can disagree about which mode the table is in is the failure this field exists to prevent. oF defaults it to `serving` when absent, deliberately: a line that somehow lost the field must not paint `SETTING — NOT BILLING` over a table that is billing.
-- `overlay.kind` ∈ `none | recap | qr | calibrating | uncalibrated | error`.
-- **`calibrating` additionally carries `overlay.dots`**, a list of `[x, y, radius]` in stage space (M4.3). Core sends the *positions*, not a "draw the pattern" flag — I2 at its sharpest: if oF held the dot layout and core assumed it, one edit on either side would have core solving a homography against dots that were never where it thought they were, and the fit would report a beautiful error because it only ever sees core's copy of the pattern.
+- `overlay.kind` ∈ `none | recap | qr | uncalibrated | error`. **`calibrating` no longer exists** — it was M4.3's dot-projection wizard's black-field overlay, and both are gone (see §12.6, §24.1). `overlay.dots` is gone with it.
 - `bins` always has exactly 8 entries. An unresolved bin has `resolved:false`, an empty `label`, and bills nothing.
 
 ### 4.4 core → of, one-shot events
@@ -302,14 +301,17 @@ One datagram per camera frame, sent to both ports. Compact JSON — at 60Hz and 
 {"t":"cmd","id":17,"op":"classify","rects":[[x,y,w,h], ...8],"mode":"once"}
 {"t":"cmd","id":18,"op":"classify","rects":[...],"mode":"live","hz":2}
 {"t":"cmd","id":19,"op":"stop"}
-{"t":"cmd","id":20,"op":"detect_dots","expect":12,"min_area":40}
 {"t":"cmd","id":21,"op":"capture","rects":[...],"labels":["mushroom",...],"burst":5}
 ```
 ```json
 {"t":"result","id":17,"bins":[{"i":0,"label":"mushroom","conf":0.94},...],"ms":42}
-{"t":"dots","id":20,"points":[[cx,cy],...],"ms":18}
 {"t":"captured","id":21,"files":["datasets/captures/mushroom/17548384001.jpg",...]}
 ```
+
+**`detect_dots` no longer exists.** Automated dot-projection calibration
+was removed outright — it needed a dark, room-light-free rig this project
+never achieved (see CLAUDE.md's M4h/M4i/M4j) — in favour of the manual
+4-corner tool in §12.6. `classifier/dots.py` is deleted, not disabled.
 
 `rects` are **camera space** (§5) — the classifier never sees stage space.
 
@@ -346,11 +348,11 @@ This was an unresolved hole. It is now settled. Three spaces, one canonical.
 
 ### 5.2 Why stage space is canonical and not millimetres
 
-Millimetres would need a physical measurement to anchor. Stage space needs none: it is oF's un-keystoned framebuffer, and the projected-dot calibration produces a camera→stage homography **directly**, because the dots are drawn at known stage coordinates and then keystoned onto the table by the same warp that will carry the UI.
+Millimetres would need a physical measurement to anchor. Stage space needs none: it is oF's un-keystoned framebuffer, and the manual 4-corner tool (§12.6) produces a camera→stage homography **directly**, because the 4 stage corners are known fixed coordinates and the operator's clicks are matched against them after being keystoned onto the table by the same warp that will carry the UI.
 
 `H_cam→stage` therefore **implicitly contains the keystone**. This has one consequence that must be written into the staff view as a warning:
 
-> **Changing the keystone invalidates the camera→stage homography.** Re-run dot calibration after any keystone adjustment.
+> **Changing the keystone invalidates the camera→stage homography.** Re-run calibration after any keystone adjustment.
 
 ### 5.3 Who holds what
 
@@ -671,11 +673,6 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
              "host_for_browser":"localhost"},
   "tracker":{"model_complexity":1,"max_hands":2,"emit_hz":60,"mirror_handedness":false},
   "classifier":{"backend":"stub","model":"models/ingredients-x86_64.eim","live_hz":2},
-  "calibration":{"grid_cols":5,"grid_rows":3,"grid_inset_px":[164,100],
-             "dot_radius_px":13,"corner_dot_radius_px":24,
-             "min_dot_area_px":40,"max_dot_area_px":20000,
-             "match_gate_px":120,"ransac_reproj_px":3.0,"rms_warn_px":3.0,
-             "settle_s":0.6},
   "voice":  {"backend":"stub","model":"models/keywords-x86_64.eim","threshold":0.75,
              "enabled":false},
   "of":     {"stage":[1920,1080],"monitor_index":2,"fluid_sim_scale":4,"target_fps":60,
@@ -686,7 +683,11 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
 
 `camera.host_for_browser` is the config value that will bite on deploy day: in development the browser and the camera process are both on localhost; on the ODYSSEY, if the staff tablet is a different machine, this must be the board's LAN address. It exists as an explicit field precisely so it is visible rather than hardcoded. Note that the board has two 2.5 GbE ports and Wi-Fi, so "the LAN address" is genuinely ambiguous on this hardware — write the address of whichever interface the tablet is actually on, and see §1.4 on giving the tablet its own network rather than trusting a venue's.
 
-The `calibration` block is M4.3's dot pattern (§24.1) — every number in it is a decision made from the table's geometry rather than from a camera, and it is config precisely so the rig can disagree with it without a rebuild. `grid_rows: 2` drops the tight middle row.
+**The `calibration` block no longer exists.** It held M4.3's dot-pattern
+tuning (§24.1) — every number in it was a decision made from the table's
+geometry rather than from a camera. Automated dot-projection calibration
+was removed outright (see §24.1's note and CLAUDE.md's M4h/M4i/M4j); the
+manual 4-corner tool (§12.6) needs no tuning at all.
 
 `of.field_level` and `of.white_floor` are the two I9 knobs, and both are **measured on the rig, not chosen** (§6.6, §13.2). They are config rather than constants specifically so they can be swept without a rebuild. `field_level` is additionally mirrored into `state/camera_settings.json` at startup, because it belongs to the dataset's provenance as much as exposure does — config says what the rig is set to, that file says what the training images were taken under.
 
@@ -1025,7 +1026,7 @@ Restaurant-management surface. This is what makes the entry look like a product 
 
 ### 12.6 Tab: Setup
 
-- **Calibrate projector ↔ camera** (dot calibration wizard, §24.1). Big single button, then a progress line, then a result with the RMS error in pixels and a plain-language verdict. The verdict is **not** the RMS alone — see §24.1 on why a low error over five dots is a bad calibration.
+- **Set the table corners** — the only calibration path (§24.1's dot-projection wizard was removed outright; it needed a dark, room-light-free rig this project never achieved). The operator places the table's 4 real corners on the live camera feed and confirms; `GeometryStore.fit_from_corners` solves the homography from those 4 correspondences directly — no pattern to project, no detector, no dark room.
 - **Adjust bin rectangles** — drag the 8 rects on the live feed. Drag inside to move, drag the corner handle to resize. Undo. Save is explicit. Snap-to-grid was optional and is **not built** — nothing about a hand-dragged tray position wants quantising, and it would have been a setting to explain.
 - **Verify** — asks the operator: *"Are the outlines sitting on the trays?"* with **Yes** / **No**. **TRAP:** this human confirmation is the only verification of the homography's direction that can actually fail. Do not replace it with a reprojection check.
 
@@ -1057,7 +1058,7 @@ That premise no longer holds. In a dark room with the projector as the only ligh
 **How that is satisfied as built (M4.7), because "must drive the same path" is a rule about what the code does *not* contain:**
 
 - **The tab has no lighting control of any kind, and neither does core's capture handler.** There is nothing to keep in sync, so nothing can drift out of sync. The crops the operator previews are drawn from the *same* live `<img>` the Live and Setup tabs show, at the bin's own camera-space rect — same image, same rectangle, no second endpoint that could disagree.
-- **The one moment the field is not what serving mode shows is dot calibration's black-field inversion (I9), and a capture is refused outright while it is up.** That single check is what makes the rule unbreakable rather than merely written down. A burst overlapping a solve would write photographs of food in the dark, and they would look perfectly plausible sitting in a folder.
+- **There is no longer any moment the field differs from serving mode during setup.** Dot calibration's black-field inversion (I9) was the one exception, and it is gone along with the wizard that needed it — calibration is now the manual corner tool (§12.6), which reads the already-lit feed like every other tab. The refusal that used to guard a capture against overlapping a solve has been removed with it; there is nothing left for it to guard against.
 - **Setting mode is required** — not for the lighting (§14.5: "the field and the bin patches are identical to serving mode" in setting mode) but because the operator is reaching over trays, which in serving mode is a pick and would bill. Same reason §12.4's Tare and Calibrate need it.
 - **The rects come from the geometry store, not from the tablet**, so an un-saved drag can never reach the dataset.
 - The label selector defaults to the bin-map item's **`class_name`**, not its display name. §8.1's hidden-label rule runs the *other* way here than it does on the table: a training folder called "Fish Ball" is a folder the model can never emit a label for.
@@ -1307,7 +1308,7 @@ The headline is the only part a diner needs and is equally true of both; which o
 - The 100 mm calibration grid is drawn as **dark lines on the light field**, and is **masked out of the bin patches** — the light pass (§13.2) does this for free, but it is worth knowing why the grid appears to break at the cutouts. Dark lines crossing a cutout are exactly the patterned shadow I9 exists to prevent; that is not a rendering bug and must not be "fixed."
 - Fluid off plus a visible grid plus amber chrome plus a banner is still unmissable from across the room, which was the actual goal. Darkness was only ever one way to achieve it, and it was the one way that broke the classifier.
 
-**Dot calibration remains the exception** and inverts the field to black with white dots (I9). That is a distinct overlay state within setting mode, it never coincides with food classification, and it is the only time the table goes dark.
+**There is no longer any exception.** M4.3's dot-projection wizard was the one thing that inverted the field to black, and it has been removed outright (§12.6, §24.1) — the manual corner tool that replaced it reads the already-lit field like every other tab. The table never goes dark for calibration now.
 
 #### Banner precedence — a general rule, not a special case
 
@@ -1321,10 +1322,9 @@ Concretely, **`SETTING` wins over `error`.** Both are true at once the moment so
 
 | rank | state | why it sits there |
 |---|---|---|
-| 1 | `calibrating` | **Not a banner at all — it suppresses every banner, and this is a lighting rule, not a UI preference.** The field is inverted to black and the camera is at a dark exposure hunting bright blobs; a banner is a bright shape on a black field, which is precisely what `classifier/dots.py` is looking for. Anything drawn during a solve becomes a false dot. |
-| 2 | `uncalibrated` | Outranks `SETTING` because it is the more specific and more actionable statement, and because it *survives* setting mode: an operator who exits setting mode on an uncalibrated table still cannot serve (§9.1), and the banner has to keep saying so. `SETTING` would otherwise mask it for the whole time the operator is trying to fix it. Its own hue, **violet `#7c5cd6`** — a third state, not a variant of amber or red: it is neither a subsystem fault nor staff working on a table that is otherwise fine. Headline `NOT SERVING`, subline `not set up yet`. |
-| 3 | `setting` | The rule above. |
-| 4 | `error` | The rule above. |
+| 1 | `uncalibrated` | Outranks `SETTING` because it is the more specific and more actionable statement, and because it *survives* setting mode: an operator who exits setting mode on an uncalibrated table still cannot serve (§9.1), and the banner has to keep saying so. `SETTING` would otherwise mask it for the whole time the operator is trying to fix it. Its own hue, **violet `#7c5cd6`** — a third state, not a variant of amber or red: it is neither a subsystem fault nor staff working on a table that is otherwise fine. Headline `NOT SERVING`, subline `not set up yet`. |
+| 2 | `setting` | The rule above. |
+| 3 | `error` | The rule above. |
 
 `recap`/`qr` (M6) land on the same strip and are settled by the same rule.
 
@@ -1778,11 +1778,12 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 
 **Depends on:** M1 (oF can draw), M3 (frames exist).
 
-**Build:**
+**Build (as originally planned; build items 2-3 were later replaced —
+see the note below):**
 1. `common/geometry.py` — homography fit (`cv2.findHomography` with RANSAC), apply, invert. `core/geometry_store.py` — owns `H_cam→stage` and rects in both spaces (§5.3).
-2. `classifier/dots.py` — projected-dot detection: threshold, contour, centroid, area filter. Returns camera-space points.
-3. Dot calibration wizard: core tells oF to draw a known dot pattern (`overlay.kind = "calibrating"`), tells the classifier to detect, fits `H`, writes `state/homography.json` with `rms_px` and the keystone fingerprint (§8.5).
-4. Staff view **Setup tab** (§12.6) — the wizard, rect dragging on the live feed, save, and the **Verify** step.
+2. ~~`classifier/dots.py` — projected-dot detection~~ **removed.**
+3. ~~Dot calibration wizard~~ **removed.** Both needed a dark, room-light-free rig this project never achieved on the real hardware (CLAUDE.md's M4h/M4i/M4j) and were replaced with the manual 4-corner tool: the operator places the table's 4 real corners on the live feed and `GeometryStore.fit_from_corners` solves `H` directly against the 4 known stage corners — no pattern, no detector, no dark room (§12.6, §24.1).
+4. Staff view **Setup tab** (§12.6) — the corner tool, rect dragging on the live feed, save, and the **Verify** step.
 5. `state/bin_rects.json`, seeded from the old `bin_offsets.json` values converted to camera space.
 6. UNCALIBRATED state in the FSM (§9.1) — works from a fresh clone with an empty `state/`.
 7. Staff view **Capture tab** (§12.7) and `tools/export_edgeimpulse.py`.
@@ -1790,8 +1791,8 @@ Measure the **camera elevation angle** (I10). This has been open since Stage 1 a
 **TRAP, restated because this is where it lives:** do not verify the derived stage rects by reprojecting through the same `H`. That passes by construction regardless of direction. The Verify step projects the rects onto the physical table and asks a human whether they land on the trays. That is the only check that can fail.
 
 **Acceptance (human, on the rig):**
-- Fresh clone with empty `state/` boots to UNCALIBRATED; the table says so; the staff view opens on the wizard.
-- Run dot calibration → RMS error reported, under ~3 px.
+- Fresh clone with empty `state/` boots to UNCALIBRATED; the table says so; the staff view opens on the corner tool.
+- Place the 4 table corners and confirm → `state/homography.json` is written with sane values.
 - Drag the 8 rects on the feed, save, press Verify → the projected outlines sit on the real trays. Answer honestly.
 - Nudge the keystone → the staff view raises "calibration stale — keystone changed."
 - Capture 20 images per class and export → a folder-per-label tree ready to upload.
@@ -1968,7 +1969,7 @@ Note that several P3 items are nearly free once P1 exists — low-stock pulse is
 
 Everything else in this document is settled. These are not, and each is small enough to decide when it is reached:
 
-1. ~~**Exact dot pattern for calibration**~~ — **DECIDED at M4.3, but decided from the table's geometry rather than from a camera, because there was no rig in front of the implementation. Sanity-check it on real hardware.** The reasoning is in `core/dotcal.py`'s module docstring; the short version:
+1. ~~**Exact dot pattern for calibration**~~ — **SUPERSEDED, not merely decided.** M4.3's reasoning below is kept as a record of the design that was tried, not as live documentation — `core/dotcal.py` and `classifier/dots.py` were **deleted outright**, not disabled. Three real rig sessions (CLAUDE.md's M4h/M4i/M4j) hit a white-balance self-poisoning loop, a silent 180°-mount trap, a broken threshold sweep, and open-ended room-light contamination that this approach could not get past — it needs a dark, room-light-free rig this project never achieved. It was replaced by a manual 4-corner tool (§12.6): the operator places the table's 4 real corners on the live feed and `GeometryStore.fit_from_corners` solves `H` directly against the 4 known stage corners, with no pattern, no detector, and no dark room to fight. The paragraphs below describe the abandoned approach for anyone who finds a reference to it in old commits:
 
    - **Two passes.** Pass 1: four large dots at the corners of the usable area, used only to *order* pass 2. Pass 2: a 5×3 grid over the same rectangle, paired by projecting each expected position through pass 1's coarse homography and matching nearest-neighbour. The one-pass alternative is to sort the detected grid row-major, which works until the camera is a few degrees off square — at which point the rows interleave, the pairing goes off by one, and **the fit still reports an excellent RMS**. Ordering is the only step in the solve with no numerical safety net.
    - **15 points (5 × 3).** A homography has 8 DOF and needs 4 pairs; 15 leaves RANSAC room to drop a bad one. Denser grids buy little for a planar fit and risk dots merging under projector defocus into one blob in the wrong place.

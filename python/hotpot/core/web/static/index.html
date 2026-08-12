@@ -594,18 +594,28 @@
            happens in, and each says what it needs before it will run. -->
       <div class="setup-shell">
         <div class="setup-card">
-          <h2>Calibrate projector and camera</h2>
-          <p>The table goes dark and shows a pattern of white dots twice,
-             about five seconds in total. Nobody should be leaning over it
-             while this runs.</p>
+          <h2>Set the table corners</h2>
+          <!-- The only calibration path — automated dot-projection
+               calibration was removed (it needed a dark, room-light-free
+               rig this project never achieved; CLAUDE.md's M4h/M4i/M4j).
+               Tap the button, then click the 4 real table corners on the
+               live feed below, in this fixed order — never by where they
+               land on screen, which is what makes this immune to the
+               camera's 180-degree mount. -->
+          <p>Tap "Set table corners", then click the table's 4 real corners
+             on the live feed below, in this order: nearest you on the
+             left, nearest you on the right, far side on the right, far
+             side on the left.</p>
           <div class="setup-actions">
-            <button id="dotcalBtn" class="setup-btn primary">Calibrate</button>
+            <button id="cornersBtn" class="setup-btn primary">Set table corners</button>
+            <button id="cornersRedoBtn" class="setup-btn hide">Redo</button>
+            <button id="cornersConfirmBtn" class="setup-btn primary hide">Confirm</button>
           </div>
-          <div class="setup-status" id="dotcalStatus"></div>
+          <div class="setup-status" id="cornersStatus"></div>
           <div class="setup-facts">
             <div><span class="k">calibrated</span> <span id="geoCalibrated">—</span></div>
             <div><span class="k">average error</span> <span id="geoRms">—</span></div>
-            <div><span class="k">dots used</span> <span id="geoPoints">—</span></div>
+            <div><span class="k">points used</span> <span id="geoPoints">—</span></div>
             <div><span class="k">checked by eye</span> <span id="geoVerified">—</span></div>
           </div>
           <!-- Doc §8.5: oF reports its keystone fingerprint in `stat`;
@@ -616,25 +626,6 @@
             Calibration is stale — the projector keystone changed since this
             calibration was made. Run it again.
           </div>
-        </div>
-
-        <div class="setup-card">
-          <h2>Or: set the table corners by hand</h2>
-          <!-- The manual replacement for the dot pattern above: no dark
-               room, nothing detected. Tap the button, then click the 4
-               real table corners on the live feed below, in this fixed
-               order — never by where they land on screen, which is what
-               makes this immune to the camera's 180-degree mount. -->
-          <p>No dark room needed. Tap "Set table corners", then click the
-             table's 4 real corners on the live feed below, in this order:
-             nearest you on the left, nearest you on the right, far side
-             on the right, far side on the left.</p>
-          <div class="setup-actions">
-            <button id="cornersBtn" class="setup-btn primary">Set table corners</button>
-            <button id="cornersRedoBtn" class="setup-btn hide">Redo</button>
-            <button id="cornersConfirmBtn" class="setup-btn primary hide">Confirm</button>
-          </div>
-          <div class="setup-status" id="cornersStatus"></div>
         </div>
 
         <div class="setup-card">
@@ -1385,8 +1376,6 @@
   var setupPlaceholder = document.getElementById("setupPlaceholder");
   var setupCtx = setupOverlay.getContext("2d");
 
-  var dotcalBtn = document.getElementById("dotcalBtn");
-  var dotcalStatus = document.getElementById("dotcalStatus");
   var geoCalibrated = document.getElementById("geoCalibrated");
   var geoRms = document.getElementById("geoRms");
   var geoPoints = document.getElementById("geoPoints");
@@ -1425,22 +1414,22 @@
 
   // **The bin-box reorientation/cropping work, CLAUDE.md's M4i note.**
   // `cameraRoi` is `[x, y, w, h]` in camera pixels — the table's own
-  // footprint, sent by core once a homography exists (`geometry.
-  // camera_roi`, computed from the SAME padded bounding box `dotcal`'s
-  // fine pass crops the classifier's detector to). `null` until then, and
-  // the tab shows the raw feed exactly as it always has (M4.4) — there is
-  // no table footprint to crop to before the first solve.
+  // footprint. It was sent by core as `geometry.camera_roi`, computed from
+  // the table footprint automated dot calibration also cropped its
+  // detector to — that field is gone along with dot calibration (see this
+  // session's note in CLAUDE.md), so `cameraRoi` is always `null` for now
+  // and the tab shows the raw feed exactly as it did before M4i. The
+  // drag-corner tool that replaces this whole crop mechanism (a rotate
+  // control instead) is the next piece of work, not yet built.
   //
   // **Display-only, deliberately (this session's coordinate-space
   // decision, forced by doc §5.3).** `H_cam->stage` keeps meaning raw
   // camera pixels to stage pixels; `rects` below stay in raw camera space
   // on the wire exactly as doc §5.4 always required. This variable and
   // `toDisplay()`/`toCam()` below only change what the OPERATOR sees while
-  // dragging — cropped to the table and flipped right-way-up, since the
-  // camera is mounted 180 degrees (CLAUDE.md's M4i, `geometry.
-  // order_quad_marker_first`). Nothing computed from it is ever sent back
-  // to core; every rect still goes over the wire in the same raw
-  // camera-space pixels it always did.
+  // dragging. Nothing computed from it is ever sent back to core; every
+  // rect still goes over the wire in the same raw camera-space pixels it
+  // always did.
   var cameraRoi = null;
   var SETUP_FRAME_MS = 100;   // ~10fps; a redraw budget, not a promise —
                               // camera.mjpeg_fps (config, default 8) is
@@ -1737,7 +1726,7 @@
   // buttons rather than refused after the operator has done the work.
   function applySetupGating() {
     var on = mode === "setting";
-    [dotcalBtn, rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn, cornersBtn]
+    [rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn, cornersBtn]
       .forEach(function (b) {
         b.disabled = !on;
         b.title = on ? "" : NEEDS_SETTING_SETUP;
@@ -1753,13 +1742,6 @@
     if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
     currentWs.send(JSON.stringify(obj));
   }
-
-  dotcalBtn.addEventListener("click", function () {
-    if (dotcalBtn.disabled) return;
-    dotcalBtn.disabled = true;
-    setStatus(dotcalStatus, "Starting…", "busy");
-    sendSetup({ t: "calibrate_dots" });
-  });
 
   function cornersReset() {
     cornersPicking = false;
@@ -1837,16 +1819,6 @@
     if (verifyNoBtn.disabled) return;
     sendSetup({ t: "verify_rects", ok: false });
   });
-
-  function applyDotcalProgress(msg) {
-    setStatus(dotcalStatus, msg.message, "busy");
-  }
-
-  function applyDotcalResult(msg) {
-    dotcalBtn.disabled = mode !== "setting";
-    setStatus(dotcalStatus, msg.message,
-              msg.ok && msg.good ? "good" : "bad");
-  }
 
   function applyManualCalibrateResult(msg) {
     if (msg.ok) {
@@ -2184,8 +2156,6 @@
       else if (msg.t === "mode") applyMode(msg);
       else if (msg.t === "camera") applyCamera(msg);
       else if (msg.t === "geometry") applyGeometry(msg);
-      else if (msg.t === "dotcal_progress") applyDotcalProgress(msg);
-      else if (msg.t === "dotcal_result") applyDotcalResult(msg);
       else if (msg.t === "manual_calibrate_result") applyManualCalibrateResult(msg);
       else if (msg.t === "rects_result") applyRectsResult(msg);
       else if (msg.t === "capture_info") applyCaptureInfo(msg);

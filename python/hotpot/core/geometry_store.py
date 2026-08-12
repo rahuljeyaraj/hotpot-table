@@ -20,10 +20,10 @@ section 20.4) because a half-written homography does not fail visibly —
 it mis-places every rect and the light pass with it.
 
 **No cv2 anywhere in this file.** Fitting lives in `common/geometry.fit`
-and is called by `core/dotcal.py`; everything here is loading, applying
-and saving, so a core process on a machine with no OpenCV and no camera
-still boots, still knows whether it is calibrated, and still derives its
-stage rects.
+and is called by `fit_from_corners()` below; everything else here is
+loading, applying and saving, so a core process on a machine with no
+OpenCV and no camera still boots, still knows whether it is calibrated,
+and still derives its stage rects.
 
 **Doc section 5.3's TRAP lives here more than anywhere else.** There is no
 `verify()` on this class and there must not be one. Reprojecting
@@ -423,8 +423,8 @@ class GeometryStore:
         the code never has to guess, so it never has to get it wrong.
 
         Returns the `Fit` **unsaved** — installing it is `set_homography()`'s
-        job, the same split `core/dotcal.py`'s `_run()` uses for the dot
-        pattern's solve.
+        job; `core/main.py`'s `_handle_manual_calibrate` is the caller that
+        does both.
         """
         if len(cam_points) != 4:
             raise geometry.GeometryError(

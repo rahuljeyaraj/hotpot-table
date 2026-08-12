@@ -44,10 +44,10 @@ Rect = Tuple[float, float, float, float]
 
 # Doc section 21's M4 acceptance test wants "RMS error reported, under ~3
 # px", and the RANSAC inlier threshold is the same order of magnitude for
-# the same reason: a projected dot's centroid is good to about a pixel on
-# a well-focused rig, so a correspondence more than a few pixels off the
-# consensus is a mis-paired dot rather than a noisy one. Overridable —
-# `config.calibration.ransac_reproj_px` is what actually reaches this.
+# the same reason: a correspondence more than a few pixels off the
+# consensus is a mis-paired point rather than a noisy one. `fit()` accepts
+# an override, but nothing currently passes one — the manual 4-corner flow
+# (`GeometryStore.fit_from_corners`) always uses this default.
 DEFAULT_RANSAC_REPROJ_PX = 3.0
 
 # cv2's own default is 2000. Left explicit so a future "why is the fit
@@ -414,8 +414,9 @@ def order_quad_marker_first(points: Sequence[Point],
     cx = sum(p[0] for p in pts) / 4.0
     cy = sum(p[1] for p in pts) / 4.0
     # atan2 on a y-down axis increases clockwise on screen, which is the
-    # direction `dotcal.corner_points` lists the stage corners in, so the
-    # two rings run the same way round with no special-casing.
+    # direction the stage corners are conventionally listed in elsewhere in
+    # this codebase, so the two rings run the same way round with no
+    # special-casing.
     by_angle = sorted(range(4), key=lambda i: math.atan2(pts[i][1] - cy,
                                                          pts[i][0] - cx))
     if len({(round(p[0], 6), round(p[1], 6)) for p in pts}) != 4:
