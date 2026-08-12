@@ -108,6 +108,32 @@ PROBE_KEEP_ABOVE_FPS = 25.0
 # not a busy loop on a board with four cores and no spare one (doc 10.4).
 IDLE_SLEEP_S = 0.005
 
+# Developer feedback running M5 on the rig (2026-08-12): the cursor, drawn
+# at landmark 9's own stage position, sits under the hand's shadow and is
+# invisible most of the time — the projected field is the table's only
+# light (CLAUDE.md's "hard invariant"), so a hand over its own cursor
+# blocks it outright, it is not merely "partly covered". Shifted here,
+# upstream of both core's hit test and oF's rendering, so the visible dot
+# and whatever it is hovering never disagree — doc section 9.4: "core
+# hit-tests stage-space cursors against stage-space rects," the same
+# points oF draws. Direction is toward the far edge (smaller stage Y —
+# TableGeometry.h's "+y from far edge towards the diner"): this module's
+# own docstring establishes hands always reach in from the near edge, so
+# that is the one direction clear of the arm/hand behind the tracked
+# point, for every bin and every widget. Magnitude is deliberately less
+# than a full hand length (roughly a fingertip's reach from landmark 9,
+# the middle-finger MCP) so it does not overshoot a bin (255mm tall) or a
+# widget onto whatever is beyond it. **Not yet physically confirmed** —
+# first pass, chosen by reasoning, still owes a rig observation of the
+# cursor actually clearing a hand at the table edges.
+CURSOR_SHADOW_CLEARANCE_MM = 70.0
+
+# This rig's plywood (TableGeometry.h/geometry_store.py's TABLE_H_MM).
+# Duplicated rather than imported: this process does not import `core`
+# (doc's process separation), the same reason geometry_store.py's own
+# TABLE_W_MM/TABLE_H_MM are themselves a duplicate of TableGeometry.h's.
+_TABLE_H_MM = 914.4
+
 
 # ---------------------------------------------------------------------------
 # Frames
@@ -392,6 +418,11 @@ class TrackerProcess:
         answer "no bin" for it correctly; clamping would pile every
         out-of-range hand onto the border of the nearest bin.
         """
+        # CURSOR_SHADOW_CLEARANCE_MM converted to this stage's own Y scale —
+        # `stage` comes from core (doc section 5.3), not hardcoded, the same
+        # geometry_store.mm_to_stage does for the fixed TABLE_H_MM.
+        clearance_px = CURSOR_SHADOW_CLEARANCE_MM * stage[1] / _TABLE_H_MM
+
         out: List[Detection] = []
         for det in detections:
             try:
@@ -402,7 +433,7 @@ class TrackerProcess:
                 # to report, and reporting a huge number would be a cursor
                 # somewhere off in the corner of nothing.
                 continue
-            out.append(Detection(x=sx, y=sy, conf=det.conf,
+            out.append(Detection(x=sx, y=sy - clearance_px, conf=det.conf,
                                  handedness=det.handedness))
         return out
 

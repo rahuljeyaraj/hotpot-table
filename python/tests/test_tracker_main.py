@@ -153,9 +153,13 @@ class TestStageConversion(ProcCase):
         proc.tick(now=0.0)
         hand = sender.frames[0].hands[0]
         # Frame is 64px wide, input_width defaults to 480, so no downsample
-        # happens and scale is 1.0: (10,20) -> (2*10+100, 2*20+50).
+        # happens and scale is 1.0: (10,20) -> (2*10+100, 2*20+50), then the
+        # shadow-clearance offset (toward the far edge, smaller Y) is
+        # subtracted from Y only.
+        clearance_px = (tracker.CURSOR_SHADOW_CLEARANCE_MM * 1080.0
+                        / tracker._TABLE_H_MM)
         self.assertAlmostEqual(hand.x, 120.0)
-        self.assertAlmostEqual(hand.y, 90.0)
+        self.assertAlmostEqual(hand.y, 90.0 - clearance_px)
 
     def test_the_downsample_scale_is_undone_before_the_homography(self):
         # A 960px-wide frame downsampled to 480 halves every coordinate, so
@@ -172,8 +176,10 @@ class TestStageConversion(ProcCase):
         proc.apply_welcome({"homography_cam_to_stage": H_TEST})
         proc.tick(now=0.0)
         hand = sender.frames[0].hands[0]
+        clearance_px = (tracker.CURSOR_SHADOW_CLEARANCE_MM * 1080.0
+                        / tracker._TABLE_H_MM)
         self.assertAlmostEqual(hand.x, 2 * 200.0 + 100.0)
-        self.assertAlmostEqual(hand.y, 2 * 100.0 + 50.0)
+        self.assertAlmostEqual(hand.y, 2 * 100.0 + 50.0 - clearance_px)
 
     def test_a_hand_off_the_stage_is_reported_not_clipped(self):
         # A hand held past the table edge is a real hand at a real
