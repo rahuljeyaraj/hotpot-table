@@ -1564,9 +1564,11 @@ each build item recorded:
   the staff view opens on Setup.
 - Run dot calibration → the field actually inverts to black, the dots are
   actually visible to the camera at its dark exposure, and **the RMS comes
-  back under ~3 px**. Everything about the dot pattern is a reasoned
-  default derived from the table's geometry with no camera present — see
-  the M4.3 entry and doc §24.1.
+  back under ~3 px over at least 10 of the 15 dots**. Everything about the
+  dot pattern is a reasoned default derived from the table's geometry with
+  no camera present — see the M4.3 entry and doc §24.1. **First attempt
+  2026-08-12 failed at exactly this step (1.0 px over 6 dots, 4 not
+  found); see M4h below for the three fixes, none of them yet re-run.**
 - **Specifically check the middle dot row.** Its band is only 30 mm tall
   (the 442-472 mm row gap); a 13 px dot spans ~22 mm of it. If the
   projector's alignment is off by more than ~4 mm the dots clip the tray
@@ -1602,6 +1604,83 @@ of the dot-pattern reasoning holds.
   Not a mis-bill.
 - `dotcal.SETTLE_S` (0.6 s between showing a pattern and asking the
   classifier to look) is a guess with a rationale, not a measurement.
+
+### M4h — three fixes from the FIRST rig run of the wizard (2026-08-12)
+The run reported **"1.0 px average error, 6 of 15 dots used, 4 not
+found"** and a yellow cast on the Live tab. Three separate causes, all
+fixed, none of them visible from any amount of reading before somebody
+ran it. **Note what the good RMS was worth: 1.0 px over 6 dots was the
+worst calibration the rig could produce, and the number looked ideal.**
+
+**1. The white balance froze itself, and it was a loop, not a value.**
+`camera/capture.py` writes exposure/WB/focus to
+`state/camera_settings.json` after every open, and the next run reads
+that file back as `prior_settings` and applies it. Nothing recorded
+*which kind* of value it held. So: run 1 left auto-WB on (correctly —
+that was 2026-08-12's earlier fix) and read back 6500 K; main.py saved
+it; run 2 read it and turned auto-WB **off** to pin 6500 K under
+projector light. Daylight WB on a warm scene is exactly a yellow cast,
+and every run after inherited it, so the fault looked like the camera.
+`CaptureInfo.controls_locked` now records whether the backend actually
+put the device into manual mode, main.py writes it as `"locked"`, and
+both backends apply a prior only when it is set. **A file written before
+the flag existed reads as false**, so the poisoned one on disk stopped
+being applied without being deleted. The earlier fix was half of this;
+half a fix left the loop running.
+
+**2. The 180-degree trap came back, silently.** M4.3 dropped the marker
+dot and used `geometry.order_quad`, which labels the four corner blobs by
+where they sit *in the camera image*. **This rig's camera is mounted at
+180 degrees** — measured 2026-08-08, commit `b847c0f`, which added a
+marker dot to the then-current solver for precisely this. At 180 every
+corner pairs with its opposite, and **four points always fit a homography
+exactly, so the inverted answer comes back with ZERO error**. The fine
+pass then inherits the flip and matches happily. Nothing in the code
+could catch it; only the human Verify step, at the far end of the wizard.
+The coarse pass now draws corner 0 at radius 40 against 24;
+`geometry.identify_marker` finds it by area and refuses rather than
+guessing; `geometry.order_quad_marker_first` takes the cyclic order from
+angles about the centroid (rotation-invariant) and starts it at the
+marker. **`order_quad` is still in the tree with a warning on it — do not
+put it back into calibration.** The test that pins this probes a point
+the solver never saw: under the old pairing it lands 520 px away with
+`rms_px` still ~0.
+
+**3. The detector was weaker than the one it replaced, against numbers
+already measured on this rig.** `tools/calibration/solve_homography.py`
+is still in the repo and records: the plywood runs **~29 to ~58 grey
+across one frame**, while a dot sits only **~25-50 above whatever is
+under it**. Those ranges overlap — a dim dot on the dark end is darker
+than bare board on the bright end — so no single threshold finds them
+all. That is the "4 not found". Restored all three of the old solver's
+answers: a **white top-hat** to flatten the board (kernel must exceed the
+biggest dot or it eats the dot — core sizes it from the pattern, since
+the classifier is never told the dot size, I2); a **threshold sweep**
+choosing the level with the longest unbroken run at the expected count
+(the old solver let the homography break ties between levels; detection
+cannot fit anything, so stability breaks them instead); and **40-frame
+averaging**, because that file measured dot contrast as "the same order
+as this sensor's frame-to-frame noise. Averaging is what makes the outer
+dots separable at all."
+
+708 tests pass. New config: `calibration.marker_dot_radius_px`,
+`min_marker_ratio`, `tophat_scale`, `average_frames`. **oF is untouched
+and needs no rebuild** — per-dot radius was already the overlay payload's
+shape and already what `UiLayer::drawCalibrationDots` consumes.
+
+**NONE of this has been run on the rig.** Every fix is reasoned from the
+old solver's measurements plus the one failure line the wizard printed.
+Specifically unverified: whether the cast is actually gone, whether the
+40 px marker is separable at the camera's dark calibration exposure, and
+whether the sweep now finds all 15.
+
+**Still open from that run, not started:** the camera view is not square
+to the table edge, so the feed wants rectifying and cropping to the table
+plus a border. Nothing like that exists. **The design trap to settle
+first:** rects dragged on a rectified feed live in rectified space while
+`H` maps *raw* camera to stage — so either keep the rectification
+display-only, or compose it into `H`, but never half of each. It belongs
+with the bin-box selection work, which is the same screen.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
