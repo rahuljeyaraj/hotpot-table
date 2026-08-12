@@ -118,6 +118,7 @@ class CoreCase(unittest.TestCase):
         # and a test that saved one would silently move the rig's trays.
         self.h_path = os.path.join(self._cal_dir.name, "homography.json")
         self.g_path = os.path.join(self._cal_dir.name, "bin_grid_camera.json")
+        self.pg_path = os.path.join(self._cal_dir.name, "bin_grid_projector.json")
         self.v_path = os.path.join(self._cal_dir.name, "view_rotation.json")
         # **A CALIBRATED table by default (M4.6).** Doc section 9.1 boots
         # an empty `state/` to UNCALIBRATED, where nothing bills at all —
@@ -134,6 +135,7 @@ class CoreCase(unittest.TestCase):
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
             homography_path=self.h_path, camera_grid_path=self.g_path,
+            projector_grid_path=self.pg_path,
             view_rotation_path=self.v_path,
             scale_open_port=_no_serial_port)
         self._wire_clients = []
@@ -1070,12 +1072,13 @@ class TestMode(ScaleRig, CoreCase):
 
     def test_a_joining_tablet_is_told_the_mode_as_well_as_the_pips(self):
         """web/server.py's on_join takes a list (M2.6 build item 7). All
-        four messages, in order — without the second, a tablet that joins
+        five messages, in order — without the second, a tablet that joins
         mid-run renders the wrong action-bar button until someone touches
         something; without the third (M3 build item 3) the Live tab has no
         `<img>` src until the next full reconnect; without the fourth
         (M4 build item 3) the Setup tab cannot tell a calibrated table
-        from an uncalibrated one.
+        from an uncalibrated one; without the fifth (M4n) a projector-grid
+        editor has nothing to seed its fields from.
         """
         w = self.ws()
         first = self.recv_json(w)
@@ -1083,6 +1086,7 @@ class TestMode(ScaleRig, CoreCase):
         third = self.recv_json(w)
         fourth = self.recv_json(w)
         fifth = self.recv_json(w)
+        sixth = self.recv_json(w)
         self.assertEqual(first["t"], "pips")
         self.assertEqual(second["t"], "mode")
         self.assertEqual(second["mode"], "serving")
@@ -1090,9 +1094,10 @@ class TestMode(ScaleRig, CoreCase):
         self.assertIsNone(second["refused"])
         self.assertEqual(third["t"], "camera")
         self.assertEqual(fourth["t"], "geometry")
+        self.assertEqual(fifth["t"], "projector_grid")
         # M4 build item 7: without this the Capture tab has no rects to
         # crop previews from and no per-label counts.
-        self.assertEqual(fifth["t"], "capture_info")
+        self.assertEqual(sixth["t"], "capture_info")
 
     def test_a_tablet_joining_during_setting_mode_is_told_setting(self):
         w = self.ws()
@@ -1698,10 +1703,10 @@ class TestManualCalibrationOverTheWire(CoreCase):
 
     def test_the_join_seed_tells_a_tablet_the_geometry(self):
         ws = self.ws()
-        seeds = [self.recv_json(ws) for _ in range(5)]
+        seeds = [self.recv_json(ws) for _ in range(6)]
         kinds = {m["t"] for m in seeds}
         self.assertEqual(kinds, {"pips", "mode", "camera", "geometry",
-                                 "capture_info"})
+                                 "projector_grid", "capture_info"})
         geo_msg = next(m for m in seeds if m["t"] == "geometry")
         self.assertFalse(geo_msg["calibrated"])
         self.assertIsNone(geo_msg["h_lines"])
@@ -1825,7 +1830,7 @@ class TestSetupTabGrid(CoreCase):
         self.core.geometry.set_homography(self.CAM_TO_STAGE, rms_px=1.1,
                                           n_points=15)
         self.ws_ = self.ws()
-        for _ in range(5):
+        for _ in range(6):
             self.recv_json(self.ws_)
         self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
         self.drain_until("mode")
@@ -1951,6 +1956,166 @@ class TestSetupTabGrid(CoreCase):
         self.assertTrue(again.has_grid)
 
 
+class TestProjectorGrid(CoreCase):
+    """M4n: `bin_grid.py`'s second `BinGridStore`, aimed at
+    `self.projector_grid` instead of `self.camera_grid`. The three
+    handlers are `_handle_set_grid`/`_handle_seed_grid`/`_handle_verify_
+    grid`'s own template, so these tests are `TestSetupTabGrid`'s own
+    template — same cases, `_projector` message names, and one case that
+    class does not have: the projector grid, and only the projector grid,
+    is what reaches `state.bins[].rect`.
+
+    **No homography anywhere in this class.** Unlike `TestSetupTabGrid`,
+    setUp() does not install one — `bin_grid.py`'s docstring is explicit
+    that this grid needs none, and a test that installed one anyway could
+    hide a handler that wrongly required it.
+    """
+
+    calibrated_fixture = False
+
+    def setUp(self):
+        super().setUp()
+        self.ws_ = self.ws()
+        for _ in range(6):
+            self.recv_json(self.ws_)
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.drain_until("mode")
+
+    def drain_until(self, want, timeout=DEADLINE):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            msg = self.recv_json(self.ws_, timeout=deadline - time.monotonic())
+            if msg.get("t") == want:
+                return msg
+        self.fail(f"no {want} message arrived")
+
+    def grid(self, dx=0.0):
+        return {"h_lines": [200.0 + dx, 420.0 + dx, 600.0 + dx, 820.0 + dx],
+                "v_lines": [100.0 + dx, 400.0 + dx, 550.0 + dx, 850.0 + dx,
+                            1000.0 + dx, 1300.0 + dx, 1450.0 + dx, 1750.0 + dx]}
+
+    def test_saving_a_grid_writes_the_file_and_derives_rects(self):
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
+        reply = self.drain_until("grid_projector_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertTrue(self.core.projector_grid.has_grid)
+        self.assertTrue(all(r is not None for r in self.core.projector_grid.rects()))
+
+    def test_saving_needs_no_homography(self):
+        self.assertIsNone(self.core.geometry.h)
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
+        reply = self.drain_until("grid_projector_result")
+        self.assertTrue(reply["ok"], reply["message"])
+
+    def test_the_saved_grid_reaches_the_state_message_rect(self):
+        # This is the whole point of M4n: the camera grid never reaches
+        # `state.bins[].rect` (test_stage_rect_stays_none_on_the_state_
+        # message above) — the projector grid is what does.
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
+        self.drain_until("grid_projector_result")
+        msg = self.core._state_msg()
+        rect = msg["bins"][0]["rect"]
+        self.assertIsNotNone(rect)
+        self.assertEqual(rect, [round(v, 1) for v in
+                                self.core.projector_grid.rects()[0]])
+
+    def test_the_camera_grid_alone_does_not_reach_the_rect(self):
+        self.ws_.send(json.dumps({"t": "set_grid",
+                                  **{"h_lines": [1.0, 2.0, 3.0, 4.0],
+                                     "v_lines": [1.0, 2.0, 3.0, 4.0,
+                                                 5.0, 6.0, 7.0, 8.0]}}))
+        self.drain_until("grid_result")
+        msg = self.core._state_msg()
+        self.assertIsNone(msg["bins"][0]["rect"])
+
+    def test_saving_is_refused_in_serving_mode(self):
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "serving"}))
+        self.drain_until("mode")
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
+        reply = self.drain_until("grid_projector_result")
+        self.assertFalse(reply["ok"])
+        self.assertFalse(self.core.projector_grid.has_grid)
+
+    def test_a_short_line_list_is_refused(self):
+        bad = self.grid()
+        bad["v_lines"] = bad["v_lines"][:6]
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **bad}))
+        self.assertFalse(self.drain_until("grid_projector_result")["ok"])
+
+    def test_a_nan_line_is_refused(self):
+        bad = self.grid()
+        bad["h_lines"][2] = float("nan")
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **bad}))
+        self.assertFalse(self.drain_until("grid_projector_result")["ok"])
+        self.assertFalse(self.core.projector_grid.has_grid)
+
+    def test_a_crossed_line_pair_is_refused(self):
+        bad = self.grid()
+        bad["v_lines"][0], bad["v_lines"][1] = bad["v_lines"][1], bad["v_lines"][0]
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **bad}))
+        self.assertFalse(self.drain_until("grid_projector_result")["ok"])
+
+    def test_the_seed_lands_a_grid_without_saving(self):
+        self.ws_.send(json.dumps({"t": "seed_grid_projector"}))
+        reply = self.drain_until("grid_projector_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        pg = self.drain_until("projector_grid")
+        self.assertEqual(len(pg["h_lines"]), bin_grid.NUM_H_LINES)
+        self.assertEqual(len(pg["v_lines"]), bin_grid.NUM_V_LINES)
+        self.assertFalse(self.core.projector_grid.path.exists())
+
+    def test_a_seeded_but_unsaved_grid_still_reaches_the_state_rect(self):
+        # `_bin_msg` reads whatever is in memory, saved or not — the same
+        # rule the camera grid's rects() already followed before this
+        # class existed. A seed is the starting position an operator nudges
+        # from while watching the table move; it must be visible there
+        # immediately, not only after Save.
+        self.ws_.send(json.dumps({"t": "seed_grid_projector"}))
+        self.drain_until("grid_projector_result")
+        msg = self.core._state_msg()
+        self.assertIsNotNone(msg["bins"][0]["rect"])
+
+    def test_verify_records_a_human_answer(self):
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
+        self.drain_until("grid_projector_result")
+        self.assertIsNone(self.core.projector_grid.verified_at)
+        self.ws_.send(json.dumps({"t": "verify_grid_projector", "ok": True}))
+        self.drain_until("grid_projector_result")
+        self.assertIsNotNone(self.core.projector_grid.verified_at)
+
+    def test_a_no_answer_clears_it(self):
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
+        self.drain_until("grid_projector_result")
+        self.ws_.send(json.dumps({"t": "verify_grid_projector", "ok": True}))
+        self.drain_until("grid_projector_result")
+        self.ws_.send(json.dumps({"t": "verify_grid_projector", "ok": False}))
+        reply = self.drain_until("grid_projector_result")
+        self.assertIn("once more", reply["message"])
+        self.assertIsNone(self.core.projector_grid.verified_at)
+
+    def test_moving_the_grid_after_verifying_clears_the_verification(self):
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
+        self.drain_until("grid_projector_result")
+        self.ws_.send(json.dumps({"t": "verify_grid_projector", "ok": True}))
+        self.drain_until("grid_projector_result")
+        self.assertIsNotNone(self.core.projector_grid.verified_at)
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid(dx=30)}))
+        self.drain_until("grid_projector_result")
+        self.assertIsNone(self.core.projector_grid.verified_at)
+
+    def test_a_saved_grid_survives_a_reload(self):
+        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
+        self.drain_until("grid_projector_result")
+        again = bin_grid.BinGridStore(self.core.projector_grid.path)
+        self.assertTrue(again.has_grid)
+
+    def test_join_sends_a_projector_grid_message(self):
+        ws = self.ws()
+        msgs = [self.recv_json(ws) for _ in range(6)]
+        types = [m.get("t") for m in msgs]
+        self.assertIn("projector_grid", types)
+
+
 class TestCaptureTab(CoreCase):
     """M4 build item 7's server half, doc section 12.7.
 
@@ -1968,7 +2133,7 @@ class TestCaptureTab(CoreCase):
     def setUp(self):
         super().setUp()
         self.ws_ = self.ws()
-        for _ in range(5):
+        for _ in range(6):
             self.recv_json(self.ws_)
         self.sent_cmds = []
 
@@ -2080,7 +2245,7 @@ class TestCaptureTab(CoreCase):
         # Doc §12.7: "Each crop has a label selector defaulting to the
         # current bin-map item."
         ws = self.ws()
-        seeds = [self.recv_json(ws) for _ in range(5)]
+        seeds = [self.recv_json(ws) for _ in range(6)]
         info = next(m for m in seeds if m["t"] == "capture_info")
         self.assertEqual(len(info["rects"]), 8)
         self.assertEqual(len(info["labels"]), 8)
@@ -2124,7 +2289,7 @@ class TestUncalibratedBoot(CoreCase):
     def test_the_tablet_is_told_so_on_join(self):
         # Doc §9.1: "the staff view opens on the calibration wizard."
         ws = self.ws()
-        seeds = [self.recv_json(ws) for _ in range(5)]
+        seeds = [self.recv_json(ws) for _ in range(6)]
         mode = next(m for m in seeds if m["t"] == "mode")
         self.assertTrue(mode["uncalibrated"])
 
@@ -2167,7 +2332,7 @@ class TestUncalibratedBoot(CoreCase):
     def test_saving_the_geometry_completes_calibration_and_opens_the_table(self):
         self.core.geometry.set_homography(_FIXTURE_H, rms_px=1.0, n_points=15)
         ws = self.ws()
-        for _ in range(5):
+        for _ in range(6):
             self.recv_json(ws)
         ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
         deadline = time.monotonic() + DEADLINE
@@ -2203,7 +2368,7 @@ class TestUncalibratedBoot(CoreCase):
         calibration — restoring a backup, or M7 writing a bin map.
         """
         ws = self.ws()
-        for _ in range(5):
+        for _ in range(6):
             self.recv_json(ws)
         self.core.geometry.set_homography(_FIXTURE_H, rms_px=1.0, n_points=15)
         self.core.camera_grid.set_grid(_FIXTURE_H_LINES, _FIXTURE_V_LINES)

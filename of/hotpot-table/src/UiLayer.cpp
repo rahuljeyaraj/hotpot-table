@@ -249,30 +249,31 @@ ofRectangle UiLayer::cadBinRectPx(int i){
 }
 
 ofRectangle UiLayer::binRectPx(int i) const {
-	// **kUseCoreRects is a deliberate kill-switch, OFF — 2026-08-12.**
-	// Core's rect when there is one is normally used here (doc §5.3: core
-	// owns the bin rects in both spaces), with the CAD layout as the
-	// fallback for an uncalibrated table (M4 build item 6). But "core has
-	// a rect" and "core's rect is TRUSTWORTHY" are different claims, and
-	// the same day's rig run showed they can come apart in the worst way:
-	// `geometry.calibrated: true, rms_px: 0.0, n_points: 4` — a solve that
-	// LOOKS perfect while being computed from an unresolved 180-degree
-	// camera mount, doc §5.3's TRAP arriving exactly as warned. The result
-	// was projected squares landing nowhere near the real trays.
+	// **kUseCoreRects was a deliberate kill-switch, OFF from 2026-08-12
+	// through M4m; flipped back ON in M4n and now `_coreRects[i]` is the
+	// PROJECTOR grid, not the old rect this switch was built to distrust.**
 	//
-	// Forcing the CAD fallback here is not "no calibration" — it is
-	// falling back to the one geometry this file can vouch for without a
-	// homography: the table's own physical drawing. Visibly approximate,
-	// never visibly wrong, which is the whole reason M4 built the fallback
-	// this way in the first place.
-	//
-	// **Flip back to true only after a fresh dot calibration reports a
-	// real inlier count (not the marker-refusal / few-dots-agree failure
-	// this rig hit) AND a human has run the Verify step and answered
-	// honestly that the projected outlines sit on the real trays.** See
-	// CLAUDE.md's M4h/M4i entries. Until then this is the correct value,
-	// not a stopgap to feel bad about.
-	constexpr bool kUseCoreRects = false;
+	// The TRAP this switch guarded against was specific to the deleted
+	// dot-calibration flow: a value computed by fitting dots in CAMERA
+	// space, carried into stage space through a homography nobody had
+	// re-verified in the space it actually lands — `geometry.calibrated:
+	// true, rms_px: 0.0, n_points: 4`, a solve that LOOKS perfect while
+	// pointing nowhere near the real trays (doc §5.3's TRAP, arriving
+	// exactly as warned; see CLAUDE.md's M4h/M4i). Two things about that
+	// no longer hold for what `_coreRects` carries now. First, dot
+	// calibration is gone outright (CLAUDE.md's M4k) — nothing derives a
+	// bin position from a homography and a marker fit any more. Second,
+	// and load-bearing here: `bins[].rect` is `core/bin_grid.py`'s
+	// PROJECTOR grid (M4n), which by design has no homography in its
+	// chain at all — a human drags or nudges it while looking straight at
+	// THIS space, the real light on the real table, not at a proxy for
+	// it. "Core has a rect" and "core's rect is trustworthy" cannot come
+	// apart the way they did for the old rect, because nothing here is
+	// derived — every value core sends is a number a person put there by
+	// looking at the effect directly, the doc §5.3 TRAP's own cure. The
+	// CAD layout remains the fallback for the ordinary case this switch
+	// was never about: no projector grid has been set yet at all.
+	constexpr bool kUseCoreRects = true;
 	if(kUseCoreRects && _hasCoreRect[i]){
 		return _coreRects[i];
 	}

@@ -218,6 +218,7 @@ class Core:
         camera_port: int = CAMERA_PORT,
         homography_path: Path = geometry_store.HOMOGRAPHY_PATH,
         camera_grid_path: Path = bin_grid.CAMERA_GRID_PATH,
+        projector_grid_path: Path = bin_grid.PROJECTOR_GRID_PATH,
         view_rotation_path: Path = geometry_store.VIEW_ROTATION_PATH,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
@@ -313,6 +314,14 @@ class Core:
             homography_path=homography_path,
             view_rotation_path=view_rotation_path)
         self.camera_grid = bin_grid.BinGridStore(camera_grid_path)
+        # M4n: the second BinGridStore instantiation core/bin_grid.py's
+        # docstring always said was coming. Lines dragged (or nudged —
+        # there is no camera image to drag them on) while a human watches
+        # the ACTUAL PROJECTED TABLE, never derived from `camera_grid` or
+        # `self.geometry` — see bin_grid.py's module docstring on why the
+        # two grids must never be derived from each other. This is what
+        # `_bin_msg` now reads `rect` from for oF.
+        self.projector_grid = bin_grid.BinGridStore(projector_grid_path)
 
         # Doc section 8.5's staleness check needs oF's live fingerprint,
         # which arrives on the `stat` message (doc section 4.5). None
@@ -517,7 +526,8 @@ class Core:
         a joining tablet waits at most 100ms for it.
         """
         return [self._pips_msg(), self._mode_msg(), self._camera_msg(),
-                self._geometry_msg(), self._capture_msg()]
+                self._geometry_msg(), self._projector_grid_msg(),
+                self._capture_msg()]
 
     # -- the Live tab's MJPEG source (doc §12.3, §5.4 — M3 build item 3) ----
 
@@ -622,6 +632,15 @@ class Core:
             return
         if t == "verify_grid":
             self._handle_verify_grid(msg)
+            return
+        if t == "set_grid_projector":
+            self._handle_set_grid_projector(msg)
+            return
+        if t == "seed_grid_projector":
+            self._handle_seed_grid_projector()
+            return
+        if t == "verify_grid_projector":
+            self._handle_verify_grid_projector(msg)
             return
         if t == "capture":
             self._handle_capture(msg)
@@ -1120,6 +1139,127 @@ class Core:
                             "message": message})
         self.web.broadcast(self._geometry_msg())
 
+    # -- the projector grid (M4n — bin_grid.py's second BinGridStore) ------
+    #
+    # The camera grid's three handlers above are the template these three
+    # follow, deliberately — same message shape, same setting-mode gate,
+    # same "Save is explicit" rule. What is genuinely different: there is
+    # no rectified picture to drag a line on top of, because this grid
+    # needs no camera at all (bin_grid.py's docstring). So `set_grid_
+    # projector` doubles as both "drag" and "Save" — a tablet has no local
+    # canvas to hold a pending edit in, so every line change it sends is
+    # already final, and it reaches oF on the very next ~16ms state tick
+    # (`_bin_msg` below), which is the only "preview" this grid can have:
+    # watching the real light move on the real table.
+
+    def _handle_set_grid_projector(self, msg: Dict[str, Any]) -> None:
+        """Doc section 12.6/12.7's future projector-space twin, per
+        `bin_grid.py`'s docstring: "dragged by watching the actual light
+        on the actual table, no camera, no homography, closing its own
+        Verify loop independently." Validation, gating and the result
+        message are byte-for-byte `_handle_set_grid`'s, aimed at
+        `self.projector_grid` instead of `self.camera_grid`.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "grid_projector_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        h_lines = msg.get("h_lines")
+        v_lines = msg.get("v_lines")
+        if (not isinstance(h_lines, list) or len(h_lines) != bin_grid.NUM_H_LINES
+                or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                           and math.isfinite(v) for v in h_lines)):
+            self.web.broadcast({
+                "t": "grid_projector_result", "ok": False,
+                "message": f"Expected {bin_grid.NUM_H_LINES} horizontal "
+                           "line positions."})
+            return
+        if (not isinstance(v_lines, list) or len(v_lines) != bin_grid.NUM_V_LINES
+                or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                           and math.isfinite(v) for v in v_lines)):
+            self.web.broadcast({
+                "t": "grid_projector_result", "ok": False,
+                "message": f"Expected {bin_grid.NUM_V_LINES} vertical "
+                           "line positions."})
+            return
+        try:
+            self.projector_grid.set_grid([float(v) for v in h_lines],
+                                         [float(v) for v in v_lines])
+            self.projector_grid.save()
+        except bin_grid.BinGridError as e:
+            self.web.broadcast({"t": "grid_projector_result", "ok": False,
+                                "message": str(e)})
+            return
+        self.web.broadcast({"t": "grid_projector_result", "ok": True,
+                            "message": "Projector grid saved."})
+        self.web.broadcast(self._projector_grid_msg())
+
+    def _handle_seed_grid_projector(self) -> None:
+        """A starting position to nudge from — the same CAD/legacy line
+        arithmetic `_handle_seed_grid` puts on the rectified feed, put on
+        the real table instead (`_bin_msg` below sends it to oF the moment
+        it lands in memory, saved or not, same as every other in-memory
+        grid edit). Not saved, for the same reason `_handle_seed_grid`
+        does not save.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "grid_projector_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        self.projector_grid.seed_from_table()
+        self.web.broadcast({
+            "t": "grid_projector_result", "ok": True,
+            "message": ("Starting positions loaded from the measured table "
+                        "layout. Watch the table and nudge the lines onto "
+                        "the trays, then Save.")})
+        self.web.broadcast(self._projector_grid_msg())
+
+    def _handle_verify_grid_projector(self, msg: Dict[str, Any]) -> None:
+        """Doc section 5.3's TRAP, closed the way this grid was designed
+        to close it (`bin_grid.py`'s docstring: "closing its own Verify
+        loop independently"): the operator is looking at the real table,
+        lit by the real projector, so there is nothing to reproject and
+        nothing to check here beyond recording the answer — same rule as
+        `_handle_verify_grid`.
+        """
+        if not self._in_setting():
+            self.web.broadcast({"t": "grid_projector_result", "ok": False,
+                                "message": NOT_IN_SETTING_MSG})
+            return
+        ok = bool(msg.get("ok"))
+        if ok:
+            self.projector_grid.mark_verified()
+            message = "Recorded — the outlines are on the trays."
+        else:
+            self.projector_grid.clear_verified()
+            message = "Recorded. Nudge the grid lines and check once more."
+        try:
+            if self.projector_grid.has_grid:
+                self.projector_grid.save()
+        except bin_grid.BinGridError as e:
+            self.web.broadcast({"t": "grid_projector_result", "ok": False,
+                                "message": str(e)})
+            return
+        self.web.broadcast({"t": "grid_projector_result", "ok": True,
+                            "message": message})
+        self.web.broadcast(self._projector_grid_msg())
+
+    def _projector_grid_msg(self) -> Dict[str, Any]:
+        """What a staff-view projector-grid editor needs on join and after
+        every change. No homography fields — unlike `_geometry_msg`, this
+        grid was never solved from anything.
+        """
+        pg = self.projector_grid
+        return {
+            "t": "projector_grid",
+            "has_grid": pg.has_grid,
+            "verified_at": pg.verified_at,
+            "h_lines": (None if pg.grid is None
+                       else [round(v, 1) for v in pg.grid.h_lines]),
+            "v_lines": (None if pg.grid is None
+                       else [round(v, 1) for v in pg.grid.v_lines]),
+        }
+
     # -- the Capture tab (doc section 12.7 — M4 build item 7) --------------
 
     def _handle_capture(self, msg: Dict[str, Any]) -> None:
@@ -1470,15 +1610,15 @@ class Core:
             )["amount"]
         else:
             label, sub, price = "", "", 0.0
-        # Doc section 5.3: "core pushes … stage-space rects to oF". Always
-        # `None` for now — the projector grid that will fill this in is a
-        # later, separate step (core/bin_grid.py's docstring: the camera
-        # grid this process now owns is NOT that grid, and the two are
-        # never derived from each other). `None` reaches oF the same way
-        # an uncalibrated table always has, so it falls back to
+        # Doc section 5.3: "core pushes … stage-space rects to oF" — from
+        # `self.projector_grid` (M4n), never `self.camera_grid`: that one
+        # feeds the classifier and core's own hand hit test, and the two
+        # grids are never derived from each other (core/bin_grid.py's
+        # docstring). `None` until a human has put something in the
+        # projector grid, same as it always has been — oF falls back to
         # TableGeometry.h's CAD layout rather than drawing eight plates at
-        # the origin — unchanged behaviour, not a regression.
-        stage_rect = None
+        # the origin.
+        stage_rect = self.projector_grid.rects()[i]
         return {
             "i": i,
             "label": label,

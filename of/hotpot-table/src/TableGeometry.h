@@ -6,14 +6,16 @@
 //
 // M1.4 note: this is the CAD layout only — no per-line nudge, no
 // bin_offsets.json. v3 §7.1 keeps the *measured* offsets, but as the seed
-// for core's state/bin_rects.json (M4 build item 5), not as something oF
-// applies to itself; oF has no way to hit-test a hand against a bin any
-// more (that moved to core's FSM at M5), so the alignment tool that used
-// to serve that hit test moved out with it. Until M4, UiLayer and Stage
-// use the raw CAD rects below for the 8 plates and the light-pass cutouts
-// — everywhere the doc would otherwise have oF read stage-space rects out
-// of `state`, which core does not send yet (confirmed against core/main.py's
-// actual _bin_msg — no `rect` field is on the wire in M1).
+// for core's bin grids (core/bin_grid.py, M4m/M4n — state/bin_grid_camera
+// .json and state/bin_grid_projector.json), not as something oF applies to
+// itself; oF has no way to hit-test a hand against a bin any more (that
+// moved to core's FSM at M5), so the alignment tool that used to serve
+// that hit test moved out with it. The raw CAD rects below remain the
+// fallback for the 8 plates and the light-pass cutouts whenever core has
+// not sent a projector-grid rect for a bin yet (UiLayer::binRectPx) — as
+// of M4n core DOES put one on the wire, in `state.bins[].rect`, once a
+// human has set the projector grid; before that this file is still what
+// draws.
 
 // Plywood top: 60 x 36 inches.
 // constexpr rather than const so the bin layout below can be checked against

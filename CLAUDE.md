@@ -13,7 +13,7 @@ Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
 Current milestone: **M4 (calibration and dataset capture)**, but its
 calibration approach changed after the "code-complete" line below was
-written — **read M4k and M4l (near the end of the M4 section, just
+written — **read M4k through M4n (near the end of the M4 section, just
 before "FIXED") before the M4.1-M4.7 build-item entries or the old
 "STILL OWED FROM M4" list, both of which describe the deleted
 dot-projection wizard.** Dot calibration was removed outright on
@@ -21,13 +21,16 @@ dot-projection wizard.** Dot calibration was removed outright on
 been run in a real browser against a real camera (M4l) — the first M4
 work to be, and it immediately surfaced 4 real bugs, 3 fixed same-day,
 one (the bin-rect editor's own reorientation) explicitly deferred to a
-**"bin boxes"** session, not yet started. Nothing in M4 has been run
-against a real projector. M3 (camera) is also code-complete and also
-still owes its acceptance test on the rig.
+**"bin boxes"** session, done same day as M4m (below). M4n (2026-08-12)
+built the projector grid `core/bin_grid.py` always said was coming and
+flipped oF's `kUseCoreRects` switch back on to read it — **still nothing
+in M4 has been run against a real projector or a real oF build**; M4n's
+own section says exactly what is and is not verified. M3 (camera) is
+also code-complete and also still owes its acceptance test on the rig.
 The paragraph below (M4's 7 build items, from before the dot-calibration
 deletion) is kept as a record of that milestone's original shape —
 **every mention of dot projection, `calibrating`, or `classifier/dots.py`
-in it is stale; M4k/M4l are current.**
+in it is stale; M4k/M4l/M4m/M4n are current.**
 Next milestone per the doc's dependency graph: M5 (tracker, hover, dwell)
 — but note it depends on M4's homography being *real*, not merely
 computed, so M4's acceptance test is on M5's critical path in a way M3's
@@ -2232,6 +2235,120 @@ hand-hit-test against the camera grid. `core/bin_grid.py`'s `BinGridStore`
 and `BinGrid` are already generic enough that the projector grid should be a
 second instantiation plus an oF-side reader, not a redesign — that is the
 next session's starting point.
+
+## M4n — the projector grid: `BinGridStore`'s second instantiation, wired
+to oF (2026-08-12)
+Answers M4m's own "next session's starting point" note, exactly as scoped
+there: a second `BinGridStore` instantiation plus an oF-side reader, not a
+redesign. `core/bin_grid.py` needed zero code changes — it was already
+generic enough, per its own docstring.
+
+- `core/main.py`: `self.projector_grid = bin_grid.BinGridStore(
+  projector_grid_path)` sits beside `self.camera_grid`, neither knowing
+  about the other, matching `bin_grid.py`'s "never derived from each
+  other" rule. Three new wire handlers, `set_grid_projector`/
+  `seed_grid_projector`/`verify_grid_projector`, are `_handle_set_grid`/
+  `_handle_seed_grid`/`_handle_verify_grid`'s own template aimed at the
+  new store, replying `grid_projector_result` — same setting-mode gate,
+  same validation, same "Save is explicit" rule. `_bin_msg`'s `rect` field,
+  hardcoded `None` since M1, now reads `self.projector_grid.rects()[i]` —
+  **this is the one line M4n exists to change.** A new `_projector_grid_msg()`
+  (`t: "projector_grid"`, no homography fields — this grid was never
+  solved from anything) is sent on join and after every change.
+- **One design call worth flagging, not asked about first because it
+  follows directly from a rule already on the books:** whether `_bin_msg`
+  should gate on `projector_grid.verified_at` rather than plain `has_grid`,
+  the way the old dot-calibration-derived rect arguably should have.
+  Decided against — `has_grid` is what every other consumer in this
+  codebase gates on (`_handle_capture`, `_check_calibration_complete`),
+  `verified_at` is documented everywhere else as a human-confidence flag
+  that must never become a functional gate (`_handle_verify_grid`'s own
+  docstring), and unlike the old rect, nothing here is *derived*: a
+  human types a number while looking directly at the table it moves on,
+  which is the doc §5.3 TRAP's own cure, not a new instance of it. Also
+  practical: gating on `verified_at` would have broken the live-nudge
+  workflow the projector grid exists for — `seed`/`set` update the
+  in-memory grid immediately and `_bin_msg` reads it on the very next
+  ~16ms state tick, which is the only "preview" a no-camera grid can have
+  (watching the real light move). Gating that preview on a verification
+  that can only happen *after* someone has watched it move would be
+  circular.
+- `of/hotpot-table/src/UiLayer.cpp`: `kUseCoreRects` — OFF since
+  2026-08-12 as a kill-switch against the dot-calibration TRAP
+  (`geometry.calibrated: true, rms_px: 0.0, n_points: 4` computed from an
+  unresolved camera mount) — is flipped back to `true`. The switch's
+  original justification no longer applies to what `_coreRects` carries:
+  dot calibration is deleted outright (M4k) and the projector grid has no
+  homography in its chain at all, so "core has a rect" and "core's rect
+  is trustworthy" cannot come apart the way they did for the old one. The
+  comment at the switch is rewritten to explain this rather than just
+  flipping the bool silently — read it before touching this again.
+  `TableGeometry.h`'s top comment (referencing the long-gone
+  `state/bin_rects.json`) is also corrected to describe the two current
+  grids and when oF actually uses a core-sent rect vs. its own CAD
+  fallback.
+- Staff view (`index.html`): a fourth Setup-tab card, **Projector grid**,
+  below Verify. No canvas — per `bin_grid.py`'s docstring there is no
+  camera image to drag a line onto, so this is 12 plain number inputs (4
+  rows, 8 columns, labelled by bin_grid.py's own line order) plus Save /
+  Load measured layout / Verify Yes-No, following the camera grid card's
+  buttons one-for-one. Gated on setting mode only — **not** on confirmed
+  table corners, which the camera grid card needs and this one does not.
+  A `pgDirty` flag (typing's equivalent of the camera grid's `gridDrag`)
+  stops an incoming `projector_grid` broadcast from overwriting a field
+  mid-keystroke, cleared on Save, on Seed, and on leaving setting mode
+  (so an abandoned edit is not carried into the next session as a stuck
+  flag that blocks every future broadcast from ever populating the
+  fields).
+- 15 new tests in a new `TestProjectorGrid` class (`test_core_main.py`),
+  built as `TestSetupTabGrid`'s own template with no homography installed
+  in `setUp()` at all (deliberately — a test that installed one anyway
+  could hide a handler that wrongly required it). Two cases that class
+  does not have: `test_the_saved_grid_reaches_the_state_message_rect`
+  and its mirror `test_the_camera_grid_alone_does_not_reach_the_rect`,
+  which is the M4m-era `test_stage_rect_stays_none_on_the_state_message`
+  still passing unchanged — the camera grid still never reaches
+  `state.bins[].rect`, only the projector grid does now. Also
+  `test_a_seeded_but_unsaved_grid_still_reaches_the_state_rect`, which is
+  the live-nudge-preview design decision above, made falsifiable. Adding
+  a sixth join message (`projector_grid`, between `geometry` and
+  `capture_info`) broke three pre-existing tests that hardcoded the join
+  seed's message count or fixed positions
+  (`test_a_joining_tablet_is_told_the_mode_as_well_as_the_pips`,
+  `test_the_join_seed_tells_a_tablet_the_geometry`,
+  `test_the_join_seed_carries_the_capture_tabs_defaults`) — all three
+  updated to expect six, not five, and every other `for _ in range(5):`
+  join-drain loop in the file bumped to 6 for the same reason, even where
+  the extra unread message would have been harmless (later code filters
+  by type). 697 tests pass, `python -m unittest discover -s python/tests`.
+  `node --check` on the extracted `<script>` block, plus a small script
+  cross-checking every `getElementById` call against the HTML's actual
+  ids — no drift.
+
+**What is NOT verified, and matters more here than in most sessions,
+because this change flips a switch the previous session deliberately
+left off:**
+- **No real projector, no real camera, no real table.** Everything above
+  is reasoned from code, unit tests, and a syntax check — the same honest
+  gap M4l and M4m both flagged for their own UI work before a real pass
+  caught bugs static checks could not. A human has never dragged this
+  card, never watched a rect move on the actual table, and never run
+  Verify against real light.
+- **The oF build was only compile-verified, not link-verified.** Debug
+  x64 msbuild compiled every changed file (`UiLayer.cpp`, `ofApp.cpp`)
+  with 0 errors, twice. The link step failed both times because
+  `bin\hotpot-table_debug.exe` was held open by a running instance that
+  `run.py`'s supervisor immediately respawned after it was closed once
+  (with the developer's confirmation) — stopping the supervisor stack
+  itself to force a clean link was not asked for and was not done. A full
+  clean build producing a fresh `hotpot-table_debug.exe` is still owed
+  before `kUseCoreRects = true` is trusted on the rig.
+- **`verify_grid_projector` recording an answer is not the same claim as
+  the grid being right**, same as it has never been for the camera grid —
+  see `_handle_verify_grid_projector`'s own docstring.
+
+**Still not built, unchanged from M4m's own list:** M5's hand-hit-test
+against the camera grid.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

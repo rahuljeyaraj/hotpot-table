@@ -28,10 +28,11 @@ positions, matching the physical layout (2 rows of 4 bins) — and there are
   of the same coordinate lights — see `common/geometry.warp_frame_to_stage`).
   This is the grid MediaPipe, the classifier's crop, and core's
   hand-entered-bin hit test all read. It needs the camera.
-- `state/bin_grid_projector.json` (not built by this module yet — a later
-  step) — lines dragged while watching the actual light on the actual
-  table. This is the grid oF's ring/cutout/fluid interactions read. It
-  needs no camera at all.
+- `state/bin_grid_projector.json` (M4n) — lines dragged (nudged: there is
+  no camera image to drag on) while watching the actual light on the
+  actual table. This is the grid oF's ring/cutout/fluid interactions
+  read (`core/main.py`'s `_bin_msg` sends its rects as `state.bins[].rect`).
+  It needs no camera at all.
 
 Both nominally address the same 1920x1080 canvas (`geometry_store.STAGE_SIZE`),
 which is why `cad_bin_grid_stage()`/`legacy_bin_grid_stage()` below are a
@@ -227,8 +228,10 @@ def legacy_bin_grid_stage(offsets: Optional[Dict[str, Any]] = None,
 
 
 # ---------------------------------------------------------------------------
-# The store — one grid, one file. Instantiated once for the camera grid
-# today; the projector grid (a later step) is the same class again.
+# The store — one grid, one file. Instantiated twice by `core/main.py`
+# (M4n): once for the camera grid, once for the projector grid
+# (`state/bin_grid_projector.json`), same class both times, each store
+# knowing nothing about the other.
 # ---------------------------------------------------------------------------
 
 class BinGridStore:
