@@ -983,6 +983,7 @@ The **action bar** stays fixed to the bottom, above the developer panel, on ever
 - Overlay draws: the 8 bin rects, each labelled with the item name, live grams, and — when the classifier is running — the label and confidence.
 - A hand marker for each tracked hand, with the pointer drawn differently from ambient.
 - Toggle chips: `rects · labels · weights · hands · dots`.
+- **As built (M4l): once the table's corners are confirmed (§12.6), this tab shows the same flattened, top-down rectangle the Setup tab's resting view does**, not the raw feed — the `<img>` is hidden and the canvas draws `drawRectifiedPreview` instead, reusing the Setup tab's own geometry helper and confirmed-corners state rather than a second implementation, so the two tabs can never disagree about what "flattened" looks like. Before corners are confirmed, this tab is unchanged (raw feed, canvas transparent).
 
 ### 12.4 Tab: Bins
 
@@ -1026,7 +1027,7 @@ Restaurant-management surface. This is what makes the entry look like a product 
 
 ### 12.6 Tab: Setup
 
-- **Set the table corners** — the only calibration path (§24.1's dot-projection wizard was removed outright; it needed a dark, room-light-free rig this project never achieved). The operator places the table's 4 real corners on the live camera feed and confirms; `GeometryStore.fit_from_corners` solves the homography from those 4 correspondences directly — no pattern to project, no detector, no dark room.
+- **Set the table corners** — the only calibration path (§24.1's dot-projection wizard was removed outright; it needed a dark, room-light-free rig this project never achieved). **"Set table corners" hides itself once tapped**, replaced by **Cancel** and **Confirm** — a persistent draggable quad, not a click sequence, with 4 fixed-role handles (near-left/near-right/far-right/far-left, never inferred from where a drag ends up, immune to the camera's mount angle) and a ~4x magnifier while a handle is held. Cancel discards the drag with nothing sent to core; Confirm sends all 4 points and `GeometryStore.fit_from_corners` solves the homography from those correspondences directly — no pattern to project, no detector, no dark room. **The feed shown while dragging is the camera's own real, unmodified orientation — there is no rotate/display-transform control.** The operator reads physical near/far/left/right off the real table itself, the same principle the fixed roles already rely on. **Once corners are confirmed, both this tab's resting view and the Live tab (§12.3) switch to a flattened, top-down rectangle** (`drawRectifiedPreview`, a display-only affine warp of the 4 confirmed points — independent of the real projective `H_cam→stage`; nothing about the homography or `set_rects` changes because of it).
 - **Adjust bin rectangles** — drag the 8 rects on the live feed. Drag inside to move, drag the corner handle to resize. Undo. Save is explicit. Snap-to-grid was optional and is **not built** — nothing about a hand-dragged tray position wants quantising, and it would have been a setting to explain.
 - **Verify** — asks the operator: *"Are the outlines sitting on the trays?"* with **Yes** / **No**. **TRAP:** this human confirmation is the only verification of the homography's direction that can actually fail. Do not replace it with a reprojection check.
 

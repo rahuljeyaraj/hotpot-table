@@ -11,12 +11,23 @@ It is authoritative. This file is only status + rules.
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
-Current milestone: **M4 (calibration and dataset capture) — all 7 build
-items are code-complete** (2026-08-12) — see the M4 section at the bottom
-of this file, and **the OWED list at the end of it**, which is long and
-is entirely physical: nothing in M4 has been run against a real camera, a
-real projector, or a real browser. M3 (camera) is also code-complete and
-also still owes its acceptance test on the rig.
+Current milestone: **M4 (calibration and dataset capture)**, but its
+calibration approach changed after the "code-complete" line below was
+written — **read M4k and M4l (near the end of the M4 section, just
+before "FIXED") before the M4.1-M4.7 build-item entries or the old
+"STILL OWED FROM M4" list, both of which describe the deleted
+dot-projection wizard.** Dot calibration was removed outright on
+2026-08-12 and replaced by a manual 4-corner drag tool, which has now
+been run in a real browser against a real camera (M4l) — the first M4
+work to be, and it immediately surfaced 4 real bugs, 3 fixed same-day,
+one (the bin-rect editor's own reorientation) explicitly deferred to a
+**"bin boxes"** session, not yet started. Nothing in M4 has been run
+against a real projector. M3 (camera) is also code-complete and also
+still owes its acceptance test on the rig.
+The paragraph below (M4's 7 build items, from before the dot-calibration
+deletion) is kept as a record of that milestone's original shape —
+**every mention of dot projection, `calibrating`, or `classifier/dots.py`
+in it is stale; M4k/M4l are current.**
 Next milestone per the doc's dependency graph: M5 (tracker, hover, dwell)
 — but note it depends on M4's homography being *real*, not merely
 computed, so M4's acceptance test is on M5's critical path in a way M3's
@@ -1554,6 +1565,17 @@ processed a real dataset.
 **M4 build items 1-7 are all code-complete.**
 
 ### STILL OWED FROM M4 — the physical acceptance test, in full
+**SUPERSEDED by the calibration-approach change below (M4k) — kept as a
+record, not as the current owed list.** Everything in this list assumes
+dot-projection calibration, which was deleted outright the same day
+(2026-08-12) after three failed rig sessions (M4h/M4i/M4j) could not get
+past room-light contamination. It was replaced by the manual 4-corner
+drag tool. **See M4k and M4l below for what is actually owed on M4 now**
+— the dot-pattern bullets here (the middle-row band, `grid_rows`,
+`field_level` sweep tied to the dot solve) no longer apply to anything in
+the codebase; the UNCALIBRATED-boot and Verify bullets are still real
+checks, just against the new tool instead of the old one.
+
 **Nothing in this list has been observed. All of M4 ran in tests, a
 framebuffer, or a DOM shim.** Doc §21's M4 acceptance list, plus the gaps
 each build item recorded:
@@ -1960,6 +1982,124 @@ on whether `roi_margin_px` (currently borrowed from `match_gate_px`) needs
 its own tuning once several clean runs exist to tune it against — the one
 run that came in at exactly 10 (the floor) suggests the margin is not
 generous to spare.
+
+**The above ("next session starts here") was never picked up — M4k below
+made it moot the same day by removing dot calibration outright instead of
+continuing to fight the room light.**
+
+## M4k — dot calibration deleted outright; replaced by a manual
+4-corner drag tool (2026-08-12)
+Same day as M4j, later. Rather than keep fighting the room-light
+contamination M4i/M4j diagnosed, the whole dot-projection approach —
+`core/dotcal.py`, `classifier/dots.py`, their tests, the dot-cal wire
+messages, the `calibrating` overlay, `config.calibration` — was **deleted
+outright, not disabled** (six commits, `92b3fdb`..`4d16ec3`). Replaced by
+an operator placing the table's 4 real corners directly on the live feed:
+`GeometryStore.fit_from_corners()` solves `H` from those 4 correspondences
+against the 4 known stage corners — no pattern, no detector, no dark room,
+nothing that a room lamp can contaminate. `docs/HOTPOT_ARCHITECTURE_v3.md`
+was updated throughout in the same pass (wire protocol, config schema,
+§12.6/§12.7, the I9 lighting exception, the banner precedence table, the
+M4 build-item list, §24.1 marked superseded rather than rewritten away —
+read §24.1 before assuming dot calibration still exists anywhere).
+**`kUseCoreRects` in `UiLayer.cpp` and its whole "flip it only after a
+real dot-cal RMS and a human Verify" condition are gone with it** — the
+oF-side dead dot-overlay render path was deleted in the same pass
+(`484eeb9`).
+Built in 4 more steps the same day: the math (`fit_from_corners`, correspondence
+pinned to a **fixed front-left/front-right/back-right/back-left click
+order**, never inferred from screen position — the exact 180°-mount trap
+`order_quad` hit in M4i, avoided by construction this time), the wire
+message (`manual_calibrate`, synchronous — no classifier round trip, so
+it can't block a tablet's thread), a first click-4-points UI (superseded
+the same day, see M4l), and persistence (`corner_points`/
+`view_rotation_deg` added to `state/homography.json` and a new
+`state/view_rotation.json`, so a future UI has something to seed itself
+from and re-open a tool that fixes one corner rather than starting over).
+666 tests passing at the end of this run.
+**Not observed anywhere in this section** — none of M4k was run against a
+real camera or a real browser; that first happened in M4l below.
+
+## M4l — the drag-corner Setup tab UI, run for real, and the bugs that
+run found (2026-08-12)
+Closes the drag-corner rebuild plan M4k started: the click-4-points tool
+was replaced by a **persistent draggable quad** (`4d16ec3`) — 4
+fixed-role handles (near-left/near-right/far-right/far-left, same order
+as `fit_from_corners`), a ~4x magnifier while dragging a handle, Cancel
+discarding a drag with nothing sent to core, Confirm sending the same
+`manual_calibrate` shape as before, and a Rotate control (0→90→180→270)
+so the operator wasn't working from an upside-down feed on this rig's
+known 180° mount. Once corners are confirmed, the Setup tab's resting
+view became a 2-triangle affine warp of the last confirmed quad into a
+flattened rectangle (`drawRectifiedPreview`) — display-only, independent
+of the real projective `H_cam->stage`.
+**This was the first UI in the whole drag-corner rebuild actually opened
+in a browser, and it immediately surfaced three real bugs** (`7812321`):
+(1) the magnifier drew almost entirely black — `drawRotatedVideo`'s
+`drawImage` call hardcoded its destination size to the *source* rect,
+ignoring the requested zoom, so a 52px crop painted at 1x into one corner
+of the 208px magnifier canvas; (2) the rectified preview came out
+upside-down — traced to operators having no way to tell which of the 4
+identical handles was which role, compounded by `defaultCornerPoints()`
+building its default layout with no rotation compensation; fixed (partly)
+by labelling each handle on-canvas; (3) Rotate/Confirm were visible even
+before "Set table corners" was tapped — the `.hide` class the JS toggled
+onto them had no matching CSS rule at all, so the gating was a no-op.
+**A second real-browser pass the same day found the label fix in (2) was
+papering over the actual bug, not fixing it** (`e82bb86`): the developer
+re-tested and the inversion was still there. The real cause was
+`drawRectifiedPreview`'s own fixed mapping — it put "near you" at the
+rectangle's TOP and "far side" at the BOTTOM, backwards from the floor-
+plan convention (near = towards the viewer = bottom) every other view in
+this app uses. No amount of accurate dragging could have produced a
+right-way-up result; the per-handle labels from bug (2) were a genuine
+fix for a real but secondary problem. Corrected by flipping the
+destination rectangle's Y, verified standalone in Node against
+`affineFrom3Points` directly (not `drawRectifiedPreview` itself, so the
+check couldn't pass by construction against its own code path).
+**Also per the developer's explicit direction in this same pass, not a
+bug fix:** Rotate is gone entirely — corner editing now shows the
+camera's real, unmodified orientation with no display transform, and an
+operator reads physical near/far/left/right off the real table (the same
+principle the fixed-role handles already relied on, extended to the
+display itself). `rotatePoint`/`unrotatePoint`/`rotatedDims`, the
+90°/270°/180° cases of what was `drawRotatedVideo`, and the
+`set_view_rotation` send are all **deleted outright** client-side, not
+left dormant — this codebase's usual rule for a removed feature. Server-
+side `view_rotation_deg`/`set_view_rotation` (`GeometryStore`,
+`core/main.py`) are untouched and simply unused now; nothing client-side
+sends the message any more. "Set table corners" now hides itself while a
+quad is open, replaced by Cancel (discard) and Confirm, rather than all
+three buttons showing at once. And — the biggest functional addition —
+**the Live tab now shows the same flattened rectangle the Setup tab's
+resting view does**, once corners are confirmed: reuses
+`drawRectifiedPreview` directly rather than a second implementation, so
+the two tabs can never disagree about what "flattened" looks like.
+`docs/HOTPOT_ARCHITECTURE_v3.md` §12.6/§12.3 were **not** updated in this
+pass — owed, see below.
+Verification for both bug-fix commits: `node --check`, every
+`getElementById` cross-checked against the DOM by script, the near/far
+mapping fix checked standalone against `affineFrom3Points` (near/far
+edge midpoints land exactly on the rectangle's bottom/top, both triangles
+agreeing at the seam), and a throwaway DOM shim (not committed) driving
+the real extracted script through actual button clicks — confirmed
+Cancel/Confirm start hidden and reappear/hide correctly around a real
+`cornersBtn.click()`/`cornersCancelBtn.click()`. `python -m unittest
+discover -s python/tests` — 666/666 passing throughout (no Python
+touched by M4l). **Nothing in M4l has been verified on the rig** — every
+fix and the Live-tab flattening are reasoned from screenshots and node/
+DOM-shim checks, not a real camera and a real browser session.
+**Doc gap — closed same day, after the bug fixes above:** §12.6 and
+§12.3 now describe the Cancel/Confirm quad and the Live-tab flattening.
+**Next session (per the developer): bin boxes.** M4.4's own commit
+message already named this — "the green boxes will look cosmetically
+misaligned against the warped picture underneath until a later, separate
+step reworks bin-rect editing into shared grid lines instead of 8
+independent boxes" — and it is now the last visibly-unfinished piece of
+the Setup tab: 8 rectangles are still dragged independently on a feed
+that, since M4l, can be either the raw camera view or the flattened
+rectangle depending on whether corners are confirmed yet, and the bin
+rects have not been re-examined against that change at all.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
