@@ -99,7 +99,7 @@ class CoreCase(unittest.TestCase):
             "n_points": 15, "rms_px": 1.1, "keystone_fingerprint": "fixture",
             "camera_size": [1920, 1080], "stage_size": [1920, 1080]})
         atomicio.write_json(self.g_path, {
-            "schema": 1, "written": 1.0, "verified_at": None,
+            "schema": 1, "written": 1.0,
             "h_lines": _FIXTURE_H_LINES, "v_lines": _FIXTURE_V_LINES})
 
     def setUp(self):
@@ -1802,18 +1802,18 @@ class TestSetViewRotationOverTheWire(CoreCase):
 
 class TestSetupTabGrid(CoreCase):
     """M4 build item 4's server half, reworked around the bin grid
-    (`core/bin_grid.py`): grid dragging saved explicitly, the legacy seed,
-    and doc section 12.6's Verify step.
+    (`core/bin_grid.py`): grid dragging saved explicitly, and the legacy
+    seed. No separate Verify step any more (dropped 2026-08-12, M4n) — the
+    operator watches the rectified feed the grid is drawn on live, every
+    frame, while dragging; Save is the only confirmation there is anything
+    left to record.
 
     **What is NOT here is the point.** There is no test that reprojects a
     saved grid through `H` and checks anything — the camera grid is not
     derived from the homography at all any more (`bin_grid.py`'s
     docstring), and even where a homography check would have applied, doc
     section 5.3's TRAP says a reprojection check passes by construction on
-    a homography pointing the wrong way. The only verification that can
-    fail is a human looking at the rectified feed, and all the code can do
-    is record their answer, which is what `test_verify_records_a_human_answer`
-    checks.
+    a homography pointing the wrong way.
     """
 
     # Starts with no saved geometry and installs a homography by hand:
@@ -1919,36 +1919,6 @@ class TestSetupTabGrid(CoreCase):
         self.assertTrue(reply["ok"], reply["message"])
         self.assertTrue(self.core.camera_grid.has_grid)
 
-    def test_verify_records_a_human_answer(self):
-        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
-        self.drain_until("grid_result")
-        self.assertIsNone(self.core.camera_grid.verified_at)
-        self.ws_.send(json.dumps({"t": "verify_grid", "ok": True}))
-        self.drain_until("grid_result")
-        self.assertIsNotNone(self.core.camera_grid.verified_at)
-
-    def test_a_no_answer_clears_it_and_says_what_to_do_next(self):
-        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
-        self.drain_until("grid_result")
-        self.ws_.send(json.dumps({"t": "verify_grid", "ok": True}))
-        self.drain_until("grid_result")
-        self.ws_.send(json.dumps({"t": "verify_grid", "ok": False}))
-        reply = self.drain_until("grid_result")
-        self.assertIn("once more", reply["message"])
-        self.assertIsNone(self.core.camera_grid.verified_at)
-
-    def test_moving_the_grid_after_verifying_clears_the_verification(self):
-        # The outlines the operator said were on the trays are not these
-        # outlines any more.
-        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
-        self.drain_until("grid_result")
-        self.ws_.send(json.dumps({"t": "verify_grid", "ok": True}))
-        self.drain_until("grid_result")
-        self.assertIsNotNone(self.core.camera_grid.verified_at)
-        self.ws_.send(json.dumps({"t": "set_grid", **self.grid(dx=30)}))
-        self.drain_until("grid_result")
-        self.assertIsNone(self.core.camera_grid.verified_at)
-
     def test_a_saved_grid_survives_a_reload(self):
         self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
         self.drain_until("grid_result")
@@ -1958,12 +1928,12 @@ class TestSetupTabGrid(CoreCase):
 
 class TestProjectorGrid(CoreCase):
     """M4n: `bin_grid.py`'s second `BinGridStore`, aimed at
-    `self.projector_grid` instead of `self.camera_grid`. The three
-    handlers are `_handle_set_grid`/`_handle_seed_grid`/`_handle_verify_
-    grid`'s own template, so these tests are `TestSetupTabGrid`'s own
-    template — same cases, `_projector` message names, and one case that
-    class does not have: the projector grid, and only the projector grid,
-    is what reaches `state.bins[].rect`.
+    `self.projector_grid` instead of `self.camera_grid`. The two handlers
+    are `_handle_set_grid`/`_handle_seed_grid`'s own template (no verify
+    handler on either grid any more — dropped 2026-08-12), so these tests
+    are `TestSetupTabGrid`'s own template — same cases, `_projector`
+    message names, and one case that class does not have: the projector
+    grid, and only the projector grid, is what reaches `state.bins[].rect`.
 
     **No homography anywhere in this class.** Unlike `TestSetupTabGrid`,
     setUp() does not install one — `bin_grid.py`'s docstring is explicit
@@ -2074,34 +2044,6 @@ class TestProjectorGrid(CoreCase):
         self.drain_until("grid_projector_result")
         msg = self.core._state_msg()
         self.assertIsNotNone(msg["bins"][0]["rect"])
-
-    def test_verify_records_a_human_answer(self):
-        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
-        self.drain_until("grid_projector_result")
-        self.assertIsNone(self.core.projector_grid.verified_at)
-        self.ws_.send(json.dumps({"t": "verify_grid_projector", "ok": True}))
-        self.drain_until("grid_projector_result")
-        self.assertIsNotNone(self.core.projector_grid.verified_at)
-
-    def test_a_no_answer_clears_it(self):
-        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
-        self.drain_until("grid_projector_result")
-        self.ws_.send(json.dumps({"t": "verify_grid_projector", "ok": True}))
-        self.drain_until("grid_projector_result")
-        self.ws_.send(json.dumps({"t": "verify_grid_projector", "ok": False}))
-        reply = self.drain_until("grid_projector_result")
-        self.assertIn("once more", reply["message"])
-        self.assertIsNone(self.core.projector_grid.verified_at)
-
-    def test_moving_the_grid_after_verifying_clears_the_verification(self):
-        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))
-        self.drain_until("grid_projector_result")
-        self.ws_.send(json.dumps({"t": "verify_grid_projector", "ok": True}))
-        self.drain_until("grid_projector_result")
-        self.assertIsNotNone(self.core.projector_grid.verified_at)
-        self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid(dx=30)}))
-        self.drain_until("grid_projector_result")
-        self.assertIsNone(self.core.projector_grid.verified_at)
 
     def test_a_saved_grid_survives_a_reload(self):
         self.ws_.send(json.dumps({"t": "set_grid_projector", **self.grid()}))

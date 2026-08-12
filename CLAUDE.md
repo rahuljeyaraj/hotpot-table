@@ -13,8 +13,8 @@ Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
 Current milestone: **M4 (calibration and dataset capture)**, but its
 calibration approach changed after the "code-complete" line below was
-written — **read M4k through M4n (near the end of the M4 section, just
-before "FIXED") before the M4.1-M4.7 build-item entries or the old
+written — **read M4k through M4n-fix (near the end of the M4 section,
+just before "FIXED") before the M4.1-M4.7 build-item entries or the old
 "STILL OWED FROM M4" list, both of which describe the deleted
 dot-projection wizard.** Dot calibration was removed outright on
 2026-08-12 and replaced by a manual 4-corner drag tool, which has now
@@ -23,14 +23,18 @@ work to be, and it immediately surfaced 4 real bugs, 3 fixed same-day,
 one (the bin-rect editor's own reorientation) explicitly deferred to a
 **"bin boxes"** session, done same day as M4m (below). M4n (2026-08-12)
 built the projector grid `core/bin_grid.py` always said was coming and
-flipped oF's `kUseCoreRects` switch back on to read it — **still nothing
-in M4 has been run against a real projector or a real oF build**; M4n's
-own section says exactly what is and is not verified. M3 (camera) is
+flipped oF's `kUseCoreRects` switch back on to read it; M4n-fix (same
+day) is where it actually ran on the rig for the first time — the stale
+running process caught outright, the UI rebuilt as a select-a-line/
+arrow-key-nudge tool per developer feedback, and Verify dropped from
+both grids — **still not confirmed: nobody has watched a nudge actually
+move a line on the projected table.** M4n-fix's own section says exactly
+what is and is not verified. M3 (camera) is
 also code-complete and also still owes its acceptance test on the rig.
 The paragraph below (M4's 7 build items, from before the dot-calibration
 deletion) is kept as a record of that milestone's original shape —
 **every mention of dot projection, `calibrating`, or `classifier/dots.py`
-in it is stale; M4k/M4l/M4m/M4n are current.**
+in it is stale; M4k/M4l/M4m/M4n/M4n-fix are current.**
 Next milestone per the doc's dependency graph: M5 (tracker, hover, dwell)
 — but note it depends on M4's homography being *real*, not merely
 computed, so M4's acceptance test is on M5's critical path in a way M3's
@@ -2349,6 +2353,83 @@ left off:**
 
 **Still not built, unchanged from M4m's own list:** M5's hand-hit-test
 against the camera grid.
+
+## M4n-fix — the first real run, three developer-caught problems (2026-08-12)
+M4n was reasoned from code and tests only. It was then actually opened on
+the rig for the first time, and — same pattern as M4l and M4m before it —
+that immediately surfaced problems no static check could have:
+
+1. **"Not getting updated when I save."** Not a code bug: `run.py`'s
+   supervisor (PID tree rooted at the standing `python run.py`) had
+   `hotpot.core.main` and `hotpot-table_debug.exe` running from BEFORE
+   M4n landed on disk — Python doesn't hot-reload a running process, and
+   the exe was never actually relinked (M4n's own session log already
+   flagged the failed link, caused by this same stale exe holding its
+   own output file open). Fixed with `python run.py --stop`, a clean
+   `msbuild` (linked this time, nothing had the file open), and
+   `python run.py` again. **Lesson for next time a change touches
+   `core/main.py` or oF: check `Get-CimInstance Win32_Process` for a
+   live `run.py` tree before concluding a wire or render change "isn't
+   working" — it may just not be running yet.**
+2. **The number-input UI was bad — developer's word.** M4n's 12 plain
+   `<input type=number>` fields are gone. This project already built and
+   deleted exactly the right UX for this once (git history:
+   `640ec7a` "Nudge the whole bin pattern by hand", `5b152c3` "Adjust the
+   bins as a grid of lines, not eight rectangles" — arrow keys nudge a
+   selected line, highlighted, with Shift for a bigger step) — deleted at
+   the M0.1/M1.4 rewrite because it was oF-local keyboard input, and
+   "core owns all state, oF is a dumb renderer" is a hard invariant that
+   local keyboard state in oF violates outright. The UX is back, rebuilt
+   on the wire instead: the Projector grid card is now 12 selectable rows
+   (click, or Tab between them — real focusable elements, so Tab order is
+   free), and the selected row's arrow keys (↑/↓ for a row line, ←/→ for
+   a column line, Shift for ×10 the step) send `set_grid_projector`
+   immediately on every press — no separate Save. `pg-line-list`/
+   `pg-line-row` in `index.html`, gated the same way every other Setup-tab
+   control is (`pgRowsOn`, checked inside the row handlers since a `<div>`
+   has no native `.disabled`).
+3. **"Why do we need a Verify confirmation — saving already means it
+   lined up?"** Asked about both grids; the developer's call, after
+   hearing the distinction, was to drop Verify from both. Removed
+   entirely, not hidden: `bin_grid.py`'s `BinGridStore.verified_at`/
+   `mark_verified()`/`clear_verified()` are gone (this codebase's usual
+   rule — not left dormant), `verify_grid`/`verify_grid_projector` wire
+   messages and their four handlers are gone, `grid_verified_at` is off
+   the `geometry` message and `verified_at` off `projector_grid`, and the
+   Setup tab's whole standalone "Verify" card is deleted along with the
+   projector-grid card's Yes/No pair. **The reasoning for why this was
+   safe to drop is worth keeping, because it is not the same for both
+   grids and a future change should not assume it generalizes:** the
+   camera grid's Verify existed for a real, doc §5.3 TRAP reason — an
+   operator drags on the RECTIFIED PICTURE, which is a genuinely
+   different space from the REAL TABLE, and a bad homography can make
+   that picture look perfectly fine while being wrong (the exact
+   `rms_px: 0.0, n_points: 4` incident CLAUDE.md's M4h/M4i already
+   recorded). Dropping it there is a real, named tradeoff — one fewer tap
+   against losing a guard that has already caught a real failure once —
+   made on the developer's explicit call, not a code-side realization
+   that it was always unnecessary. The projector grid never had that
+   two-space gap: the operator is looking at the real table while
+   nudging it, not a proxy for it, so there was nothing left for a
+   separate step to check — dropping it there cost nothing. **Doc
+   §12.6 still describes a Verify step for both grids and has not been
+   updated to match** (same "flagged, not line-edited" precedent M4k/M4m
+   both used for a change this size).
+
+Verified: 689/689 tests (`python -m unittest discover -s python/tests` —
+8 fewer than M4n's 697, the removed verify-path tests, all deleted rather
+than weakened). `node --check` plus the same getElementById/id
+cross-check script, and a grep confirming no leftover reference to any
+removed identifier (`verifyYesBtn`, `pgSaveBtn`, `pgVerified`, etc.).
+**Run on the rig this time, not just reasoned about:** `run.py --stop`,
+a real `msbuild` that actually linked, `python run.py` again — camera,
+core (COM5 open), tracker, classifier, voice and `of` all reached
+HOTPOT-READY / StateLink-connected in the merged log. **Still not
+physically confirmed:** nobody has watched a line actually move on the
+projected table yet from inside this session — the restart proves the
+new code is what's running, not that a nudge visibly lands on a tray.
+That observation is the developer's next step, not something this
+session could produce from a terminal.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

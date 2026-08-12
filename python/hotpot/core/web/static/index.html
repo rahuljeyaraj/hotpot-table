@@ -405,19 +405,28 @@
   }
   .capture-bar label { font-size: 14px; color: var(--muted); }
 
-  /* --- projector grid card (M4n): typed line positions, no camera ---- */
-  .pg-lines { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 10px; }
-  .pg-line-group-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-  .pg-line {
+  /* --- projector grid card (M4n): select-a-line, nudge with arrow keys,
+     no camera and no typing ------------------------------------------- */
+  .pg-line-list {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 16px;
+    margin-top: 10px;
+  }
+  .pg-line-row {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; font-size: 14px; color: var(--muted); margin-bottom: 6px;
-  }
-  .pg-line input[type="number"] {
-    width: 84px; min-height: 40px; text-align: center;
-    font-variant-numeric: tabular-nums;
+    gap: 10px; padding: 10px 12px; min-height: 44px;
     border: 1px solid #3a3d47; border-radius: 6px;
-    background: #22252b; color: var(--text); font-size: 15px;
+    background: #22252b; color: var(--muted); font-size: 14px;
+    cursor: pointer; outline: none;
   }
+  .pg-line-row .pg-line-val {
+    color: var(--text); font-variant-numeric: tabular-nums; font-size: 15px;
+  }
+  .pg-line-row.selected {
+    border-color: var(--amber); background: #2c2712;
+    color: var(--text);
+  }
+  .pg-line-row:focus-visible { border-color: var(--amber); }
+  .pg-line-row.disabled { opacity: 0.5; cursor: default; }
 
   /* --- calibration wizard modal (doc section 12.4: "one screen at a
      time, no branching") -------------------------------------------- */
@@ -665,7 +674,6 @@
             <div><span class="k">calibrated</span> <span id="geoCalibrated">—</span></div>
             <div><span class="k">average error</span> <span id="geoRms">—</span></div>
             <div><span class="k">points used</span> <span id="geoPoints">—</span></div>
-            <div><span class="k">checked by eye</span> <span id="geoVerified">—</span></div>
           </div>
           <!-- Doc §8.5: oF reports its keystone fingerprint in `stat`;
                a different one means someone nudged the projector and the
@@ -703,76 +711,38 @@
         </div>
 
         <div class="setup-card">
-          <h2>Verify</h2>
-          <!-- Doc §12.6's TRAP, in the words the operator sees. THIS grid
-               (the camera one, above) only feeds the classifier and core's
-               own hand hit test — oF reads the separate Projector grid
-               card below instead (M4n) — so what to check here is the
-               RECTIFIED PICTURE ABOVE, not the physical table. A
-               reprojection check would pass on a homography that is
-               upside down. -->
-          <p>Look at the rectified picture above, not the physical table.
-             Do the grid lines sit on the edges of the trays?</p>
-          <div class="setup-actions">
-            <button id="verifyYesBtn" class="setup-btn primary">Yes, they line up</button>
-            <button id="verifyNoBtn" class="setup-btn">No, they are off</button>
-          </div>
-          <div class="setup-status" id="verifyStatus"></div>
-        </div>
-
-        <div class="setup-card">
           <h2>Projector grid</h2>
           <!-- core/bin_grid.py's SECOND grid (M4n) — the camera grid above
                feeds the classifier and core's own hand hit test; this one
                feeds oF's ring/cutout/fluid, and the two are never derived
-               from each other. It needs no camera and no table corners,
-               because there is nowhere to drag a line onto a picture —
-               instead, TYPE a line position, tap Save, then physically
-               look at the projected table: the number reaches oF on the
-               very next frame regardless of Save, so a nudge is visible
-               there in well under a second. This tool closes its own
-               Verify loop the same way the camera grid does, just against
-               the real table instead of a rectified picture. -->
-          <p>No picture to drag here — there is no camera in this loop.
-             Type a line position (stage pixels, 0-1920 across, 0-1080
-             down), tap Save, then look at the real table: the projected
-             outline moves as soon as you save, even before Verify.</p>
-          <div class="pg-lines">
-            <div class="pg-line-group">
-              <div class="pg-line-group-label">Rows (far → near)</div>
-              <label class="pg-line">far top <input type="number" id="pgH0" step="1"></label>
-              <label class="pg-line">far bottom <input type="number" id="pgH1" step="1"></label>
-              <label class="pg-line">near top <input type="number" id="pgH2" step="1"></label>
-              <label class="pg-line">near bottom <input type="number" id="pgH3" step="1"></label>
-            </div>
-            <div class="pg-line-group">
-              <div class="pg-line-group-label">Columns (left → right)</div>
-              <label class="pg-line">col 0 left <input type="number" id="pgV0" step="1"></label>
-              <label class="pg-line">col 0 right <input type="number" id="pgV1" step="1"></label>
-              <label class="pg-line">col 1 left <input type="number" id="pgV2" step="1"></label>
-              <label class="pg-line">col 1 right <input type="number" id="pgV3" step="1"></label>
-              <label class="pg-line">col 2 left <input type="number" id="pgV4" step="1"></label>
-              <label class="pg-line">col 2 right <input type="number" id="pgV5" step="1"></label>
-              <label class="pg-line">col 3 left <input type="number" id="pgV6" step="1"></label>
-              <label class="pg-line">col 3 right <input type="number" id="pgV7" step="1"></label>
-            </div>
-          </div>
+               from each other. It needs no camera and no table corners:
+               there is nowhere to drag a line onto a picture, so instead
+               this is the pre-v3 keyboard nudge tool (git history:
+               "Adjust the bins as a grid of lines, not eight rectangles"),
+               rebuilt on the wire instead of as oF-local keyboard input —
+               oF is a dumb renderer now (a hard invariant this file must
+               not violate), so a nudge has to reach oF as a `state`
+               update, not as a keypress oF reads itself. Click a line (or
+               Tab to it) to select it, then use the arrow keys — every
+               press sends immediately, no separate Save: watching the
+               real light move on the real table AS you nudge is the
+               entire reason this tool has no camera in it, and it is also
+               why there is no separate Verify step here the way the
+               camera grid card above does not have one either — the two
+               closed their own verify loop the moment the operator looked
+               at the space they were editing while editing it. -->
+          <p>Click a line below (or Tab to it), then use the arrow keys —
+             ↑/↓ for a row, ←/→ for a column, hold Shift for a bigger step.
+             Every press reaches the real table immediately. Watch the
+             table, not this screen.</p>
+          <div class="pg-line-list" id="pgLineList"></div>
           <div class="setup-actions" style="margin-top:12px">
-            <button id="pgSaveBtn" class="setup-btn primary">Save</button>
             <button id="pgSeedBtn" class="setup-btn">Load measured layout</button>
           </div>
           <div class="setup-status" id="pgStatus"></div>
           <div class="setup-facts">
             <div><span class="k">set</span> <span id="pgHasGrid">—</span></div>
-            <div><span class="k">checked by eye on the table</span> <span id="pgVerified">—</span></div>
           </div>
-          <p>Look at the REAL TABLE, not this screen. Do the outlines sit
-             on the trays?</p>
-          <div class="setup-actions">
-            <button id="pgVerifyYesBtn" class="setup-btn primary">Yes, they line up</button>
-            <button id="pgVerifyNoBtn" class="setup-btn">No, they are off</button>
-          </div>
-          <div class="setup-status" id="pgVerifyStatus"></div>
         </div>
       </div>
     </section>
@@ -1538,7 +1508,6 @@
   var geoCalibrated = document.getElementById("geoCalibrated");
   var geoRms = document.getElementById("geoRms");
   var geoPoints = document.getElementById("geoPoints");
-  var geoVerified = document.getElementById("geoVerified");
   var keystoneWarn = document.getElementById("keystoneWarn");
 
   var cornersBtn = document.getElementById("cornersBtn");
@@ -1578,30 +1547,109 @@
   var rectsUndoBtn = document.getElementById("rectsUndoBtn");
   var rectsSeedBtn = document.getElementById("rectsSeedBtn");
   var rectsStatus = document.getElementById("rectsStatus");
-  var verifyYesBtn = document.getElementById("verifyYesBtn");
-  var verifyNoBtn = document.getElementById("verifyNoBtn");
-  var verifyStatus = document.getElementById("verifyStatus");
 
-  // core/bin_grid.py's SECOND grid (M4n) — typed, not dragged; see the
-  // Projector grid card's own comment for why there is no canvas here.
-  var pgHInputs = [0, 1, 2, 3].map(function (i) {
-    return document.getElementById("pgH" + i); });
-  var pgVInputs = [0, 1, 2, 3, 4, 5, 6, 7].map(function (i) {
-    return document.getElementById("pgV" + i); });
-  var pgSaveBtn = document.getElementById("pgSaveBtn");
+  // core/bin_grid.py's SECOND grid (M4n) — select-a-line, nudge with
+  // arrow keys; see the Projector grid card's own comment for why there
+  // is no canvas and no typing here. PG_LABELS_* order matches
+  // bin_grid.py's own h_lines/v_lines order exactly (far-top, far-bottom,
+  // near-top, near-bottom / col0-left, col0-right, … col3-right).
+  var PG_LABELS_H = ["far top", "far bottom", "near top", "near bottom"];
+  var PG_LABELS_V = ["col 0 left", "col 0 right", "col 1 left", "col 1 right",
+                     "col 2 left", "col 2 right", "col 3 left", "col 3 right"];
+  var PG_STEP = 1;       // stage px per press
+  var PG_STEP_BIG = 10;  // stage px per press with Shift
+  var pgLineList = document.getElementById("pgLineList");
   var pgSeedBtn = document.getElementById("pgSeedBtn");
   var pgStatus = document.getElementById("pgStatus");
   var pgHasGrid = document.getElementById("pgHasGrid");
-  var pgVerified = document.getElementById("pgVerified");
-  var pgVerifyYesBtn = document.getElementById("pgVerifyYesBtn");
-  var pgVerifyNoBtn = document.getElementById("pgVerifyNoBtn");
-  var pgVerifyStatus = document.getElementById("pgVerifyStatus");
-  // True from the first keystroke in any of the 12 fields until Save (or
-  // a fresh Seed) — the same "don't overwrite a live edit" rule
-  // `!gridDrag` gives the camera grid above, applied to typing instead of
-  // dragging: a `projector_grid` broadcast arriving mid-type (e.g. from a
-  // second tablet) must not yank the field an operator's thumb is on.
-  var pgDirty = false;
+  // The grid's own current values, or null before core has ever sent one
+  // (bin_grid.py's "absence, not a guess" rule) — kept here so a nudge
+  // has something to add a delta to without waiting on a round trip.
+  var pgHValues = null;
+  var pgVValues = null;
+  var pgRows = [];       // {el, valEl, axis: "h"|"v", index}
+  var pgSelected = null; // one entry of pgRows, or null
+  var pgRowsOn = false;  // setting mode gate — rows are plain divs, not
+                         // <button>, so gating is tracked here rather
+                         // than via .disabled.
+
+  function pgSelectRow(row) {
+    pgSelected = row;
+    pgRows.forEach(function (r) {
+      r.el.classList.toggle("selected", r === row);
+    });
+  }
+
+  function pgRowText(axis, index) {
+    var v = (axis === "h" ? pgHValues : pgVValues);
+    v = v ? v[index] : undefined;
+    return (v === undefined || v === null) ? "—" : String(v);
+  }
+
+  function pgRefreshRowText() {
+    pgRows.forEach(function (r) {
+      r.valEl.textContent = pgRowText(r.axis, r.index);
+    });
+  }
+
+  function pgNudge(row, delta) {
+    var arr = row.axis === "h" ? pgHValues : pgVValues;
+    if (!arr || arr[row.index] === undefined || arr[row.index] === null) {
+      setStatus(pgStatus, "Nothing to nudge yet. Try 'Load measured "
+        + "layout' first.", "bad");
+      return;
+    }
+    arr[row.index] = Math.round((arr[row.index] + delta) * 10) / 10;
+    pgRefreshRowText();
+    // Every nudge is already final — there is no local-only preview a
+    // no-camera grid could show (bin_grid.py's docstring), so this both
+    // updates AND saves in one message, same as `_handle_set_grid_
+    // projector`'s own docstring says. Watching the real table move is
+    // the confirmation; there is nothing left for a separate Save or
+    // Verify step to add.
+    sendSetup({ t: "set_grid_projector", h_lines: pgHValues.slice(),
+               v_lines: pgVValues.slice() });
+  }
+
+  (function buildPgRows() {
+    function addRow(axis, index, label) {
+      var row = document.createElement("div");
+      row.className = "pg-line-row";
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      var name = document.createElement("span");
+      name.textContent = label;
+      var val = document.createElement("span");
+      val.className = "pg-line-val";
+      val.textContent = "—";
+      row.appendChild(name);
+      row.appendChild(val);
+      var entry = { el: row, valEl: val, axis: axis, index: index };
+      row.addEventListener("click", function () {
+        if (!pgRowsOn) return;
+        pgSelectRow(entry);
+        row.focus();
+      });
+      row.addEventListener("focus", function () {
+        if (pgRowsOn) pgSelectRow(entry);
+      });
+      row.addEventListener("keydown", function (ev) {
+        if (!pgRowsOn) return;
+        var dir = 0;
+        if (axis === "h" && ev.key === "ArrowUp") dir = -1;
+        else if (axis === "h" && ev.key === "ArrowDown") dir = 1;
+        else if (axis === "v" && ev.key === "ArrowLeft") dir = -1;
+        else if (axis === "v" && ev.key === "ArrowRight") dir = 1;
+        else return;
+        ev.preventDefault();
+        pgNudge(entry, dir * (ev.shiftKey ? PG_STEP_BIG : PG_STEP));
+      });
+      pgLineList.appendChild(row);
+      pgRows.push(entry);
+    }
+    PG_LABELS_H.forEach(function (label, i) { addRow("h", i, label); });
+    PG_LABELS_V.forEach(function (label, i) { addRow("v", i, label); });
+  })();
 
   // core/bin_grid.py's grid, being edited: 4 horizontal + 8 vertical line
   // positions in the RECTIFIED preview's own canvas pixel space — which
@@ -2214,11 +2262,6 @@
     geoRms.textContent = msg.rms_px === null || msg.rms_px === undefined
       ? "—" : msg.rms_px + " px";
     geoPoints.textContent = msg.n_points ? String(msg.n_points) : "—";
-    // The only "verified" concept left is the camera grid's own — see
-    // core/bin_grid.py's docstring; there is no homography-level verify
-    // any more.
-    geoVerified.textContent = msg.grid_verified_at
-      ? new Date(msg.grid_verified_at * 1000).toLocaleString() : "not yet";
     keystoneWarn.classList.toggle("hide", !msg.keystone_stale);
     // Never overwrite a drag in progress with a broadcast: core sends a
     // `geometry` message after every save, and an operator mid-drag when
@@ -2244,8 +2287,7 @@
   // has done the work.
   function applySetupGating() {
     var on = mode === "setting";
-    [rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn, cornersBtn,
-     pgSaveBtn, pgSeedBtn, pgVerifyYesBtn, pgVerifyNoBtn].concat(pgHInputs, pgVInputs)
+    [rectsSaveBtn, rectsSeedBtn, cornersBtn, pgSeedBtn]
       .forEach(function (b) {
         b.disabled = !on;
         b.title = on ? "" : NEEDS_SETTING_SETUP;
@@ -2255,7 +2297,7 @@
     // grid needs no camera at all (bin_grid.py's docstring) and is
     // deliberately left out of this block.
     if (on && !confirmedCorners) {
-      [rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn].forEach(function (b) {
+      [rectsSaveBtn, rectsSeedBtn].forEach(function (b) {
         b.disabled = true;
         b.title = NEEDS_CORNERS_SETUP;
       });
@@ -2265,11 +2307,16 @@
     // from anyone at the table) must not leave Confirm sitting there able
     // to send a homography for a mode that is no longer active.
     if (!on && cornersEditing) cornersReset();
-    // Same reasoning applied to typing rather than dragging: an edit that
-    // never reached Save is abandoned, not carried into the next setting-
-    // mode session as a stale "dirty" flag that blocks every future
-    // broadcast from ever populating the fields again.
-    if (!on) pgDirty = false;
+    // The line rows are plain divs, not <button>, so gating is tracked in
+    // pgRowsOn (checked by their own click/focus/keydown handlers) rather
+    // than a .disabled property that does not exist on a div.
+    pgRowsOn = on;
+    pgRows.forEach(function (r) {
+      r.el.classList.toggle("disabled", !on);
+      r.el.tabIndex = on ? 0 : -1;
+      r.el.title = on ? "" : NEEDS_SETTING_SETUP;
+    });
+    if (!on && pgSelected) { pgSelectRow(null); }
   }
 
   function sendSetup(obj) {
@@ -2363,15 +2410,6 @@
     sendSetup({ t: "seed_grid" });
   });
 
-  verifyYesBtn.addEventListener("click", function () {
-    if (verifyYesBtn.disabled) return;
-    sendSetup({ t: "verify_grid", ok: true });
-  });
-  verifyNoBtn.addEventListener("click", function () {
-    if (verifyNoBtn.disabled) return;
-    sendSetup({ t: "verify_grid", ok: false });
-  });
-
   function applyManualCalibrateResult(msg) {
     if (msg.ok) {
       cornersReset();
@@ -2386,81 +2424,25 @@
   }
 
   function applyGridResult(msg) {
-    var target = msg.message && msg.message.indexOf("outlines") >= 0
-      ? verifyStatus : rectsStatus;
-    setStatus(target, msg.message, msg.ok ? "good" : "bad");
+    setStatus(rectsStatus, msg.message, msg.ok ? "good" : "bad");
   }
 
   // --- Projector grid (M4n, core/bin_grid.py's second BinGridStore) -----
 
-  pgHInputs.concat(pgVInputs).forEach(function (input) {
-    input.addEventListener("input", function () { pgDirty = true; });
-  });
-
-  function pgLineValues(inputs) {
-    // `null` if any field is blank or not a number — sendSetup would
-    // still reach core, which would refuse it (bin_grid.py's own
-    // finite/increasing checks), but catching it here means the operator
-    // sees "not placed yet" instead of a round trip to be told the same
-    // thing.
-    var out = [];
-    for (var i = 0; i < inputs.length; i++) {
-      var v = parseFloat(inputs[i].value);
-      if (!isFinite(v)) return null;
-      out.push(v);
-    }
-    return out;
-  }
-
-  pgSaveBtn.addEventListener("click", function () {
-    if (pgSaveBtn.disabled) return;
-    var h = pgLineValues(pgHInputs);
-    var v = pgLineValues(pgVInputs);
-    if (!h || !v) {
-      setStatus(pgStatus, "Every field needs a number. Try "
-        + "'Load measured layout' first.", "bad");
-      return;
-    }
-    pgDirty = false;
-    sendSetup({ t: "set_grid_projector", h_lines: h, v_lines: v });
-  });
-
   pgSeedBtn.addEventListener("click", function () {
     if (pgSeedBtn.disabled) return;
-    pgDirty = false;
     sendSetup({ t: "seed_grid_projector" });
   });
 
-  pgVerifyYesBtn.addEventListener("click", function () {
-    if (pgVerifyYesBtn.disabled) return;
-    sendSetup({ t: "verify_grid_projector", ok: true });
-  });
-  pgVerifyNoBtn.addEventListener("click", function () {
-    if (pgVerifyNoBtn.disabled) return;
-    sendSetup({ t: "verify_grid_projector", ok: false });
-  });
-
   function applyGridProjectorResult(msg) {
-    var target = msg.message && msg.message.indexOf("outlines") >= 0
-      ? pgVerifyStatus : pgStatus;
-    setStatus(target, msg.message, msg.ok ? "good" : "bad");
+    setStatus(pgStatus, msg.message, msg.ok ? "good" : "bad");
   }
 
   function applyProjectorGrid(msg) {
     pgHasGrid.textContent = msg.has_grid ? "yes" : "no";
-    pgVerified.textContent = msg.verified_at
-      ? new Date(msg.verified_at * 1000).toLocaleString() : "not yet";
-    // Never overwrite a field an operator is mid-type in — the same rule
-    // `!gridDrag` gives the camera grid's canvas, applied to typing.
-    if (pgDirty) return;
-    pgHInputs.forEach(function (input, i) {
-      input.value = (msg.h_lines && msg.h_lines[i] !== undefined)
-        ? msg.h_lines[i] : "";
-    });
-    pgVInputs.forEach(function (input, i) {
-      input.value = (msg.v_lines && msg.v_lines[i] !== undefined)
-        ? msg.v_lines[i] : "";
-    });
+    pgHValues = msg.h_lines ? msg.h_lines.slice() : null;
+    pgVValues = msg.v_lines ? msg.v_lines.slice() : null;
+    pgRefreshRowText();
   }
 
   applySetupGating();

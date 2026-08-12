@@ -226,27 +226,12 @@ class TestBinGridStore(StoreCase):
         grid = s.seed_from_table()
         self.assertEqual(len(grid.rects()), bg.NUM_BINS)
 
-    def test_setting_a_grid_clears_verification(self):
-        s = self.store()
-        s.set_grid(H_LINES, V_LINES)
-        s.mark_verified()
-        s.set_grid(H_LINES, V_LINES)
-        self.assertIsNone(s.verified_at)
-
-    def test_verification_survives_a_save_and_reload(self):
-        s = self.store()
-        s.set_grid(H_LINES, V_LINES)
-        s.mark_verified(when=1754838400.0)
-        s.save()
-        again = self.store()
-        self.assertEqual(again.verified_at, 1754838400.0)
-
     def test_the_saved_file_matches_the_documented_shape(self):
         s = self.store()
         s.set_grid(H_LINES, V_LINES)
         s.save()
         raw = json.loads(self.path.read_text(encoding="utf-8"))
-        for key in ("schema", "written", "verified_at", "h_lines", "v_lines"):
+        for key in ("schema", "written", "h_lines", "v_lines"):
             self.assertIn(key, raw)
         self.assertEqual(raw["h_lines"], H_LINES)
         self.assertEqual(raw["v_lines"], V_LINES)

@@ -245,7 +245,6 @@ class BinGridStore:
         self.path = Path(path)
         self.grid: Optional[BinGrid] = None
         self.written_at: Optional[float] = None
-        self.verified_at: Optional[float] = None
         self.load()
 
     @property
@@ -270,7 +269,6 @@ class BinGridStore:
         Undo meaningless.
         """
         self.grid = BinGrid(h_lines=list(h_lines), v_lines=list(v_lines))
-        self.clear_verified()
 
     def seed_from_table(self, *, legacy: bool = True) -> BinGrid:
         """Doc section 21 M4 build item 5's successor: put a starting grid
@@ -282,21 +280,7 @@ class BinGridStore:
         """
         grid = legacy_bin_grid_stage() if legacy else cad_bin_grid_stage()
         self.grid = grid
-        self.clear_verified()
         return grid
-
-    def mark_verified(self, when: Optional[float] = None) -> None:
-        """Doc section 12.6's Verify step, unchanged in spirit: a human
-        looked at the grid drawn on the space it belongs to and said yes.
-        Records that a human answered, nothing about whether the grid is
-        actually right beyond their word — see `geometry_store.py`'s own
-        docstring for why no verify-by-code method exists anywhere near
-        this.
-        """
-        self.verified_at = float(when if when is not None else time.time())
-
-    def clear_verified(self) -> None:
-        self.verified_at = None
 
     # -- persistence ---------------------------------------------------
 
@@ -305,7 +289,6 @@ class BinGridStore:
         if not isinstance(data, dict):
             return
         self.written_at = data.get("written")
-        self.verified_at = data.get("verified_at")
         try:
             self.grid = BinGrid.from_json(data)
         except BinGridError:
@@ -318,7 +301,6 @@ class BinGridStore:
         payload: Dict[str, Any] = {
             "schema": SCHEMA,
             "written": self.written_at,
-            "verified_at": self.verified_at,
         }
         payload.update(self.grid.to_json())
         atomicio.write_json(self.path, payload)

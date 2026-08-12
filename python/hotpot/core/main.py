@@ -630,17 +630,11 @@ class Core:
         if t == "seed_grid":
             self._handle_seed_grid()
             return
-        if t == "verify_grid":
-            self._handle_verify_grid(msg)
-            return
         if t == "set_grid_projector":
             self._handle_set_grid_projector(msg)
             return
         if t == "seed_grid_projector":
             self._handle_seed_grid_projector()
-            return
-        if t == "verify_grid_projector":
-            self._handle_verify_grid_projector(msg)
             return
         if t == "capture":
             self._handle_capture(msg)
@@ -976,13 +970,6 @@ class Core:
             self.web.broadcast({"t": "manual_calibrate_result", "ok": False,
                                 "message": str(e)})
             return
-        # A new solve invalidates the last human Verify answer on the
-        # camera grid too: the grid itself did not move (it is not derived
-        # from H any more — core/bin_grid.py's docstring), but the warped
-        # table frame it is drawn against just did, so what the operator
-        # confirmed against the old frame is no longer the frame they will
-        # see it against next.
-        self.camera_grid.clear_verified()
         # A table that has just acquired its first homography and has no
         # camera grid yet gets the legacy measured layout put on screen —
         # pure line arithmetic now, no homography needed to seed it (unlike
@@ -1061,9 +1048,6 @@ class Core:
                            "line positions."})
             return
         try:
-            # set_grid() itself clears verification (bin_grid.py) — the
-            # outlines the operator said were on the trays are not these
-            # outlines any more (doc section 12.6).
             self.camera_grid.set_grid([float(v) for v in h_lines],
                                       [float(v) for v in v_lines])
             self.camera_grid.save()
@@ -1101,47 +1085,9 @@ class Core:
                         "layout. Drag the lines onto the trays, then Save.")})
         self.web.broadcast(self._geometry_msg())
 
-    def _handle_verify_grid(self, msg: Dict[str, Any]) -> None:
-        """Doc section 12.6's Verify step, and doc section 5.3's TRAP.
-
-        **The only thing this does is record a human's answer.** There is
-        no check here and there must not be one: the grid is already
-        visible on the rectified live feed every frame, so "Verify" is the
-        operator looking at that feed (or, once the projector grid exists,
-        the real table) and saying yes or no. Reprojecting anything to
-        check it would pass by construction on a homography that is
-        upside down — that is the trap this project has already hit three
-        times in different disguises.
-
-        A "No" clears the flag rather than setting a failure state:
-        nothing downstream branches on it, and what the operator does
-        next is drag the grid again, which clears it anyway.
-        """
-        if not self._in_setting():
-            self.web.broadcast({"t": "grid_result", "ok": False,
-                                "message": NOT_IN_SETTING_MSG})
-            return
-        ok = bool(msg.get("ok"))
-        if ok:
-            self.camera_grid.mark_verified()
-            message = "Recorded — the outlines are on the trays."
-        else:
-            self.camera_grid.clear_verified()
-            message = ("Recorded. Adjust the grid lines and check once more.")
-        try:
-            if self.camera_grid.has_grid:
-                self.camera_grid.save()
-        except bin_grid.BinGridError as e:
-            self.web.broadcast({"t": "grid_result", "ok": False,
-                                "message": str(e)})
-            return
-        self.web.broadcast({"t": "grid_result", "ok": True,
-                            "message": message})
-        self.web.broadcast(self._geometry_msg())
-
     # -- the projector grid (M4n — bin_grid.py's second BinGridStore) ------
     #
-    # The camera grid's three handlers above are the template these three
+    # The camera grid's two handlers above are the template these two
     # follow, deliberately — same message shape, same setting-mode gate,
     # same "Save is explicit" rule. What is genuinely different: there is
     # no rectified picture to drag a line on top of, because this grid
@@ -1150,7 +1096,18 @@ class Core:
     # canvas to hold a pending edit in, so every line change it sends is
     # already final, and it reaches oF on the very next ~16ms state tick
     # (`_bin_msg` below), which is the only "preview" this grid can have:
-    # watching the real light move on the real table.
+    # watching the real light move on the real table. **Neither grid has a
+    # separate Verify step any more (dropped 2026-08-12, same session as
+    # this one, on the developer's own call)** — the camera grid's Verify
+    # existed to check the REAL TABLE against the RECTIFIED PICTURE an
+    # operator actually dragged on, which is a genuinely different space
+    # and can diverge from it (doc §5.3's TRAP); the projector grid never
+    # had a second space to diverge from in the first place, since the
+    # operator is looking at the real table while nudging it, not a proxy
+    # for it. Removing the camera grid's Verify step trades that TRAP
+    # guard for one fewer tap — a deliberate call, not an oversight; if a
+    # bad camera-to-table solve ever produces a plausible-looking rectified
+    # picture again, this is the tradeoff to revisit first.
 
     def _handle_set_grid_projector(self, msg: Dict[str, Any]) -> None:
         """Doc section 12.6/12.7's future projector-space twin, per
@@ -1210,38 +1167,8 @@ class Core:
         self.web.broadcast({
             "t": "grid_projector_result", "ok": True,
             "message": ("Starting positions loaded from the measured table "
-                        "layout. Watch the table and nudge the lines onto "
-                        "the trays, then Save.")})
-        self.web.broadcast(self._projector_grid_msg())
-
-    def _handle_verify_grid_projector(self, msg: Dict[str, Any]) -> None:
-        """Doc section 5.3's TRAP, closed the way this grid was designed
-        to close it (`bin_grid.py`'s docstring: "closing its own Verify
-        loop independently"): the operator is looking at the real table,
-        lit by the real projector, so there is nothing to reproject and
-        nothing to check here beyond recording the answer — same rule as
-        `_handle_verify_grid`.
-        """
-        if not self._in_setting():
-            self.web.broadcast({"t": "grid_projector_result", "ok": False,
-                                "message": NOT_IN_SETTING_MSG})
-            return
-        ok = bool(msg.get("ok"))
-        if ok:
-            self.projector_grid.mark_verified()
-            message = "Recorded — the outlines are on the trays."
-        else:
-            self.projector_grid.clear_verified()
-            message = "Recorded. Nudge the grid lines and check once more."
-        try:
-            if self.projector_grid.has_grid:
-                self.projector_grid.save()
-        except bin_grid.BinGridError as e:
-            self.web.broadcast({"t": "grid_projector_result", "ok": False,
-                                "message": str(e)})
-            return
-        self.web.broadcast({"t": "grid_projector_result", "ok": True,
-                            "message": message})
+                        "layout. Select a line and nudge it with the arrow "
+                        "keys, watching the real table.")})
         self.web.broadcast(self._projector_grid_msg())
 
     def _projector_grid_msg(self) -> Dict[str, Any]:
@@ -1253,7 +1180,6 @@ class Core:
         return {
             "t": "projector_grid",
             "has_grid": pg.has_grid,
-            "verified_at": pg.verified_at,
             "h_lines": (None if pg.grid is None
                        else [round(v, 1) for v in pg.grid.h_lines]),
             "v_lines": (None if pg.grid is None
@@ -1431,7 +1357,6 @@ class Core:
             "rms_px": None if g.rms_px is None else round(g.rms_px, 2),
             "n_points": g.n_points,
             "computed_at": g.computed_at,
-            "grid_verified_at": cg.verified_at,
             "camera_size": list(g.camera_size),
             "stage_size": list(g.stage_size),
             "keystone_stale": g.keystone_is_stale(self._keystone_fingerprint),
