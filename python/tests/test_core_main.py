@@ -919,14 +919,14 @@ class TestBinsTab(CoreCase):
         res = self.cal_result(w, 3, "tare")
         self.assertIsNotNone(res, "a refused tare sent no cal_result at all")
         self.assertFalse(res["ok"])
-        self.assertIn("setting mode", res["message"])
+        self.assertEqual(coremain.NOT_IN_SETTING_MSG, res["message"])
         self.assertFalse(self.core.cal.bins[3].tared,
                           "a serving-mode tare reached the calibration file")
 
         w.send(json.dumps({"t": "calibrate", "bin": 3, "ref_mass_g": 500}))
         res = self.cal_result(w, 3, "calibrate")
         self.assertFalse(res["ok"])
-        self.assertIn("setting mode", res["message"])
+        self.assertEqual(coremain.NOT_IN_SETTING_MSG, res["message"])
         self.assertFalse(self.core.cal.bins[3].calibrated)
 
     def test_tare_all_zeroes_every_bin_from_one_capture(self):
@@ -966,7 +966,7 @@ class TestBinsTab(CoreCase):
             w, lambda m: m.get("t") == "cal_result" and m.get("op") == "tare_all")
         self.assertIsNotNone(res)
         self.assertFalse(res["ok"])
-        self.assertIn("setting mode", res["message"])
+        self.assertEqual(coremain.NOT_IN_SETTING_MSG, res["message"])
         for b in range(8):
             self.assertFalse(self.core.cal.bins[b].tared)
 
@@ -1621,7 +1621,7 @@ class TestManualCalibrationOverTheWire(CoreCase):
         ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
         result = self.collect(ws, "manual_calibrate_result")
         self.assertFalse(result["ok"])
-        self.assertIn("setting mode", result["message"])
+        self.assertEqual(coremain.NOT_IN_SETTING_MSG, result["message"])
         self.assertFalse(self.core.geometry.has_homography)
 
     def test_wrong_point_count_is_refused(self):
@@ -1796,7 +1796,7 @@ class TestSetViewRotationOverTheWire(CoreCase):
         ws.send(json.dumps({"t": "set_view_rotation", "deg": 90}))
         result = self.collect(ws, "set_view_rotation_result")
         self.assertFalse(result["ok"])
-        self.assertIn("setting mode", result["message"])
+        self.assertEqual(coremain.NOT_IN_SETTING_MSG, result["message"])
         self.assertEqual(self.core.geometry.view_rotation_deg, 180)
 
 

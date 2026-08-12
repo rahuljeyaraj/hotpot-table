@@ -17,25 +17,12 @@
     --green: #3ecf6e;
     --amber: #e8b33d;
     --red: #e05d5d;
-    /* The two modes get two hues of their own, and neither is the green
-       or red the pips already own — a mode is not a health state, and
-       reusing those would make "serving" look like a passing check and
-       "setting" look like a fault. Setting keeps AMBER because the
-       table's own banner is amber (I8: both surfaces say the same thing
-       in the same hue, and that one is not ours to re-pick). Serving is
-       TEAL: calm, clearly not the pips' green, and luminance-matched to
-       the amber so neither position reads as "the bright one". */
+    /* Serving gets a hue of its own, and it is not the green or red the
+       pips already own — a mode is not a health state, and green would
+       make "serving" read as a passing check. TEAL: calm, clearly not
+       the pips' green. It is the only mode colour the switch needs now
+       that off is an ordinary greyed-out off (see .mode-switch). */
     --serving: #2fb0b8;
-    /* Two inks per mode, because the label appears on two different
-       grounds. `-ink` is for text sitting ON the coloured track (both
-       tracks are light, so that ink is near-black, not white). `-deep`
-       is the same hue darkened enough to read on the white knob — the
-       amber itself is 1.9:1 on white, which is not text. Both pairs are
-       measured above 5.5:1. */
-    --serving-ink: #04262a;
-    --serving-deep: #0b6a72;
-    --setting-ink: #2a1f00;
-    --setting-deep: #7a5200;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -131,66 +118,63 @@
   .pips.show { display: flex; }
 
   /* --- mode switch (doc section 12.2, M2.6) -----------------------------
-     ONE control, not a chip plus a button that said the same word twice.
-     Left half is SETTING (off), right half is SERVING (on); the filled
-     half is the mode the table is IN, and the knob sits on it. Colour is
-     never alone — the label inside the filled half changes with it.
+     ONE switch for ONE thing: is the table SERVING, yes or no. Off IS
+     setting mode — the FSM state, the wire value and every refusal are
+     unchanged; only the control is.
+
+     This replaces a two-half segmented switch reading `Setting|Serving`,
+     which made the operator read two words and work out which half was
+     lit before knowing what the table was doing. A switch answers a
+     question, and the question has one noun in it.
+
+     Off is the ordinary greyed-out off every tablet switch has, on
+     purpose: the shape is one an operator already knows, so nothing about
+     it has to be learned. The cost is deliberate and worth naming — the
+     table's setting-mode banner is amber (I8: both surfaces say the same
+     thing in the same hue) and this corner of the tablet no longer is.
+     What still says "setting" here is the knob's position, the dead
+     track, and the action-bar hint below, which is text, not colour.
 
      §12.1's "one primary action per screen" argued for a button rather
-     than a switch, and the mis-tap worry behind that is real, so the
-     things that made it safe are unchanged: entering setting mode is
-     still refused with a reason while an order is live, and exiting
-     still re-baselines every bin from the scale first.
-
-     The knob is not a dot beside the words — it is a white pill that
-     CONTAINS the active word, so the label you are meant to read is the
-     one on white and the other is on the colour. The first version had
-     both words on the coloured track with the inactive one dimmed to
-     grey, and grey on teal is not text: `Setting` could not be read in
-     serving mode at all. Nothing is dimmed now; both words are legible
-     at all times and it is position and ground, not opacity, that say
-     which one is live. */
+     than a switch, and the mis-tap worry behind that is real, so the two
+     things that made a switch safe are unchanged: entering setting mode
+     is still refused with a reason while an order is live, and exiting
+     still re-baselines every bin from the scale first. */
+  .mode-control { display: flex; align-items: center; gap: 10px; flex: none; }
+  .mode-control .mode-name {
+    font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
+    color: var(--text);
+  }
   .mode-switch {
     position: relative; flex: none;
-    display: grid; grid-template-columns: 1fr 1fr; align-items: center;
-    height: 44px; padding: 4px;
+    width: 76px; height: 44px;               /* doc 12.1: 44px touch target */
+    padding: 4px;
     border: none; border-radius: 22px;
-    background: #2a2d33;
+    background: #3a3e46;                     /* off */
     cursor: pointer;
     transition: background-color 180ms ease;
     -webkit-tap-highlight-color: transparent;
   }
   .mode-switch:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
-  /* Left half in setting, right half in serving — the same direction of
-     travel as the switch in every settings app, so "pushed right" is on. */
+  /* Knob right = on, the same direction of travel as the switch in every
+     settings app. 32px is the track's 76 less the knob's 36 and both 4px
+     insets — a hardcoded transform rather than calc() only because the
+     three numbers are right here. */
   .mode-switch .knob {
     position: absolute; top: 4px; left: 4px;
-    width: calc(50% - 4px); height: 36px;
-    border-radius: 18px;
+    width: 36px; height: 36px;
+    border-radius: 50%;
     background: #ffffff;
     transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
   }
-  .mode-switch .mode-label {
-    position: relative;          /* above the knob it sits inside */
-    text-align: center;
-    padding: 0 20px;
-    font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
-    color: var(--muted);
-    transition: color 180ms ease;
-  }
-
-  .mode-switch.setting { background: var(--amber); }
-  .mode-switch.setting .mode-label.off { color: var(--setting-deep); }  /* on the white knob */
-  .mode-switch.setting .mode-label.on  { color: var(--setting-ink); }   /* on the amber track */
-
   .mode-switch.serving { background: var(--serving); }
-  .mode-switch.serving .mode-label.on  { color: var(--serving-deep); }  /* on the white knob */
-  .mode-switch.serving .mode-label.off { color: var(--serving-ink); }   /* on the teal track */
-  .mode-switch.serving .knob { transform: translateX(100%); }
+  .mode-switch.serving .knob { transform: translateX(32px); }
 
-  /* Before the join seed arrives the mode is genuinely unknown, so the
-     switch shows neither half: no knob, a neutral track, and both words
-     muted — the one state where dimming is honest. */
+  /* Before the join seed arrives the mode is genuinely unknown, and off
+     is now a real position rather than a blank one — so unknown drops the
+     knob entirely and sinks the track below the off grey. No knob at all
+     is the one honest way to show a switch whose position isn't known. */
+  .mode-switch.unknown { background: #2a2d33; }
   .mode-switch.unknown .knob { opacity: 0; }
 
   main { padding: 24px 16px; }
@@ -553,7 +537,7 @@
        one: they are different problems with different fixes, and a
        shared strip would have one of them silently replacing the other. -->
   <div id="uncalBanner" class="uncal-banner">
-    This table has not been set up yet. Enter setting mode and run the
+    This table has not been set up yet. Turn Serving off and run the
     projector–camera calibration on the Setup tab.
   </div>
   <header>
@@ -578,20 +562,19 @@
     <div class="order" id="order">—</div>
     <div class="spacer"></div>
     <div class="action-note" id="modeNote"></div>
-    <!-- ONE control for the mode, replacing the chip + button pair that
-         said the same word twice with the button parked in the bottom
-         action bar. Left = setting, right = serving; the filled half is
-         where the table is. `Cancel order` stays in the action bar: it
-         is order-scoped, not system-scoped. -->
-    <button id="modeSwitch" class="mode-switch unknown" role="switch"
-            aria-checked="false" aria-label="Serving mode">
-      <!-- Knob first: it and the labels are all positioned, so paint
-           order is DOM order and a knob drawn last would cover the word
-           it is supposed to sit behind. -->
-      <span class="knob"></span>
-      <span class="mode-label off">Setting</span>
-      <span class="mode-label on">Serving</span>
-    </button>
+    <!-- ONE switch for the mode: Serving on or off, off being setting
+         mode. `Cancel order` stays in the action bar: it is order-scoped,
+         not system-scoped. The word is a sibling of the switch, not
+         inside it — role="switch" plus aria-checked is what a screen
+         reader reads, and aria-labelledby points it at the same word the
+         eye uses rather than a second copy that could drift from it. -->
+    <div class="mode-control">
+      <span class="mode-name" id="modeName">Serving</span>
+      <button id="modeSwitch" class="mode-switch unknown" role="switch"
+              aria-checked="false" aria-labelledby="modeName">
+        <span class="knob"></span>
+      </button>
+    </div>
     <div class="pips" id="pips"></div>
     <button id="devToggle" class="dev-toggle">Developer</button>
   </header>
@@ -1278,7 +1261,11 @@
   // the reason on the card, so the answer arrives before the effort.
   var tareAllBtn = document.getElementById("tareAllBtn");
   var binsHint = document.getElementById("binsHint");
-  var NEEDS_SETTING = "Enter setting mode to tare or calibrate.";
+  // Names the CONTROL, not the mode. Nothing in the header says the word
+  // "setting" any more — one switch, labelled Serving — so "enter setting
+  // mode" would send an operator hunting for a control that isn't there.
+  // Every hint in this file points at the same switch in the same words.
+  var NEEDS_SETTING = "Turn Serving off to tare or calibrate.";
 
   function applyBinGating() {
     var on = mode === "setting";
@@ -1668,7 +1655,7 @@
   // (raw sensor resolution vs. the warped canvas the classifier crops
   // from) and must not be assumed to always match.
   var stageSize = [1920, 1080];
-  var NEEDS_SETTING_SETUP = "Enter setting mode to change the calibration.";
+  var NEEDS_SETTING_SETUP = "Turn Serving off to change the calibration.";
   var NEEDS_CORNERS_SETUP = "Confirm the table corners above first.";
 
   // **The bin-box crop mechanism, CLAUDE.md's M4i note.** `cameraRoi` is
@@ -2637,8 +2624,8 @@
     });
   }
   var NEEDS_SETTING_CAPTURE =
-    "Enter setting mode to capture — reaching over the trays in serving "
-    + "mode would be charged as a pick.";
+    "Turn Serving off to capture — reaching over the trays while it is "
+    + "on would be charged as a pick.";
 
   applyCaptureGating();
 
@@ -2694,7 +2681,7 @@
   // stays tappable rather than being disabled while a cart is live: a
   // dead control that explains nothing is the thing this replaces.
   function showRefusal(reason) {
-    showDialog("Can't enter setting mode", reason, [
+    showDialog("Can't turn Serving off", reason, [
       { label: "Close", onClick: closeDialog },
       { label: "Cancel the order first", cls: "primary",
         onClick: askCancelOrder },
@@ -2730,21 +2717,21 @@
       selectTab("setup");
     }
 
-    // Never colour alone (§12.2's own rule for the pips): the knob moves
-    // and the filled half's label lights with the hue, so position and
-    // text both say it without needing to tell amber from teal.
+    // Never colour alone (§12.2's own rule for the pips): the knob's
+    // position carries the state on its own, and the action hint below
+    // says "Not serving" in words while it is off.
     modeSwitch.classList.remove("unknown");
-    modeSwitch.classList.toggle("setting", setting);
     modeSwitch.classList.toggle("serving", !setting);
     modeSwitch.setAttribute("aria-checked", setting ? "false" : "true");
-    modeSwitch.setAttribute("aria-label",
-      setting ? "Setting mode — not serving" : "Serving mode");
 
     // The pre-warn `cart_active` is on the wire for: the operator sees
     // the reason a tap is about to be refused before making it.
     modeNote.textContent = (!setting && cartActive) ? "An order is in progress" : "";
+    // "while this is on" was written when the control was named after
+    // setting mode; the switch is named Serving now, and off is the state
+    // this sentence describes.
     actionHint.textContent = setting
-      ? "Not serving — the table is not charging anyone while this is on."
+      ? "Not serving — the table is not charging anyone while the switch is off."
       : "";
 
     // Tare and Calibrate live or dead follows the mode, so the answer

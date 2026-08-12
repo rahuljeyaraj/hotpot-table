@@ -150,7 +150,10 @@ MODE_SETTING = "setting"
 # idea — the table banner said NOT BILLING while the mode was called
 # SERVING — which makes an operator work out that they mean the same
 # thing. One word, and it is the one that is already the mode's name.
-NOT_IN_SETTING_MSG = ("Enter setting mode first — the table is still "
+# It also names the CONTROL the operator has to reach for: the staff
+# view's header is one switch labelled Serving, and the word "setting"
+# appears nowhere on it, so "enter setting mode" would send them hunting.
+NOT_IN_SETTING_MSG = ("Turn Serving off first — the table is still "
                       "serving.")
 
 # Doc section 8.6's `tracker.emit_hz`. Core's default rather than the

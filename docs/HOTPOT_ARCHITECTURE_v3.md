@@ -965,27 +965,29 @@ The staff view is not a debug page. It is the calibration surface, the diagnosti
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ 称重火锅  [ SERVING MODE ]        Order: ¥41.20      ● ● ● ● ● ●  │  header, fixed
-├──────────────────────────────────────────────────────────────┤
-│ [Live] [Bins] [Orders] [Setup] [Capture]           EN | 中文 │  tabs
+│ 〔logo〕[Live][Bins][Setup][Capture] ¥41.20 Serving(━●) [Dev] │  header, fixed
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │                      (tab content)                           │
 │                                                              │
 ├──────────────────────────────────────────────────────────────┤
-│  [ ENTER SETTING MODE ]              [ Cancel order ]          │  action bar, fixed
+│  Not serving — the table is not charging anyone while        │
+│  the switch is off.                  [ Cancel order ]        │  action bar, fixed
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The six pips are `camera · tracker · classifier · voice · core · table`, each green/amber/red, each tappable for detail. `table` means oF. Colour alone is never the only signal — each pip also carries a one-letter code, because kitchen lighting and colour-blindness both exist.
+The six pips are `camera · tracker · classifier · voice · core · table`, each green/amber/red, each tappable for detail. `table` means oF. Colour alone is never the only signal — each pip also carries a one-letter code, because kitchen lighting and colour-blindness both exist. **They ride the Developer toggle** and are not in the operator's header, which is why the mockup above has no room for them: an operator cannot act on "tracker is amber", and six coloured dots in the corner of every screen train them to ignore colour in the one UI where colour carries the mode.
 
-The **mode chip** shows the live mode: neutral in serving, **amber** in setting, matching the table's own amber chrome (I8) so the tablet and the table are visibly one statement. Its text changes with its hue, per the same never-colour-alone rule as the pips.
+**The mode lives in the header — not in the action bar**, which is where the mockup above puts it. Correcting the mockup, after seeing it on a tablet: a status indicator at the top-left and the control that changes it at the bottom-left read as two unrelated things, and nothing tells you which control drives the state you are looking at. State and its control go together, and keeping a consequential toggle out of the bottom thumb-rest also makes it harder to mis-tap.
 
-**The mode toggle sits immediately beside the chip, in the header — not in the action bar**, which is where the mockup above puts it. Correcting the mockup, after seeing it on a tablet: a status indicator at the top-left and the control that changes it at the bottom-left read as two unrelated things, and nothing tells you which control drives the state you are looking at. State and its control go together. Keeping a consequential toggle out of the bottom thumb-rest also makes it harder to mis-tap, which is the same concern that ruled out a two-position switch.
+**It is ONE switch, labelled `Serving`, and OFF IS SETTING MODE.** This corrects the mockup a second time, and supersedes both earlier designs: the chip + `ENTER SETTING MODE` button in the mockup above, and the two-half `Setting|Serving` segmented switch that replaced it. The chip and button said the same word twice, side by side, once they were adjacent. The segmented switch then made the operator read two words and work out which half was lit before knowing what the table was doing. A switch answers a question, and the question has one noun in it: **is the table serving, yes or no.**
 
-- **One primary button that names what happens next** — `ENTER SETTING MODE` / `EXIT SETTING MODE`. Not a two-position switch: §12.1 is "one primary action per screen", and a switch invites a mis-tap into the one transition that destroys a diner's order.
-- **When refused, the button stays tappable and explains.** It is never disabled silently. Tapping with an active cart shows §9.1's reason verbatim, plus a "Cancel the order first" action wired to `Cancel order` — that pairing is what §9.1 requires.
-- The mode message carries `cart_active` alongside the mode, so the button can pre-warn beside itself before a tap is made rather than after a round trip.
+- **Off is the ordinary greyed-out off**, the shape every tablet switch already has, so nothing about the control has to be learned. The cost is named rather than hidden: the table's setting-mode banner is amber (I8) and this corner of the tablet is no longer amber with it. What says "setting" here instead is the knob's position, the dead track, and the action hint below in words.
+- **The operator-facing layer names the CONTROL, never the mode.** Every hint and refusal reads `Turn Serving off to …` — including core's own `NOT_IN_SETTING_MSG`, shown verbatim on the tablet. The word "setting" appears nowhere in the header, so "enter setting mode" would send an operator hunting for a control that does not exist. `setting` remains the FSM state, the wire value, and this document's word for the mode; it is not the operator's.
+- **§12.1's "one primary action per screen" argued for a button, and the mis-tap worry behind it is real** — so the two things that make a switch safe are unchanged and must stay: turning Serving off is **refused with a reason** while an order is live (§9.1), and turning it back on **re-baselines every bin from the scale before `reset_session()`** (§9.1's trap).
+- **When refused, the switch stays tappable and explains.** It is never disabled silently. Tapping with an active cart shows §9.1's reason verbatim, plus a "Cancel the order first" action wired to `Cancel order` — that pairing is what §9.1 requires.
+- The mode message carries `cart_active` alongside the mode, so the header can pre-warn beside the switch before a tap is made rather than after a round trip.
+- Before the join seed arrives the mode is genuinely unknown, and off is now a real position rather than a blank one — so that state **drops the knob entirely** and sinks the track below the off grey. A switch drawn in a position it does not know is a lie.
 
 The **action bar** stays fixed to the bottom, above the developer panel, on every tab, and holds what is **order-scoped** rather than system-scoped: `Cancel order`, which confirms before it fires because it re-baselines. That split — system state in the header, order actions in the bar — is why the toggle moved and `Cancel order` did not.
 

@@ -790,6 +790,67 @@ Verified the same way M2.6 was — `node --check` on the extracted script,
 every `getElementById` target cross-checked against the DOM (a script,
 not by eye), 413 tests still passing. **Not observed on the tablet yet.**
 
+**Both bullets above about the switch are SUPERSEDED by M2.6h below** —
+the two-half segmented switch and setting's amber half are gone. The rest
+of M2.6f (tabs, pips) stands.
+
+### M2.6h — one `Serving` on/off switch, off being setting mode
+**2026-08-12, from the developer looking at M2.6f's switch on the tablet:
+"the setting serving slide button is awful."** Third control for this
+mode, and the first one that asks a question with a single noun in it.
+
+The two-half `Setting|Serving` segmented switch made the operator read two
+words and work out which half was lit before knowing what the table was
+doing. A switch answers a question, and the question is **is the table
+serving, yes or no**. So: one switch labelled `Serving`, knob right for
+on, knob left for off, and **off IS setting mode** — `fsm`, the `set_mode`
+wire value, `mode` on the `state` message and every refusal are untouched.
+**Control change only, no protocol or FSM change**, same as M2.6f was.
+
+- **Off is the ordinary greyed-out off** (`#3a3e46`), the shape every
+  tablet switch already has — chosen by the developer over a version that
+  kept setting's amber in the off position. The cost is real and is worth
+  knowing rather than rediscovering: **M2.6f's I8 pairing is broken on
+  purpose.** The table's setting-mode banner is still amber; this corner
+  of the tablet no longer is. What carries "setting" here instead is the
+  knob position, the dead track, and the action hint in words. `--serving`
+  teal is the only mode hue left in the page; `--serving-ink`,
+  `--serving-deep`, `--setting-ink` and `--setting-deep` are deleted, they
+  existed only to put text on the two coloured halves.
+- **The operator-facing copy now names the CONTROL, never the mode**, and
+  this is the part that would have quietly broken had only the CSS
+  changed: the header no longer contains the word "setting" anywhere, so
+  every `Enter setting mode to …` hint was pointing at a control that no
+  longer exists. All of them, plus core's own `NOT_IN_SETTING_MSG` (shown
+  verbatim on the tablet), now read `Turn Serving off to …`. This extends
+  M2.6e item 4's one-word rule rather than bending it — "serving" is still
+  the single word, and it is now also the name of the thing you touch.
+  `setting` stays the FSM state, the wire value and the doc's word.
+- **The five tests that asserted the literal substring `"setting mode"`
+  in a refusal now assert equality with `coremain.NOT_IN_SETTING_MSG`.**
+  Strictly stronger, and aimed at the invariant that actually matters
+  (M2.6e item 4: one source for the refusal sentence) rather than at
+  wording that is free to change.
+- **Unknown is now a distinct third rendering, not a blank one.** Off used
+  to be "no half filled"; off is a real knob position now, so before the
+  join seed the switch drops the knob entirely and sinks the track below
+  the off grey. A switch drawn in a position it does not know is a lie.
+
+**§12.2 has been corrected**, including the ASCII mockup, which still
+showed the chip + `ENTER SETTING MODE` action-bar button from before
+M2.6e — it had never been updated for M2.6f's switch either, so it was two
+designs stale. The paragraph claiming the six pips are in the header was
+corrected at the same time (M2.6f moved them behind Developer).
+
+Verified the same way M2.6/M2.6f were — `node --check` on the extracted
+script, every `getElementById` target cross-checked against the DOM by
+script, and the three switch states rendered from the shipped CSS in a
+browser. Suite: 821 passed, 1 failed —
+`TestHoverAndDwellOverTheWire.test_the_staff_view_is_told_where_the_hands_
+are`, a timing flake unrelated to this change (passes on its own and on
+re-run; same class as the `test_calibrator` flake noted under M2.6).
+**Not observed on the tablet.**
+
 ### M2.6g — the plate label: smaller, and symmetric about the pot
 **2026-08-11.**
 - **The near row and the far row drew the same two rows of text in
