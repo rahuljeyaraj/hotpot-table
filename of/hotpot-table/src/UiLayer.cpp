@@ -652,10 +652,9 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	// strip is for everyone *not* holding the tablet.
 	//
 	// This is the general rule for the strip, established here because
-	// `calibrating` (M4) and `recap`/`qr` (M6) will each ask the same
-	// question: the state that changes what the table is DOING outranks
-	// the state that reports a fault in a subsystem that state has
-	// already disabled.
+	// `recap`/`qr` (M6) will ask the same question: the state that changes
+	// what the table is DOING outranks the state that reports a fault in
+	// a subsystem that state has already disabled.
 	//
 	// English only, matching UiLayer's current scope. Doc §14.5 pairs the
 	// banner with a Chinese string; zh locale data does not exist yet (M1
@@ -669,16 +668,8 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	// "NOT BILLING" — an internal word for an external surface, and the
 	// system's own second word for the same idea. There is one word now,
 	// "serving", and it is the one a diner already understands.
-	// **Order, doc §14.5's precedence table, as built at M4:**
-	//   calibrating > uncalibrated > setting > error
-	//
-	// `calibrating` never reaches this function at all — ofApp::draw
-	// takes the whole inverted-field branch and UiLayer::draw is not
-	// called. That is not an oversight to tidy up later: a banner is a
-	// bright shape on a black field, which is precisely what
-	// classifier/dots.py is looking for, so drawing one during a solve
-	// would feed the homography a point that was never part of the
-	// pattern. It is a lighting rule, not a UI preference.
+	// **Order, doc §14.5's precedence table:**
+	//   uncalibrated > setting > error
 	//
 	// `uncalibrated` outranks `setting` because it SURVIVES setting mode:
 	// an operator who exits setting mode on a table with no geometry
@@ -697,24 +688,6 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	if(state.overlayKind == "error"){
 		drawBanner(kErrorBannerFill, kErrorBannerInk,
 			"NOT SERVING", "scales offline");
-	}
-}
-
-void UiLayer::drawCalibrationDots(const StateLink::State & state) const {
-	// Filled white discs on the black field Stage just cleared to. Nothing
-	// else is drawn this frame, on purpose — see the header.
-	//
-	// ofDrawCircle, not an ofPath ring: these are solid, so §13.4's
-	// "halos and outline rings must be FILLED geometry" objection does not
-	// arise, and ofSetCircleResolution(64) is already set in ofApp::setup.
-	// The resolution matters more here than anywhere else in this app: a
-	// coarse polygon has a centroid offset from the circle it approximates
-	// by a fixed amount in a fixed direction, and every dot would carry
-	// the same bias into the solve — where a systematic offset is exactly
-	// the error a homography absorbs silently.
-	ofSetColor(255);
-	for(const glm::vec3 & d : state.overlayDots){
-		ofDrawCircle(d.x, d.y, d.z);
 	}
 }
 

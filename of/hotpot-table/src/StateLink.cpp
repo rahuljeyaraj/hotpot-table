@@ -311,24 +311,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 	}
 
 	if(j.contains("overlay") && j["overlay"].is_object()){
-		const ofJson & o = j["overlay"];
-		out.overlayKind = o.value("kind", "none");
-		// Silently ignoring a malformed entry rather than rejecting the
-		// whole line: a dropped dot costs one correspondence out of
-		// fifteen and core counts what came back, whereas a rejected
-		// `state` line would freeze the whole table mid-calibration.
-		if(o.contains("dots") && o["dots"].is_array()){
-			for(const ofJson & d : o["dots"]){
-				if(!d.is_array() || d.size() < 3){
-					continue;
-				}
-				if(!d[0].is_number() || !d[1].is_number() || !d[2].is_number()){
-					continue;
-				}
-				out.overlayDots.emplace_back(d[0].get<float>(),
-					d[1].get<float>(), d[2].get<float>());
-			}
-		}
+		out.overlayKind = j["overlay"].value("kind", "none");
 	}
 
 	// doc §4.3: "bins always has exactly 8 entries." Trusted where it can

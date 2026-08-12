@@ -88,31 +88,12 @@ void ofApp::draw(){
 		state = _link.getState();
 	}
 
-	// I9's one exception (M4 build item 3): while core is soliciting a
-	// homography, the table is a black field with white dots and NOTHING
-	// else. Every plate, label, banner and the brand mark are all bright
-	// shapes, and a bright shape on a black field is what
-	// classifier/dots.py is looking for — drawing any of them would feed
-	// the solve points that were never part of the pattern.
-	//
-	// The same flag goes to both Stage calls. Passing it to one and not
-	// the other is the failure mode worth knowing about: begin-only
-	// leaves the light pass stamping eight white rectangles across the
-	// pattern, and composite-only draws the dots onto a white field where
-	// nothing can see them. Hence one local, used twice.
-	const bool calibrating = hasState && state.overlayKind == "calibrating";
-
-	_stage.beginContent(calibrating);
-	if(calibrating){
-		_ui.drawCalibrationDots(state);
-	}
-	else {
-		_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
-			ofGetFrameRate(), _devOverlayVisible);
-	}
+	_stage.beginContent();
+	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
+		ofGetFrameRate(), _devOverlayVisible);
 	_stage.endContent();
 
-	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx(), calibrating);
+	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx());
 
 	if(_screenshotPending){
 		_screenshotPending = false;
@@ -143,8 +124,8 @@ void ofApp::keyPressed(int key){
 	// the hit-testing it served (core's FSM, M5), the weight mock moved to
 	// the staff view's developer panel (M1 build item 5, not yet wired to
 	// oF — mock picks arrive over the same StateLink `state` bins already
-	// draw), and the calibration dot pattern is M4's job, drawn by core
-	// setting `overlay.kind = "calibrating"`, not a local key toggle.
+	// draw), and the calibration dot pattern is deleted outright — automated
+	// dot-projection calibration will never be used (see UiLayer.h history).
 	// d added post-M1 acceptance: the fps/link/seq corner readout is a
 	// debug tool, not diner-facing, so it defaults off and toggles here
 	// rather than drawing unconditionally on the projected table.
