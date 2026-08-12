@@ -413,10 +413,30 @@ class WindowsCapture:
         if not cap.isOpened():
             raise CameraError(
                 f"could not open camera index {self.device} (DirectShow)")
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        # **FOURCC must be set LAST, after resolution AND fps, and it is
+        # worth 6.5x the frame rate.** Measured on this dev machine's webcam
+        # 2026-08-12, every combination tried:
+        #
+        #     MJPG, res, fps          -> YUY2, 4.6 fps   (what this was)
+        #     MJPG, res, MJPG, fps    -> YUY2, 4.6 fps
+        #     MJPG, res, fps, MJPG    -> MJPG, 30.3 fps  (this)
+        #
+        # Every `set` that changes the media type re-negotiates it, and
+        # DirectShow answers with its default format for the new mode —
+        # which for this camera is uncompressed YUY2. Setting fps does that
+        # just as much as setting resolution does, which is the part that
+        # is easy to miss: the fps call looks unrelated to pixel format and
+        # silently undoes it. Raw YUY2 at 1920x1080 is ~6 MB a frame, and
+        # USB bandwidth turns that into 4.6 fps.
+        #
+        # So the last `set` is the one that decides, and it has to be the
+        # format. Doc section 6.6 asks for MJPG; this is what delivers it.
+        mjpg = cv2.VideoWriter_fourcc(*"MJPG")
+        cap.set(cv2.CAP_PROP_FOURCC, mjpg)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         cap.set(cv2.CAP_PROP_FPS, self.fps)
+        cap.set(cv2.CAP_PROP_FOURCC, mjpg)
         self._cap = cap
 
         actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -428,6 +448,11 @@ class WindowsCapture:
         if (actual_w, actual_h) != (self.width, self.height):
             log.warning("camera: asked for %dx%d, device gave %dx%d",
                         self.width, self.height, actual_w, actual_h)
+        if fourcc != "MJPG":
+            # Not fatal — the pipeline works on whatever it gets — but it
+            # costs most of the frame rate, so it must not pass silently.
+            log.warning("camera: wanted MJPG, negotiated %s — expect a much "
+                        "lower frame rate at this resolution", fourcc or "?")
         log.info("camera: opened index %s at %dx%d@%.1ffps, fourcc=%s "
                  "(DirectShow, Windows dev backend)",
                  self.device, actual_w, actual_h, actual_fps, fourcc)
