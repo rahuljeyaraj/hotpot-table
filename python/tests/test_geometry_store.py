@@ -231,9 +231,16 @@ class TestManualCorners(StoreCase):
     """
 
     def _corners_stage(self):
+        # front(near)/back(far) in the front-left/front-right/back-right/
+        # back-left order `fit_from_corners` expects — near is the HIGH-y
+        # edge, matching `_manual_corners_stage`'s own convention (which
+        # matches `BIN_ORIGINS_MM`: far row at y_mm=177, near row at
+        # y_mm=482). Mirrors `_manual_corners_stage` deliberately rather
+        # than importing it, the same "independently computed reference"
+        # discipline `test_geometry.py`'s TestFit already uses.
         w, h = gs.STAGE_SIZE
-        return [(0.0, 0.0), (float(w), 0.0),
-                (float(w), float(h)), (0.0, float(h))]
+        return [(0.0, float(h)), (float(w), float(h)),
+                (float(w), 0.0), (0.0, 0.0)]
 
     def _recovers(self, cam_to_stage):
         s = self.store()
@@ -274,6 +281,32 @@ class TestManualCorners(StoreCase):
         with self.assertRaises(geometry.GeometryError):
             s.fit_from_corners([(0.0, 0.0), (100.0, 0.0),
                                 (200.0, 0.0), (300.0, 0.0)])
+
+    def test_front_clicks_land_on_the_high_y_near_edge(self):
+        # The bug M5's tracker found on the rig: a live hand tracked
+        # through H_cam->stage came out vertically inverted, because this
+        # near/far pairing was backwards. `_corners_stage`'s own
+        # round-trip tests above pass regardless of which way this is
+        # wired (they only check self-consistency), so this test checks
+        # the actual semantic meaning instead: a click made at the front
+        # (near, operator's own side) must fit to the HIGH-y stage edge,
+        # matching `BIN_ORIGINS_MM` (far row y_mm=177, near row y_mm=482)
+        # — never assert this from a reprojection of the fitted points
+        # themselves (doc section 5.3's TRAP), so it goes through a probe
+        # point near the front edge that was never one of the 4 clicks.
+        s = self.store()
+        stage_to_cam = geometry.invert(CAM_TO_STAGE)
+        clicks = [geometry.apply(stage_to_cam, p) for p in self._corners_stage()]
+        fit = s.fit_from_corners(clicks)
+        w, h = gs.STAGE_SIZE
+        near_probe_stage = (w / 2.0, h - 50.0)
+        far_probe_stage = (w / 2.0, 50.0)
+        near_probe_cam = geometry.apply(stage_to_cam, near_probe_stage)
+        far_probe_cam = geometry.apply(stage_to_cam, far_probe_stage)
+        got_near = geometry.apply(fit.h, near_probe_cam)
+        got_far = geometry.apply(fit.h, far_probe_cam)
+        self.assertGreater(got_near[1], h / 2.0)
+        self.assertLess(got_far[1], h / 2.0)
 
     def test_the_fit_is_returned_unsaved(self):
         # Matches core/dotcal.py's own split: fit_from_corners only

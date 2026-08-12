@@ -1561,12 +1561,15 @@ class TestManualCalibrationOverTheWire(CoreCase):
         fixed front-left/front-right/back-right/back-left order
         `GeometryStore.fit_from_corners` expects.
         """
+        # near (front) is the HIGH-y stage edge, far (back) is LOW-y —
+        # `GeometryStore._manual_corners_stage`'s own convention, matching
+        # `BIN_ORIGINS_MM` (far row y_mm=177, near row y_mm=482).
         from hotpot.common import geometry as geo
         h = cam_to_stage or self.CAM_TO_STAGE
         stage_to_cam = geo.invert(h)
         w, ht = geometry_store.STAGE_SIZE
-        corners = [(0.0, 0.0), (float(w), 0.0),
-                   (float(w), float(ht)), (0.0, float(ht))]
+        corners = [(0.0, float(ht)), (float(w), float(ht)),
+                   (float(w), 0.0), (0.0, 0.0)]
         return [list(geo.apply(stage_to_cam, p)) for p in corners]
 
     def enter_setting(self, ws):

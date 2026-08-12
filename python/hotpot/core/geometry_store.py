@@ -240,10 +240,25 @@ class GeometryStore:
         """The 4 stage corners, in the same front-left / front-right /
         back-right / back-left order `fit_from_corners()` expects its camera
         points in.
+
+        **front (near, the operator's/diner's own side) is the HIGH-y edge,
+        back (far) is the LOW-y edge** — `BIN_ORIGINS_MM`'s own convention
+        (far row at y_mm=177, near row at y_mm=482, table height 914.4mm)
+        and the one the staff view's `drawRectifiedPreview` uses ("near you
+        at the BOTTOM... the same way a floor plan puts the viewer's own
+        position at the bottom" — `index.html`'s own comment, fixed once
+        already after M4l's rectified preview came out upside-down for
+        exactly this reason). This function had the OPPOSITE mapping until
+        a real hand tracked live through this homography (M5) made a
+        vertically-inverted cursor visible on the rig — nothing before that
+        exercised `H_cam->stage` against a moving physical position; the
+        camera bin grid is dragged onto the (already-correct) rectified
+        preview so it reads right regardless of this matrix's own
+        orientation, and the projector grid never touches `H` at all.
         """
         w, h = self.stage_size
-        return [(0.0, 0.0), (float(w), 0.0),
-                (float(w), float(h)), (0.0, float(h))]
+        return [(0.0, float(h)), (float(w), float(h)),
+                (float(w), 0.0), (0.0, 0.0)]
 
     # -- view rotation (Setup tab Rotate control, drag-corner rebuild step 4) -
 
