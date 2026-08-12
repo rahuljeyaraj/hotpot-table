@@ -159,6 +159,35 @@ class TestRms(unittest.TestCase):
             geometry.rms_px(IDENTITY, [], [])
 
 
+class TestWarpFrameToStage(unittest.TestCase):
+    """Needs OpenCV and numpy, same note as `TestFit` below."""
+
+    def test_size_is_width_height_not_the_frame_s_own_shape(self):
+        # A 40 (wide) x 20 (tall) source, warped by identity into a 100x50
+        # canvas. If `size` were quietly treated as (rows, cols) instead of
+        # cv2's own (width, height), the output would come back 50x100 and
+        # this shape check would catch it before any pixel content does.
+        import numpy as np
+        frame = np.zeros((20, 40, 3), dtype=np.uint8)
+        out = geometry.warp_frame_to_stage(frame, IDENTITY, (100, 50))
+        self.assertEqual(out.shape[:2], (50, 100))
+
+    def test_identity_places_the_source_at_the_origin_unscaled(self):
+        import numpy as np
+        frame = np.zeros((20, 40, 3), dtype=np.uint8)
+        frame[5, 10] = (1, 2, 3)
+        out = geometry.warp_frame_to_stage(frame, IDENTITY, (40, 20))
+        self.assertEqual(tuple(out[5, 10]), (1, 2, 3))
+
+    def test_a_translation_moves_the_content_by_the_translation(self):
+        import numpy as np
+        h = [[1, 0, 10], [0, 1, 5], [0, 0, 1]]
+        frame = np.zeros((20, 40, 3), dtype=np.uint8)
+        frame[5, 10] = (9, 9, 9)
+        out = geometry.warp_frame_to_stage(frame, h, (60, 30))
+        self.assertEqual(tuple(out[10, 20]), (9, 9, 9))
+
+
 class TestFit(unittest.TestCase):
     """These need OpenCV. It is already a hard dependency of this repo
     (`opencv-python-headless`, added at M3.2 for the camera), so this is

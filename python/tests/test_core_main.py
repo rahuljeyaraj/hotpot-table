@@ -35,6 +35,7 @@ from hotpot.common import geometry  # noqa: E402
 from hotpot.common import health  # noqa: E402
 from hotpot.common import log as hlog  # noqa: E402
 from hotpot.common import wire  # noqa: E402
+from hotpot.core import bin_grid  # noqa: E402
 from hotpot.core import geometry_store  # noqa: E402
 from hotpot.core import main as coremain  # noqa: E402
 
@@ -72,12 +73,17 @@ def _no_serial_port():
     raise OSError("no serial port in tests")
 
 
-# A camera->stage homography with real perspective in it, and eight rects
-# that do not overlap. Enough to make GeometryStore.calibrated true, which
-# is all most of this file needs.
+# A camera->stage homography with real perspective in it, and a grid whose
+# 8 derived rects do not overlap. Enough to make both stores' "calibrated"
+# predicate true, which is all most of this file needs.
 _FIXTURE_H = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0], [0.00012, 0.00007, 1.0]]
-_FIXTURE_RECTS = [[100.0 + (i % 4) * 450, 200.0 + (i // 4) * 400, 300.0, 220.0]
-                  for i in range(8)]
+_FIXTURE_H_LINES = [200.0, 420.0, 600.0, 820.0]
+_FIXTURE_V_LINES = [100.0, 400.0, 550.0, 850.0, 1000.0, 1300.0, 1450.0, 1750.0]
+# The same 8 rects the grid above implies — [100+(i%4)*450, 200+(i//4)*400,
+# 300, 220] — kept as a flat list so call sites that want a rect list
+# (rather than a grid to drag) do not have to re-derive it.
+_FIXTURE_RECTS = bin_grid.BinGrid(h_lines=_FIXTURE_H_LINES,
+                                  v_lines=_FIXTURE_V_LINES).rects()
 
 
 class CoreCase(unittest.TestCase):
@@ -92,10 +98,9 @@ class CoreCase(unittest.TestCase):
             "schema": 3, "H_cam_to_stage": _FIXTURE_H, "computed_at": 1.0,
             "n_points": 15, "rms_px": 1.1, "keystone_fingerprint": "fixture",
             "camera_size": [1920, 1080], "stage_size": [1920, 1080]})
-        atomicio.write_json(self.r_path, {
-            "schema": 3, "written": 1.0, "camera_size": [1920, 1080],
-            "verified_at": None,
-            "bins": [{"i": i, "cam": r} for i, r in enumerate(_FIXTURE_RECTS)]})
+        atomicio.write_json(self.g_path, {
+            "schema": 1, "written": 1.0, "verified_at": None,
+            "h_lines": _FIXTURE_H_LINES, "v_lines": _FIXTURE_V_LINES})
 
     def setUp(self):
         hlog.reset()
@@ -108,11 +113,11 @@ class CoreCase(unittest.TestCase):
         # write, the real one.
         self._cal_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._cal_dir.cleanup)
-        # homography_path/rects_path are throwaway for exactly the same
-        # reason (M4.1): those two files decide where every bin rect is,
+        # homography_path/camera_grid_path are throwaway for exactly the
+        # same reason (M4.1): those two files decide where every bin is,
         # and a test that saved one would silently move the rig's trays.
         self.h_path = os.path.join(self._cal_dir.name, "homography.json")
-        self.r_path = os.path.join(self._cal_dir.name, "bin_rects.json")
+        self.g_path = os.path.join(self._cal_dir.name, "bin_grid_camera.json")
         self.v_path = os.path.join(self._cal_dir.name, "view_rotation.json")
         # **A CALIBRATED table by default (M4.6).** Doc section 9.1 boots
         # an empty `state/` to UNCALIBRATED, where nothing bills at all —
@@ -128,7 +133,7 @@ class CoreCase(unittest.TestCase):
             control_host="127.0.0.1", control_port=0,
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
-            homography_path=self.h_path, rects_path=self.r_path,
+            homography_path=self.h_path, camera_grid_path=self.g_path,
             view_rotation_path=self.v_path,
             scale_open_port=_no_serial_port)
         self._wire_clients = []
@@ -1643,15 +1648,15 @@ class TestManualCalibrationOverTheWire(CoreCase):
         self.assertFalse(result["ok"])
         self.assertFalse(self.core.geometry.has_homography)
 
-    def test_a_first_solve_seeds_the_bin_rects_from_the_measured_layout(self):
-        # M4 build item 5's seed — without it the operator opens the rect
+    def test_a_first_solve_seeds_the_camera_grid_from_the_measured_layout(self):
+        # M4 build item 5's seed — without it the operator opens the grid
         # editor onto an empty canvas with nothing to drag.
         ws = self.ws()
         self.enter_setting(ws)
-        self.assertFalse(self.core.geometry.has_rects)
+        self.assertFalse(self.core.camera_grid.has_grid)
         ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
         self.collect(ws, "manual_calibrate_result")
-        self.assertTrue(self.core.geometry.has_rects)
+        self.assertTrue(self.core.camera_grid.has_grid)
 
     def test_a_confirmed_solve_persists_the_corner_points(self):
         # Step 3: the 4 clicks that produced the homography ride along
@@ -1665,8 +1670,7 @@ class TestManualCalibrationOverTheWire(CoreCase):
         self.assertEqual(self.core.geometry.corner_points,
                          [tuple(p) for p in clicks])
         again = geometry_store.GeometryStore(
-            homography_path=self.core.geometry.homography_path,
-            rects_path=self.core.geometry.rects_path)
+            homography_path=self.core.geometry.homography_path)
         self.assertEqual(again.corner_points, [tuple(p) for p in clicks])
         self.assertEqual(self.core._geometry_msg()["corner_points"], clicks)
 
@@ -1675,21 +1679,22 @@ class TestManualCalibrationOverTheWire(CoreCase):
         self.enter_setting(ws)
         ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
         self.collect(ws, "manual_calibrate_result")
-        self.assertFalse(self.core.geometry.rects_path.exists())
+        self.assertFalse(self.core.camera_grid.path.exists())
 
-    def test_a_re_solve_does_not_throw_away_hand_dragged_rects(self):
+    def test_a_re_solve_does_not_throw_away_a_hand_dragged_grid(self):
         # The homography moved by a pixel or two; the trays did not.
         ws = self.ws()
         self.enter_setting(ws)
         ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
         self.collect(ws, "manual_calibrate_result")
-        mine = [[500.0 + i, 600.0, 120.0, 130.0] for i in range(8)]
-        ws.send(json.dumps({"t": "set_rects", "rects": mine}))
-        self.collect(ws, "rects_result")
+        mine_h = [150.0, 380.0, 590.0, 810.0]
+        mine_v = [90.0, 390.0, 540.0, 840.0, 990.0, 1290.0, 1440.0, 1740.0]
+        ws.send(json.dumps({"t": "set_grid", "h_lines": mine_h, "v_lines": mine_v}))
+        self.collect(ws, "grid_result")
         ws.send(json.dumps({"t": "manual_calibrate", "points": self._clicks()}))
         self.collect(ws, "manual_calibrate_result")
-        for got, want in zip(self.core.geometry.cam_rects, mine):
-            self.assertAlmostEqual(got[0], want[0], places=1)
+        self.assertEqual(self.core.camera_grid.grid.h_lines, mine_h)
+        self.assertEqual(self.core.camera_grid.grid.v_lines, mine_v)
 
     def test_the_join_seed_tells_a_tablet_the_geometry(self):
         ws = self.ws()
@@ -1699,7 +1704,8 @@ class TestManualCalibrationOverTheWire(CoreCase):
                                  "capture_info"})
         geo_msg = next(m for m in seeds if m["t"] == "geometry")
         self.assertFalse(geo_msg["calibrated"])
-        self.assertEqual(len(geo_msg["rects"]), 8)
+        self.assertIsNone(geo_msg["h_lines"])
+        self.assertIsNone(geo_msg["v_lines"])
         # step 3: the corner-points seed and the display rotation, both
         # present on the very first join, before any calibration exists.
         self.assertIsNone(geo_msg["corner_points"])
@@ -1777,7 +1783,6 @@ class TestSetViewRotationOverTheWire(CoreCase):
         self.collect(ws, "set_view_rotation_result")
         again = geometry_store.GeometryStore(
             homography_path=self.core.geometry.homography_path,
-            rects_path=self.core.geometry.rects_path,
             view_rotation_path=self.core.geometry.view_rotation_path)
         self.assertEqual(again.view_rotation_deg, 270)
 
@@ -1790,23 +1795,26 @@ class TestSetViewRotationOverTheWire(CoreCase):
         self.assertEqual(self.core.geometry.view_rotation_deg, 180)
 
 
-class TestSetupTabRects(CoreCase):
-    """M4 build item 4's server half: rect dragging saved explicitly, the
-    legacy seed, and doc section 12.6's Verify step.
+class TestSetupTabGrid(CoreCase):
+    """M4 build item 4's server half, reworked around the bin grid
+    (`core/bin_grid.py`): grid dragging saved explicitly, the legacy seed,
+    and doc section 12.6's Verify step.
 
-    **What is NOT here is the point.** There is no test that reprojects
-    the saved stage rects back through `H` and checks they match the
-    camera rects — that passes by construction on a homography pointing
-    the wrong way (doc section 5.3's TRAP). The only verification that can
-    fail is a human looking at the trays, and all the code can do is
-    record their answer, which is what `test_verify_records_a_human_answer`
+    **What is NOT here is the point.** There is no test that reprojects a
+    saved grid through `H` and checks anything — the camera grid is not
+    derived from the homography at all any more (`bin_grid.py`'s
+    docstring), and even where a homography check would have applied, doc
+    section 5.3's TRAP says a reprojection check passes by construction on
+    a homography pointing the wrong way. The only verification that can
+    fail is a human looking at the rectified feed, and all the code can do
+    is record their answer, which is what `test_verify_records_a_human_answer`
     checks.
     """
 
     # Starts with no saved geometry and installs a homography by hand:
-    # this class is about the rects, and a fixture that already had eight
-    # of them would make every "saves eight rects" assertion pass before
-    # the code under test ran.
+    # this class is about the grid, and a fixture that already had one
+    # would make every "saves the grid" assertion pass before the code
+    # under test ran.
     calibrated_fixture = False
 
     CAM_TO_STAGE = [[1.1, 0.05, 30.0], [-0.04, 1.2, -20.0],
@@ -1830,119 +1838,117 @@ class TestSetupTabRects(CoreCase):
                 return msg
         self.fail(f"no {want} message arrived")
 
-    def eight(self, dx=0.0):
-        return [[100.0 + dx + i * 40, 200.0, 300.0, 220.0] for i in range(8)]
+    def grid(self, dx=0.0):
+        return {"h_lines": [200.0 + dx, 420.0 + dx, 600.0 + dx, 820.0 + dx],
+                "v_lines": [100.0 + dx, 400.0 + dx, 550.0 + dx, 850.0 + dx,
+                            1000.0 + dx, 1300.0 + dx, 1450.0 + dx, 1750.0 + dx]}
 
-    def test_saving_eight_rects_writes_the_file_and_derives_stage_rects(self):
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
-        reply = self.drain_until("rects_result")
+    def test_saving_a_grid_writes_the_file_and_derives_rects(self):
+        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
+        reply = self.drain_until("grid_result")
         self.assertTrue(reply["ok"], reply["message"])
-        self.assertTrue(self.core.geometry.has_rects)
-        self.assertTrue(all(r is not None
-                            for r in self.core.geometry.stage_rects))
+        self.assertTrue(self.core.camera_grid.has_grid)
+        self.assertTrue(all(r is not None for r in self.core.camera_grid.rects()))
 
-    def test_the_stage_rects_reach_of_on_the_state_message(self):
-        # Doc §5.3: "core pushes camera-space rects to the classifier and
-        # stage-space rects to oF." Without this, the Verify step has
-        # nothing on the table to look at.
+    def test_stage_rect_stays_none_on_the_state_message(self):
+        # Doc §5.3: the camera grid feeds the classifier and core's own
+        # hit test, never oF — the projector grid (a later, separate step)
+        # is what will fill `state.bins[].rect` in. This is the "unchanged
+        # behaviour, not a regression" this repo's own comments call for.
+        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
+        self.drain_until("grid_result")
         msg = self.core._state_msg()
         self.assertIsNone(msg["bins"][0]["rect"])
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
-        self.drain_until("rects_result")
-        msg = self.core._state_msg()
-        rect = msg["bins"][0]["rect"]
-        self.assertEqual(len(rect), 4)
-        want = geometry.apply_rect(self.CAM_TO_STAGE, (100.0, 200.0, 300.0, 220.0))
-        for got, w in zip(rect, want):
-            self.assertAlmostEqual(got, w, places=1)
 
     def test_saving_is_refused_in_serving_mode(self):
-        # Moving a rect moves the light-pass cutout, so a save while a
-        # diner is at the table slides the white patches off the trays.
+        # Moving the grid changes what the classifier crops (and, once the
+        # projector grid exists, the light-pass cutout), so a save while a
+        # diner is at the table would change what they are being billed
+        # and photographed against mid-order.
         self.ws_.send(json.dumps({"t": "set_mode", "mode": "serving"}))
         self.drain_until("mode")
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
-        reply = self.drain_until("rects_result")
+        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
+        reply = self.drain_until("grid_result")
         self.assertFalse(reply["ok"])
-        self.assertFalse(self.core.geometry.has_rects)
+        self.assertFalse(self.core.camera_grid.has_grid)
 
-    def test_a_short_rect_list_is_refused(self):
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()[:6]}))
-        self.assertFalse(self.drain_until("rects_result")["ok"])
+    def test_a_short_line_list_is_refused(self):
+        bad = self.grid()
+        bad["v_lines"] = bad["v_lines"][:6]
+        self.ws_.send(json.dumps({"t": "set_grid", **bad}))
+        self.assertFalse(self.drain_until("grid_result")["ok"])
 
-    def test_a_nan_in_a_rect_is_refused(self):
-        # A NaN survives every `> 0` comparison and would be written into
-        # state/bin_rects.json, then derived into a stage rect oF cannot
-        # draw. Same class of hole as the NaN ref_mass_g M2.4 closed.
-        bad = self.eight()
-        bad[3][2] = float("nan")
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": bad}))
-        self.assertFalse(self.drain_until("rects_result")["ok"])
-        self.assertFalse(self.core.geometry.has_rects)
+    def test_a_nan_line_is_refused(self):
+        bad = self.grid()
+        bad["h_lines"][2] = float("nan")
+        self.ws_.send(json.dumps({"t": "set_grid", **bad}))
+        self.assertFalse(self.drain_until("grid_result")["ok"])
+        self.assertFalse(self.core.camera_grid.has_grid)
 
-    def test_a_zero_width_rect_is_refused(self):
-        bad = self.eight()
-        bad[2][2] = 0.0
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": bad}))
-        self.assertFalse(self.drain_until("rects_result")["ok"])
+    def test_a_crossed_line_pair_is_refused(self):
+        bad = self.grid()
+        bad["v_lines"][0], bad["v_lines"][1] = bad["v_lines"][1], bad["v_lines"][0]
+        self.ws_.send(json.dumps({"t": "set_grid", **bad}))
+        self.assertFalse(self.drain_until("grid_result")["ok"])
 
-    def test_the_seed_lands_eight_rects_without_saving(self):
+    def test_the_seed_lands_a_grid_without_saving(self):
         # Doc §12.6: "Save is explicit" — which applies to a seed more
         # than to anything, since nobody has looked at it yet.
-        self.ws_.send(json.dumps({"t": "seed_rects"}))
-        reply = self.drain_until("rects_result")
+        self.ws_.send(json.dumps({"t": "seed_grid"}))
+        reply = self.drain_until("grid_result")
         self.assertTrue(reply["ok"], reply["message"])
         geo = self.drain_until("geometry")
-        self.assertEqual(len(geo["rects"]), 8)
-        self.assertTrue(all(r is not None for r in geo["rects"]))
-        self.assertFalse(self.core.geometry.rects_path.exists())
+        self.assertEqual(len(geo["h_lines"]), bin_grid.NUM_H_LINES)
+        self.assertEqual(len(geo["v_lines"]), bin_grid.NUM_V_LINES)
+        self.assertFalse(self.core.camera_grid.path.exists())
 
-    def test_seeding_without_a_homography_says_so(self):
+    def test_seeding_needs_no_homography(self):
+        # Unlike the old rect version, the grid seed is pure line
+        # arithmetic (bin_grid.py's docstring) — it must not refuse for
+        # lack of a homography the way seed_cam_rects_from_table used to.
         core = self.core
         core.geometry._h = None
         core.geometry._h_inv = None
-        self.ws_.send(json.dumps({"t": "seed_rects"}))
-        reply = self.drain_until("rects_result")
-        self.assertFalse(reply["ok"])
-        self.assertIn("dot calibration", reply["message"])
+        self.ws_.send(json.dumps({"t": "seed_grid"}))
+        reply = self.drain_until("grid_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertTrue(self.core.camera_grid.has_grid)
 
     def test_verify_records_a_human_answer(self):
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
-        self.drain_until("rects_result")
-        self.assertIsNone(self.core.geometry.verified_at)
-        self.ws_.send(json.dumps({"t": "verify_rects", "ok": True}))
-        self.drain_until("rects_result")
-        self.assertIsNotNone(self.core.geometry.verified_at)
+        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
+        self.drain_until("grid_result")
+        self.assertIsNone(self.core.camera_grid.verified_at)
+        self.ws_.send(json.dumps({"t": "verify_grid", "ok": True}))
+        self.drain_until("grid_result")
+        self.assertIsNotNone(self.core.camera_grid.verified_at)
 
     def test_a_no_answer_clears_it_and_says_what_to_do_next(self):
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
-        self.drain_until("rects_result")
-        self.ws_.send(json.dumps({"t": "verify_rects", "ok": True}))
-        self.drain_until("rects_result")
-        self.ws_.send(json.dumps({"t": "verify_rects", "ok": False}))
-        reply = self.drain_until("rects_result")
-        self.assertIn("again", reply["message"])
-        self.assertIsNone(self.core.geometry.verified_at)
+        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
+        self.drain_until("grid_result")
+        self.ws_.send(json.dumps({"t": "verify_grid", "ok": True}))
+        self.drain_until("grid_result")
+        self.ws_.send(json.dumps({"t": "verify_grid", "ok": False}))
+        reply = self.drain_until("grid_result")
+        self.assertIn("once more", reply["message"])
+        self.assertIsNone(self.core.camera_grid.verified_at)
 
-    def test_moving_a_rect_after_verifying_clears_the_verification(self):
+    def test_moving_the_grid_after_verifying_clears_the_verification(self):
         # The outlines the operator said were on the trays are not these
         # outlines any more.
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
-        self.drain_until("rects_result")
-        self.ws_.send(json.dumps({"t": "verify_rects", "ok": True}))
-        self.drain_until("rects_result")
-        self.assertIsNotNone(self.core.geometry.verified_at)
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight(dx=30)}))
-        self.drain_until("rects_result")
-        self.assertIsNone(self.core.geometry.verified_at)
+        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
+        self.drain_until("grid_result")
+        self.ws_.send(json.dumps({"t": "verify_grid", "ok": True}))
+        self.drain_until("grid_result")
+        self.assertIsNotNone(self.core.camera_grid.verified_at)
+        self.ws_.send(json.dumps({"t": "set_grid", **self.grid(dx=30)}))
+        self.drain_until("grid_result")
+        self.assertIsNone(self.core.camera_grid.verified_at)
 
-    def test_a_saved_calibration_survives_a_reload(self):
-        self.ws_.send(json.dumps({"t": "set_rects", "rects": self.eight()}))
-        self.drain_until("rects_result")
-        again = geometry_store.GeometryStore(
-            homography_path=self.core.geometry.homography_path,
-            rects_path=self.core.geometry.rects_path)
-        self.assertTrue(again.has_rects)
+    def test_a_saved_grid_survives_a_reload(self):
+        self.ws_.send(json.dumps({"t": "set_grid", **self.grid()}))
+        self.drain_until("grid_result")
+        again = bin_grid.BinGridStore(self.core.camera_grid.path)
+        self.assertTrue(again.has_grid)
 
 
 class TestCaptureTab(CoreCase):
@@ -1991,10 +1997,13 @@ class TestCaptureTab(CoreCase):
     LABELS = ["mushroom", "tofu", "egg", "baby_corn",
               "soya_chunks", "dried_prawns", "curly_noodle", "long_noodle"]
 
-    def test_a_capture_reaches_the_classifier_with_cores_own_rects(self):
+    def test_a_capture_reaches_the_classifier_with_cores_own_grid(self):
         # Doc §4.7: "`rects` are camera space — the classifier never sees
-        # stage space." And they are CORE's rects, not the tablet's, so an
-        # unsaved drag can never reach the dataset.
+        # stage space." And they are CORE's rects (derived from its own
+        # camera grid), not the tablet's, so an unsaved drag can never
+        # reach the dataset. The homography and stage size ride along too
+        # — core never touches a frame, so the classifier is the one that
+        # warps before it crops (classifier/main.py's docstring).
         self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS,
                                   "burst": 1}))
         reply = self.drain_until("capture_result")
@@ -2003,10 +2012,13 @@ class TestCaptureTab(CoreCase):
         cmd = self.sent_cmds[0]
         self.assertEqual(len(cmd["rects"]), 8)
         self.assertEqual(cmd["labels"], self.LABELS)
+        own_rects = self.core.camera_grid.rects()
         for i, r in enumerate(cmd["rects"]):
             self.assertEqual(len(r), 5)
             self.assertEqual(r[4], i)   # doc §12.7's `_bin<i>` in the name
-            self.assertEqual(r[:4], list(self.core.geometry.cam_rects[i]))
+            self.assertEqual(r[:4], list(own_rects[i]))
+        self.assertEqual(cmd["h"], self.core.geometry.h)
+        self.assertEqual(cmd["stage_size"], list(self.core.geometry.stage_size))
 
     def test_a_capture_is_refused_in_serving_mode(self):
         # Not for the lighting — §14.5 makes setting mode's field
@@ -2019,12 +2031,21 @@ class TestCaptureTab(CoreCase):
         self.assertFalse(reply["ok"])
         self.assertEqual(self.sent_cmds, [])
 
-    def test_a_capture_is_refused_with_no_bin_rects(self):
-        self.core.geometry.set_cam_rect(4, None)
+    def test_a_capture_is_refused_with_no_bin_grid(self):
+        self.core.camera_grid.grid = None
         self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS}))
         reply = self.drain_until("capture_result")
         self.assertFalse(reply["ok"])
-        self.assertIn("rectangles", reply["message"])
+        self.assertIn("grid", reply["message"])
+        self.assertEqual(self.sent_cmds, [])
+
+    def test_a_capture_is_refused_with_no_homography(self):
+        self.core.geometry._h = None
+        self.core.geometry._h_inv = None
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS}))
+        reply = self.drain_until("capture_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("calibrated", reply["message"])
         self.assertEqual(self.sent_cmds, [])
 
     def test_a_missing_label_is_refused(self):
@@ -2153,10 +2174,11 @@ class TestUncalibratedBoot(CoreCase):
         while time.monotonic() < deadline:
             if self.recv_json(ws).get("t") == "mode":
                 break
-        ws.send(json.dumps({"t": "set_rects", "rects": _FIXTURE_RECTS}))
+        ws.send(json.dumps({"t": "set_grid", "h_lines": _FIXTURE_H_LINES,
+                            "v_lines": _FIXTURE_V_LINES}))
         deadline = time.monotonic() + DEADLINE
         while time.monotonic() < deadline:
-            if self.recv_json(ws).get("t") == "rects_result":
+            if self.recv_json(ws).get("t") == "grid_result":
                 break
         with self.core.state_lock:
             self.core.fsm.exit_setting()
@@ -2184,7 +2206,7 @@ class TestUncalibratedBoot(CoreCase):
         for _ in range(5):
             self.recv_json(ws)
         self.core.geometry.set_homography(_FIXTURE_H, rms_px=1.0, n_points=15)
-        self.core.geometry.set_cam_rects(_FIXTURE_RECTS)
+        self.core.camera_grid.set_grid(_FIXTURE_H_LINES, _FIXTURE_V_LINES)
         self.core._check_calibration_complete()
         deadline = time.monotonic() + DEADLINE
         while time.monotonic() < deadline:

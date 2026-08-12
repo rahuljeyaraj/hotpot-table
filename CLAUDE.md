@@ -2101,6 +2101,138 @@ that, since M4l, can be either the raw camera view or the flattened
 rectangle depending on whether corners are confirmed yet, and the bin
 rects have not been re-examined against that change at all.
 
+## M4m — bin boxes reworked: two independent grids replace 8 shared rects
+(2026-08-12)
+Answers M4l's "next session" note, but not the way it was framed. Brainstormed
+with the developer first (this session opened on "we need to fix the bin
+boxes" and went through several rounds before any code moved — worth reading
+the conversation, not just this summary, if the reasoning below seems to
+arrive fully formed). Three developer decisions, in the order they were made:
+
+1. **Bin crop (classifier + hand hit test) and bin projection (halo/fluid)
+   are two genuinely separate geometries, not one derived into two spaces.**
+   The old model (doc §5.3 as originally written) had core own camera-space
+   rects as ground truth and derive stage-space rects through `H_cam→stage`
+   for oF. That already carried a known failure mode (M4h/M4i's `rms_px: 0.0,
+   n_points: 4` TRAP) and a known artifact (the seed growing rects ~26% from
+   boxing through a homography twice). The developer's call: stop deriving
+   one from the other at all. A camera-space grid and a projector-space grid,
+   each independently authored by a human looking at the space it actually
+   feeds — the same TRAP discipline §5.3 already argued for, just applied
+   twice instead of once. `H_cam→stage` stays, but only as infrastructure for
+   the table-crop warp, not as a bridge between two bin geometries.
+2. **Grid lines, not 8 independent rects, in both spaces.** The developer's
+   reasoning: independent rects can't be kept level with each other — nothing
+   stops bin 1's top edge from disagreeing with bin 0's, invisible in a list
+   of numbers, visible as one bin sitting higher than its row-mates on the
+   real table. 4 horizontal + 8 vertical lines (matching the physical 2-row,
+   4-column layout) make that impossible by construction: every bin in a row
+   shares that row's top/bottom line, every bin in a column shares that
+   column's left/right line. This is also, unprompted, a much better fit for
+   `docs/legacy/bin_offsets.json`'s `hLineDeltaMM`(4)/`vLineDeltaMM`(8) shape
+   than the rect version ever was — the legacy file was describing a grid the
+   whole time.
+3. **The camera grid needs the camera; the projector grid does not, ever.**
+   The camera grid is dragged on the "table crop" — the raw frame warped
+   through the corner-calibrated `H_cam→stage` via the new
+   `common.geometry.warp_frame_to_stage` (`cv2.warpPerspective`), so a pixel
+   in it sits where the projector's own same-coordinate pixel lights. Once
+   warped, that frame is what MediaPipe will run on (M5, not built),
+   what the classifier crops from, and what core will hit-test a hand cursor
+   against for "entered bin i" (M5 again). The projector grid (a later,
+   separate step — not built this session) is dragged by watching the actual
+   light on the actual table, no camera, no homography, closing its own
+   Verify loop independently.
+
+**Built this session, camera-grid side only — the projector grid is
+deliberately out of scope, per the developer's own phasing ("crop rectangle
+first, then projector space lines").**
+
+- `common/geometry.py`: `warp_frame_to_stage(frame, h, size)` —
+  `cv2.warpPerspective`, imported locally like `fit()`. 3 new tests.
+- `core/bin_grid.py` (new): `BinGrid` (4 h-lines + 8 v-lines → 8 rects, every
+  bin in a row/column sharing its line by construction), `BinGridStore`
+  (load/save/seed/verify, one file per grid, generic — instantiated once
+  today for `state/bin_grid_camera.json`, ready for a second instantiation
+  against `state/bin_grid_projector.json` when that step happens),
+  `cad_bin_grid_stage()`/`legacy_bin_grid_stage()` (pure line arithmetic —
+  **no homography needed to seed any more**, unlike the old rect version's
+  `H^-1` round trip, and no more 26%-growth artifact since there is no rect
+  to box twice). 27 new tests.
+- `core/geometry_store.py`: stripped down to the homography, corner points
+  and view rotation only — `cam_rects`/`stage_rects`/`set_cam_rect(s)`/
+  `seed_cam_rects_from_table`/`has_rects`/`calibrated`/rect persistence all
+  removed, not left dormant (this codebase's usual rule). Its own module
+  docstring now points at `bin_grid.py` for where bin ownership went.
+- `core/main.py`: `self.camera_grid` (a `BinGridStore`) sits beside
+  `self.geometry` (homography only) — two stores, neither knowing about the
+  other; `is_calibrated` is now a lambda combining both. Wire messages
+  renamed `set_rects`/`seed_rects`/`verify_rects` → `set_grid`/`seed_grid`/
+  `verify_grid`, payload `rects:[...]` → `h_lines:[4]`/`v_lines:[8]`, replies
+  `rects_result` → `grid_result`. `_handle_capture` now sends `h` and
+  `stage_size` alongside the grid-derived `rects` (core still never touches
+  a frame — the classifier is what warps). `state.bins[].rect` sent to oF is
+  unconditionally `null` for now — that field is the projector grid's job,
+  not built yet; oF already treats `null` as "fall back to
+  `TableGeometry.h`'s CAD layout" so this is unchanged behaviour, not a
+  regression.
+- `classifier/main.py`: `_capture` validates `h`/`stage_size`, warps the raw
+  frame before cropping. New test (`test_capture_warps_before_cropping`)
+  checks an actual non-identity homography moves the crop content, not just
+  that cropping still works at identity.
+- Web UI (Setup tab): the 8 independently-dragged rects and their
+  resize-handle-at-bottom-right-only drag model are gone. The bin grid is now
+  edited by dragging lines directly on the RECTIFIED preview canvas —
+  `toStage()`/`hitTestLine()` replace `toCam()`'s rect branch/`hitTest()` —
+  and **editing is only possible once table corners are confirmed** (gated
+  in `applySetupGating`, `onPointerDown`). This is also what fixes the
+  original bug report that started this session ("the green box and the
+  captured image are not the same"): the grid is now drawn and dragged in
+  exactly the one canvas it is defined in, never overlaid on a different
+  picture than the one it was placed against. Verify's own copy changed to
+  match — "look at the rectified picture above, not the physical table",
+  since this grid does not reach oF yet.
+- Web UI (Capture tab): `drawCrops()` now samples from an offscreen
+  `rectifiedCanvas` (built the same way the Setup/Live tabs' own rectified
+  preview is, via the existing `drawRectifiedPreview`) instead of the raw
+  `setupImg` — the other half of the "box ≠ captured image" bug, since crop
+  rects are measured in the rectified canvas's space. Documented as still
+  only an *approximation* of the server's true crop: the browser warps with
+  a 2-triangle affine, the classifier warps with a real OpenCV projective
+  transform. `.crop-grid`'s CSS changed from `auto-fill, minmax(200px,1fr)`
+  (developer report: "should be 2×4, a single row breaks into two") to a
+  fixed `repeat(4, 1fr)` (2 columns under 820px) — auto-fill picked its
+  column count from container width independently of the 8-card, 2-row-of-4
+  physical layout the cards are appended in, which could split unevenly
+  instead of ending cleanly at the row boundary.
+- `docs/HOTPOT_ARCHITECTURE_v3.md` §5.3 and §4.7: addenda marking the old
+  "one shared rect, two derived spaces" model superseded, with the new one
+  and the reasoning, rather than a line-edit pass through the whole doc
+  (matching M4k's own precedent for a change this size — §8.4/§12.6/§12.7
+  still describe the old rect UI and are *not* updated this session, flagged
+  explicitly in the §5.3 addendum so nobody mistakes silence for currency).
+
+**Verified:** `python -m unittest discover -s python/tests` — 682/682
+passing, across `test_geometry.py` (+3), the new `test_bin_grid.py` (27),
+and rewrites of `test_geometry_store.py`/`test_core_main.py`/
+`test_classifier_main.py` to drop the old rect-based cases and cover the
+grid instead — the starting count from before this session was not recorded,
+so no net delta is claimed here, only the final passing number, actually run.
+`node --check` on the extracted `<script>` block of `index.html`. **Not run
+on the rig, not opened in a real browser.** Every claim about the Setup/
+Capture tabs' actual on-screen behaviour is reasoned from the code and the
+node syntax check, the same honest gap M4l flagged for its own drag-corner
+UI before a real-browser pass caught three bugs static checks couldn't have.
+A real-browser pass on this grid UI is owed before it is trusted, same as
+M4l's was.
+
+**Not done, deliberately, per the developer's own phasing:** the projector
+grid (`state/bin_grid_projector.json`), oF wiring to read it, and M5's
+hand-hit-test against the camera grid. `core/bin_grid.py`'s `BinGridStore`
+and `BinGrid` are already generic enough that the projector grid should be a
+second instantiation plus an oF-side reader, not a redesign — that is the
+next session's starting point.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

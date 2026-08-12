@@ -186,7 +186,39 @@ def rms_px(h: Sequence[Sequence[float]],
 
 
 # ---------------------------------------------------------------------------
-# Fitting — the one function that needs OpenCV
+# Warping a whole frame — the table crop
+# ---------------------------------------------------------------------------
+
+def warp_frame_to_stage(frame, h: Sequence[Sequence[float]],
+                        size: Tuple[int, int]):
+    """The camera frame, perspective-corrected onto the same canvas the
+    projector draws into.
+
+    Once `h` is the corner-calibrated `H_cam_to_stage`, the result is a
+    frame where pixel `(x, y)` sits at the table position the projector's
+    own pixel `(x, y)` lights — camera space and stage space made the same
+    canvas, not just related by a matrix. This is "the table crop": bin
+    grids, MediaPipe, and the classifier's crop all work in this shared
+    canvas from here on and never touch `h` again.
+
+    `cv2` is imported inside the function, not at module scope, for the
+    same reason `fit()`'s import is local below: `classifier` and `core`
+    both import this module, and neither needs OpenCV installed just to
+    load a saved homography or apply a point to it.
+
+    `size` is `(width, height)` — cv2's own `dsize` convention for
+    `warpPerspective`, and NOT the `(rows, cols)` a numpy `.shape` would
+    give; passing a frame's own shape here transposes the result.
+    """
+    import numpy as np  # noqa: WPS433 - see module docstring
+    import cv2          # noqa: WPS433
+
+    matrix = np.array([[float(v) for v in row] for row in h], dtype=np.float64)
+    return cv2.warpPerspective(frame, matrix, (int(size[0]), int(size[1])))
+
+
+# ---------------------------------------------------------------------------
+# Fitting — the other thing that needs OpenCV
 # ---------------------------------------------------------------------------
 
 class Fit:

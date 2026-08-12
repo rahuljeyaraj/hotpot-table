@@ -297,8 +297,9 @@
 
   /* --- Setup tab (doc section 12.6, M4 build item 4) --------------------
      Three things in one column, in the order an operator does them:
-     calibrate the projector against the camera, drag the 8 rects onto the
-     trays, then Verify by looking at the real table. */
+     calibrate the projector against the camera, drag the bin grid's lines
+     onto the trays on the rectified picture that produces, then Verify by
+     looking at that same picture. */
   .setup-shell { max-width: 1100px; }
   .setup-card {
     background: var(--panel); border: 1px solid #2a2c31; border-radius: 8px;
@@ -359,9 +360,22 @@
      <img> the Setup tab drags on, by canvas — no second endpoint and no
      second lighting path, which is doc §12.7's actual requirement. */
   .capture-shell { max-width: 1100px; }
+  /* Fixed 4 columns, not auto-fill/minmax: the 8 cards are appended in
+     bin order (0-7, far row then near row — cropCards' own build loop),
+     so 4 columns is what keeps that DOM order matching the physical
+     layout, one card per column repeating across the two rows. auto-fill
+     picked its own column count from container width independently of
+     card count, which for 8 cards could land on 5 or 6 — a physical row
+     is 4 bins, so that split a row across two visual rows instead of
+     ending cleanly at the row boundary. 2 columns on a narrower/portrait
+     tablet keeps the same property (an even split on the row boundary)
+     rather than introducing a new uneven one. */
   .crop-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 12px; margin-top: 14px;
+  }
+  @media (max-width: 820px) {
+    .crop-grid { grid-template-columns: repeat(2, 1fr); }
   }
   .crop-card {
     background: var(--panel); border: 1px solid #2a2c31; border-radius: 8px;
@@ -616,8 +630,10 @@
                camera's mount angle. -->
           <!-- The shared live-feed view (doc §5.4's scaling rule, one
                implementation for the whole tab): used here first, and
-               left in place for "Bin rectangles" below — whose own drag
-               logic is untouched — to keep pointing at unchanged. -->
+               left in place for "Bin grid" below, which now edits
+               directly on the RECTIFIED preview this quad produces — see
+               that card's own comment for why that is load-bearing, not
+               cosmetic. -->
           <div class="live-feed-wrap" id="setupFeedWrap" style="margin-bottom:12px">
             <img id="setupImg" alt="">
             <canvas id="setupOverlay"></canvas>
@@ -648,10 +664,22 @@
         </div>
 
         <div class="setup-card">
-          <h2>Bin rectangles</h2>
-          <p>Drag each rectangle onto its tray. Drag inside to move it, drag
-             a corner to resize. Nothing is saved until you tap Save. Uses
-             the same live feed as "Set the table corners" above.</p>
+          <h2>Bin grid</h2>
+          <!-- core/bin_grid.py's own design: 4 horizontal + 8 vertical
+               lines, not 8 independent rectangles, so two bins in the
+               same row or column can never disagree about the edge they
+               share. Dragged on the RECTIFIED preview above (needs table
+               corners confirmed first) rather than the raw feed — the
+               grid lives in that same warped canvas the classifier crops
+               from, so what is dragged here is pixel-for-pixel what gets
+               photographed. Dragging on the raw feed instead was the old
+               version's bug: a box positioned against one picture and
+               cropped from another. -->
+          <p>Drag each line onto the edge of the trays it belongs to — a
+             horizontal line sets a whole row's top or bottom, a vertical
+             line sets a whole column's left or right. Nothing is saved
+             until you tap Save. Needs the table corners confirmed above
+             first, so there is a rectified picture to drag onto.</p>
           <div class="setup-actions" style="margin-top:12px">
             <button id="rectsSaveBtn" class="setup-btn primary">Save</button>
             <button id="rectsUndoBtn" class="setup-btn">Undo</button>
@@ -662,14 +690,14 @@
 
         <div class="setup-card">
           <h2>Verify</h2>
-          <!-- Doc §12.6's TRAP, in the words the operator sees. The
-               outlines are already on the table every frame (core sends
-               the derived stage rects and oF draws its plates and cutouts
-               on them), so there is nothing to switch on — the step is a
-               person looking at the real trays. A reprojection check here
+          <!-- Doc §12.6's TRAP, in the words the operator sees. This grid
+               only feeds the classifier and the hand hit test today — oF
+               is not reading it (that is the projector grid, a later,
+               separate step) — so what to check is the RECTIFIED PICTURE
+               ABOVE, not the physical table. A reprojection check here
                would pass on a homography that is upside down. -->
-          <p>Look at the table itself, not at this screen. Are the projected
-             outlines sitting on the trays?</p>
+          <p>Look at the rectified picture above, not the physical table.
+             Do the grid lines sit on the edges of the trays?</p>
           <div class="setup-actions">
             <button id="verifyYesBtn" class="setup-btn primary">Yes, they line up</button>
             <button id="verifyNoBtn" class="setup-btn">No, they are off</button>
@@ -871,7 +899,7 @@
   function sizeOverlayToImage() {
     if (!liveImg.naturalWidth || !liveImg.naturalHeight) return;
     var w = liveImg.naturalWidth, h = liveImg.naturalHeight;
-    if (liveShowsRectified()) { w = camSize[0]; h = camSize[1]; }
+    if (liveShowsRectified()) { w = stageSize[0]; h = stageSize[1]; }
     if (liveOverlay.width !== w) liveOverlay.width = w;
     if (liveOverlay.height !== h) liveOverlay.height = h;
     liveImg.classList.toggle("roi-hidden", liveShowsRectified());
@@ -1417,13 +1445,19 @@
 
 
   // --- Setup tab (doc section 12.6, M4 build item 4) -------------------
-  // Three steps in the order the work happens: calibrate, drag, verify.
+  // Three steps in the order the work happens: calibrate the table
+  // corners, drag the bin grid onto the rectified picture that produces,
+  // verify by looking at that same picture.
   //
-  // Doc §5.4's scaling rule is the load-bearing part of the dragging.
-  // Rects are held and sent in CAPTURE-space pixels — what the camera
-  // actually produced — never in display pixels, because the <img> is
-  // CSS-scaled to fit and may be served downscaled. Every pointer
-  // coordinate goes through toCam() below before it touches a rect.
+  // Doc §5.4's scaling rule is the load-bearing part of both drags.
+  // Corner points are held and sent in CAPTURE-space pixels — what the
+  // camera actually produced — via toCam() below, since corner editing
+  // shows the raw feed. The bin grid's lines are held in the RECTIFIED
+  // canvas's own pixel space (`stageSize`) via toStage() below, since the
+  // grid is only ever dragged over that preview (core/bin_grid.py's
+  // docstring on why: what is dragged has to be pixel-for-pixel what the
+  // classifier crops). Neither ever touches display (CSS) pixels
+  // directly — the <img>/canvas may be scaled to fit the page.
 
   var NUM_BINS = 8;
   var setupImg = document.getElementById("setupImg");
@@ -1478,14 +1512,25 @@
   var verifyNoBtn = document.getElementById("verifyNoBtn");
   var verifyStatus = document.getElementById("verifyStatus");
 
-  // The rects being edited, in camera space. `null` for a bin core has no
-  // rect for — drawn as nothing rather than as a rectangle at the origin,
-  // which would look like a placed rect nobody placed.
-  var rects = [];
-  for (var ri = 0; ri < NUM_BINS; ri++) rects.push(null);
-  var rectsUndo = [];        // doc §12.6 asks for Undo by name
+  // core/bin_grid.py's grid, being edited: 4 horizontal + 8 vertical line
+  // positions in the RECTIFIED preview's own canvas pixel space — which
+  // is `stageSize`, not `camSize` (see that variable's own note just
+  // below). `null` until core has sent one — drawn as nothing rather
+  // than a grid at the origin, which would look like a placed grid
+  // nobody placed.
+  var hLines = null;
+  var vLines = null;
+  var gridUndo = [];         // doc §12.6 asks for Undo by name; {h, v} snapshots
   var camSize = [1920, 1080];
+  // The canonical table-frame canvas size `common.geometry.warp_frame_to_stage`
+  // warps into on the server (core/geometry_store.STAGE_SIZE) — what the
+  // bin grid's own line positions are measured in. Numerically the same
+  // as `camSize` on this rig today, but the two mean different things
+  // (raw sensor resolution vs. the warped canvas the classifier crops
+  // from) and must not be assumed to always match.
+  var stageSize = [1920, 1080];
   var NEEDS_SETTING_SETUP = "Enter setting mode to change the calibration.";
+  var NEEDS_CORNERS_SETUP = "Confirm the table corners above first.";
 
   // **The bin-box crop mechanism, CLAUDE.md's M4i note.** `cameraRoi` is
   // `[x, y, w, h]` in camera pixels — the table's own footprint. It was
@@ -1587,10 +1632,13 @@
   // far-right/far-left role order, split along the near-left<->far-right
   // diagonal into 2 triangles and warped into the corresponding halves
   // of a W x H rectangle — the standard no-WebGL canvas technique named
-  // in the plan. Display-only: this never touches `H_cam->stage`,
-  // `set_rects`, or anything the classifier/oF see (doc §5.3) — it is
-  // a second, independent, client-side-only mapping of the same 4
-  // points, not a use of the real (projective, not affine) homography.
+  // in the plan. Never sends anything back to core (this function alone
+  // never touches `H_cam->stage`, `set_grid`, or anything the classifier
+  // sees, doc §5.3) — it is a second, independent, client-side-only
+  // mapping of the same 4 points, not a use of the real (projective, not
+  // affine) homography. It IS now what the bin grid is dragged onto and
+  // what the Capture tab's own crop preview samples (drawCrops below) —
+  // an approximation those two features live with, not a guarantee.
   // **Orientation is fixed by the role order alone** — never inferred
   // from the raw feed's own orientation, which is the entire reason the
   // roles are physical and fixed rather than read off a drag — but the
@@ -1648,29 +1696,37 @@
     return [cx - roi[0], cy - roi[1]];
   }
 
-  // A camera-space RECT -> its display-space equivalent, as [x, y, w, h].
-  // Bin-rect dragging (the only caller) never has a non-null ROI — see
-  // effectiveRoi's own note — so this function's roi-aware branch below
-  // is dead code today, kept for the same future-ROI reason toDisplay
-  // keeps its own.
-  function rectToDisplay(r) {
-    if (!effectiveRoi()) return r;
-    var p = toDisplay(r[0], r[1]);
-    return [p[0] - r[2], p[1] - r[3], r[2], r[3]];
-  }
-
   function setStatus(el, text, cls) {
     el.textContent = text || "";
     el.className = "setup-status" + (cls ? " " + cls : "");
   }
 
-  function cloneRects() {
-    return rects.map(function (r) { return r ? r.slice() : null; });
+  // The 8 bin rects the grid implies, mirroring core/bin_grid.py's own
+  // `BinGrid.rects()` exactly (col = i % 4, row = i // 4, far row
+  // first — same order the calibration corners and TableGeometry.h use).
+  // All 8 entries `null` if the grid is not fully set yet, never a mix —
+  // there is no such thing as "half a grid" once both line counts exist.
+  function gridRects() {
+    if (!hLines || !vLines || hLines.length !== 4 || vLines.length !== 8) {
+      return [null, null, null, null, null, null, null, null];
+    }
+    var out = [];
+    for (var i = 0; i < NUM_BINS; i++) {
+      var col = i % 4, row = Math.floor(i / 4);
+      var x0 = vLines[2 * col], x1 = vLines[2 * col + 1];
+      var y0 = hLines[2 * row], y1 = hLines[2 * row + 1];
+      out.push([x0, y0, x1 - x0, y1 - y0]);
+    }
+    return out;
+  }
+
+  function cloneGrid() {
+    return { h: hLines ? hLines.slice() : null, v: vLines ? vLines.slice() : null };
   }
 
   function pushUndo() {
-    rectsUndo.push(cloneRects());
-    if (rectsUndo.length > 50) rectsUndo.shift();
+    gridUndo.push(cloneGrid());
+    if (gridUndo.length > 50) gridUndo.shift();
     rectsUndoBtn.disabled = false;
   }
 
@@ -1694,19 +1750,35 @@
     return { x: roi[0] + lx, y: roi[1] + ly };
   }
 
-  var HANDLE_CAM_PX = 28;    // corner grab area, in camera pixels — bin rects
+  // One point on screen -> the RECTIFIED canvas's own pixel space — the
+  // same math toCam() uses for the raw feed, minus the ROI branch
+  // (grid dragging never has one; the grid is only ever edited over the
+  // rectified preview, see backgroundIsRectified()'s gate on it below).
+  // `stageSize`, not `camSize`, is the fallback denominator: this canvas
+  // buffer holds the warped table frame, not raw sensor pixels.
+  function toStage(ev) {
+    var box = setupOverlay.getBoundingClientRect();
+    var sx = (setupOverlay.width || stageSize[0]) / (box.width || 1);
+    var sy = (setupOverlay.height || stageSize[1]) / (box.height || 1);
+    return { x: (ev.clientX - box.left) * sx, y: (ev.clientY - box.top) * sy };
+  }
 
-  function hitTest(pt) {
-    // Last drawn wins, so a rect on top of another is the one you grab.
-    for (var i = NUM_BINS - 1; i >= 0; i--) {
-      var r = rects[i];
-      if (!r) continue;
-      var nearCorner = Math.abs(pt.x - (r[0] + r[2])) < HANDLE_CAM_PX
-                    && Math.abs(pt.y - (r[1] + r[3])) < HANDLE_CAM_PX;
-      if (nearCorner) return { bin: i, mode: "resize" };
-      if (pt.x >= r[0] && pt.x <= r[0] + r[2]
-          && pt.y >= r[1] && pt.y <= r[1] + r[3]) {
-        return { bin: i, mode: "move" };
+  var LINE_GRAB_PX = 14;   // half-thickness of a line's grab zone, stage px
+
+  // Which grid line (if any) a stage-space point is within LINE_GRAB_PX
+  // of. Vertical lines checked first so a line near the drag start wins
+  // predictably if two ever sit close together — same "last drawn wins"
+  // idea the old per-rect hitTest used, just with an arbitrary but fixed
+  // priority instead of z-order, since lines have no stacking order.
+  function hitTestLine(pt) {
+    if (vLines) {
+      for (var i = vLines.length - 1; i >= 0; i--) {
+        if (Math.abs(pt.x - vLines[i]) < LINE_GRAB_PX) return { axis: "v", index: i };
+      }
+    }
+    if (hLines) {
+      for (var j = hLines.length - 1; j >= 0; j--) {
+        if (Math.abs(pt.y - hLines[j]) < LINE_GRAB_PX) return { axis: "h", index: j };
       }
     }
     return null;
@@ -1728,7 +1800,7 @@
     return -1;
   }
 
-  var drag = null;   // bin-rect drag state (untouched by this step)
+  var gridDrag = null;   // {axis: 'h'|'v', index} while a grid line is held
 
   function onPointerDown(ev) {
     if (mode !== "setting") return;
@@ -1744,12 +1816,15 @@
       ev.preventDefault();
       return;
     }
-    var pt = toCam(ev);
-    var hit = hitTest(pt);
+    // The grid is only ever edited over the rectified preview — see
+    // backgroundIsRectified()'s own note on why dragging on the raw feed
+    // was the old version's bug. No grid to grab before corners exist.
+    if (!backgroundIsRectified() || !hLines || !vLines) return;
+    var pt = toStage(ev);
+    var hit = hitTestLine(pt);
     if (!hit) return;
     pushUndo();
-    drag = { bin: hit.bin, mode: hit.mode, at: pt,
-             start: rects[hit.bin].slice() };
+    gridDrag = { axis: hit.axis, index: hit.index };
     if (setupOverlay.setPointerCapture && ev.pointerId !== undefined) {
       try { setupOverlay.setPointerCapture(ev.pointerId); } catch (e) { /* not captured */ }
     }
@@ -1764,19 +1839,15 @@
       ev.preventDefault();
       return;
     }
-    if (!drag) return;
-    var pt = toCam(ev);
-    var dx = pt.x - drag.at.x, dy = pt.y - drag.at.y;
-    var s = drag.start;
-    if (drag.mode === "move") {
-      rects[drag.bin] = [s[0] + dx, s[1] + dy, s[2], s[3]];
-    } else {
-      // Never below a floor: a zero-width rect crops an empty image,
-      // which reaches the classifier as a blank and comes back as a
-      // confident wrong label. Core refuses one too.
-      rects[drag.bin] = [s[0], s[1], Math.max(20, s[2] + dx),
-                         Math.max(20, s[3] + dy)];
-    }
+    if (!gridDrag) return;
+    var pt = toStage(ev);
+    // A line moves along its own axis only — a horizontal line is a row's
+    // top or bottom, it has no x position of its own to drag. Crossing
+    // its paired edge is not clamped here; Save refuses that with a
+    // sentence naming which pair, the same way a zero-width rect used to
+    // be refused (core/bin_grid.py's BinGridError).
+    if (gridDrag.axis === "h") hLines[gridDrag.index] = pt.y;
+    else vLines[gridDrag.index] = pt.x;
     drawSetupOverlay();
     ev.preventDefault();
   }
@@ -1790,8 +1861,8 @@
       drawSetupOverlay();   // hides the magnifier
       return;
     }
-    if (!drag) return;
-    drag = null;
+    if (!gridDrag) return;
+    gridDrag = null;
     if (ev.pointerId !== undefined && setupOverlay.releasePointerCapture) {
       try { setupOverlay.releasePointerCapture(ev.pointerId); } catch (e) { /* already gone */ }
     }
@@ -1912,14 +1983,13 @@
 
   // Whether the shared canvas is currently the resting rectified preview
   // rather than a live video feed — the resting state once a calibration
-  // is confirmed (doc §5.3: display-only, `H_cam->stage`/`set_rects`
-  // untouched). Suppressed while corner-editing so dragging never has to
-  // fight a warp (the plan's own words). Bin-rect dragging is not in this
-  // condition at all: it keeps whatever it drew before this step
-  // (`effectiveRoi()` stays null for it either way), so its own overlay
-  // math is genuinely untouched even though the pixels underneath it can
-  // now be this preview instead of the plain <img> — cosmetic only, and
-  // known (see this step's commit message).
+  // is confirmed. Suppressed while corner-editing so dragging never has
+  // to fight a warp (the plan's own words). **The bin grid can only be
+  // dragged while this is true** — onPointerDown's own gate — which is
+  // what fixes the original bug this session started from: a green box
+  // dragged against one picture (raw or rectified, whichever happened to
+  // be showing) and cropped from another. There is now exactly one
+  // picture the grid is ever shown or dragged against.
   function backgroundIsRectified() {
     return !cornersEditing && !!confirmedCorners && !!setupImg.naturalWidth;
   }
@@ -1928,18 +1998,19 @@
   // rectified preview at rest) — as opposed to the plain <img> underneath
   // showing through a transparent canvas, which is now also corner
   // editing's own path (it draws no video of its own any more; the raw
-  // <img> shows the camera's real orientation directly, same as bin-rect
-  // dragging on an unconfirmed table).
+  // <img> shows the camera's real orientation directly — there is no bin
+  // grid to show at all before corners are confirmed, see
+  // backgroundIsRectified()'s own note).
   function canvasShowsOwnVideo() {
     return backgroundIsRectified();
   }
 
   // The canvas's own pixel buffer, one of two sizes depending on what it
   // is currently showing: a fixed W x H for the rectified preview, or the
-  // plain <img>'s own natural size otherwise (corner editing and bin-rect
-  // dragging both draw nothing of their own — only the quad/handles/rects
-  // overlay — so both want the <img>'s natural size, same as before this
-  // step's own condition existed). `setupImg` is hidden (`roi-hidden`)
+  // plain <img>'s own natural size otherwise (corner editing draws
+  // nothing of its own — only the quad/handles/magnifier overlay — so it
+  // wants the <img>'s natural size, same as before this step's own
+  // condition existed). `setupImg` is hidden (`roi-hidden`)
   // whenever the canvas is doing the showing — it never stops receiving
   // the MJPEG stream (`visibility`, not `display`, so decoding
   // continues), it is just not what is drawn.
@@ -1947,7 +2018,7 @@
     if (!setupImg.naturalWidth || !setupImg.naturalHeight) return;
     var w = setupImg.naturalWidth, h = setupImg.naturalHeight;
     if (backgroundIsRectified()) {
-      w = camSize[0]; h = camSize[1];
+      w = stageSize[0]; h = stageSize[1];
     }
     if (setupOverlay.width !== w) setupOverlay.width = w;
     if (setupOverlay.height !== h) setupOverlay.height = h;
@@ -1971,25 +2042,29 @@
     setupCtx.lineWidth = Math.max(2, setupOverlay.width / 480);
     setupCtx.font = Math.max(14, setupOverlay.width / 60) + "px sans-serif";
     setupCtx.textBaseline = "top";
-    // Bin rects — UNCHANGED drawing code (still toDisplay/rectToDisplay,
-    // still camera-space hitTest). See backgroundIsRectified's own note
-    // for what showing this over the rectified preview does and does not
-    // affect.
-    for (var i = 0; i < NUM_BINS; i++) {
-      var r = rects[i];
-      if (!r) continue;
-      var d = rectToDisplay(r);
+    // The bin grid — drawn only over the rectified preview, and only ever
+    // dragged there (onPointerDown's own gate) — see this card's HTML
+    // comment for why that identity is load-bearing: what is dragged here
+    // is pixel-for-pixel the same canvas the classifier crops from.
+    if (backgroundIsRectified() && hLines && vLines) {
       setupCtx.strokeStyle = "#3ecf6e";
-      setupCtx.strokeRect(d[0], d[1], d[2], d[3]);
+      hLines.forEach(function (y) {
+        setupCtx.beginPath();
+        setupCtx.moveTo(0, y);
+        setupCtx.lineTo(setupOverlay.width, y);
+        setupCtx.stroke();
+      });
+      vLines.forEach(function (x) {
+        setupCtx.beginPath();
+        setupCtx.moveTo(x, 0);
+        setupCtx.lineTo(x, setupOverlay.height);
+        setupCtx.stroke();
+      });
       setupCtx.fillStyle = "#3ecf6e";
-      setupCtx.fillText("Bin " + i, d[0] + 6, d[1] + 6);
-      // The resize handle, drawn where hitTest looks for it — hitTest
-      // works in camera space (r), so the handle's ON-SCREEN centre has
-      // to go through the same transform as the rect it belongs to.
-      var handleCentre = toDisplay(r[0] + r[2], r[1] + r[3]);
-      setupCtx.fillRect(handleCentre[0] - HANDLE_CAM_PX / 2,
-                        handleCentre[1] - HANDLE_CAM_PX / 2,
-                        HANDLE_CAM_PX, HANDLE_CAM_PX);
+      gridRects().forEach(function (r, i) {
+        if (!r) return;
+        setupCtx.fillText("Bin " + i, r[0] + 6, r[1] + 6);
+      });
     }
 
     if (cornersEditing) drawCornerQuad();
@@ -2004,9 +2079,8 @@
   // preview needs this now — corner editing draws no video of its own
   // (the raw <img> shows through and needs no help redrawing itself),
   // and its quad/handles/magnifier already redraw on every pointer event
-  // that can move them. Idle cost otherwise: the tick returns
-  // immediately (bin-rect dragging on an unconfirmed table is static
-  // between explicit redraws, same as before this step).
+  // that can move them, and the bin grid only ever exists (and is only
+  // ever dragged) over the rectified preview this tick already covers.
   var setupPanel = document.querySelector('.tab-panel[data-tab="setup"]');
   setInterval(function () {
     if (!setupPanel.classList.contains("active")) return;
@@ -2025,12 +2099,13 @@
 
   function applyGeometry(msg) {
     camSize = msg.camera_size || camSize;
-    // Not gated on `!drag` below: it is core's own fact about the table,
-    // the same as `camSize`, not something an operator's drag holds
-    // stable against. Only the CANVAS RESIZE this can trigger is deferred
-    // (inside the `!drag` block) — a resize mid-drag would shift pixels
-    // under the operator's finger, which is the thing that guard exists
-    // to stop `rects` itself from doing.
+    stageSize = msg.stage_size || stageSize;
+    // Not gated on `!gridDrag` below: it is core's own fact about the
+    // table, the same as `camSize`, not something an operator's drag
+    // holds stable against. Only the CANVAS RESIZE this can trigger is
+    // deferred (inside the `!gridDrag` block) — a resize mid-drag would
+    // shift pixels under the operator's finger, which is the thing that
+    // guard exists to stop the grid itself from doing.
     cameraRoi = (msg.camera_roi && msg.camera_roi.length === 4)
       ? msg.camera_roi : null;
     // `confirmedCorners` seeds the NEXT editing session (not the current
@@ -2048,29 +2123,33 @@
     geoRms.textContent = msg.rms_px === null || msg.rms_px === undefined
       ? "—" : msg.rms_px + " px";
     geoPoints.textContent = msg.n_points ? String(msg.n_points) : "—";
-    geoVerified.textContent = msg.verified_at
-      ? new Date(msg.verified_at * 1000).toLocaleString() : "not yet";
+    // The only "verified" concept left is the camera grid's own — see
+    // core/bin_grid.py's docstring; there is no homography-level verify
+    // any more.
+    geoVerified.textContent = msg.grid_verified_at
+      ? new Date(msg.grid_verified_at * 1000).toLocaleString() : "not yet";
     keystoneWarn.classList.toggle("hide", !msg.keystone_stale);
     // Never overwrite a drag in progress with a broadcast: core sends a
     // `geometry` message after every save, and an operator mid-drag when
-    // one arrives would watch their rect jump back.
-    if (!drag) {
-      rects = (msg.rects || []).map(function (r) { return r ? r.slice() : null; });
-      while (rects.length < NUM_BINS) rects.push(null);
+    // one arrives would watch their line jump back.
+    if (!gridDrag) {
+      hLines = msg.h_lines ? msg.h_lines.slice() : null;
+      vLines = msg.v_lines ? msg.v_lines.slice() : null;
       sizeSetupOverlay();
-      // The Capture tab crops the same rects. Without this it would go on
-      // photographing the old rectangles after a save, which is a whole
+      // The Capture tab crops the same grid. Without this it would go on
+      // photographing the old lines after a save, which is a whole
       // capture session of images cropped off the trays.
-      captureRects = rects.map(function (r) { return r ? r.slice() : null; });
+      captureRects = gridRects();
       drawCrops();
     }
     applySetupGating();
   }
 
   // Everything on this tab needs setting mode, for the same reason Tare
-  // and Calibrate do: the field goes black for the solve, and moving a
-  // rect moves the light-pass cutout off the tray. Said up front on the
-  // buttons rather than refused after the operator has done the work.
+  // and Calibrate do: the field goes black for the solve, and moving the
+  // grid moves what the classifier crops (and, once the projector grid
+  // exists, the light-pass cutout). Said up front on the buttons rather
+  // than refused after the operator has done the work.
   function applySetupGating() {
     var on = mode === "setting";
     [rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn, cornersBtn]
@@ -2078,7 +2157,15 @@
         b.disabled = !on;
         b.title = on ? "" : NEEDS_SETTING_SETUP;
       });
-    rectsUndoBtn.disabled = !on || rectsUndo.length === 0;
+    // The grid card additionally needs confirmed corners — there is no
+    // rectified picture to drag a line onto before that.
+    if (on && !confirmedCorners) {
+      [rectsSaveBtn, rectsSeedBtn, verifyYesBtn, verifyNoBtn].forEach(function (b) {
+        b.disabled = true;
+        b.title = NEEDS_CORNERS_SETUP;
+      });
+    }
+    rectsUndoBtn.disabled = !on || gridUndo.length === 0;
     // Leaving setting mode mid-edit (the mode switch is one tap, reachable
     // from anyone at the table) must not leave Confirm sitting there able
     // to send a homography for a mode that is no longer active.
@@ -2153,36 +2240,36 @@
 
   rectsSaveBtn.addEventListener("click", function () {
     if (rectsSaveBtn.disabled) return;
-    if (rects.some(function (r) { return !r; })) {
-      setStatus(rectsStatus, "All 8 rectangles have to be placed before "
-        + "saving. Try 'Load measured layout' first.", "bad");
+    if (!hLines || !vLines) {
+      setStatus(rectsStatus, "The grid is not placed yet. Try "
+        + "'Load measured layout' first.", "bad");
       return;
     }
-    sendSetup({ t: "set_rects", rects: rects.map(function (r) {
-      return r.map(function (v) { return Math.round(v * 10) / 10; });
-    }) });
+    var round1 = function (v) { return Math.round(v * 10) / 10; };
+    sendSetup({ t: "set_grid", h_lines: hLines.map(round1),
+               v_lines: vLines.map(round1) });
   });
 
   rectsUndoBtn.addEventListener("click", function () {
     if (rectsUndoBtn.disabled) return;
-    var prev = rectsUndo.pop();
-    if (prev) { rects = prev; drawSetupOverlay(); }
-    rectsUndoBtn.disabled = rectsUndo.length === 0;
+    var prev = gridUndo.pop();
+    if (prev) { hLines = prev.h; vLines = prev.v; drawSetupOverlay(); }
+    rectsUndoBtn.disabled = gridUndo.length === 0;
   });
 
   rectsSeedBtn.addEventListener("click", function () {
     if (rectsSeedBtn.disabled) return;
     pushUndo();
-    sendSetup({ t: "seed_rects" });
+    sendSetup({ t: "seed_grid" });
   });
 
   verifyYesBtn.addEventListener("click", function () {
     if (verifyYesBtn.disabled) return;
-    sendSetup({ t: "verify_rects", ok: true });
+    sendSetup({ t: "verify_grid", ok: true });
   });
   verifyNoBtn.addEventListener("click", function () {
     if (verifyNoBtn.disabled) return;
-    sendSetup({ t: "verify_rects", ok: false });
+    sendSetup({ t: "verify_grid", ok: false });
   });
 
   function applyManualCalibrateResult(msg) {
@@ -2198,7 +2285,7 @@
     setStatus(cornersStatus, msg.message, "bad");
   }
 
-  function applyRectsResult(msg) {
+  function applyGridResult(msg) {
     var target = msg.message && msg.message.indexOf("outlines") >= 0
       ? verifyStatus : rectsStatus;
     setStatus(target, msg.message, msg.ok ? "good" : "bad");
@@ -2303,11 +2390,41 @@
     c.select.addEventListener("change", function () { updateCropCount(i); });
   });
 
-  // The crops are drawn from the live <img> at the bin's own camera-space
-  // rect, so what the operator sees IS what the classifier will crop —
-  // same image, same rectangle, no second endpoint to disagree with.
+  // The crops are drawn from the RECTIFIED table frame, not the raw
+  // <img> — the bug the old rect-based version had: rects were dragged
+  // in raw camera space, but the green box on the Setup tab could be
+  // shown over the rectified preview once corners were confirmed, so the
+  // box you saw and the picture it actually cropped could disagree. The
+  // camera grid is now dragged directly on the rectified preview
+  // (core/bin_grid.py's docstring), so this tab has to sample the SAME
+  // rectified picture to stay pixel-for-pixel consistent with it.
+  //
+  // `rectifiedCanvas` is this tab's own offscreen copy of that preview —
+  // it cannot reuse the Setup tab's `setupOverlay` canvas because that
+  // one is also busy drawing grid lines, handles and the corner quad on
+  // top, which must never leak into a saved crop.
+  //
+  // **This is still only an approximation of what gets saved.** The
+  // classifier warps with `common.geometry.warp_frame_to_stage` — a true
+  // OpenCV projective transform, server-side, on the raw frame. This
+  // canvas warps with `drawRectifiedPreview`'s 2-triangle AFFINE
+  // approximation, client-side, same as the Live tab already accepts for
+  // its own preview. Good enough to confirm framing; not a guarantee of
+  // the exact pixels a training run will use.
+  var rectifiedCanvas = document.createElement("canvas");
+  var rectifiedCtx = rectifiedCanvas.getContext("2d");
+
   function drawCrops() {
-    if (!setupImg.naturalWidth) return;
+    if (!setupImg.naturalWidth || !confirmedCorners) {
+      cropCards.forEach(function (c) {
+        c.ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
+      });
+      return;
+    }
+    if (rectifiedCanvas.width !== stageSize[0]) rectifiedCanvas.width = stageSize[0];
+    if (rectifiedCanvas.height !== stageSize[1]) rectifiedCanvas.height = stageSize[1];
+    drawRectifiedPreview(rectifiedCtx, setupImg, confirmedCorners,
+                         rectifiedCanvas.width, rectifiedCanvas.height);
     cropCards.forEach(function (c, i) {
       var r = captureRects[i];
       c.ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
@@ -2317,7 +2434,7 @@
       if (c.canvas.width !== Math.round(r[2])) c.canvas.width = Math.round(r[2]);
       if (c.canvas.height !== Math.round(r[3])) c.canvas.height = Math.round(r[3]);
       try {
-        c.ctx.drawImage(setupImg, r[0], r[1], r[2], r[3],
+        c.ctx.drawImage(rectifiedCanvas, r[0], r[1], r[2], r[3],
                         0, 0, c.canvas.width, c.canvas.height);
       } catch (e) { /* the <img> has not decoded yet */ }
     });
@@ -2522,7 +2639,7 @@
       else if (msg.t === "camera") applyCamera(msg);
       else if (msg.t === "geometry") applyGeometry(msg);
       else if (msg.t === "manual_calibrate_result") applyManualCalibrateResult(msg);
-      else if (msg.t === "rects_result") applyRectsResult(msg);
+      else if (msg.t === "grid_result") applyGridResult(msg);
       else if (msg.t === "capture_info") applyCaptureInfo(msg);
       else if (msg.t === "capture_result") applyCaptureResult(msg);
     };

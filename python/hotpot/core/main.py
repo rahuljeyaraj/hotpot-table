@@ -58,8 +58,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from hotpot.common import config, geometry, health, log, wire
-from hotpot.core import (binmap, calibrator, cart, fsm, geometry_store,
-                         i18n, loadcell_cal, pricing, scale)
+from hotpot.core import (bin_grid, binmap, calibrator, cart, fsm,
+                         geometry_store, i18n, loadcell_cal, pricing, scale)
 from hotpot.core.web import server as web
 
 _log = logging.getLogger("hotpot.core")
@@ -217,7 +217,7 @@ class Core:
         camera_host: str = CAMERA_HOST,
         camera_port: int = CAMERA_PORT,
         homography_path: Path = geometry_store.HOMOGRAPHY_PATH,
-        rects_path: Path = geometry_store.BIN_RECTS_PATH,
+        camera_grid_path: Path = bin_grid.CAMERA_GRID_PATH,
         view_rotation_path: Path = geometry_store.VIEW_ROTATION_PATH,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
@@ -258,9 +258,14 @@ class Core:
         # before it in execution — so the store is built first. Kept
         # together with the other domain objects rather than moved down
         # beside the store, because this is where the FSM lives.
+        # Doc section 9.1's "calibrated" needs both a homography AND a
+        # camera bin grid — they live in two separate stores now
+        # (core/bin_grid.py's module docstring on why), so this predicate
+        # is what combines them; neither store knows about the other.
         self.fsm = fsm.Fsm(self.cart, self.binmap,
                            refresh_weights=self._refresh_weights_from_scale,
-                           is_calibrated=lambda: self.geometry.calibrated)
+                           is_calibrated=lambda: (self.geometry.has_homography
+                                                  and self.camera_grid.has_grid))
 
         # -- M2 build item 4: the Bins tab's reader and calibrator ------
         # calibrator.py's own docstring gives this exact wiring order:
@@ -300,11 +305,14 @@ class Core:
 
         # -- M4: geometry (doc sections 5.3, 8.4, 8.5) -------------------
         # Paths are parameters for the same reason `cal_path` is: these
-        # two files decide where every bin rect is, and a test run must
-        # never read or write the rig's own.
+        # files decide where every bin is, and a test run must never read
+        # or write the rig's own. Two stores, not one — GeometryStore owns
+        # only `H_cam_to_stage` now; `camera_grid` owns the camera-space
+        # bin grid it used to also carry (core/bin_grid.py's docstring).
         self.geometry = geometry_store.GeometryStore(
-            homography_path=homography_path, rects_path=rects_path,
+            homography_path=homography_path,
             view_rotation_path=view_rotation_path)
+        self.camera_grid = bin_grid.BinGridStore(camera_grid_path)
 
         # Doc section 8.5's staleness check needs oF's live fingerprint,
         # which arrives on the `stat` message (doc section 4.5). None
@@ -376,7 +384,7 @@ class Core:
             _log.warning("core: no saved geometry (%s / %s) — booting "
                          "UNCALIBRATED; the staff view opens on Setup",
                          self.geometry.homography_path.name,
-                         self.geometry.rects_path.name)
+                         self.camera_grid.path.name)
         self._state_thread = threading.Thread(
             target=self._state_loop, name="core-state", daemon=True)
         self._state_thread.start()
@@ -606,14 +614,14 @@ class Core:
         if t == "set_view_rotation":
             self._handle_set_view_rotation(msg)
             return
-        if t == "set_rects":
-            self._handle_set_rects(msg)
+        if t == "set_grid":
+            self._handle_set_grid(msg)
             return
-        if t == "seed_rects":
-            self._handle_seed_rects()
+        if t == "seed_grid":
+            self._handle_seed_grid()
             return
-        if t == "verify_rects":
-            self._handle_verify_rects(msg)
+        if t == "verify_grid":
+            self._handle_verify_grid(msg)
             return
         if t == "capture":
             self._handle_capture(msg)
@@ -910,9 +918,9 @@ class Core:
         removed (it needed a dark, room-light-free rig this project never
         achieved — see CLAUDE.md's M4h/M4i/M4j).
 
-        **Setting mode required**, same rule as `_handle_set_rects`: a new
-        homography moves every rect and cutout on the table, and that must
-        not happen under a live diner.
+        **Setting mode required**, same rule as `_handle_set_grid`: a new
+        homography moves the table crop the camera grid is drawn on, and
+        that must not happen under a live diner.
 
         Synchronous — there is no pattern to project and no classifier
         round trip to wait on, so this never blocks the calling tablet's
@@ -944,28 +952,28 @@ class Core:
                 keystone_fingerprint=self._keystone_fingerprint,
                 camera_size=self.geometry.camera_size,
                 corner_points=parsed)
-            # A new solve invalidates the last human Verify answer, same as
-            # the dot flow (doc section 12.6) — the rects have just moved
-            # under it.
-            self.geometry.clear_verified()
             self.geometry.save_homography()
         except geometry.GeometryError as e:
             self.web.broadcast({"t": "manual_calibrate_result", "ok": False,
                                 "message": str(e)})
             return
+        # A new solve invalidates the last human Verify answer on the
+        # camera grid too: the grid itself did not move (it is not derived
+        # from H any more — core/bin_grid.py's docstring), but the warped
+        # table frame it is drawn against just did, so what the operator
+        # confirmed against the old frame is no longer the frame they will
+        # see it against next.
+        self.camera_grid.clear_verified()
         # A table that has just acquired its first homography and has no
-        # rects yet gets the legacy measured layout put on screen,
-        # converted to camera space through H^-1, rather than an empty
-        # canvas to drag rects onto from nothing. Not saved (doc section
-        # 12.6's "Save is explicit"), and
-        # no call to `_check_calibration_complete()` for the same reason —
-        # nobody has looked at a seed yet, so it must not be what takes the
-        # table out of UNCALIBRATED.
-        if not self.geometry.has_rects:
-            try:
-                self.geometry.seed_cam_rects_from_table()
-            except geometry.GeometryError:
-                _log.exception("core: could not seed the bin rects")
+        # camera grid yet gets the legacy measured layout put on screen —
+        # pure line arithmetic now, no homography needed to seed it (unlike
+        # the old rect version) — rather than an empty canvas to drag onto
+        # from nothing. Not saved (doc section 12.6's "Save is explicit"),
+        # and no call to `_check_calibration_complete()` for the same
+        # reason — nobody has looked at a seed yet, so it must not be what
+        # takes the table out of UNCALIBRATED.
+        if not self.camera_grid.has_grid:
+            self.camera_grid.seed_from_table()
         self.web.broadcast({
             "t": "manual_calibrate_result", "ok": True,
             "message": "Table corners saved."})
@@ -992,123 +1000,123 @@ class Core:
                             "message": "View rotation saved."})
         self.web.broadcast(self._geometry_msg())
 
-    def _handle_set_rects(self, msg: Dict[str, Any]) -> None:
-        """Doc section 12.6's "Adjust bin rectangles — drag the 8 rects on
-        the live feed… Save is explicit."
+    def _handle_set_grid(self, msg: Dict[str, Any]) -> None:
+        """Doc section 12.6's "Adjust bin boundaries — drag the grid lines
+        on the rectified live feed… Save is explicit."
 
-        The tablet sends the whole set of eight, not a delta, and only
-        when the operator taps Save — dragging is entirely local to the
-        page (doc section 12.6 gives it Undo, which is a page-level idea).
-        Sending all eight also means a dropped message cannot leave core
-        holding six new rects and two old ones.
+        The tablet sends the whole grid (4 horizontal + 8 vertical lines),
+        not a delta, and only when the operator taps Save — dragging is
+        entirely local to the page (doc section 12.6 gives it Undo, which
+        is a page-level idea). Sending the whole grid also means a dropped
+        message cannot leave core holding some new lines and some old
+        ones — which, for a grid, would be worse than the old rect
+        version's equivalent gap: a mismatched line pair would not just be
+        stale, it could cross and make a bin's own rect invalid.
 
         **Setting mode required**, same rule as everything else on this
-        tab: moving a rect moves the light-pass cutout, so a save in
-        serving mode would slide the white patches off the trays under a
-        diner's hands.
+        tab: moving the grid moves the light-pass cutout (once the
+        projector grid exists) and moves what the classifier crops right
+        now, so a save in serving mode would change what a diner is being
+        billed and photographed against mid-order.
         """
         if not self._in_setting():
-            self.web.broadcast({"t": "rects_result", "ok": False,
+            self.web.broadcast({"t": "grid_result", "ok": False,
                                 "message": NOT_IN_SETTING_MSG})
             return
-        rects = msg.get("rects")
-        if not isinstance(rects, list) or len(rects) != binmap.NUM_BINS:
+        h_lines = msg.get("h_lines")
+        v_lines = msg.get("v_lines")
+        if (not isinstance(h_lines, list) or len(h_lines) != bin_grid.NUM_H_LINES
+                or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                           and math.isfinite(v) for v in h_lines)):
             self.web.broadcast({
-                "t": "rects_result", "ok": False,
-                "message": f"Expected {binmap.NUM_BINS} rectangles."})
+                "t": "grid_result", "ok": False,
+                "message": f"Expected {bin_grid.NUM_H_LINES} horizontal "
+                           "line positions."})
             return
-        parsed = []
-        for r in rects:
-            if (not isinstance(r, list) or len(r) != 4
-                    or not all(isinstance(v, (int, float))
-                               and not isinstance(v, bool)
-                               and math.isfinite(v) for v in r)):
-                self.web.broadcast({
-                    "t": "rects_result", "ok": False,
-                    "message": "One of the rectangles is not four numbers."})
-                return
-            parsed.append(tuple(float(v) for v in r))
+        if (not isinstance(v_lines, list) or len(v_lines) != bin_grid.NUM_V_LINES
+                or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                           and math.isfinite(v) for v in v_lines)):
+            self.web.broadcast({
+                "t": "grid_result", "ok": False,
+                "message": f"Expected {bin_grid.NUM_V_LINES} vertical "
+                           "line positions."})
+            return
         try:
-            self.geometry.set_cam_rects(parsed)
-            # A moved rect invalidates the last human Verify answer — the
+            # set_grid() itself clears verification (bin_grid.py) — the
             # outlines the operator said were on the trays are not these
             # outlines any more (doc section 12.6).
-            self.geometry.clear_verified()
-            self.geometry.save_rects()
-        except (ValueError, geometry.GeometryError) as e:
-            self.web.broadcast({"t": "rects_result", "ok": False,
+            self.camera_grid.set_grid([float(v) for v in h_lines],
+                                      [float(v) for v in v_lines])
+            self.camera_grid.save()
+        except bin_grid.BinGridError as e:
+            self.web.broadcast({"t": "grid_result", "ok": False,
                                 "message": str(e)})
             return
-        self.web.broadcast({"t": "rects_result", "ok": True,
-                            "message": "Bin rectangles saved."})
+        self.web.broadcast({"t": "grid_result", "ok": True,
+                            "message": "Bin grid saved."})
         self.web.broadcast(self._geometry_msg())
-        # A table that had a homography and no rects has just become
+        # A table that had a homography and no grid has just become
         # calibrated. Doc section 9.1's UNCALIBRATED -> IDLE transition
         # is M4 build item 6; it hooks in here.
         self._check_calibration_complete()
 
-    def _handle_seed_rects(self) -> None:
-        """Doc section 21 M4 build item 5: put the legacy measured rects
-        on screen as a starting position to drag from, converted to camera
-        space through `H^-1`.
+    def _handle_seed_grid(self) -> None:
+        """Doc section 21 M4 build item 5's successor: put the legacy
+        measured grid on screen as a starting position to drag from — pure
+        line arithmetic now, no homography needed (`bin_grid.py`'s
+        docstring on why the old rect version needed one and this does
+        not).
 
         Not saved — doc section 12.6's "Save is explicit" applies to a
         seed more than to anything else, since nobody has looked at it
         yet.
         """
         if not self._in_setting():
-            self.web.broadcast({"t": "rects_result", "ok": False,
+            self.web.broadcast({"t": "grid_result", "ok": False,
                                 "message": NOT_IN_SETTING_MSG})
             return
-        try:
-            self.geometry.seed_cam_rects_from_table()
-        except geometry.GeometryError as e:
-            self.web.broadcast({"t": "rects_result", "ok": False,
-                                "message": str(e)})
-            return
+        self.camera_grid.seed_from_table()
         self.web.broadcast({
-            "t": "rects_result", "ok": True,
+            "t": "grid_result", "ok": True,
             "message": ("Starting positions loaded from the measured table "
-                        "layout. Drag them onto the trays, then Save.")})
+                        "layout. Drag the lines onto the trays, then Save.")})
         self.web.broadcast(self._geometry_msg())
 
-    def _handle_verify_rects(self, msg: Dict[str, Any]) -> None:
+    def _handle_verify_grid(self, msg: Dict[str, Any]) -> None:
         """Doc section 12.6's Verify step, and doc section 5.3's TRAP.
 
         **The only thing this does is record a human's answer.** There is
-        no check here and there must not be one: the outlines are already
-        on the table every frame (core sends the derived stage rects in
-        `state.bins[].rect` and oF draws its plates and cutouts on them),
-        so "Verify" is the operator looking at the real trays and saying
-        yes or no. Reprojecting the rects through the same homography to
-        check them would pass by construction on a homography that is
+        no check here and there must not be one: the grid is already
+        visible on the rectified live feed every frame, so "Verify" is the
+        operator looking at that feed (or, once the projector grid exists,
+        the real table) and saying yes or no. Reprojecting anything to
+        check it would pass by construction on a homography that is
         upside down — that is the trap this project has already hit three
         times in different disguises.
 
         A "No" clears the flag rather than setting a failure state:
         nothing downstream branches on it, and what the operator does
-        next is re-run the calibration, which clears it anyway.
+        next is drag the grid again, which clears it anyway.
         """
         if not self._in_setting():
-            self.web.broadcast({"t": "rects_result", "ok": False,
+            self.web.broadcast({"t": "grid_result", "ok": False,
                                 "message": NOT_IN_SETTING_MSG})
             return
         ok = bool(msg.get("ok"))
         if ok:
-            self.geometry.mark_verified()
+            self.camera_grid.mark_verified()
             message = "Recorded — the outlines are on the trays."
         else:
-            self.geometry.clear_verified()
-            message = ("Recorded. Run the projector-camera calibration "
-                       "again, then drag the rectangles and check once more.")
+            self.camera_grid.clear_verified()
+            message = ("Recorded. Adjust the grid lines and check once more.")
         try:
-            if self.geometry.has_rects:
-                self.geometry.save_rects()
-        except geometry.GeometryError as e:
-            self.web.broadcast({"t": "rects_result", "ok": False,
+            if self.camera_grid.has_grid:
+                self.camera_grid.save()
+        except bin_grid.BinGridError as e:
+            self.web.broadcast({"t": "grid_result", "ok": False,
                                 "message": str(e)})
             return
-        self.web.broadcast({"t": "rects_result", "ok": True,
+        self.web.broadcast({"t": "grid_result", "ok": True,
                             "message": message})
         self.web.broadcast(self._geometry_msg())
 
@@ -1135,19 +1143,30 @@ class Core:
           reaching over trays and swapping them, which in serving mode is
           a pick and would bill; the same reason Tare and Calibrate need
           it (doc section 12.4).
-        - **The rects come from the geometry store, not from the
-          tablet.** The classifier crops camera space (doc section 4.7),
-          and the rects it should crop are the ones core owns. A tablet
-          sending its own would let an un-saved drag reach the dataset.
+        - **The rects come from the camera grid store, not from the
+          tablet.** The classifier crops the warped table frame (doc
+          section 4.7), and the rects it should crop are the ones core
+          owns. A tablet sending its own would let an un-saved drag reach
+          the dataset.
+        - **Core never touches a frame (hard invariant).** So core cannot
+          do the table-crop warp itself — it sends the classifier the
+          homography and stage size alongside the rects, and the
+          classifier (which already handles frames) warps before it crops.
         """
         if not self._in_setting():
             self.web.broadcast({"t": "capture_result", "ok": False,
                                 "message": NOT_IN_SETTING_MSG})
             return
-        if not self.geometry.has_rects:
+        if not self.geometry.has_homography:
             self.web.broadcast({
                 "t": "capture_result", "ok": False,
-                "message": ("The bin rectangles are not set yet — do that on "
+                "message": ("The table has not been calibrated yet — do that "
+                            "on the Setup tab first.")})
+            return
+        if not self.camera_grid.has_grid:
+            self.web.broadcast({
+                "t": "capture_result", "ok": False,
+                "message": ("The bin grid is not set yet — do that on "
                             "the Setup tab first.")})
             return
 
@@ -1167,11 +1186,12 @@ class Core:
         # bin number in the filename (doc section 12.7's
         # `<unixms>_bin<i>.jpg`). The classifier reads it and ignores it
         # otherwise; it never learns what a bin is.
-        rects = [list(r) + [i] for i, r in enumerate(self.geometry.cam_rects)]
+        rects = [list(r) + [i] for i, r in enumerate(self.camera_grid.rects())]
 
         reply = self._send_classifier_cmd(
             "capture", CLASSIFIER_REPLY_TIMEOUT_S,
-            rects=rects, labels=list(labels), burst=burst, seconds=seconds)
+            rects=rects, labels=list(labels), burst=burst, seconds=seconds,
+            h=self.geometry.h, stage_size=list(self.geometry.stage_size))
         if not reply or reply.get("ok") is False:
             self.web.broadcast({
                 "t": "capture_result", "ok": False,
@@ -1224,9 +1244,9 @@ class Core:
             self.fsm.calibration_complete()
 
     def _capture_msg(self) -> Dict[str, Any]:
-        """What the Capture tab needs on join: the camera-space rects to
-        crop previews out of the live feed, the label each bin defaults
-        to, and the per-label counts.
+        """What the Capture tab needs on join: the camera-grid-derived
+        rects to crop previews out of the RECTIFIED live feed, the label
+        each bin defaults to, and the per-label counts.
 
         Doc section 12.7: "Each crop has a label selector defaulting to
         the current bin-map item." The default is the item's **`id`**, not
@@ -1243,7 +1263,7 @@ class Core:
         return {
             "t": "capture_info",
             "rects": [None if r is None else [round(v, 1) for v in r]
-                      for r in self.geometry.cam_rects],
+                      for r in self.camera_grid.rects()],
             "labels": labels,
             "choices": sorted({self.catalogue.item(i).class_name
                                for i in self.catalogue.ids()
@@ -1254,26 +1274,31 @@ class Core:
 
     def _geometry_msg(self) -> Dict[str, Any]:
         """What the Setup tab needs to render: whether the table is
-        calibrated, the last solve's numbers, the camera-space rects to
-        drag, whether oF's keystone has moved under the solve (doc
-        section 8.5), the last confirmed 4 corner points (drag-corner
+        calibrated (homography AND camera grid — two stores now, see
+        `core/bin_grid.py`), the last solve's numbers, the camera grid
+        lines to drag, whether oF's keystone has moved under the solve
+        (doc section 8.5), the last confirmed 4 corner points (drag-corner
         rebuild step 4's seed for its handles — `null` if none yet), and
         the display-only view rotation.
         """
         g = self.geometry
+        cg = self.camera_grid
         return {
             "t": "geometry",
-            "calibrated": g.calibrated,
+            "calibrated": g.has_homography and cg.has_grid,
             "has_homography": g.has_homography,
-            "has_rects": g.has_rects,
+            "has_grid": cg.has_grid,
             "rms_px": None if g.rms_px is None else round(g.rms_px, 2),
             "n_points": g.n_points,
             "computed_at": g.computed_at,
-            "verified_at": g.verified_at,
+            "grid_verified_at": cg.verified_at,
             "camera_size": list(g.camera_size),
+            "stage_size": list(g.stage_size),
             "keystone_stale": g.keystone_is_stale(self._keystone_fingerprint),
-            "rects": [None if r is None else [round(v, 1) for v in r]
-                      for r in g.cam_rects],
+            "h_lines": (None if cg.grid is None
+                       else [round(v, 1) for v in cg.grid.h_lines]),
+            "v_lines": (None if cg.grid is None
+                       else [round(v, 1) for v in cg.grid.v_lines]),
             "corner_points": (None if g.corner_points is None
                               else [list(p) for p in g.corner_points]),
             "view_rotation_deg": g.view_rotation_deg,
@@ -1445,13 +1470,15 @@ class Core:
             )["amount"]
         else:
             label, sub, price = "", "", 0.0
-        # Doc section 5.3: "core pushes … stage-space rects to oF". Derived
-        # from the camera rect staff dragged, through H — never persisted
-        # (doc section 8.4), so this is the only place it exists outside
-        # GeometryStore. `None` until the table is calibrated, so oF falls
-        # back to TableGeometry.h's CAD layout rather than drawing eight
-        # plates at the origin.
-        stage_rect = self.geometry.stage_rects[i]
+        # Doc section 5.3: "core pushes … stage-space rects to oF". Always
+        # `None` for now — the projector grid that will fill this in is a
+        # later, separate step (core/bin_grid.py's docstring: the camera
+        # grid this process now owns is NOT that grid, and the two are
+        # never derived from each other). `None` reaches oF the same way
+        # an uncalibrated table always has, so it falls back to
+        # TableGeometry.h's CAD layout rather than drawing eight plates at
+        # the origin — unchanged behaviour, not a regression.
+        stage_rect = None
         return {
             "i": i,
             "label": label,

@@ -98,6 +98,13 @@ class NoisyReader(FakeReader):
         return FakeFrame(noisy.astype(np.uint8).tobytes(), frame_id=fid)
 
 
+# Identity: the table-crop warp is a documented no-op at this matrix, so
+# every pixel-value assertion below (crop content, quadrant means) holds
+# exactly as it did before the warp step existed. `TestWarpThenCrop` below
+# is what actually exercises a non-identity `h`.
+IDENTITY_H = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+
+
 def dot_field(w=640, h=480):
     img = np.zeros((h, w, 3), dtype=np.uint8)
     ys, xs = np.ogrid[:h, :w]
@@ -236,7 +243,8 @@ class TestCapture(WorkerCase):
     def cmd(self, **over):
         base = {"t": "cmd", "id": 21, "op": "capture",
                 "rects": [[10, 10, 100, 100, 0], [330, 250, 100, 100, 6]],
-                "labels": ["mushroom", "prawn"], "burst": 1}
+                "labels": ["mushroom", "prawn"], "burst": 1,
+                "h": IDENTITY_H, "stage_size": [640, 480]}
         base.update(over)
         return base
 
@@ -338,6 +346,49 @@ class TestCapture(WorkerCase):
         w.on_message(self.cmd(rects=[], labels=[]))
         self.assertFalse(self.wait()["ok"])
 
+    def test_a_capture_with_no_homography_is_refused(self):
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(h=None))
+        reply = self.wait()
+        self.assertFalse(reply["ok"])
+        self.assertIn("homography", reply["error"])
+
+    def test_a_capture_with_a_malformed_homography_is_refused(self):
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(h=[[1, 0], [0, 1]]))
+        reply = self.wait()
+        self.assertFalse(reply["ok"])
+        self.assertIn("homography", reply["error"])
+
+    def test_a_capture_with_no_stage_size_is_refused(self):
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(stage_size=None))
+        reply = self.wait()
+        self.assertFalse(reply["ok"])
+        self.assertIn("stage size", reply["error"])
+
+    def test_capture_warps_before_cropping(self):
+        # A non-identity homography must actually be applied: a rect
+        # placed in the warped canvas at (350, 50) has to come out holding
+        # whatever the homography maps there FROM the raw frame, not
+        # whatever raw pixel happens to sit at that same (x, y).
+        #
+        # shift_h moves raw content +200px in x. Warped position (350, 50)
+        # therefore holds raw content from (150, 50) — food_field()'s
+        # TOP-LEFT quadrant, value 10 — never the raw pixel at (350, 50)
+        # itself, which is the TOP-RIGHT quadrant, value 90. A classifier
+        # that forgot to warp would crop the wrong quadrant and this test
+        # would see ~90 instead of ~10.
+        import cv2
+        shift_h = [[1.0, 0.0, 200.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(rects=[[350, 50, 100, 100, 0]], labels=["egg"],
+                              h=shift_h, stage_size=[900, 480]))
+        self.wait()
+        jpg = next((self.captures / "egg").glob("*.jpg"))
+        img = cv2.imread(str(jpg))
+        self.assertLess(int(img.mean()), 50)
+
 
 class TestRingRecovery(WorkerCase):
 
@@ -362,7 +413,7 @@ class TestRingRecovery(WorkerCase):
 
         cmd = {"t": "cmd", "id": 1, "op": "capture",
                "rects": [[10, 10, 100, 100, 0]], "labels": ["mushroom"],
-               "burst": 1}
+               "burst": 1, "h": IDENTITY_H, "stage_size": [640, 480]}
         worker.on_message(cmd)
         self.assertFalse(self.wait()["ok"])
         self.assertTrue(reader.closed)

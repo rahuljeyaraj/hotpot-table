@@ -53,7 +53,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from hotpot.common import atomicio, config, framebus, health, log, wire
+from hotpot.common import atomicio, config, framebus, geometry, health, log, wire
 
 _log = logging.getLogger("hotpot.classifier")
 
@@ -364,6 +364,14 @@ class Classifier:
         were showing something else, and that is gated on the core side
         (`core/main.py` refuses a capture while dot calibration's black
         field is up).
+
+        **The table crop happens here, not in core.** Core owns the
+        homography and the camera bin grid but never touches a frame (a
+        hard invariant), so it sends `h` and `stage_size` alongside the
+        grid-derived `rects` and this is the process that actually warps —
+        `common.geometry.warp_frame_to_stage` — before cropping. `rects`
+        are in the warped frame's own pixel space, the same space the
+        camera bin grid is dragged in (`core/bin_grid.py`'s docstring).
         """
         import cv2      # noqa: WPS433
 
@@ -375,6 +383,17 @@ class Classifier:
             raise ClassifierError(
                 f"{len(rects)} rects but {len(labels)} labels — every crop "
                 "must be told what it is a picture of")
+        h = msg.get("h")
+        if (not isinstance(h, list) or len(h) != 3
+                or any(not isinstance(row, list) or len(row) != 3
+                       for row in h)):
+            raise ClassifierError(
+                "no homography to crop against — calibrate the table "
+                "corners before capturing")
+        stage_size = msg.get("stage_size")
+        if (not isinstance(stage_size, list) or len(stage_size) != 2
+                or not all(isinstance(v, (int, float)) for v in stage_size)):
+            raise ClassifierError("no stage size to warp the frame into")
         burst = msg.get("burst", DEFAULT_BURST)
         burst = int(burst) if isinstance(burst, (int, float)) else DEFAULT_BURST
         burst = max(1, min(MAX_BURST, burst))
@@ -397,7 +416,11 @@ class Classifier:
                 time.sleep(gap)
                 if self._cancel.is_set():
                     break
-            frame = self.source.frame()
+            raw_frame = self.source.frame()
+            # The table crop: everything from here on works in the same
+            # warped canvas the camera bin grid was dragged against, not
+            # the raw sensor frame — see this method's own docstring.
+            frame = geometry.warp_frame_to_stage(raw_frame, h, stage_size)
             stamp = int(time.time() * 1000)
             for idx, (rect, label) in enumerate(zip(rects, labels)):
                 bin_i = rect[4] if len(rect) > 4 else idx

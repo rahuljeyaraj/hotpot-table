@@ -315,6 +315,8 @@ never achieved (see CLAUDE.md's M4h/M4i/M4j) — in favour of the manual
 
 `rects` are **camera space** (§5) — the classifier never sees stage space.
 
+> **Superseded on one point (§5.3's addendum has the full reasoning):** the `capture` command now also carries `"h":[[...],[...],[...]]` (the 3x3 `H_cam_to_stage`) and `"stage_size":[1920,1080]` alongside `rects`. Core never touches a frame (a hard invariant), so it cannot warp the raw frame itself — the classifier does, via `common.geometry.warp_frame_to_stage`, before cropping. `rects` are still 8 `[x,y,w,h,bin_i]` entries, just measured in that warped canvas's own pixel space (`core/bin_grid.py`'s camera grid) rather than raw sensor pixels.
+
 ### 4.8 voice → core
 
 ```json
@@ -363,6 +365,16 @@ Millimetres would need a physical measurement to anchor. Stage space needs none:
 - oF owns only the keystone, applied to the final composite.
 
 **TRAP:** verifying the derived stage rects by reprojecting them back through the same `H` passes by construction, regardless of whether `H` points the right way. The only check that can fail is physical: project the derived rects and look at whether they land on the real trays. This trap has already been hit three times in this project in different disguises. Do not hit it a fourth.
+
+> **Superseded (see `core/bin_grid.py`'s own module docstring for the full reasoning), not rewritten away here — this section's history matters.** The "camera-space rects derived into stage-space rects through one shared `H_cam→stage`" model above is no longer how bins are owned. It is now:
+>
+> - **Two independent bin grids, never derived from each other:** `state/bin_grid_camera.json` (4 horizontal + 8 vertical line positions, dragged on the camera's RECTIFIED table frame — `common.geometry.warp_frame_to_stage(frame, H_cam→stage, stage_size)`) feeds the classifier's crop and core's own hand-entered-bin hit test. `state/bin_grid_projector.json` (not built yet — a later, separate step) will feed oF's ring/cutout/fluid, dragged by watching the actual projected light on the table, no camera involved at all.
+> - **A grid, not 8 independent rects**, in both spaces: two bins in the same row or column can no longer disagree about the edge they share, which 8 independently-dragged rects could.
+> - `H_cam→stage` is still exactly what §5.2 describes and still the only thing that ties camera pixels to the projector's canvas — it is just no longer used to derive one bin geometry from the other. It is infrastructure for the table-crop warp, not a bridge between two rect lists.
+> - **Why two grids and not one shared canvas**, restated because it is the point the old model got wrong: a single planar homography does not fully model either device's own lens distortion or mounting error, so "camera pixel `(x,y)` == projector pixel `(x,y)`" is true in principle and not to the pixel in practice. Each grid is closed by its own human verifying it in the space it actually feeds — the same TRAP discipline this section already argues for, just applied to two spaces that turned out to need independent verification, not one.
+> - `state/bin_rects.json` (8 independent camera-space rects) is gone; do not resurrect it as a data source.
+
+Doc §5.4 below still describes the underlying CSS-scaling discipline correctly (a value dragged on a CSS-scaled `<img>`/canvas must be converted to that element's own natural/buffer pixel space before it is stored) — it now applies to the bin grid's line positions on the RECTIFIED canvas, not to a rect on the raw feed. §8.4 and §12.6/§12.7 below are similarly superseded on this point; not line-edited in this pass.
 
 ### 5.4 The MJPEG scaling trap
 
