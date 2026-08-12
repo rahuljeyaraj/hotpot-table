@@ -320,7 +320,7 @@
     color: #062b12; font-weight: 600;
   }
   .setup-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  /* Without this, "hide" toggled onto Rotate/Confirm by JS (cornersReset,
+  /* Without this, "hide" toggled onto Cancel/Confirm by JS (cornersReset,
      cornersBtn's click handler) had no CSS rule to act on and both
      buttons stayed visible at all times, defeating the "only while
      editing corners" gating entirely — .live-feed-placeholder.hide and
@@ -345,12 +345,13 @@
      scaling rule is implemented once, not twice. The canvas here DOES
      take pointer events — that is the whole tab. */
   .setup-shell .live-feed-wrap canvas { pointer-events: auto; touch-action: none; cursor: crosshair; }
-  /* CLAUDE.md's M4i bin-box reorientation work: once a homography exists,
-     the canvas draws the cropped, right-way-up table itself (see
-     `drawSetupOverlay`/`cameraRoi`) and the raw <img> underneath is not
-     what the operator should see — `visibility`, not `display`, so it
-     keeps decoding the MJPEG stream the canvas is sampling from. */
-  .setup-shell .live-feed-wrap img.roi-hidden { visibility: hidden; }
+  /* Once a table's corners are confirmed, the canvas draws the flattened
+     (rectified) preview itself (see `drawRectifiedPreview`) and the raw
+     <img> underneath is not what a person should see — `visibility`, not
+     `display`, so it keeps decoding the MJPEG stream the canvas is
+     sampling from. Shared, unscoped from `.setup-shell`: the Live tab
+     switches to the same flattened view once corners exist too. */
+  .live-feed-wrap img.roi-hidden { visibility: hidden; }
 
   /* --- Capture tab (doc section 12.7, M4 build item 7) -----------------
      Eight crops side by side "at the resolution the model will see",
@@ -626,7 +627,7 @@
           </div>
           <div class="setup-actions">
             <button id="cornersBtn" class="setup-btn primary">Set table corners</button>
-            <button id="cornersRotateBtn" class="setup-btn hide">Rotate</button>
+            <button id="cornersCancelBtn" class="setup-btn hide">Cancel</button>
             <button id="cornersConfirmBtn" class="setup-btn primary hide">Confirm</button>
           </div>
           <div class="setup-status" id="cornersStatus"></div>
@@ -844,6 +845,18 @@
     });
   });
 
+  // Once a table's corners are confirmed, the Live tab shows the same
+  // flattened (rectified) picture the Setup tab's resting view does —
+  // per the developer, "on confirm the image gets flattened to a
+  // rectangle both in setup view and live view." `confirmedCorners` and
+  // `camSize` are the Setup tab's own state (declared further down this
+  // script) and `drawRectifiedPreview` is its geometry helper; reused
+  // here rather than duplicated so the two tabs can never draw two
+  // different ideas of "flattened."
+  function liveShowsRectified() {
+    return !!confirmedCorners && !!liveImg.naturalWidth;
+  }
+
   // Doc §5.4: the canvas's own pixel buffer is sized to naturalWidth x
   // naturalHeight — camera-space pixels, the same space bin rects and hand
   // cursors will arrive in once M4/M5 put them on the wire — and the CSS
@@ -851,19 +864,49 @@
   // scales that buffer onto the page identically to the <img> sitting
   // under it. Getting the sizing right before either message exists is
   // the point of doing it now: nothing here has to change when they do.
+  // With confirmed corners, the buffer is `camSize` instead (the
+  // rectified preview's own fixed W x H, same convention Setup uses) and
+  // the raw <img> is hidden — `roi-hidden`, shared with the Setup tab's
+  // own use of it (see that class's CSS comment).
   function sizeOverlayToImage() {
     if (!liveImg.naturalWidth || !liveImg.naturalHeight) return;
-    if (liveOverlay.width !== liveImg.naturalWidth) liveOverlay.width = liveImg.naturalWidth;
-    if (liveOverlay.height !== liveImg.naturalHeight) liveOverlay.height = liveImg.naturalHeight;
+    var w = liveImg.naturalWidth, h = liveImg.naturalHeight;
+    if (liveShowsRectified()) { w = camSize[0]; h = camSize[1]; }
+    if (liveOverlay.width !== w) liveOverlay.width = w;
+    if (liveOverlay.height !== h) liveOverlay.height = h;
+    liveImg.classList.toggle("roi-hidden", liveShowsRectified());
     drawOverlay();
   }
 
-  // Nothing to draw yet (see the toggle-chip comment above) — this exists
-  // so sizeOverlayToImage() has a real caller now, and so M4/M5 have one
-  // place to add rects/hands rather than inventing a second draw path.
+  // The rectified preview when corners are confirmed; otherwise nothing
+  // yet (see the toggle-chip comment above — M4/M5 have one place here to
+  // add rects/hands on top of either background rather than inventing a
+  // second draw path).
   function drawOverlay() {
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(0, 0, liveOverlay.width, liveOverlay.height);
+    if (liveShowsRectified()) {
+      drawRectifiedPreview(overlayCtx, liveImg, confirmedCorners,
+                           liveOverlay.width, liveOverlay.height);
+    }
   }
+
+  // MJPEG has no per-frame JS hook (same reason the Setup tab's own tick
+  // exists) — needed here only while showing the rectified preview, which
+  // is drawn fresh from whatever the <img> currently holds; the plain raw
+  // feed needs no help, the browser paints the <img> itself natively.
+  // Own constant rather than the Setup tab's SETUP_FRAME_MS: that one is
+  // declared later in this script and `setInterval`'s delay argument is
+  // evaluated right here, at this statement, not lazily inside the
+  // callback — referencing it before its own `var` line runs would pass
+  // `undefined` instead of 100.
+  var LIVE_FRAME_MS = 100;   // ~10fps, same budget as the Setup tab's
+  var livePanel = document.querySelector('.tab-panel[data-tab="live"]');
+  setInterval(function () {
+    if (!livePanel.classList.contains("active")) return;
+    if (!liveShowsRectified()) return;
+    drawOverlay();
+  }, LIVE_FRAME_MS);
 
   var CAMERA_RETRY_MS = 3000;
   var cameraUrl = null;          // set once, from the join seed's `camera` message
@@ -1395,7 +1438,7 @@
   var keystoneWarn = document.getElementById("keystoneWarn");
 
   var cornersBtn = document.getElementById("cornersBtn");
-  var cornersRotateBtn = document.getElementById("cornersRotateBtn");
+  var cornersCancelBtn = document.getElementById("cornersCancelBtn");
   var cornersConfirmBtn = document.getElementById("cornersConfirmBtn");
   var cornersStatus = document.getElementById("cornersStatus");
   // The 4 handles' roles are fixed and physical, never inferred from
@@ -1444,15 +1487,20 @@
   var camSize = [1920, 1080];
   var NEEDS_SETTING_SETUP = "Enter setting mode to change the calibration.";
 
-  // **The bin-box reorientation/cropping work, CLAUDE.md's M4i note.**
-  // `cameraRoi` is `[x, y, w, h]` in camera pixels — the table's own
-  // footprint. It was sent by core as `geometry.camera_roi`, computed from
-  // the table footprint automated dot calibration also cropped its
-  // detector to — that field is gone along with dot calibration (see this
-  // session's note in CLAUDE.md), so `cameraRoi` is always `null` for now
-  // and the tab shows the raw feed exactly as it did before M4i. The
-  // drag-corner tool that replaces this whole crop mechanism (a rotate
-  // control instead) is the next piece of work, not yet built.
+  // **The bin-box crop mechanism, CLAUDE.md's M4i note.** `cameraRoi` is
+  // `[x, y, w, h]` in camera pixels — the table's own footprint. It was
+  // sent by core as `geometry.camera_roi`, computed from the table
+  // footprint automated dot calibration also cropped its detector to —
+  // that field is gone along with dot calibration (see CLAUDE.md), so
+  // `cameraRoi` is always `null` today and every tab shows the camera's
+  // real, unmodified orientation. Corner editing used to apply its own
+  // display rotation on top of this (a Rotate control) so an operator
+  // wouldn't have to work from an upside-down feed — removed per the
+  // developer: the fixed near/far/left/right ROLES already make corner
+  // placement immune to the camera's mount angle (see cornersPoints' own
+  // note), so showing the feed exactly as the camera sees it and reading
+  // physical near/far off the real table is simpler than adding a display
+  // transform to compensate for one.
   //
   // **Display-only, deliberately (this session's coordinate-space
   // decision, forced by doc §5.3).** `H_cam->stage` keeps meaning raw
@@ -1468,14 +1516,6 @@
                               // the feed's real rate, this just has to not
                               // be slower than it by much.
 
-  // The Setup tab's Rotate control (step 3's `view_rotation_deg`, a
-  // display preference, not calibration data). Synced from every
-  // `geometry` broadcast; the rig's own default (180 — CLAUDE.md's M4i
-  // measured mount) matches what every table showed before this control
-  // existed, so a fresh page load never regresses anyone who never
-  // touches Rotate.
-  var viewRotationDeg = 180;
-
   // --- pure geometry helpers ---------------------------------------------
   // No DOM, no closure state: every one of these takes exactly what it
   // needs and returns a plain value, so they can be (and were) checked
@@ -1484,77 +1524,17 @@
   // being wired to a canvas. See this session's scratch verification
   // script (not committed — same as M4j's and M2.6's own shims).
 
-  // camSize[0]/[1] (or any rw x rh source rect) after a rotation — the
-  // two "quarter turn" cases (90/270) swap width and height, matching
-  // what a physically rotated rectangle looks like; 0/180 do not.
-  function rotatedDims(rw, rh, rotationDeg) {
-    var r = ((rotationDeg % 360) + 360) % 360;
-    return (r === 90 || r === 270) ? [rh, rw] : [rw, rh];
-  }
-
-  // A point LOCAL to a `rw x rh` source rect (i.e. already offset by the
-  // rect's own x0,y0 — see toDisplay below) -> its position in the
-  // rotated display, whose own size is rotatedDims(rw, rh, rotationDeg).
-  // Generalizes the old hardcoded `ctx.scale(-1,-1)` (still exactly the
-  // 180 case below) into the 4 cases the Rotate button now cycles
-  // through. Each case matches the equivalent canvas
-  // translate+rotate/scale transform used by drawRotatedVideo — verified
-  // against each other in the standalone script, not just asserted here.
-  function rotatePoint(lx, ly, rw, rh, rotationDeg) {
-    switch (((rotationDeg % 360) + 360) % 360) {
-      case 90:  return [rh - ly, lx];
-      case 180: return [rw - lx, rh - ly];
-      case 270: return [ly, rw - lx];
-      default:  return [lx, ly];
-    }
-  }
-
-  // The exact inverse of rotatePoint: a point in the rotated display
-  // (bounded by rotatedDims) -> the LOCAL source point it came from.
-  function unrotatePoint(ux, uy, rw, rh, rotationDeg) {
-    switch (((rotationDeg % 360) + 360) % 360) {
-      case 90:  return [uy, rh - ux];
-      case 180: return [rw - ux, rh - uy];
-      case 270: return [rw - uy, ux];
-      default:  return [ux, uy];
-    }
-  }
-
   // Draws `roi` (absolute camera-space [x,y,w,h]) from `img` into `ctx`,
-  // rotated to fill a dispW x dispH destination — dispW/dispH must be
-  // rotatedDims(roi[2], roi[3], rotationDeg), the caller's job to size.
-  // Each branch is the canvas-transform equivalent of the matching
-  // rotatePoint case (translate to the far corner, then rotate/scale
-  // about it) — cross-checked point-for-point in the standalone script.
-  function drawRotatedVideo(ctx, img, roi, rotationDeg, dispW, dispH) {
-    var r = ((rotationDeg % 360) + 360) % 360;
-    // The box drawn BEFORE the rotate/translate below, sized so that
-    // AFTER it the content exactly fills dispW x dispH: 90/270 swap it
-    // relative to dispW/dispH (mirroring rotatedDims' own swap), 0/180
-    // don't. Every caller until the magnifier passed dispW/dispH ==
-    // rotatedDims(roi[2], roi[3], rotationDeg) — i.e. exactly the source
-    // roi's own size, 1:1 — so this reduces to roi[2] x roi[3] for all of
-    // them, byte-for-byte the old hardcoded behaviour. The magnifier is
-    // the first caller whose dispW/dispH is a ZOOM (4x the roi size, not
-    // its own rotatedDims), and drawImage's destination size has to
-    // track dispW/dispH for that to stretch to fill rather than paint at
-    // 1x into a corner of the destination canvas, leaving the rest of it
-    // as the canvas's own fill colour.
-    var localW = (r === 90 || r === 270) ? dispH : dispW;
-    var localH = (r === 90 || r === 270) ? dispW : dispH;
-    ctx.save();
-    if (r === 90) {
-      ctx.translate(dispW, 0);
-      ctx.rotate(Math.PI / 2);
-    } else if (r === 180) {
-      ctx.translate(dispW, dispH);
-      ctx.scale(-1, -1);
-    } else if (r === 270) {
-      ctx.translate(0, dispH);
-      ctx.rotate(-Math.PI / 2);
-    }
-    ctx.drawImage(img, roi[0], roi[1], roi[2], roi[3], 0, 0, localW, localH);
-    ctx.restore();
+  // stretched to fill a dispW x dispH destination — no rotation, the
+  // camera's real orientation shown exactly as it is everywhere in this
+  // app now (the display-rotation feature this used to also implement
+  // was removed per the developer; corner editing reads physical
+  // near/far/left/right off the real table instead of a display
+  // transform — see cameraRoi's own note above). Used by the magnifier
+  // (dispW/dispH a 4x zoom over roi's own size) and would be a plain 1:1
+  // draw for anything that passes dispW/dispH == roi[2]/roi[3].
+  function drawScaledCrop(ctx, img, roi, dispW, dispH) {
+    ctx.drawImage(img, roi[0], roi[1], roi[2], roi[3], 0, 0, dispW, dispH);
   }
 
   // The 3x2 affine matrix {a,b,c,d,e,f} (Canvas2D's own convention: a
@@ -1611,13 +1591,21 @@
   // `set_rects`, or anything the classifier/oF see (doc §5.3) — it is
   // a second, independent, client-side-only mapping of the same 4
   // points, not a use of the real (projective, not affine) homography.
-  // Orientation is fixed by the role order alone, not by
-  // `viewRotationDeg` — mapping near-left to the rectangle's own top-left
-  // corner produces a right-way-up result regardless of camera mount
-  // angle, which is the entire reason the roles are physical and fixed
-  // rather than inferred from the feed (see cornersPoints' own note).
+  // **Orientation is fixed by the role order alone** — never inferred
+  // from the raw feed's own orientation, which is the entire reason the
+  // roles are physical and fixed rather than read off a drag — but the
+  // MAPPING has to match the one convention this app uses everywhere
+  // else a person looks at the table from above: "near you" (the
+  // diner's/operator's own side) at the BOTTOM of the picture, "far
+  // side" at the TOP, the same way a floor plan puts the viewer's own
+  // position at the bottom. near-left/near-right -> the rectangle's
+  // bottom-left/bottom-right, far-right/far-left -> top-right/top-left.
+  // The previous version had this inverted (near at the TOP) and every
+  // rectified preview came out upside-down as a result, regardless of
+  // how accurately the 4 corners were placed — a bug in this fixed
+  // mapping itself, not in any drag.
   function drawRectifiedPreview(ctx, img, quad, W, H) {
-    var d = [[0, 0], [W, 0], [W, H], [0, H]];
+    var d = [[0, H], [W, H], [W, 0], [0, 0]];
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     warpTriangle(ctx, img, quad[0], quad[1], quad[2], d[0], d[1], d[2]);
     warpTriangle(ctx, img, quad[0], quad[2], quad[3], d[0], d[2], d[3]);
@@ -1639,41 +1627,32 @@
     return [[mx, my], [w - mx, my], [w - mx, h - my], [mx, h - my]];
   }
 
-  // The ROI actually used for display, as opposed to `cameraRoi` itself.
-  // Corner-editing always shows the WHOLE frame, uncropped, regardless of
-  // what the current geometry's `cameraRoi` thinks the table footprint
-  // is — that crop is derived from whatever calibration is already on
-  // disk, which is exactly what the corner-editing tool exists to
-  // replace when it is wrong. A wrong crop can hide the real corners
-  // entirely, which is worse than an accurate one being merely untrusted.
-  // `cameraRoi` itself stays permanently `null` (dot calibration, the
-  // only thing that ever set it, is gone) — so for every OTHER caller
-  // (bin-rect dragging, unchanged) this keeps returning `null` exactly
-  // as before step 4, and `toDisplay`/`toCam` below keep degrading to
-  // identity for them, byte-for-byte the same as before this step.
+  // The ROI actually used for display — `cameraRoi` itself, which stays
+  // permanently `null` today (dot calibration, the only thing that ever
+  // set it, is gone; corner editing no longer sets one either — it shows
+  // the whole raw frame, uncropped, exactly as the camera sees it). Kept
+  // as its own function (rather than reading `cameraRoi` directly) so a
+  // future real crop feature has one place to plug into, matching every
+  // caller below that already reads through it.
   function effectiveRoi() {
-    if (cornersEditing) return [0, 0, camSize[0], camSize[1]];
     return cameraRoi;
   }
 
   // One camera-space point -> where it lands on the display canvas.
-  // Identity when there is no ROI (bin-rect dragging, untouched by this
-  // step). With an ROI (corner editing only), generalizes the old
-  // hardcoded 180-degree flip into rotatePoint's 4 cases — at the rig's
-  // default 180, this is byte-for-byte the same formula as before.
+  // Identity with no ROI (every caller today — see effectiveRoi's own
+  // note); offset-only with one, since a crop-without-rotation is all a
+  // future ROI feature would need.
   function toDisplay(cx, cy) {
     var roi = effectiveRoi();
     if (!roi) return [cx, cy];
-    return rotatePoint(cx - roi[0], cy - roi[1], roi[2], roi[3], viewRotationDeg);
+    return [cx - roi[0], cy - roi[1]];
   }
 
   // A camera-space RECT -> its display-space equivalent, as [x, y, w, h].
   // Bin-rect dragging (the only caller) never has a non-null ROI — see
   // effectiveRoi's own note — so this function's roi-aware branch below
-  // is dead code today, kept byte-for-byte as it was before this step
-  // rather than generalized for rotation: corner editing draws its own
-  // quad (drawCornerQuad), never a rect, so this was never exercised at
-  // any rotation but 180 and there is nothing exercising it now either.
+  // is dead code today, kept for the same future-ROI reason toDisplay
+  // keeps its own.
   function rectToDisplay(r) {
     if (!effectiveRoi()) return r;
     var p = toDisplay(r[0], r[1]);
@@ -1711,10 +1690,8 @@
     var ly = (ev.clientY - box.top) * sy;
     var roi = effectiveRoi();
     if (!roi) return { x: lx, y: ly };
-    // Undo the same rotation toDisplay applies, so a click on the
-    // right-way-up view lands on the raw camera-space point under it.
-    var p = unrotatePoint(lx, ly, roi[2], roi[3], viewRotationDeg);
-    return { x: roi[0] + p[0], y: roi[1] + p[1] };
+    // The exact inverse of toDisplay's offset.
+    return { x: roi[0] + lx, y: roi[1] + ly };
   }
 
   var HANDLE_CAM_PX = 28;    // corner grab area, in camera pixels — bin rects
@@ -1739,7 +1716,8 @@
   // CORNER_HANDLE_CAM_PX of. Circular, not the square hitTest() above
   // uses for rects — a corner handle has no "inside" to also catch, only
   // a grab radius — and camera-space rather than display-space so the
-  // threshold means the same physical distance at every rotation.
+  // threshold means the same physical distance regardless of how the
+  // canvas is CSS-scaled onto the page.
   function hitTestCorner(pt) {
     for (var i = 0; i < 4; i++) {
       var p = cornersPoints[i];
@@ -1826,15 +1804,16 @@
 
   // --- the magnifier (shown only while dragging a corner handle) --------
   // A small offscreen canvas, built once and reused every frame: drawn
-  // into at native zoom via the same drawRotatedVideo() the main view
-  // uses (so its content's orientation always matches what is on screen
-  // around it), then stamped onto the main canvas through a circular
-  // clip. Kept as a *separate* canvas rather than clipping straight into
-  // setupCtx because the source rect (a few camera px around the target)
-  // and the destination circle (MAG_DISPLAY_RADIUS*2 across) are wildly
-  // different sizes — drawRotatedVideo's dispW/dispH IS the zoom factor,
-  // so a second canvas is the simplest way to get "zoomed" without a
-  // second, bespoke drawing path.
+  // into at 4x zoom via drawScaledCrop() — the same source image the main
+  // view shows, at the same (now unrotated) orientation, so its content
+  // always matches what is on screen around it — then stamped onto the
+  // main canvas through a circular clip. Kept as a *separate* canvas
+  // rather than clipping straight into setupCtx because the source rect
+  // (a few camera px around the target) and the destination circle
+  // (MAG_DISPLAY_RADIUS*2 across) are wildly different sizes —
+  // drawScaledCrop's dispW/dispH IS the zoom factor, so a second canvas is
+  // the simplest way to get "zoomed" without a second, bespoke drawing
+  // path.
   var MAG_CAM_RADIUS = 26;      // camera px sampled around the target point
   var MAG_ZOOM = 4;             // per the plan: "~4x"
   var MAG_DISPLAY_RADIUS = MAG_CAM_RADIUS * MAG_ZOOM;
@@ -1852,10 +1831,10 @@
     // The sampled rect is CENTRED on the exact target point, so the
     // crosshair drawn at the magnifier's own centre below is, by
     // construction, sitting exactly on it.
-    drawRotatedVideo(magCtx, setupImg,
+    drawScaledCrop(magCtx, setupImg,
       [p[0] - MAG_CAM_RADIUS, p[1] - MAG_CAM_RADIUS,
        MAG_CAM_RADIUS * 2, MAG_CAM_RADIUS * 2],
-      viewRotationDeg, magCanvas.width, magCanvas.height);
+      magCanvas.width, magCanvas.height);
     var mx = magCanvas.width / 2, my = magCanvas.height / 2;
     magCtx.strokeStyle = "#ffb020";
     magCtx.lineWidth = 2;
@@ -1945,30 +1924,29 @@
     return !cornersEditing && !!confirmedCorners && !!setupImg.naturalWidth;
   }
 
-  // Whether the CANVAS itself is drawing the video this frame (either
-  // the rotated raw feed while editing, or the rectified preview at
-  // rest) — as opposed to the plain <img> underneath showing through a
-  // transparent canvas, today's only path and still bin-rect dragging's
-  // path on an unconfirmed table.
+  // Whether the CANVAS itself is drawing the video this frame (the
+  // rectified preview at rest) — as opposed to the plain <img> underneath
+  // showing through a transparent canvas, which is now also corner
+  // editing's own path (it draws no video of its own any more; the raw
+  // <img> shows the camera's real orientation directly, same as bin-rect
+  // dragging on an unconfirmed table).
   function canvasShowsOwnVideo() {
-    return cornersEditing || backgroundIsRectified();
+    return backgroundIsRectified();
   }
 
-  // The canvas's own pixel buffer, one of three sizes depending on what
-  // it is currently showing: the (possibly rotated) full camera frame
-  // while editing corners, a fixed W x H for the rectified preview, or —
-  // unchanged from before this step — the plain <img>'s own natural size
-  // when neither applies (bin-rect dragging on an unconfirmed table).
-  // `setupImg` is hidden (`roi-hidden`) whenever the canvas is doing the
-  // showing — it never stops receiving the MJPEG stream (`visibility`,
-  // not `display`, so decoding continues), it is just not what is drawn.
+  // The canvas's own pixel buffer, one of two sizes depending on what it
+  // is currently showing: a fixed W x H for the rectified preview, or the
+  // plain <img>'s own natural size otherwise (corner editing and bin-rect
+  // dragging both draw nothing of their own — only the quad/handles/rects
+  // overlay — so both want the <img>'s natural size, same as before this
+  // step's own condition existed). `setupImg` is hidden (`roi-hidden`)
+  // whenever the canvas is doing the showing — it never stops receiving
+  // the MJPEG stream (`visibility`, not `display`, so decoding
+  // continues), it is just not what is drawn.
   function sizeSetupOverlay() {
     if (!setupImg.naturalWidth || !setupImg.naturalHeight) return;
     var w = setupImg.naturalWidth, h = setupImg.naturalHeight;
-    if (cornersEditing) {
-      var dims = rotatedDims(camSize[0], camSize[1], viewRotationDeg);
-      w = dims[0]; h = dims[1];
-    } else if (backgroundIsRectified()) {
+    if (backgroundIsRectified()) {
       w = camSize[0]; h = camSize[1];
     }
     if (setupOverlay.width !== w) setupOverlay.width = w;
@@ -1981,16 +1959,14 @@
     setupCtx.setTransform(1, 0, 0, 1, 0, 0);
     setupCtx.clearRect(0, 0, setupOverlay.width, setupOverlay.height);
 
-    if (cornersEditing && setupImg.naturalWidth) {
-      // The raw feed, rotated per viewRotationDeg — see drawRotatedVideo's
-      // own note for how each case matches rotatePoint, which is what
-      // keeps the quad drawn below visually attached to the same corners.
-      drawRotatedVideo(setupCtx, setupImg, [0, 0, camSize[0], camSize[1]],
-                       viewRotationDeg, setupOverlay.width, setupOverlay.height);
-    } else if (backgroundIsRectified()) {
+    if (backgroundIsRectified()) {
       drawRectifiedPreview(setupCtx, setupImg, confirmedCorners,
                            setupOverlay.width, setupOverlay.height);
     }
+    // Corner editing draws nothing of its own here any more — the plain
+    // <img> underneath (visible, untouched, the camera's real
+    // orientation) shows through the transparent canvas; only the quad,
+    // handles and magnifier below are this canvas's job while editing.
 
     setupCtx.lineWidth = Math.max(2, setupOverlay.width / 480);
     setupCtx.font = Math.max(14, setupOverlay.width / 60) + "px sans-serif";
@@ -2024,14 +2000,17 @@
   // while it is showing live content and the tab is on screen — MJPEG
   // has no per-frame JS event to hook (§20's `<img>` decodes it
   // natively), so this is what "point a canvas at whatever the img
-  // currently holds" has to look like instead. Idle cost otherwise: the
-  // tick returns immediately (the rectified preview and bin-rect
-  // dragging on an unconfirmed table are both static between explicit
-  // redraws, same as before this step).
+  // currently holds" has to look like instead. Only the rectified
+  // preview needs this now — corner editing draws no video of its own
+  // (the raw <img> shows through and needs no help redrawing itself),
+  // and its quad/handles/magnifier already redraw on every pointer event
+  // that can move them. Idle cost otherwise: the tick returns
+  // immediately (bin-rect dragging on an unconfirmed table is static
+  // between explicit redraws, same as before this step).
   var setupPanel = document.querySelector('.tab-panel[data-tab="setup"]');
   setInterval(function () {
     if (!setupPanel.classList.contains("active")) return;
-    if (!cornersEditing && !backgroundIsRectified()) return;
+    if (!backgroundIsRectified()) return;
     drawSetupOverlay();
   }, SETUP_FRAME_MS);
 
@@ -2054,18 +2033,17 @@
     // to stop `rects` itself from doing.
     cameraRoi = (msg.camera_roi && msg.camera_roi.length === 4)
       ? msg.camera_roi : null;
-    // Step 3's two new fields. `confirmedCorners` seeds the NEXT editing
-    // session (not the current one, if any is in progress — a broadcast
-    // must not reach into cornersPoints while a handle might be held) and
-    // is what the rectified preview warps. view_rotation_deg is likewise
-    // left alone if this tablet itself has one in flight — see the
-    // Rotate handler below for why an immediate local update beats
-    // waiting on this broadcast.
+    // `confirmedCorners` seeds the NEXT editing session (not the current
+    // one, if any is in progress — a broadcast must not reach into
+    // cornersPoints while a handle might be held) and is what the
+    // rectified preview warps, on both this tab and the Live tab.
     confirmedCorners = (msg.corner_points && msg.corner_points.length === 4)
       ? msg.corner_points.map(function (p) { return p.slice(); }) : null;
-    if (typeof msg.view_rotation_deg === "number") {
-      viewRotationDeg = msg.view_rotation_deg;
-    }
+    // The Live tab reads confirmedCorners too (liveShowsRectified()) and
+    // has to switch to the flattened view the moment corners are
+    // confirmed, not wait for its <img> to next fire `load` — an
+    // operator watching the Live tab during Confirm should see it happen.
+    sizeOverlayToImage();
     geoCalibrated.textContent = msg.calibrated ? "yes" : "no";
     geoRms.textContent = msg.rms_px === null || msg.rms_px === undefined
       ? "—" : msg.rms_px + " px";
@@ -2102,8 +2080,8 @@
       });
     rectsUndoBtn.disabled = !on || rectsUndo.length === 0;
     // Leaving setting mode mid-edit (the mode switch is one tap, reachable
-    // from anyone at the table) must not leave Confirm/Rotate sitting
-    // there able to send a homography for a mode that is no longer active.
+    // from anyone at the table) must not leave Confirm sitting there able
+    // to send a homography for a mode that is no longer active.
     if (!on && cornersEditing) cornersReset();
   }
 
@@ -2112,17 +2090,21 @@
     currentWs.send(JSON.stringify(obj));
   }
 
+  // Also Cancel's handler: discards whatever dragging has done and
+  // returns to the resting view with nothing sent to core — corners are
+  // only ever persisted by Confirm.
   function cornersReset() {
     cornersEditing = false;
     cornersPoints = [];
     cornersDragIndex = null;
+    cornersBtn.classList.remove("hide");
+    cornersCancelBtn.classList.add("hide");
     cornersConfirmBtn.classList.add("hide");
-    cornersRotateBtn.classList.add("hide");
     // Undo the disabled state Confirm sets while a save is in flight —
-    // otherwise a re-shown Rotate/Confirm from the *next* edit would
+    // otherwise a re-shown Cancel/Confirm from the *next* edit would
     // still be stuck unclickable from the last one.
+    cornersCancelBtn.disabled = false;
     cornersConfirmBtn.disabled = false;
-    cornersRotateBtn.disabled = false;
     // effectiveRoi() just changed (editing is over) — resize back to
     // whatever the resting view now is (rectified preview, or the plain
     // <img>), not just redraw at the full-frame size editing was using.
@@ -2138,35 +2120,31 @@
     cornersPoints = confirmedCorners
       ? confirmedCorners.map(function (p) { return p.slice(); })
       : defaultCornerPoints();
+    // "Set table corners" hides itself while editing is in progress —
+    // Cancel and Confirm are the only two things to do with an open quad,
+    // and a still-visible "Set table corners" reads as a way to start a
+    // second one.
+    cornersBtn.classList.add("hide");
+    cornersCancelBtn.classList.remove("hide");
     cornersConfirmBtn.classList.remove("hide");
-    cornersRotateBtn.classList.remove("hide");
     setStatus(cornersStatus,
       "Drag each handle onto its real corner (" + CORNER_ROLE_NAMES.join(", ")
       + "), then Confirm.", "busy");
     // effectiveRoi() just changed (editing started) — resize to the full
-    // (rotated) frame rather than whatever the resting view was showing.
+    // camera frame rather than whatever the resting view was showing.
     sizeSetupOverlay();
   });
 
-  cornersRotateBtn.addEventListener("click", function () {
-    if (cornersRotateBtn.disabled) return;
-    viewRotationDeg = (viewRotationDeg + 90) % 360;
-    // Applied locally right away — Rotate is a display preference, not
-    // gated behind Confirm, and an operator turning the view to find a
-    // corner should not wait on a round trip to see it happen. The
-    // set_view_rotation reply's own `geometry` broadcast re-syncs
-    // viewRotationDeg to the same value once it arrives (see
-    // applyGeometry), which is a no-op here — it exists for every OTHER
-    // tablet watching the same table, and for this one after a reload.
-    sizeSetupOverlay();   // dims swap for 90/270 — quad stays attached,
-                          // see drawRotatedVideo's own note
-    sendSetup({ t: "set_view_rotation", deg: viewRotationDeg });
+  cornersCancelBtn.addEventListener("click", function () {
+    if (cornersCancelBtn.disabled) return;
+    cornersReset();
+    setStatus(cornersStatus, "", "");
   });
 
   cornersConfirmBtn.addEventListener("click", function () {
     if (cornersConfirmBtn.disabled || cornersPoints.length !== 4) return;
     cornersConfirmBtn.disabled = true;
-    cornersRotateBtn.disabled = true;
+    cornersCancelBtn.disabled = true;
     setStatus(cornersStatus, "Saving…", "busy");
     sendSetup({ t: "manual_calibrate", points: cornersPoints.map(function (p) {
       return [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10];
@@ -2216,7 +2194,7 @@
     // Left up rather than reset — e.g. a setting-mode refusal is fixed by
     // flipping the switch, not by dragging all 4 corners again.
     cornersConfirmBtn.disabled = false;
-    cornersRotateBtn.disabled = false;
+    cornersCancelBtn.disabled = false;
     setStatus(cornersStatus, msg.message, "bad");
   }
 
