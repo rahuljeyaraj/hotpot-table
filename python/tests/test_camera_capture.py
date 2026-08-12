@@ -311,35 +311,65 @@ class TestWindowsCaptureLockControls(unittest.TestCase):
         self.assertIsNone(info.exposure_absolute)
         self.assertIsNone(info.white_balance_temperature)
 
-    def test_no_prior_settings_leaves_every_auto_alone(self):
-        # Regression: this used to force AUTO_WB/AUTOFOCUS off
-        # unconditionally right after open(), with no convergence wait —
-        # locking onto whatever transient value the driver happened to be
-        # at, which looked visibly worse than the OS's own camera app
-        # (found 2026-08-12). With no prior calibration to set a control
-        # *to*, nothing should touch its auto mode at all.
+    @patch("hotpot.camera.capture.time.sleep")
+    def test_no_prior_settings_converges_then_locks(self, sleep):
+        # Superseded 2026-08-12: this used to leave every auto running
+        # forever, which was a deliberate stop-gap (unconverged locking had
+        # looked worse than the OS's own camera app, and the DirectShow
+        # manual-exposure trigger was unverified). Both blockers were
+        # cleared by testing directly on the rig: EXPOSURE's readback moves
+        # the picture and forces manual mode by itself with no separate
+        # trigger, and a 5s watch after converge-then-lock held at
+        # 40.3-40.4 where the auto had been visibly ramping moments before.
+        # So this now mirrors V4L2Capture's own converge-then-lock, not the
+        # incomplete "touch nothing" version of it.
         import cv2
-        fake = FakeCv2Cap()
-        cap = capture.WindowsCapture(
-            0, 640, 480, 30, video_capture_factory=lambda: fake)
-        cap.open()
-        touched_props = {prop for prop, _value in fake.set_calls}
-        self.assertNotIn(cv2.CAP_PROP_AUTO_WB, touched_props)
-        self.assertNotIn(cv2.CAP_PROP_AUTOFOCUS, touched_props)
-        self.assertNotIn(cv2.CAP_PROP_EXPOSURE, touched_props)
-        self.assertNotIn(cv2.CAP_PROP_WB_TEMPERATURE, touched_props)
-        self.assertNotIn(cv2.CAP_PROP_FOCUS, touched_props)
-
-    def test_leaving_autos_alone_reports_controls_locked_false(self):
-        # The other half of the fix above, and the half that made it stick.
-        # Leaving the autos on is useless if the run still ADVERTISES its
-        # read-backs as a calibration: main.py writes them to
-        # state/camera_settings.json and the next run applies them.
-        fake = FakeCv2Cap()
+        fake = FakeCv2Cap(props={
+            cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 4600,
+            cv2.CAP_PROP_FOCUS: 12})
         cap = capture.WindowsCapture(
             0, 640, 480, 30, video_capture_factory=lambda: fake)
         info = cap.open()
-        self.assertFalse(info.controls_locked)
+        sleep.assert_called_once()
+        touched_props = {prop for prop, _value in fake.set_calls}
+        self.assertIn(cv2.CAP_PROP_AUTO_WB, touched_props)
+        self.assertIn(cv2.CAP_PROP_AUTOFOCUS, touched_props)
+        self.assertIn(cv2.CAP_PROP_EXPOSURE, touched_props)
+        self.assertIn(cv2.CAP_PROP_WB_TEMPERATURE, touched_props)
+        self.assertEqual(
+            (info.exposure_absolute, info.white_balance_temperature,
+             info.focus_absolute), (-6, 4600, 12))
+
+    @patch("hotpot.camera.capture.time.sleep")
+    def test_a_fresh_lock_reports_controls_locked_true(self, sleep):
+        # This IS a real lock now, taken this call and used immediately —
+        # not the stale-value-from-a-previous-run pattern that caused the
+        # yellow-cast bug. controls_locked=True here is honest.
+        import cv2
+        fake = FakeCv2Cap(props={
+            cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 4600})
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30, video_capture_factory=lambda: fake)
+        info = cap.open()
+        self.assertTrue(info.controls_locked)
+
+    @patch("hotpot.camera.capture.time.sleep")
+    def test_an_unlocked_prior_is_ignored_and_converges_fresh(self, sleep):
+        # The exact shape of the poisoned file from the 2026-08-12 bug:
+        # real numbers, no `"locked": true`. Must not be applied verbatim —
+        # that is the bug — and must still end up locked, from a fresh
+        # convergence, not left on auto forever either.
+        import cv2
+        fake = FakeCv2Cap(props={
+            cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 6500})
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30, video_capture_factory=lambda: fake,
+            prior_settings={"exposure_absolute": None,
+                            "white_balance_temperature": 6500,
+                            "focus_absolute": None})
+        info = cap.open()
+        sleep.assert_called_once()
+        self.assertTrue(info.controls_locked)
 
 
 class TestUnlockedPriorsAreNotApplied(unittest.TestCase):
@@ -354,21 +384,32 @@ class TestUnlockedPriorsAreNotApplied(unittest.TestCase):
     carrying no `"locked": true` must never reach the device.
     """
 
-    def test_windows_ignores_priors_recorded_without_the_locked_flag(self):
+    @patch("hotpot.camera.capture.time.sleep")
+    def test_windows_ignores_priors_recorded_without_the_locked_flag(
+            self, sleep):
+        # Exactly the poisoned file: real numbers, no provenance. The stale
+        # 6500 K must never reach the device — but unlike the earlier fix
+        # (which just left the autos on forever), this now converges a
+        # FRESH value and locks to that instead, which is the difference
+        # between the old regression test and this one.
         import cv2
-        # Exactly the poisoned file: real numbers, no provenance.
-        fake = FakeCv2Cap()
+        fake = FakeCv2Cap(props={
+            cv2.CAP_PROP_EXPOSURE: -7, cv2.CAP_PROP_WB_TEMPERATURE: 4200})
         cap = capture.WindowsCapture(
             0, 640, 480, 30, video_capture_factory=lambda: fake,
             prior_settings={"exposure_absolute": None,
                             "white_balance_temperature": 6500,
                             "focus_absolute": None})
         info = cap.open()
-        touched_props = {prop for prop, _value in fake.set_calls}
-        # The specific call that caused the cast.
-        self.assertNotIn(cv2.CAP_PROP_AUTO_WB, touched_props)
-        self.assertNotIn(cv2.CAP_PROP_WB_TEMPERATURE, touched_props)
-        self.assertFalse(info.controls_locked)
+        sleep.assert_called_once()
+        wb_sets = [v for prop, v in fake.set_calls
+                  if prop == cv2.CAP_PROP_WB_TEMPERATURE]
+        # AUTO_WB and WB_TEMPERATURE ARE touched (that is the lock this
+        # class now performs) — the poisoned 6500 specifically must not be
+        # the value they are touched WITH.
+        self.assertNotIn(6500, wb_sets)
+        self.assertEqual(info.white_balance_temperature, 4200)
+        self.assertTrue(info.controls_locked)
 
     @patch("hotpot.camera.capture.time.sleep")
     @patch("hotpot.camera.capture.subprocess.run")

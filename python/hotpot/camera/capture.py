@@ -477,72 +477,88 @@ class WindowsCapture:
             self._cap = None
 
     def _lock_controls(self, cap, cv2):
-        """Best-effort, and honest about it (see class docstring): only
-        ever move a control away from auto when there is a real prior
-        value (from a previous rig sweep) to set it *to*. With no prior
-        calibration, every auto is left running and this only reads back
-        whatever the driver already reports.
+        """Two cases, the same two `V4L2Capture` has: a prior LOCKED
+        calibration is applied verbatim, or — with none — autos run for
+        `AUTO_SETTLE_S` and are then locked at whatever they converged to.
 
-        **This used to force auto-WB/autofocus off unconditionally on a
-        fresh run, with no convergence wait — found 2026-08-12 because
-        the resulting stream looked visibly worse than the OS's own
-        camera app.** `.set(CAP_PROP_AUTO_WB, 0)` locks onto whatever the
-        driver happens to be sitting at the instant it's called; called
-        right after `open()`, before the ISP has converged anything, that
-        is close to a random value, not a calibration. V4L2Capture avoids
-        this with `AUTO_SETTLE_S` — let autos run, then lock at whatever
-        they converged to — but that wait is not mirrored here: it is
-        gated on `CAP_PROP_AUTO_EXPOSURE`'s "manual mode" trigger value
-        (0.25 on DirectShow, by widely-repeated report, not verified
-        against this machine's driver), and flipping into manual mode is
-        exactly the step being avoided until that number is confirmed.
-        Leaving every auto alone is the smaller, verifiably-safe fix.
+        **This used to leave every auto running forever on Windows, never
+        converging to a lock at all.** That was a deliberate stop-gap
+        (2026-08-12), not the design: forcing manual mode with NO
+        convergence wait had locked onto a near-random instantaneous
+        reading, and the DirectShow "manual exposure" trigger value
+        (`CAP_PROP_AUTO_EXPOSURE`, widely reported as 0.25) was unverified
+        against this machine's driver, so the safe fix at the time was to
+        touch nothing.
 
-        **That fix was incomplete, and the second half is this gate — found
-        2026-08-12, same day, from a yellow cast on the dashboard feed that
-        the OS camera app did not show.** Leaving the autos alone stopped
-        this run from freezing a bad value, but `main.py` still WROTE the
-        read-back numbers to `state/camera_settings.json`, and the next run
-        read that file back as `prior_settings` and locked to them — so the
-        very readout taken while auto-WB was running became the thing that
-        turned auto-WB off. One poisoned observation, then permanent. The
-        recorded 6500 K was a daylight value pinned under projector light,
-        which is exactly a yellow cast. Priors are now applied only when the
-        file says they were locked deliberately (`controls_locked`).
+        **Both blockers are cleared, measured directly on this rig
+        2026-08-12.** `CAP_PROP_AUTO_EXPOSURE`'s readback is always -1 on
+        this driver — it does not report support — but `.set(EXPOSURE, v)`
+        moves the picture regardless: setting the value forces manual mode
+        by itself, with no separate trigger needed. And converge-then-lock
+        held rock steady over a 5 s watch (40.3–40.4 mean, camera pointed
+        at the rig) where the auto had been visibly ramping during a
+        calibration run moments before. So this now mirrors
+        `V4L2Capture` exactly rather than being the lesser, incomplete
+        version of it.
+
+        **The WB-freezing bug this class already fixed does not return.**
+        That bug was locking a STALE value read on a PREVIOUS run, fed back
+        in as `prior_settings` with no provenance — not locking a value
+        this same `open()` call just converged to and is about to use
+        immediately. `controls_locked=True` here is honest: this call really
+        did put the device in manual mode, so the value it writes to
+        `state/camera_settings.json` really is reproducible next run.
         """
         prior_exp = self._prior.get("exposure_absolute")
         prior_wb = self._prior.get("white_balance_temperature")
         prior_focus = self._prior.get("focus_absolute")
         prior_locked = bool(self._prior.get("locked"))
-        applied = False
 
-        if prior_locked:
-            if prior_exp is not None:
-                cap.set(cv2.CAP_PROP_EXPOSURE, prior_exp)
-                applied = True
-            if prior_wb is not None:
-                cap.set(cv2.CAP_PROP_AUTO_WB, 0)
-                cap.set(cv2.CAP_PROP_WB_TEMPERATURE, prior_wb)
-                applied = True
+        if prior_locked and prior_exp is not None and prior_wb is not None:
+            log.info("camera: applying prior locked settings from "
+                     "state/camera_settings.json: exposure=%s wb=%s focus=%s",
+                     prior_exp, prior_wb, prior_focus)
+            cap.set(cv2.CAP_PROP_EXPOSURE, prior_exp)
+            cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+            cap.set(cv2.CAP_PROP_WB_TEMPERATURE, prior_wb)
             if prior_focus is not None:
                 cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
                 cap.set(cv2.CAP_PROP_FOCUS, prior_focus)
-                applied = True
-        elif prior_exp is not None or prior_wb is not None or prior_focus is not None:
-            log.warning("camera: ignoring exposure=%s wb=%s focus=%s from "
+            exposure = self._readback(cap, cv2.CAP_PROP_EXPOSURE)
+            wb = self._readback(cap, cv2.CAP_PROP_WB_TEMPERATURE)
+            focus = self._readback(cap, cv2.CAP_PROP_FOCUS)
+            return exposure, wb, focus, True
+
+        if prior_exp is not None or prior_wb is not None:
+            log.warning("camera: ignoring exposure=%s wb=%s from "
                         "state/camera_settings.json — recorded without "
                         "`\"locked\": true`, so they are observations of a "
-                        "running auto, not a frozen setting. Autos left on.",
-                        prior_exp, prior_wb, prior_focus)
+                        "running auto, not a frozen setting. Converging "
+                        "fresh instead.", prior_exp, prior_wb)
 
+        log.info("camera: no locked prior — letting auto-exposure/WB/focus "
+                 "converge for %.1fs before locking", AUTO_SETTLE_S)
+        # A plain sleep, no reads during the wait — verified on this rig to
+        # converge identically either way (DirectShow keeps the capture
+        # graph, and the ISP with it, running independently of whether
+        # Python is pulling frames). Matches V4L2Capture's own pattern.
+        time.sleep(AUTO_SETTLE_S)
         exposure = self._readback(cap, cv2.CAP_PROP_EXPOSURE)
         wb = self._readback(cap, cv2.CAP_PROP_WB_TEMPERATURE)
         focus = self._readback(cap, cv2.CAP_PROP_FOCUS)
-        log.info("camera: Windows best-effort lock read back "
-                 "exposure=%s wb=%s focus=%s locked=%s (None = unsupported "
-                 "by this driver, not a failure)",
-                 exposure, wb, focus, applied)
-        return exposure, wb, focus, applied
+        if exposure is not None:
+            cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
+        if wb is not None:
+            cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+            cap.set(cv2.CAP_PROP_WB_TEMPERATURE, wb)
+        if focus is not None:
+            cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+            cap.set(cv2.CAP_PROP_FOCUS, focus)
+        log.info("camera: locked at exposure=%s wb=%s focus=%s (converged, "
+                 "not swept — sweep and freeze deliberately per doc "
+                 "section 6.6 before this is a real dataset)",
+                 exposure, wb, focus)
+        return exposure, wb, focus, True
 
     @staticmethod
     def _readback(cap, prop) -> Optional[int]:
