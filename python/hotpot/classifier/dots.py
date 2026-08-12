@@ -30,6 +30,22 @@ Testable with no camera: every function takes an image array, and
 `test_dots.py` builds those arrays with numpy — synthetic white discs on
 a black field, plus the failure cases that matter (a highlight smaller
 than a dot, two dots that merged, a dot cut by the frame edge).
+
+**NOT fixed here, measured on the rig 2026-08-12, real cause of the
+homography being unusable even after the 180-degree fix and the exposure
+lock:** a room lamp sitting outside the table, at the extreme edge of the
+camera's field of view, is bright enough after the field inverts to black
+that it fragments into several blobs any single threshold has to either
+miss real dots to exclude, or admit alongside them. `min_area`/`max_area`
+do not separate it — its fragments span the same size range as a real
+dot. The touches-the-frame-edge filter does not either — the lamp is
+fully in frame, just at the margin. Two real fixes exist and neither is
+built: an ROI crop to the table (also wanted for the tracker's own
+performance — see CLAUDE.md's M4i) removes it from the image entirely;
+subtracting a black-field reference frame from the pattern frame removes
+it by not being part of what changed. `DEFAULT_THRESHOLD` below is tuned
+against real corner/marker dots and gets closer on the grid, but is a
+mitigation, not the fix.
 """
 
 from __future__ import annotations
@@ -55,12 +71,18 @@ DEFAULT_MIN_AREA_PX = 40.0
 # point. 20000 px^2 is ~140x140, several times the largest dot M4 draws.
 DEFAULT_MAX_AREA_PX = 20000.0
 
-# Bright-on-dark, and high: with the field inverted to black, a projected
-# white dot is near saturation and everything else is near zero, so there
-# is a very wide valley to put this in. 200 sits in it. Lower values start
-# picking up the grey the projector leaks onto a "black" field, which is
-# never truly black on any real projector.
-DEFAULT_THRESHOLD = 200
+# Bright-on-dark, on an inverted black field. 200 was the original guess,
+# reasoned from "near saturation vs near zero" with no camera in front of
+# it. **Measured wrong on the rig 2026-08-12, after exposure was locked
+# (not auto-hunting)**: at 200, the coarse pass's large corner/marker dots
+# still came through clean, but the smaller 13px grid dots did not clear
+# 200 reliably — a real fine pass found only 11 of 15. 150 recovered most
+# of the missing ones (14 of 15 plausible grid-sized blobs on the same
+# frame) without corrupting the coarse pass, which is not sensitive to the
+# difference at its dot size. Still not a full fix — see the module
+# docstring's "not corrected here" note on the lamp/reflection problem
+# this alone does not solve.
+DEFAULT_THRESHOLD = 150
 
 # A dot is a disc. A reflection off a tray rim is a sliver, and a light
 # leak along a table edge is a long thin band; both can have a plausible

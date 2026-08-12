@@ -349,24 +349,27 @@ class Classifier:
             kwargs["min_area"] = float(msg["min_area"])
         if isinstance(msg.get("max_area"), (int, float)):
             kwargs["max_area"] = float(msg["max_area"])
-        if isinstance(msg.get("tophat"), (int, float)):
-            kwargs["tophat_px"] = int(msg["tophat"])
+        if isinstance(msg.get("threshold"), (int, float)):
+            kwargs["threshold"] = int(msg["threshold"])
         expect = msg.get("expect")
         expect = expect if isinstance(expect, int) else None
 
-        # **Sweep when core said how many dots it drew; use the fixed
-        # threshold only when it did not.** The sweep needs a target to
-        # recognise the right level by, and `expect` is that target. Doc
-        # section 4.7 already carries it, so nothing new is asked for.
-        # A caller pinning `threshold` explicitly is overriding the sweep on
-        # purpose (the developer panel), so that still wins.
-        if expect is not None and "threshold" not in msg:
-            found, level = dots_mod.detect_best(frame, expect, **kwargs)
-            kwargs["threshold"] = level
-        else:
-            if isinstance(msg.get("threshold"), (int, float)):
-                kwargs["threshold"] = int(msg["threshold"])
-            found = dots_mod.detect_dots(frame, **kwargs)
+        # **The threshold-sweep + top-hat path (2026-08-12) is reverted —
+        # measured worse than a plain fixed threshold on the actual rig,
+        # same day.** Ground truth from a real coarse-pass frame (4 known
+        # corner dots): a fixed threshold of 150, top-4-by-area, found
+        # 4 of 4. `detect_best`'s sweep, with or without the top-hat, found
+        # 0-1 of 4 — its "longest stable run" tie-break was locking onto a
+        # tray reflection's plateau, not the dots'. `dots.detect_best` and
+        # `dots.flatten_background` are UNTOUCHED and still tested — the
+        # sweep by itself (no top-hat) correctly found all 15 fine-grid
+        # dots that same run — but the automatic combination is not
+        # trustworthy yet and is not wired in here. See CLAUDE.md's M4h/M4i
+        # entries before re-enabling either piece; it needs a background
+        # subtraction (pattern-frame minus black-field frame) or a
+        # table-cropped ROI to be safe against a lamp or a tray reflection
+        # outweighing a real dot, neither of which exists yet.
+        found = dots_mod.detect_dots(frame, **kwargs)
         _log.info("classifier: detect_dots %s", dots_mod.summarise(found, expect))
         # Doc section 4.7's reply shape exactly: `{"t":"dots","id":..,
         # "points":[[cx,cy],..],"ms":..}`. `expect` is echoed back because

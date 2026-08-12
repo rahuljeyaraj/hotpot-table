@@ -465,6 +465,17 @@ class DotCalibrator:
         # sizes it because core is the only side that knows the pattern —
         # the same I2 argument that has core send dot positions rather than
         # a "draw the pattern" flag.
+        #
+        # **Still computed and sent, currently ignored by the classifier.**
+        # `classifier/main.py._detect_dots` reverted to plain fixed-
+        # threshold detection 2026-08-12 — ground truth on the rig showed
+        # the sweep+top-hat combination doing WORSE on the coarse pass (0-1
+        # of 4 real corners against 4 of 4 for a fixed threshold), because
+        # a tray reflection or the room lamp outweighs a real dot under
+        # this top-hat sizing. `tophat` is left wired here, harmless and
+        # unread, so the plumbing does not have to be rebuilt once a safe
+        # way to use it (background subtraction or an ROI crop) exists —
+        # see CLAUDE.md's M4h/M4i.
         biggest = max(radius, first_radius or 0.0)
         tophat = int(self.tophat_scale * 2.0 * biggest) | 1
         reply = self._ask(len(stage_points), self.min_area, tophat,
