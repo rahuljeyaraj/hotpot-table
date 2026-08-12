@@ -215,6 +215,176 @@ class TestDownsample(unittest.TestCase):
         self.assertEqual(scale, 1.0)
 
 
+class RecordingStub(backend_stub.Stub):
+    """A stub that remembers the frame it was actually handed.
+
+    The detection crop is invisible in the emitted cursor unless the
+    origin is dropped, so a test that only checked coordinates could pass
+    against a tracker that never cropped at all. This records the shape
+    so "was it cropped" and "was the crop undone" are two separate
+    assertions rather than one.
+    """
+
+    def __init__(self, script=None):
+        super().__init__(script=script)
+        self.seen = []
+
+    def detect(self, frame_bgr, timestamp_ms):
+        self.seen.append(frame_bgr.shape[:2])
+        return super().detect(frame_bgr, timestamp_ms)
+
+
+# Puts the table at camera x 600..1400, y 400..800 — deliberately away
+# from the origin, so a crop whose offset is never added back produces
+# visibly wrong stage coordinates instead of accidentally right ones.
+H_OFFSET = [[2.4, 0.0, -1440.0],
+            [0.0, 2.7, -1080.0],
+            [0.0, 0.0, 1.0]]
+STAGE = (1920.0, 1080.0)
+
+
+class TestTheDetectionCrop(unittest.TestCase):
+    """`tracker/main.py`'s decision 6 — the measured palm-size cliff.
+
+    The numbers behind the 200px default are in that docstring; these
+    tests are about the arithmetic that carries a detection back out of
+    the crop, which is where a silent, constant cursor offset would come
+    from.
+    """
+
+    def test_the_footprint_is_the_table_padded_by_the_margin(self):
+        roi = tracker.table_roi(H_OFFSET, STAGE, (1080, 1920), margin=200)
+        self.assertEqual(roi, (400, 200, 1200, 800))
+
+    def test_no_homography_means_no_crop(self):
+        # The ordinary first-boot state. Detection still has to run, so
+        # the Developer tab can answer "does MediaPipe see a hand at all"
+        # on a table nobody has calibrated yet.
+        self.assertIsNone(tracker.table_roi(None, STAGE, (1080, 1920)))
+
+    def test_the_crop_is_clamped_to_the_frame(self):
+        # A margin wider than the frame must not produce negative offsets
+        # or an out-of-bounds slice; here it swallows the frame whole,
+        # which is reported as "nothing to crop".
+        self.assertIsNone(
+            tracker.table_roi(H_OFFSET, STAGE, (1080, 1920), margin=5000))
+
+    def test_a_footprint_bigger_than_the_frame_is_not_a_crop(self):
+        # H_TEST's table already overflows a 640x480 frame in every
+        # direction. Slicing the frame to itself every tick would be a
+        # pointless copy at 30Hz.
+        self.assertIsNone(tracker.table_roi(H_TEST, STAGE, (480, 640)))
+
+    def test_a_sliver_is_refused_rather_than_detected_on(self):
+        # `H` is the one number in this system already observed to come
+        # back confidently wrong (CLAUDE.md's rms_px 0.0, n_points 4). A
+        # homography that shrinks the table to a few pixels must fall back
+        # to the whole frame, not hand the detector a sliver.
+        tiny = [[400.0, 0.0, 0.0], [0.0, 400.0, 0.0], [0.0, 0.0, 1.0]]
+        self.assertIsNone(
+            tracker.table_roi(tiny, STAGE, (1080, 1920), margin=0))
+
+    def test_a_singular_homography_is_not_a_crash(self):
+        singular = [[1.0, 2.0, 3.0], [2.0, 4.0, 6.0], [0.0, 0.0, 1.0]]
+        self.assertIsNone(tracker.table_roi(singular, STAGE, (1080, 1920)))
+
+    def test_the_crop_reaches_the_backend(self):
+        backend = RecordingStub(script=[[]])
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), 1)]),
+            backend=backend, sender=FakeSender(), emit_hz=0.0,
+            input_width=0, roi_margin_px=200)
+        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.0)
+        self.assertEqual(backend.seen, [(800, 1200)])
+
+    def test_the_crop_origin_is_added_back_before_the_homography(self):
+        # THE test in this class. A detection at (600,400) inside a crop
+        # whose corner is (400,200) is (1000,600) in capture pixels, which
+        # H_OFFSET puts at the exact centre of the stage. Drop the origin
+        # and it lands at (0,0) instead — a cursor short by the crop's own
+        # corner, in every frame, which reads as a bad calibration rather
+        # than as arithmetic.
+        sender = FakeSender()
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), 1)]),
+            backend=backend_stub.Stub(script=[[det(600, 400)]]),
+            sender=sender, emit_hz=0.0, input_width=0, roi_margin_px=200)
+        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.0)
+        clearance_px = (tracker.CURSOR_SHADOW_CLEARANCE_MM * 1080.0
+                        / tracker._TABLE_H_MM)
+        hand = sender.frames[0].hands[0]
+        self.assertAlmostEqual(hand.x, 960.0)
+        self.assertAlmostEqual(hand.y, 540.0 - clearance_px)
+
+    def test_the_downsample_and_the_crop_are_both_undone(self):
+        # Both corrections at once, in the right order: the 1200px crop
+        # downsampled to 600 doubles every coordinate, THEN the origin
+        # goes on. Applying them the other way round lands somewhere else
+        # entirely, so this pins the order as well as the presence.
+        sender = FakeSender()
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), 1)]),
+            backend=backend_stub.Stub(script=[[det(300, 200)]]),
+            sender=sender, emit_hz=0.0, input_width=600, roi_margin_px=200)
+        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.0)
+        clearance_px = (tracker.CURSOR_SHADOW_CLEARANCE_MM * 1080.0
+                        / tracker._TABLE_H_MM)
+        hand = sender.frames[0].hands[0]
+        self.assertAlmostEqual(hand.x, 960.0)
+        self.assertAlmostEqual(hand.y, 540.0 - clearance_px)
+
+    def test_the_landmark_debug_view_carries_the_origin_too(self):
+        # It draws over the staff view's RAW feed, so it needs the same
+        # correction the cursor gets — in capture pixels, not crop pixels.
+        stats = []
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), 1)]),
+            backend=backend_stub.Stub(script=[[
+                Detection(x=600.0, y=400.0, conf=0.9, handedness=HAND_RIGHT,
+                          landmarks=[(600.0, 400.0)])]]),
+            sender=FakeSender(), send_stat=stats.append, emit_hz=0.0,
+            input_width=0, roi_margin_px=200)
+        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.0)
+        marks = [m for m in stats if m.get("t") == "landmarks"]
+        self.assertEqual(marks[-1]["hands"][0]["points"], [[1000.0, 600.0]])
+
+    def test_a_new_homography_moves_the_crop(self):
+        # A re-calibrated table must not keep detecting against the old
+        # table's footprint until somebody restarts the process.
+        backend = RecordingStub(script=[[]])
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), i)
+                               for i in range(2)]),
+            backend=backend, sender=FakeSender(), emit_hz=0.0,
+            input_width=0, roi_margin_px=200)
+        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.0)
+        moved = [[2.4, 0.0, -1200.0], [0.0, 2.7, -810.0], [0.0, 0.0, 1.0]]
+        proc.apply_welcome({"homography_cam_to_stage": moved,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.1)
+        self.assertEqual(len(backend.seen), 2)
+        self.assertNotEqual(backend.seen[0], backend.seen[1])
+
+    def test_an_uncalibrated_table_still_detects_on_the_whole_frame(self):
+        backend = RecordingStub(script=[[]])
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), 1)]),
+            backend=backend, sender=FakeSender(), emit_hz=0.0,
+            input_width=0, roi_margin_px=200)
+        proc.tick(now=0.0)
+        self.assertEqual(backend.seen, [(1080, 1920)])
+
+
 class TestStaleFrames(ProcCase):
     """Doc section 6.4: "stop emitting (tracker sends nothing rather than
     sending a frozen cursor), report frames_stale to core, keep polling;

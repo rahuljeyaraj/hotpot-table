@@ -31,7 +31,7 @@ the sort of shared secret that goes stale.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 # MediaPipe's own handedness labels. Kept as the strings the library
 # actually emits rather than an enum, because doc section 11.3's rule is
@@ -56,12 +56,22 @@ class Detection:
     a failure: doc section 11.3's step 2 already has a branch for "no
     pointer exists yet" that does not consult handedness, and a backend
     that has no opinion must be able to say so rather than guess a side.
+
+    `landmarks`, added 2026-08-12 for the staff view's Developer tab
+    (RIG_FEEDBACK item 10 — "draw every point MediaPipe identifies"), is
+    the full raw 21-point hand skeleton in the SAME pixel space as `x`/`y`
+    (the frame passed to `detect()`), or None from a backend that has no
+    landmarks to give (the stub). Debug-only: `tracking.py` never reads
+    it — role assignment, hysteresis and the cursor pipeline are all
+    still built on the single chosen point (`x`/`y`) alone, exactly as
+    before this field existed.
     """
 
     x: float
     y: float
     conf: float
     handedness: Optional[str] = None
+    landmarks: Optional[List[Tuple[float, float]]] = None
 
 
 class Backend:

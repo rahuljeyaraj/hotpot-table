@@ -22,7 +22,11 @@
     "max_hands": 2,
     "emit_hz": 60,
     "mirror_handedness": false,
-    "input_width": 480
+    "input_width": 480,
+    "roi_margin_px": 200,
+    "min_hand_detection_confidence": 0.5,
+    "min_hand_presence_confidence": 0.5,
+    "min_tracking_confidence": 0.5
   },
   "cursor": {
     "of_port": 8770,

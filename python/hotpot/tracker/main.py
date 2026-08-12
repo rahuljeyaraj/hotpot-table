@@ -8,7 +8,7 @@ Was `common/stub.py` from M0 through M4. From here on it is doc section
     landmark 9 -> camera->stage homography -> role assignment -> UDP to
     of and core
 
-Five decisions in here are not obvious from that line, and four of them
+Six decisions in here are not obvious from that line, and four of them
 were forced by something already built.
 
 **1. The point is warped, not the frame — and this is a change of course
@@ -58,6 +58,35 @@ bundle you load, and Google publishes one. The probe below is still real:
 it measures the achieved rate over the first few seconds and logs it, and
 it will climb if a second bundle ever lands in `models/`. What it cannot
 do is pretend a one-rung ladder was climbed.
+
+**6. The frame is CROPPED to the table before detection, and the reason
+is a measured cliff, not a performance tidy-up (2026-08-12).**
+RIG_FEEDBACK item 2 — "the cursor doesn't appear when the hand is near
+the table edges" — is not about edges, and it is not about confidence
+thresholds, rotation or resolution (all four were tested to exhaustion
+first and none of them moves the number). MediaPipe's palm detector
+letterboxes whatever it is handed into a fixed square input, so the only
+quantity that decides whether a hand is findable is **the hand's share
+of the frame's LONG side** — which `input_width` cannot change, because
+resizing scales the hand and the frame together. Measured on this
+machine, against this bundle, by compositing a known-good hand into a
+1920x1080 frame at a swept size: a palm under ~77 px is never found, ~92
+px is found, ~108 px is found reliably anywhere in the frame including
+the corners (frame POSITION was measured and does not matter). This
+rig's own saved homography puts a 100 mm palm at **90.7 to 99.5 px**
+everywhere on the table — the whole surface sits inside that transition
+band, so cold acquisition was a coin flip at every position and the
+"edges" pattern is just the right-hand side of the table running ~9%
+smaller in pixels than the left.
+
+Cropping is the only lever that moves it, and it is worth 83% -> 100%
+over a 60-trial sweep. `ROI_MARGIN_PX` is why the crop is not tighter:
+at 60 px the rate falls back to 87%, because a hand reaches in from
+*outside* the table and a tight crop amputates the wrist this module's
+own decision 1 above is about. 200 px keeps it. Everything downstream is
+unchanged — `_to_stage` and `_maybe_send_landmarks` add the crop's own
+origin back before any coordinate leaves this process, so `H` still
+applies to capture-resolution pixels exactly as it was solved for.
 """
 
 from __future__ import annotations
@@ -94,6 +123,26 @@ STALE_S = 0.5
 # ODYSSEY cannot hold rate — it is a quality/speed trade, not a constant.
 DEFAULT_INPUT_WIDTH = 480
 
+# See the module docstring's decision 6. How far OUTSIDE the table's own
+# footprint the detection crop reaches, in capture pixels. Not a tuning
+# preference and not picked for symmetry with anything: measured. Over a
+# 60-trial sweep (12 positions x 5 palm sizes) on a real frame from this
+# rig, cold-acquisition rate came out 87% at 60 px, 92% at 120 px and
+# 100% at 200 px — the trend runs the OPPOSITE way to "crop tighter, hand
+# gets bigger, detection improves", because past a certain tightness the
+# crop starts cutting the wrist off a hand reaching in over the near edge
+# and a palm detector needs that wrist (this module's decision 1). 200 px
+# is about 210 mm at this rig's ~0.95 px/mm, i.e. roughly a forearm's
+# width of slack on every side.
+DEFAULT_ROI_MARGIN_PX = 200
+
+# A crop smaller than this in either axis is not a table footprint, it is
+# a symptom of a bad homography — detect on the full frame instead of on
+# a sliver. Cheap insurance: `H` is exactly the thing in this system that
+# has already been observed to come back confidently wrong (CLAUDE.md's
+# `rms_px: 0.0, n_points: 4` incident).
+MIN_ROI_PX = 160
+
 # Doc section 11.2's probe: "start at 0, measure for 5 seconds, and if the
 # measured rate is above 45 fps try 1 and keep it only if it stays above
 # 25." Kept as three named numbers because they are three different
@@ -108,25 +157,38 @@ PROBE_KEEP_ABOVE_FPS = 25.0
 # not a busy loop on a board with four cores and no spare one (doc 10.4).
 IDLE_SLEEP_S = 0.005
 
+# 2026-08-12: the staff view's Developer tab redraws its raw-landmark
+# debug view (RIG_FEEDBACK item 10) at 10Hz, the same cadence
+# core/main.py already uses for the Bins tab and the reduced `hands`
+# message — a human eye gets nothing from 60Hz here, and it would just
+# compete with the real cursor path for the control link's send queue.
+# Own throttle, independent of `emit_hz`.
+LANDMARKS_HZ = 10.0
+
 # Developer feedback running M5 on the rig (2026-08-12): the cursor, drawn
-# at landmark 9's own stage position, sits under the hand's shadow and is
-# invisible most of the time — the projected field is the table's only
-# light (CLAUDE.md's "hard invariant"), so a hand over its own cursor
-# blocks it outright, it is not merely "partly covered". Shifted here,
-# upstream of both core's hit test and oF's rendering, so the visible dot
-# and whatever it is hovering never disagree — doc section 9.4: "core
-# hit-tests stage-space cursors against stage-space rects," the same
-# points oF draws. Direction is toward the far edge (smaller stage Y —
-# TableGeometry.h's "+y from far edge towards the diner"): this module's
-# own docstring establishes hands always reach in from the near edge, so
-# that is the one direction clear of the arm/hand behind the tracked
-# point, for every bin and every widget. Magnitude is deliberately less
-# than a full hand length (roughly a fingertip's reach from landmark 9,
-# the middle-finger MCP) so it does not overshoot a bin (255mm tall) or a
-# widget onto whatever is beyond it. **Not yet physically confirmed** —
-# first pass, chosen by reasoning, still owes a rig observation of the
-# cursor actually clearing a hand at the table edges.
-CURSOR_SHADOW_CLEARANCE_MM = 70.0
+# at the tracked landmark's own stage position, sits under the hand's
+# shadow and is invisible most of the time — the projected field is the
+# table's only light (CLAUDE.md's "hard invariant"), so a hand over its
+# own cursor blocks it outright, it is not merely "partly covered".
+# Shifted here, upstream of both core's hit test and oF's rendering, so
+# the visible dot and whatever it is hovering never disagree — doc
+# section 9.4: "core hit-tests stage-space cursors against stage-space
+# rects," the same points oF draws. Direction is toward the far edge
+# (smaller stage Y — TableGeometry.h's "+y from far edge towards the
+# diner"): this module's own docstring establishes hands always reach in
+# from the near edge, so that is the one direction clear of the arm/hand
+# behind the tracked point, for every bin and every widget.
+#
+# **Shrunk 2026-08-12** (was 70mm) when the cursor landmark itself moved
+# from landmark 9 (middle-finger MCP, the palm centre — deep under the
+# hand, needing real clearance) to landmark 8 (index fingertip —
+# `backend_mediapipe.py`'s own doc section 11.2 override). The fingertip
+# is normally already the most exposed, forward-most point of a reaching
+# hand, so it needs only a small nudge clear of its own tip, not a
+# fingertip's reach. **Not yet physically confirmed at either value** —
+# still owes a rig observation of the cursor actually sitting just ahead
+# of the fingertip rather than under it.
+CURSOR_SHADOW_CLEARANCE_MM = 15.0
 
 # This rig's plywood (TableGeometry.h/geometry_store.py's TABLE_H_MM).
 # Duplicated rather than imported: this process does not import `core`
@@ -218,6 +280,65 @@ def downsample(frame, target_width: int):
     return small, scale
 
 
+def table_roi(h, stage, frame_shape, margin: float = DEFAULT_ROI_MARGIN_PX):
+    """The table's own footprint in capture pixels, padded and clamped —
+    `(x0, y0, w, h)`, or None meaning "use the whole frame".
+
+    See the module docstring's decision 6 for why this exists at all.
+
+    None rather than a raise for every reason it can fail, and the caller
+    treats all of them identically by detecting on the uncropped frame:
+    a table with no homography yet is the ordinary first-boot state (the
+    Developer tab's raw-landmark view has to keep working there — that is
+    the whole reason `_maybe_send_landmarks` runs ahead of the homography
+    gate), and a homography bad enough to put the table off-frame should
+    degrade to today's behaviour rather than to a sliver of nothing.
+
+    The four stage corners are projected through `H^-1` rather than the
+    table's bounding box being assumed: a homography maps a rectangle to
+    a QUADRILATERAL (geometry_store.py's own note, and the reason its
+    derived rects came out 26% large), so the camera-space footprint is
+    the bounding box of that quad, which on an off-square camera is not
+    the same rectangle as any pair of opposite corners would give.
+    """
+    import math                 # noqa: WPS433 - local, see geometry.fit
+
+    if h is None:
+        return None
+    try:
+        inverse = geometry.invert(h)
+    except geometry.GeometryError:
+        return None
+
+    stage_w, stage_h = float(stage[0]), float(stage[1])
+    if not (stage_w > 0 and stage_h > 0):
+        return None
+    corners = ((0.0, 0.0), (stage_w, 0.0), (stage_w, stage_h), (0.0, stage_h))
+    xs, ys = [], []
+    for corner in corners:
+        try:
+            px, py = geometry.apply(inverse, corner)
+        except geometry.GeometryError:
+            return None
+        if not (math.isfinite(px) and math.isfinite(py)):
+            return None
+        xs.append(px)
+        ys.append(py)
+
+    height, width = frame_shape[0], frame_shape[1]
+    x0 = max(0, int(math.floor(min(xs) - margin)))
+    y0 = max(0, int(math.floor(min(ys) - margin)))
+    x1 = min(int(width), int(math.ceil(max(xs) + margin)))
+    y1 = min(int(height), int(math.ceil(max(ys) + margin)))
+    if x1 - x0 < MIN_ROI_PX or y1 - y0 < MIN_ROI_PX:
+        return None
+    if (x0, y0, x1, y1) == (0, 0, int(width), int(height)):
+        # Nothing to crop. Saying so lets the caller skip a full-frame
+        # copy every tick rather than slicing the array to itself.
+        return None
+    return (x0, y0, x1 - x0, y1 - y0)
+
+
 # ---------------------------------------------------------------------------
 # Model rungs (doc section 11.2, translated — see the module docstring)
 # ---------------------------------------------------------------------------
@@ -251,14 +372,24 @@ class TrackerProcess:
                  sender: Optional[cursorbus.Sender] = None,
                  send_stat: Optional[Callable[[Dict[str, Any]], Any]] = None,
                  input_width: int = DEFAULT_INPUT_WIDTH,
+                 roi_margin_px: float = DEFAULT_ROI_MARGIN_PX,
                  emit_hz: float = 60.0) -> None:
         self.source = source or FrameSource()
         self.backend: Backend = backend or backend_stub.Stub()
         self.sender = sender or cursorbus.Sender()
         self.send_stat = send_stat or (lambda msg: None)
         self.input_width = input_width
+        self.roi_margin_px = roi_margin_px
         self.emit_hz = emit_hz
         self.tracker = tracking.HandTracker()
+
+        # The detection crop (module docstring, decision 6). Cached rather
+        # than recomputed per tick — it is a matrix inverse plus four
+        # projections, and neither the homography nor the frame size
+        # changes at 30Hz. Invalidated wherever `_h` is written, which is
+        # the one place either input can move.
+        self._roi = None
+        self._roi_shape = None
 
         # Doc section 5.3: core owns `H_cam_to_stage` and pushes it in
         # `welcome`. None until it has. Held under a lock because `welcome`
@@ -271,6 +402,7 @@ class TrackerProcess:
         self._warned_no_h = False
         self._stale = False
         self._last_emit: Optional[float] = None
+        self._last_landmarks_send: Optional[float] = None
         # MediaPipe's VIDEO mode rejects a timestamp that does not
         # increase, and this process owns the clock (backend.py's
         # docstring) so a backend swap mid-probe cannot restart it.
@@ -309,12 +441,42 @@ class TrackerProcess:
             if (isinstance(stage, (list, tuple)) and len(stage) == 2
                     and all(isinstance(v, (int, float)) for v in stage)):
                 self._stage = (float(stage[0]), float(stage[1]))
+            # Both inputs to the detection crop just moved. Dropping the
+            # cache here rather than comparing values is what stops a
+            # re-calibrated table from detecting against the old table's
+            # footprint until the process is restarted.
+            self._roi = None
+            self._roi_shape = None
         hz = cfg.get("emit_hz")
         if isinstance(hz, (int, float)) and 0 < hz <= 240:
             self.emit_hz = float(hz)
         mirror = cfg.get("mirror_handedness")
         if isinstance(mirror, bool):
             self.set_mirror_handedness(mirror)
+        # 2026-08-12: core owns this (`geometry.view_rotation_deg`,
+        # `state/view_rotation.json`) the same way it owns the homography
+        # — a fact about the physical rig, pushed here rather than read
+        # from a local default, so a value this process invented can never
+        # disagree with what core actually has on disk. Only 0/90/180/270
+        # are ever written there (`GeometryStore.set_view_rotation`'s own
+        # validation), so the isinstance/membership check here is a
+        # defence against a malformed `cfg`, not a real validation layer.
+        rotation = cfg.get("view_rotation_deg")
+        if isinstance(rotation, int) and not isinstance(rotation, bool) \
+                and rotation in (0, 90, 180, 270):
+            self.set_camera_rotation(rotation)
+
+    def set_camera_rotation(self, deg: int) -> None:
+        """The camera's physical mount rotation (doc section 12.6's Rotate
+        control's old value, `state/view_rotation.json`), applied to
+        whatever backend is running so MediaPipe detects against a
+        right-way-up frame — see `backend_mediapipe.py`'s own "180-degree
+        mount compensation". Same shape as `set_mirror_handedness`: set on
+        the backend, at the one place a frame is actually rotated, so
+        nothing else in this process ever has to know or care.
+        """
+        if hasattr(self.backend, "mount_rotation_deg"):
+            self.backend.mount_rotation_deg = deg
 
     def set_mirror_handedness(self, mirror: bool) -> None:
         """Doc section 11.3's swap-hands switch, applied live.
@@ -374,9 +536,39 @@ class TrackerProcess:
         self._on_frames_resumed()
         self.frames_seen += 1
 
+        # Read the homography BEFORE detecting, not after: the detection
+        # crop (module docstring, decision 6) is derived from it. The
+        # cursor pipeline's own use of `h` further down is unchanged, and
+        # so is the rule that a tick with no homography still detects and
+        # still reports landmarks — `table_roi` returns None for that
+        # case and detection runs on the whole frame exactly as before.
         with self._lock:
             h = self._h
             stage = self._stage
+
+        view, origin = self._crop_to_table(frame, h, stage)
+        small, scale = downsample(view, self.input_width)
+        self._timestamp_ms += 1
+        try:
+            detections = self.backend.detect(small, self._timestamp_ms)
+        except Exception:      # noqa: BLE001 - a detector must not kill the loop
+            _log.exception("tracker: %s raised during detect", self.backend.name)
+            detections = []
+
+        # 2026-08-12: moved ahead of the homography check below, on
+        # purpose. Detection itself has nothing to do with the
+        # camera->stage solve — MediaPipe finds hands (or doesn't) in raw
+        # frame pixels regardless of whether the table has ever been
+        # calibrated. The staff view's Developer tab (RIG_FEEDBACK item
+        # 10) needs to answer "does MediaPipe see a hand at all"
+        # independent of calibration state; gating detection itself on
+        # `h` would make that view go blank on an uncalibrated table for
+        # a reason that has nothing to do with what it is trying to show.
+        # The cursor pipeline below is UNCHANGED — it still requires `h`
+        # and still sends nothing without one (doc section 21: "the
+        # cursor is meaningless without it").
+        self._maybe_send_landmarks(detections, scale, origin, now)
+
         if h is None:
             if not self._warned_no_h:
                 _log.warning("tracker: no camera->stage homography from core "
@@ -385,15 +577,7 @@ class TrackerProcess:
                 self._warned_no_h = True
             return False
 
-        small, scale = downsample(frame, self.input_width)
-        self._timestamp_ms += 1
-        try:
-            detections = self.backend.detect(small, self._timestamp_ms)
-        except Exception:      # noqa: BLE001 - a detector must not kill the loop
-            _log.exception("tracker: %s raised during detect", self.backend.name)
-            detections = []
-
-        staged = self._to_stage(detections, scale, h, stage)
+        staged = self._to_stage(detections, scale, origin, h, stage)
         hands = self.tracker.update(staged, now)
         self.sender.send(hands, ts=time.time())
         self._last_emit = now
@@ -401,17 +585,51 @@ class TrackerProcess:
         self._count_probe_frame(now)
         return True
 
-    def _to_stage(self, detections: Sequence[Detection], scale: float,
-                  h: Sequence[Sequence[float]],
-                  stage) -> List[Detection]:
-        """Downsampled-frame pixels -> capture pixels -> stage space.
+    def _crop_to_table(self, frame, h, stage):
+        """`(view, (origin_x, origin_y))` — the frame the detector should
+        see, and where its top-left corner sits in capture pixels.
 
-        Two steps, in this order, and neither is optional. The backend
+        `(frame, (0.0, 0.0))` whenever there is no usable crop, so the
+        caller has one code path rather than a branch: adding an origin of
+        zero back is the same arithmetic as adding a real one.
+
+        See the module docstring's decision 6. The cache is keyed on the
+        frame's shape as well as being dropped on every homography change,
+        because a camera that restarts at a different capture resolution
+        (doc section 20.1 makes that a supported event) would otherwise
+        keep cropping to a footprint measured in the old frame's pixels.
+        """
+        shape = getattr(frame, "shape", None)
+        if shape is None or len(shape) < 2:
+            return frame, (0.0, 0.0)
+        if self._roi_shape != shape[:2]:
+            self._roi = table_roi(h, stage, shape, self.roi_margin_px)
+            self._roi_shape = shape[:2]
+            if self._roi is not None:
+                _log.info("tracker: detecting on the table crop %dx%d at "
+                          "(%d,%d) of %dx%d — see main.py's decision 6",
+                          self._roi[2], self._roi[3], self._roi[0],
+                          self._roi[1], shape[1], shape[0])
+        if self._roi is None:
+            return frame, (0.0, 0.0)
+        x0, y0, width, height = self._roi
+        return frame[y0:y0 + height, x0:x0 + width], (float(x0), float(y0))
+
+    def _to_stage(self, detections: Sequence[Detection], scale: float,
+                  origin, h: Sequence[Sequence[float]],
+                  stage) -> List[Detection]:
+        """Downsampled-crop pixels -> capture pixels -> stage space.
+
+        Three steps now, in this order, and none is optional. The backend
         returned coordinates in the small frame it was handed
-        (`backend.py`'s docstring), and `H_cam_to_stage` was solved against
-        the camera's **capture** resolution (doc section 8.5's
-        `camera_size`), so applying `H` to a downsampled coordinate would
-        be applying it to a point in a space it was never fitted for.
+        (`backend.py`'s docstring), that frame is a CROP of the capture
+        frame (module docstring, decision 6), and `H_cam_to_stage` was
+        solved against the camera's **capture** resolution (doc section
+        8.5's `camera_size`), so applying `H` to a downsampled or
+        un-offset coordinate would be applying it to a point in a space it
+        was never fitted for. Dropping the origin specifically would put
+        every cursor short by the crop's own corner — a constant offset,
+        which is exactly what a mis-calibrated table looks like.
 
         Points off the stage are kept, not clipped. A hand held over the
         table edge is a real hand at a real position, and core's hit tests
@@ -423,10 +641,12 @@ class TrackerProcess:
         # geometry_store.mm_to_stage does for the fixed TABLE_H_MM.
         clearance_px = CURSOR_SHADOW_CLEARANCE_MM * stage[1] / _TABLE_H_MM
 
+        origin_x, origin_y = origin
         out: List[Detection] = []
         for det in detections:
             try:
-                sx, sy = geometry.apply(h, (det.x * scale, det.y * scale))
+                sx, sy = geometry.apply(h, (det.x * scale + origin_x,
+                                            det.y * scale + origin_y))
             except geometry.GeometryError:
                 # A point that maps to infinity through a badly conditioned
                 # matrix. Dropping the hand is right: there is no position
@@ -436,6 +656,48 @@ class TrackerProcess:
             out.append(Detection(x=sx, y=sy - clearance_px, conf=det.conf,
                                  handedness=det.handedness))
         return out
+
+    # -- staff view debug: every raw MediaPipe point (RIG_FEEDBACK item 10) -
+
+    def _maybe_send_landmarks(self, detections: Sequence[Detection],
+                              scale: float, origin, now: float) -> None:
+        """Every detected hand's full 21-point skeleton, in CAPTURE-
+        resolution camera pixels — never stage space, and deliberately:
+        this exists to answer "does MediaPipe see anything" independent
+        of the homography, so it must not go through the same transform
+        that requires one. Sent over the control link (`send_stat`, the
+        same channel `{"t":"stat",...}` already uses) rather than the
+        cursorbus UDP path — this is staff-view debug telemetry, not
+        part of doc section 4.6's cursor datagram, and core relays it to
+        every connected tablet unmodified.
+
+        Sent even when `detections` is empty: an explicit "0 hands right
+        now" is itself the signal a human reading the Developer tab
+        needs — silence would be indistinguishable from the tracker
+        being dead, which the process pip already reports separately.
+        """
+        if (self._last_landmarks_send is not None
+                and (now - self._last_landmarks_send) < (1.0 / LANDMARKS_HZ)):
+            return
+        self._last_landmarks_send = now
+        # The crop's origin goes back on here for the same reason it does
+        # in `_to_stage`: this view draws over the staff view's RAW camera
+        # feed, so a point that forgot the offset would land short of the
+        # hand by the crop's corner and read as a tracking error rather
+        # than as an arithmetic one.
+        origin_x, origin_y = origin
+        hands = []
+        for det in detections:
+            if not det.landmarks:
+                continue
+            hands.append({
+                "handedness": det.handedness,
+                "conf": round(det.conf, 2),
+                "points": [[round(x * scale + origin_x, 1),
+                            round(y * scale + origin_y, 1)]
+                          for x, y in det.landmarks],
+            })
+        self.send_stat({"t": "landmarks", "hands": hands})
 
     # -- doc section 6.4's staleness ---------------------------------------
 
@@ -556,8 +818,23 @@ def build_backend(cfg: Dict[str, Any],
         return backend_stub.Stub()
     mirror = bool(config.get(cfg, "tracker.mirror_handedness", False))
     max_hands = int(config.get(cfg, "tracker.max_hands", 2) or 2)
+    # RIG_FEEDBACK item 2's own third suspect ("check backend_mediapipe.py's
+    # confidence thresholds against a logged conf value at the edge") —
+    # config keys now, not hardcoded 0.5s, so they can be tuned from the
+    # rig against the Developer tab's raw landmark view with no rebuild.
+    # 0.5 here matches MediaPipe's own default exactly, so a system.json
+    # with no opinion on these three keys changes nothing.
+    min_detection = float(config.get(
+        cfg, "tracker.min_hand_detection_confidence", 0.5))
+    min_presence = float(config.get(
+        cfg, "tracker.min_hand_presence_confidence", 0.5))
+    min_tracking = float(config.get(
+        cfg, "tracker.min_tracking_confidence", 0.5))
     real = backend_mediapipe.MediaPipeBackend.load(
-        rungs[0], num_hands=max_hands, mirror_handedness=mirror)
+        rungs[0], num_hands=max_hands, mirror_handedness=mirror,
+        min_detection_confidence=min_detection,
+        min_presence_confidence=min_presence,
+        min_tracking_confidence=min_tracking)
     return real if real is not None else backend_stub.Stub()
 
 
@@ -577,6 +854,8 @@ def main() -> None:
         ]),
         input_width=int(config.get(cfg, "tracker.input_width",
                                    DEFAULT_INPUT_WIDTH)),
+        roi_margin_px=float(config.get(cfg, "tracker.roi_margin_px",
+                                       DEFAULT_ROI_MARGIN_PX)),
         emit_hz=float(config.get(cfg, "tracker.emit_hz", 60)),
     )
 
