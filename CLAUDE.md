@@ -8,6 +8,10 @@ Product name: Hot Pot (en) / 称重火锅 (zh).
 Read docs/HOTPOT_ARCHITECTURE_v3.md before doing anything.
 It is authoritative. This file is only status + rules.
 
+**Open feedback queue:** `docs/RIG_FEEDBACK_2026-08-12.md` — ten items
+from the first real M5 rig run, each scoped for one fresh session. Item 1
+is done (commit 0ef1fe9); check that file before starting new M5 work.
+
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
 Stage 1-2 code is being replaced, not extended.
