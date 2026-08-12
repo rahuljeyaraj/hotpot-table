@@ -89,6 +89,31 @@ class CaptureInfo:
     white_balance_temperature: Optional[int]
     focus_absolute: Optional[int]
 
+    # Did this backend actually put the device into MANUAL mode at the three
+    # values above, or are they merely what the controls read while their
+    # autos were still running?
+    #
+    # **This distinction is the whole reason the field exists, and getting it
+    # wrong produced a real bug (2026-08-12: a yellow cast on every frame the
+    # dashboard showed).** `main.py` records these three numbers to
+    # `state/camera_settings.json` after every open, and the next run feeds
+    # that file back in as `prior_settings`. Without a provenance flag the
+    # file cannot say which of two very different things it holds:
+    #
+    #   - a locked state, which re-applying REPRODUCES (doc section 6.6's
+    #     entire point — the dataset's light must be recoverable), or
+    #   - a passing readout of a moving auto, which re-applying does not
+    #     reproduce but CREATES: it pins the ISP to a number that was never a
+    #     considered choice, and every later run inherits it.
+    #
+    # The second case is self-fulfilling. One observation gets frozen into the
+    # file and every subsequent run locks to it, so the fault looks permanent
+    # and looks like the camera rather than like the file.
+    #
+    # False here means "these are observations, do not apply them" and is the
+    # safe default for a file written before this field existed.
+    controls_locked: bool = False
+
 
 class Capture(Protocol):
     """What `camera/main.py` needs from a capture backend. Both
@@ -141,7 +166,9 @@ class FakeCapture:
         return CaptureInfo(
             width=self.width, height=self.height, fps=self.fps,
             fourcc="MJPG", exposure_absolute=100,
-            white_balance_temperature=4600, focus_absolute=0)
+            white_balance_temperature=4600, focus_absolute=0,
+            # No device, so nothing was locked. Values are fixtures.
+            controls_locked=False)
 
     def read(self) -> Optional[bytes]:
         if not self._opened:
@@ -205,12 +232,12 @@ class V4L2Capture:
         log.info("camera: opened %s at %dx%d@%.1ffps, fourcc=%s",
                  self.device, actual_w, actual_h, actual_fps, fourcc)
 
-        exposure, wb, focus = self._lock_controls()
+        exposure, wb, focus, locked = self._lock_controls()
 
         return CaptureInfo(
             width=actual_w, height=actual_h, fps=actual_fps, fourcc=fourcc,
             exposure_absolute=exposure, white_balance_temperature=wb,
-            focus_absolute=focus)
+            focus_absolute=focus, controls_locked=locked)
 
     def read(self) -> Optional[bytes]:
         if self._cap is None:
@@ -242,7 +269,15 @@ class V4L2Capture:
         prior_exp = self._prior.get("exposure_absolute")
         prior_wb = self._prior.get("white_balance_temperature")
         prior_focus = self._prior.get("focus_absolute")
-        if prior_exp is not None and prior_wb is not None and prior_focus is not None:
+        # `locked` is the provenance flag, not a fourth setting — see
+        # CaptureInfo.controls_locked. Values recorded while the autos were
+        # running are observations of a moving target; re-applying them
+        # would pin the ISP to a number nobody chose. Absent (a file written
+        # before the flag existed) reads as False, so the converge-and-lock
+        # path below runs instead, which is the recoverable direction.
+        prior_locked = bool(self._prior.get("locked"))
+        if (prior_locked and prior_exp is not None and prior_wb is not None
+                and prior_focus is not None):
             log.info("camera: applying prior locked settings from "
                      "state/camera_settings.json: exposure=%s wb=%s focus=%s",
                      prior_exp, prior_wb, prior_focus)
@@ -250,7 +285,14 @@ class V4L2Capture:
                            white_balance_temperature_auto=0,
                            white_balance_temperature=int(prior_wb),
                            focus_auto=0, focus_absolute=int(prior_focus))
-            return int(prior_exp), int(prior_wb), int(prior_focus)
+            return int(prior_exp), int(prior_wb), int(prior_focus), True
+        if prior_exp is not None or prior_wb is not None or prior_focus is not None:
+            log.warning("camera: state/camera_settings.json holds control "
+                        "values but not `\"locked\": true` — they were "
+                        "observed while the autos ran, not frozen, so they "
+                        "are being ignored rather than applied. Sweep and "
+                        "freeze deliberately (doc section 6.6) to make them "
+                        "authoritative.")
 
         log.info("camera: no prior camera_settings.json — letting "
                  "auto-exposure/WB/focus converge for %.1fs before locking",
@@ -273,7 +315,12 @@ class V4L2Capture:
                  "(converged, not swept — sweep and freeze deliberately "
                  "per doc section 6.6 before this is a real dataset)",
                  exposure, wb, focus)
-        return exposure, wb, focus
+        # True: the autos are genuinely off and the device is pinned at these
+        # numbers, so re-applying them next run reproduces this state rather
+        # than inventing one. "Converged, not swept" is a caveat about whether
+        # a HUMAN chose them, which is a separate question from whether they
+        # are locked, and doc section 6.6 answers it with the sweep.
+        return exposure, wb, focus, True
 
     def _set_ctrl(self, **ctrls: int) -> None:
         pairs = ",".join(f"{name}={value}" for name, value in ctrls.items())
@@ -385,11 +432,11 @@ class WindowsCapture:
                  "(DirectShow, Windows dev backend)",
                  self.device, actual_w, actual_h, actual_fps, fourcc)
 
-        exposure, wb, focus = self._lock_controls(cap, cv2)
+        exposure, wb, focus, locked = self._lock_controls(cap, cv2)
         return CaptureInfo(
             width=actual_w, height=actual_h, fps=actual_fps, fourcc=fourcc,
             exposure_absolute=exposure, white_balance_temperature=wb,
-            focus_absolute=focus)
+            focus_absolute=focus, controls_locked=locked)
 
     def read(self) -> Optional[bytes]:
         if self._cap is None:
@@ -425,26 +472,52 @@ class WindowsCapture:
         against this machine's driver), and flipping into manual mode is
         exactly the step being avoided until that number is confirmed.
         Leaving every auto alone is the smaller, verifiably-safe fix.
+
+        **That fix was incomplete, and the second half is this gate — found
+        2026-08-12, same day, from a yellow cast on the dashboard feed that
+        the OS camera app did not show.** Leaving the autos alone stopped
+        this run from freezing a bad value, but `main.py` still WROTE the
+        read-back numbers to `state/camera_settings.json`, and the next run
+        read that file back as `prior_settings` and locked to them — so the
+        very readout taken while auto-WB was running became the thing that
+        turned auto-WB off. One poisoned observation, then permanent. The
+        recorded 6500 K was a daylight value pinned under projector light,
+        which is exactly a yellow cast. Priors are now applied only when the
+        file says they were locked deliberately (`controls_locked`).
         """
         prior_exp = self._prior.get("exposure_absolute")
         prior_wb = self._prior.get("white_balance_temperature")
         prior_focus = self._prior.get("focus_absolute")
-        if prior_exp is not None:
-            cap.set(cv2.CAP_PROP_EXPOSURE, prior_exp)
-        if prior_wb is not None:
-            cap.set(cv2.CAP_PROP_AUTO_WB, 0)
-            cap.set(cv2.CAP_PROP_WB_TEMPERATURE, prior_wb)
-        if prior_focus is not None:
-            cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
-            cap.set(cv2.CAP_PROP_FOCUS, prior_focus)
+        prior_locked = bool(self._prior.get("locked"))
+        applied = False
+
+        if prior_locked:
+            if prior_exp is not None:
+                cap.set(cv2.CAP_PROP_EXPOSURE, prior_exp)
+                applied = True
+            if prior_wb is not None:
+                cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+                cap.set(cv2.CAP_PROP_WB_TEMPERATURE, prior_wb)
+                applied = True
+            if prior_focus is not None:
+                cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+                cap.set(cv2.CAP_PROP_FOCUS, prior_focus)
+                applied = True
+        elif prior_exp is not None or prior_wb is not None or prior_focus is not None:
+            log.warning("camera: ignoring exposure=%s wb=%s focus=%s from "
+                        "state/camera_settings.json — recorded without "
+                        "`\"locked\": true`, so they are observations of a "
+                        "running auto, not a frozen setting. Autos left on.",
+                        prior_exp, prior_wb, prior_focus)
 
         exposure = self._readback(cap, cv2.CAP_PROP_EXPOSURE)
         wb = self._readback(cap, cv2.CAP_PROP_WB_TEMPERATURE)
         focus = self._readback(cap, cv2.CAP_PROP_FOCUS)
         log.info("camera: Windows best-effort lock read back "
-                 "exposure=%s wb=%s focus=%s (None = unsupported by this "
-                 "driver, not a failure)", exposure, wb, focus)
-        return exposure, wb, focus
+                 "exposure=%s wb=%s focus=%s locked=%s (None = unsupported "
+                 "by this driver, not a failure)",
+                 exposure, wb, focus, applied)
+        return exposure, wb, focus, applied
 
     @staticmethod
     def _readback(cap, prop) -> Optional[int]:

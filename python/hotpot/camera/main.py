@@ -231,7 +231,15 @@ class CameraProcess:
     def _write_camera_settings(self, info: capture_mod.CaptureInfo) -> None:
         """Doc section 6.6: exposure/WB/focus and `field_level` are one
         coupled parameter and must be recorded together, in the one file
-        that answers "under what light was this dataset taken"."""
+        that answers "under what light was this dataset taken".
+
+        **This file is also read back as `prior_settings` on the next run,
+        which makes `locked` the most important key in it** — it is what
+        separates "this is the light, reproduce it" from "this is what the
+        controls happened to read while their autos were still hunting".
+        Writing the numbers without it caused a yellow cast that survived
+        restarts (2026-08-12); see `capture.CaptureInfo.controls_locked`.
+        """
         atomicio.write_json(self._settings_path, {
             # The backend's own `device` (a V4L2 path on Linux, a
             # DirectShow index on Windows) is the honest value here —
@@ -245,6 +253,7 @@ class CameraProcess:
             "exposure_absolute": info.exposure_absolute,
             "white_balance_temperature": info.white_balance_temperature,
             "focus_absolute": info.focus_absolute,
+            "locked": info.controls_locked,
             "field_level": config.get(self._cfg, "of.field_level", 1.0),
             "written_at": time.time(),
         })
