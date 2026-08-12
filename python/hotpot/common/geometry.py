@@ -294,11 +294,16 @@ def order_quad(points: Sequence[Point]) -> List[Point]:
     """Four detected points, ordered top-left, top-right, bottom-right,
     bottom-left.
 
-    This is what pairs the first calibration pass's four corner dots with
-    the four stage positions they were drawn at, and it is the one step in
-    the whole solve that has no numerical safety net: pair them wrongly and
-    everything downstream is self-consistent and completely wrong (doc
-    section 5.3's TRAP, arriving by the front door).
+    **NOT used by dot calibration any more, and do not put it back — use
+    `order_quad_marker_first`.** The assumption below about the camera being
+    roughly the right way up is false on this rig (measured at 180 degrees,
+    commit b847c0f), and it fails silently: four points always fit a
+    homography exactly, so the flipped pairing reports zero error. This
+    remains only for callers that genuinely know their quad is upright.
+
+    It is the one step in a solve that has no numerical safety net: pair
+    them wrongly and everything downstream is self-consistent and completely
+    wrong (doc section 5.3's TRAP, arriving by the front door).
 
     The method is the standard sum/difference one — the top-left corner has
     the smallest `x + y`, the bottom-right the largest; the top-right has
@@ -326,6 +331,100 @@ def order_quad(points: Sequence[Point]) -> List[Point]:
             "the four points do not form four distinct corners — two dots "
             "landed on the same side, so the pass cannot be ordered")
     return out
+
+
+# How much bigger the marker dot has to be than the median of the others
+# before it is believed. Nominal is the area ratio of the two radii the
+# pattern actually draws — at M4's 40 px marker against 24 px corners that
+# is (40/24)^2 = 2.8. 1.6 leaves room for defocus, an oblique view, and a
+# marker partly on a tray, while still being far outside the +-8% spread
+# the old rig measured across eight nominally identical dots.
+DEFAULT_MIN_MARKER_RATIO = 1.6
+
+
+def identify_marker(areas: Sequence[float], *,
+                    min_ratio: float = DEFAULT_MIN_MARKER_RATIO) -> int:
+    """Index of the deliberately-oversized dot among a detected set.
+
+    Compared against the **median** of the others, not the mean, so one fat
+    or thin blob cannot drag the baseline. Raises GeometryError rather than
+    returning a best guess: the marker is what fixes orientation, and a
+    guessed orientation is the failure this whole mechanism exists to
+    prevent (see `order_quad_marker_first`).
+    """
+    if len(areas) < 2:
+        raise GeometryError(
+            f"identify_marker needs at least 2 areas, got {len(areas)}")
+    values = [float(a) for a in areas]
+    marker = max(range(len(values)), key=lambda i: values[i])
+    others = sorted(values[:marker] + values[marker + 1:])
+    mid = len(others) // 2
+    median_other = (others[mid] if len(others) % 2
+                    else 0.5 * (others[mid - 1] + others[mid]))
+    if median_other <= 0:
+        raise GeometryError("the non-marker dots have no area")
+    ratio = values[marker] / median_other
+    if ratio < min_ratio:
+        raise GeometryError(
+            f"no dot stands out as the orientation marker: largest is "
+            f"{values[marker]:.0f} px2 against a median of "
+            f"{median_other:.0f} px2, a ratio of {ratio:.2f} and under the "
+            f"{min_ratio} needed. Orientation cannot be resolved — check "
+            f"that the marker dot is not clipped by a tray or blooming into "
+            f"its neighbours.")
+    return marker
+
+
+def order_quad_marker_first(points: Sequence[Point],
+                            marker_index: int) -> List[Point]:
+    """Four points in cyclic order about their centroid, starting at the
+    marker — the correspondence for a pattern whose first drawn corner is
+    the oversized one.
+
+    **This replaces `order_quad` for calibration and the difference is not
+    cosmetic.** `order_quad` labels corners by their position in the camera
+    image, which silently assumes the camera is mounted roughly the same way
+    up as the projector. This rig's camera was measured at 180 degrees
+    (commit b847c0f, 2026-08-08), and at 180 degrees that assumption does
+    not merely degrade — it pairs every corner with the opposite one, and
+    because four points always fit a homography exactly, the wrong answer
+    comes back with ZERO error and no warning. The old solver hit this and
+    reported a confident 0 degrees for a camera at 180.
+
+    Two independent facts make this version immune:
+
+    - **Cyclic order comes from the angle about the centroid**, which is
+      rotation-invariant, so no mounting angle can reorder the ring. A
+      camera looking down at a table cannot mirror the view, so the ring
+      runs the same way round in both spaces and only the starting point is
+      unknown.
+    - **The marker fixes the starting point**, geometrically rather than by
+      picking whichever hypothesis fits best. Error cannot arbitrate here
+      and must never be asked to.
+
+    `points` must be exactly four, and `marker_index` indexes into them as
+    given, not into the returned order.
+    """
+    if len(points) != 4:
+        raise GeometryError(
+            f"order_quad_marker_first needs exactly 4 points, got {len(points)}")
+    if not 0 <= marker_index < 4:
+        raise GeometryError(f"marker_index {marker_index} is not one of the 4")
+    pts = [(float(p[0]), float(p[1])) for p in points]
+    cx = sum(p[0] for p in pts) / 4.0
+    cy = sum(p[1] for p in pts) / 4.0
+    # atan2 on a y-down axis increases clockwise on screen, which is the
+    # direction `dotcal.corner_points` lists the stage corners in, so the
+    # two rings run the same way round with no special-casing.
+    by_angle = sorted(range(4), key=lambda i: math.atan2(pts[i][1] - cy,
+                                                         pts[i][0] - cx))
+    if len({(round(p[0], 6), round(p[1], 6)) for p in pts}) != 4:
+        raise GeometryError(
+            "the four points are not four distinct corners — two dots landed "
+            "on top of each other, so the pass cannot be ordered")
+    start = by_angle.index(marker_index)
+    rotated = by_angle[start:] + by_angle[:start]
+    return [pts[i] for i in rotated]
 
 
 def match_nearest(expected: Sequence[Point], found: Sequence[Point], *,

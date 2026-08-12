@@ -20,6 +20,7 @@ is what breaks the single-pass row-sorting design this rejected), a
 missing dot, a spurious reflection, and a classifier that does not answer.
 """
 
+import math
 import os
 import sys
 import tempfile
@@ -48,6 +49,19 @@ ROTATED_CAM_TO_STAGE = [
     [0.906, -0.423, 300.0],
     [0.423, 0.906, -150.0],
     [0.00004, 0.00002, 1.0],
+]
+
+# A camera mounted UPSIDE DOWN, which is how this rig's actually is
+# (measured at 180 degrees, commit b847c0f, 2026-08-08). Exactly 180, not
+# approximately: this is the one angle where the four corners map onto the
+# positions of the opposite four, so ordering them by their place in the
+# camera image pairs every one of them with its opposite and the resulting
+# homography still fits perfectly. It is the case that cannot be caught by
+# looking at the error, which is why the marker dot exists.
+FLIPPED_CAM_TO_STAGE = [
+    [-1.0, 0.0, 1920.0],
+    [0.0, -1.0, 1080.0],
+    [0.0, 0.0, 1.0],
 ]
 
 
@@ -86,7 +100,8 @@ class FakeRig:
             return self.reply_override
         pattern = self.shown[-1] or []
         points = []
-        for i, (x, y, _r) in enumerate(pattern):
+        areas = []
+        for i, (x, y, r) in enumerate(pattern):
             if i in self.drop_indices:
                 continue
             cx, cy = geometry.apply(self.stage_to_cam, (x, y))
@@ -96,10 +111,26 @@ class FakeRig:
                 cx += self.jitter * (1 if i % 2 else -1)
                 cy += self.jitter * (1 if i % 3 else -1)
             points.append([cx, cy])
-        points.extend(self.extra_points.get(len(self.asks) - 1, []))
+            # Area from the radius core actually asked for, so the oversized
+            # marker comes back oversized the way a real camera would report
+            # it. pi*r^2 rather than a flat "bigger" constant: the ratio the
+            # marker is identified by is then the real one the pattern
+            # implies, so a test cannot pass on a marker that is only
+            # nominally larger.
+            areas.append(math.pi * float(r) * float(r))
+        for extra in self.extra_points.get(len(self.asks) - 1, []):
+            points.append(extra)
+            # A stray reflection is dot-sized, not marker-sized — an extra
+            # blob that outweighed the marker would be testing something
+            # else entirely.
+            areas.append(math.pi * dotcal.DOT_RADIUS_PX ** 2)
         # Reversed, not shuffled: deterministic, and still not pattern
-        # order, which is the property that matters.
-        return {"t": "dots", "points": list(reversed(points))}
+        # order, which is the property that matters. Areas travel with their
+        # points; a reply whose two lists disagreed would mis-identify the
+        # marker, which is the one thing this fixture must not do by
+        # accident.
+        return {"t": "dots", "points": list(reversed(points)),
+                "areas": list(reversed(areas))}
 
 
 class DotCalCase(unittest.TestCase):
@@ -246,6 +277,50 @@ class TestTheSolve(DotCalCase):
         self.assertAlmostEqual(got[0], want[0], places=1)
         self.assertAlmostEqual(got[1], want[1], places=1)
 
+    def test_an_upside_down_camera_solves_the_right_way_up(self):
+        """The 180-degree trap, and the only test here that a low RMS
+        cannot pass by itself.
+
+        A flipped solve fits its own correspondences EXACTLY — four points
+        always do — so `rms_px` is ~0 whether the pairing is right or
+        inverted, and asserting on it would prove nothing. The check has to
+        be a probe point the solver never saw, compared against the rig's
+        own matrix. Under the old `order_quad` pairing this returns the
+        point rotated about the table centre: (1220, 680) instead of
+        (700, 400), which is a whole table away and the exact error a human
+        would have found at the Verify step and nowhere earlier.
+        """
+        rig = FakeRig(FLIPPED_CAM_TO_STAGE)
+        result = self.calibrator(rig).run()
+        probe = (700.0, 400.0)
+        want = geometry.apply(FLIPPED_CAM_TO_STAGE, probe)
+        got = geometry.apply(result.h, probe)
+        self.assertAlmostEqual(got[0], want[0], places=1)
+        self.assertAlmostEqual(got[1], want[1], places=1)
+
+    def test_the_marker_corner_is_drawn_larger_than_the_other_corners(self):
+        # The mechanism the test above depends on. If the marker is not
+        # physically bigger there is nothing to identify it by, and the
+        # flip becomes undetectable again.
+        rig = FakeRig()
+        self.calibrator(rig).run()
+        marker_r = rig.shown[0][0][2]
+        other_r = [d[2] for d in rig.shown[0][1:]]
+        self.assertTrue(all(marker_r > r for r in other_r))
+        # And by enough to survive identify_marker's ratio test.
+        self.assertGreaterEqual((marker_r / max(other_r)) ** 2,
+                                geometry.DEFAULT_MIN_MARKER_RATIO)
+
+    def test_corner_dots_of_equal_size_are_refused_not_guessed(self):
+        # Orientation must never fall back to "pick one". A pattern with no
+        # marker is a pattern whose orientation is unknowable, and the
+        # honest answer is a refusal the operator can act on.
+        rig = FakeRig()
+        cal = self.calibrator(rig, marker_dot_radius_px=dotcal.CORNER_DOT_RADIUS_PX)
+        with self.assertRaises(dotcal.DotCalError) as ctx:
+            cal.run()
+        self.assertIn("marker", str(ctx.exception))
+
     def test_a_reply_in_a_different_order_does_not_matter(self):
         # FakeRig reverses every reply. If it did not, a bug that assumed
         # pattern order would pass here and fail on the rig.
@@ -296,10 +371,11 @@ class TestDegradedRigs(DotCalCase):
         self.assertIn("3 of 4 corner dots", str(ctx.exception))
 
     def test_a_fifth_corner_blob_is_salvaged_by_taking_the_largest(self):
-        # Real detection returns blobs largest-first, so the four real
-        # dots come before a small stray one. FakeRig reverses its reply,
-        # so putting the stray FIRST in the built list makes it last in
-        # the reply — i.e. exactly the "smallest, therefore dropped" case.
+        # The stray is dot-sized and the four real corner blobs are bigger,
+        # so area alone separates them. Deliberately NOT a statement about
+        # where the stray sits in the reply: the salvage picks by measured
+        # area precisely so the reply's order cannot decide which blob
+        # survives, and FakeRig reverses its reply to keep that honest.
         rig = FakeRig()
         rig.extra_points = {0: [[3.0, 3.0]]}
         rig.show([])

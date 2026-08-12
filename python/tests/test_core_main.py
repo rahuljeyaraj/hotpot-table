@@ -18,6 +18,7 @@ is right in isolation (test_pricing.py already covers that).
 """
 
 import json
+import math
 import os
 import sys
 import tempfile
@@ -1551,8 +1552,13 @@ class TestDotCalibrationOverTheWire(CoreCase):
             dots = self.core._overlay_msg().get("dots") or []
             points = [list(geo.apply(stage_to_cam, (d[0], d[1])))
                       for d in dots]
+            # Areas from the radius core asked for, so the oversized
+            # orientation marker comes back oversized — without them the
+            # coarse pass cannot tell which corner is which.
+            areas = [math.pi * float(d[2]) ** 2 for d in dots]
             client.send({"t": "dots", "id": msg.get("id"),
-                         "points": list(reversed(points))})
+                         "points": list(reversed(points)),
+                         "areas": list(reversed(areas))})
 
         client = self.wire_client("classifier", on_message=on_message)
         self.assertTrue(client.wait_connected(DEADLINE))
@@ -1614,9 +1620,12 @@ class TestDotCalibrationOverTheWire(CoreCase):
                 return
             overlay = self.core._overlay_msg()
             seen_kinds.append(overlay)
+            dots = overlay.get("dots") or []
             points = [list(geo.apply(stage_to_cam, (d[0], d[1])))
-                      for d in (overlay.get("dots") or [])]
-            client.send({"t": "dots", "id": msg.get("id"), "points": points})
+                      for d in dots]
+            areas = [math.pi * float(d[2]) ** 2 for d in dots]
+            client.send({"t": "dots", "id": msg.get("id"),
+                         "points": points, "areas": areas})
 
         client = self.wire_client("classifier", on_message=on_message)
         self.assertTrue(client.wait_connected(DEADLINE))

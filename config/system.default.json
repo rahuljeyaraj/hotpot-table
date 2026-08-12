@@ -33,6 +33,8 @@
     "grid_inset_px": [164, 100],
     "dot_radius_px": 13,
     "corner_dot_radius_px": 24,
+    "marker_dot_radius_px": 40,
+    "min_marker_ratio": 1.6,
     "min_dot_area_px": 40,
     "max_dot_area_px": 20000,
     "match_gate_px": 120,

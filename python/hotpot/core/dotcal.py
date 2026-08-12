@@ -35,11 +35,28 @@ alternative is to sort the detected grid row-major by y and then x, which
 works right up until the camera is mounted a few degrees off square, at
 which point a row's rightmost dot outranks the next row's leftmost, the
 grid pairs off by one, and the fit still looks excellent. Four
-widely-separated corners can be ordered by quadrant with no such
-assumption (`geometry.order_quad`), and the coarse homography they give
-is then good enough to project each expected grid position into camera
-space and match by nearest neighbour (`geometry.match_nearest`). The
-second pass therefore carries no ordering assumption at all.
+widely-separated corners can be ordered with no such assumption, and the
+coarse homography they give is then good enough to project each expected
+grid position into camera space and match by nearest neighbour
+(`geometry.match_nearest`). The second pass therefore carries no ordering
+assumption at all.
+
+**The first corner is drawn oversized, and the whole solve rests on it.**
+Ordering the four corners by their position in the camera image — which
+is what `geometry.order_quad` does and what this module used to call —
+assumes the camera is mounted roughly the same way up as the projector.
+**That assumption is false on this rig: the camera was measured at 180
+degrees** (commit b847c0f, 2026-08-08, which added a marker dot to the
+then-current solver for exactly this reason). At 180 degrees every corner
+pairs with the one opposite it, and because four points always fit a
+homography exactly, the result is a completely inverted calibration
+reported with ZERO error. Nothing downstream can catch it — the fine pass
+inherits the flip and matches happily, the RMS stays beautiful, and only
+the human Verify step ever notices. So the marker is back:
+`geometry.identify_marker` finds it by area and
+`geometry.order_quad_marker_first` takes the cyclic order from angles
+about the centroid, which no mounting angle can disturb. Orientation is
+decided geometrically, never by which hypothesis fits best.
 
 **The dots avoid the bin cutouts, and this is the constraint that
 actually shapes the pattern.** A bin is a hole in the plywood with a tray
@@ -74,10 +91,13 @@ alignment is off by more than that, the middle row's dots will clip the
 tray edges and should be dropped — `calibration.grid_rows` is config
 (doc section 8.6) so going to two rows is an edit, not a rebuild.
 
-**Radii: 13 px for the grid, 24 px for the corners.** The corner dots sit
-in the wide margins where there is room, and being large makes the coarse
-pass robust — it is the pass that must not fail. 13 px is ~10 mm on the
-table, which is what fits the middle band.
+**Radii: 13 px for the grid, 24 px for the corners, 40 px for the marker
+corner.** The corner dots sit in the wide margins where there is room, and
+being large makes the coarse pass robust — it is the pass that must not
+fail. 13 px is ~10 mm on the table, which is what fits the middle band.
+The marker's 40 px against 24 px is an area ratio of 2.8, comfortably over
+the 1.6 `geometry.identify_marker` insists on and close to the 2.25 the
+old solver used and confirmed on this rig.
 """
 
 from __future__ import annotations
@@ -108,6 +128,11 @@ GRID_ROWS = 3
 GRID_INSET_PX = (164.0, 100.0)
 DOT_RADIUS_PX = 13.0
 CORNER_DOT_RADIUS_PX = 24.0
+
+# The first corner, drawn oversized so orientation is a geometric fact
+# rather than a guess. See the module docstring — this is what stops a
+# 180-degree camera producing a perfectly-fitting inverted calibration.
+MARKER_DOT_RADIUS_PX = 40.0
 
 # How long the pattern is up before the classifier is asked to look. The
 # projector has a frame to draw it and the camera has a frame to expose
@@ -179,9 +204,15 @@ def corner_points(inset: Sequence[float] = GRID_INSET_PX,
     return [(ix, iy), (sw - ix, iy), (sw - ix, sh - iy), (ix, sh - iy)]
 
 
-def overlay_dots(points: Sequence[Point], radius: float) -> List[List[float]]:
+def overlay_dots(points: Sequence[Point], radius: float,
+                 first_radius: Optional[float] = None) -> List[List[float]]:
     """Doc section 4.3's overlay payload: `[[x, y, r], ...]` in stage
     space.
+
+    `first_radius`, when given, applies to point 0 only — the orientation
+    marker. Per-dot radius is already how the payload is shaped and how
+    `UiLayer::drawCalibrationDots` consumes it, so the marker needs no wire
+    change and no second message.
 
     **Core sends the pattern; oF does not know it.** I2 says oF "computes
     nothing it could be told", and this is the sharpest case of that
@@ -190,8 +221,10 @@ def overlay_dots(points: Sequence[Point], radius: float) -> List[List[float]]:
     against dots that were never where core thought they were — with a
     beautiful RMS, because the fit only ever sees core's copy.
     """
-    return [[round(float(x), 2), round(float(y), 2), float(radius)]
-            for (x, y) in points]
+    return [[round(float(x), 2), round(float(y), 2),
+             float(first_radius if (i == 0 and first_radius is not None)
+                   else radius)]
+            for i, (x, y) in enumerate(points)]
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +275,10 @@ class DotCalibrator:
         self.dot_radius = float(cfg.get("dot_radius_px", DOT_RADIUS_PX))
         self.corner_radius = float(cfg.get("corner_dot_radius_px",
                                            CORNER_DOT_RADIUS_PX))
+        self.marker_radius = float(cfg.get("marker_dot_radius_px",
+                                           MARKER_DOT_RADIUS_PX))
+        self.min_marker_ratio = float(cfg.get("min_marker_ratio",
+                                              geometry.DEFAULT_MIN_MARKER_RATIO))
         self.min_area = float(cfg.get("min_dot_area_px", 40.0))
         self.max_area = float(cfg.get("max_dot_area_px", 20000.0))
         self.match_gate_px = float(cfg.get("match_gate_px", MATCH_GATE_PX))
@@ -273,7 +310,8 @@ class DotCalibrator:
 
     def _run(self, keystone_fingerprint, camera_size, save) -> DotCalResult:
         coarse_stage = corner_points(self.inset, self.store.stage_size)
-        coarse_cam = self._pass(coarse_stage, self.corner_radius, "coarse")
+        coarse_cam, coarse_areas = self._pass(
+            coarse_stage, self.corner_radius, "coarse", self.marker_radius)
         if len(coarse_cam) < 4:
             raise DotCalError(
                 f"the first pass found only {len(coarse_cam)} of 4 corner "
@@ -282,17 +320,40 @@ class DotCalibrator:
         if len(coarse_cam) > 4:
             # Salvage, and only here: a wrong choice is caught by the fine
             # pass a second later, which is not true anywhere else in this
-            # sequence. `classifier/dots.py` returns largest-first.
+            # sequence.
+            #
+            # **Chosen by measured area, not by position in the reply.**
+            # `classifier/dots.py` does sort largest-first, but taking the
+            # first four would make this the only place in the module that
+            # depends on that, and it is the place that can least afford to:
+            # trimming the marker off the end costs the orientation, which
+            # then cannot be recovered from anything else in the frame.
             _log.warning("dotcal: coarse pass found %d blobs, taking the 4 "
-                         "largest", len(coarse_cam))
-            coarse_cam = coarse_cam[:4]
-        ordered = geometry.order_quad(coarse_cam)
+                         "largest by area", len(coarse_cam))
+            keep = sorted(range(len(coarse_cam)),
+                          key=lambda i: coarse_areas[i], reverse=True)[:4]
+            coarse_cam = [coarse_cam[i] for i in keep]
+            coarse_areas = [coarse_areas[i] for i in keep]
+
+        # Orientation, geometrically. A GeometryError here is a real refusal
+        # to guess, not a hiccup — see the module docstring on the 180-degree
+        # camera — so it becomes an operator-facing message rather than a
+        # traceback, and the solve stops.
+        try:
+            marker = geometry.identify_marker(
+                coarse_areas, min_ratio=self.min_marker_ratio)
+            ordered = geometry.order_quad_marker_first(coarse_cam, marker)
+        except geometry.GeometryError as e:
+            raise DotCalError(str(e)) from e
+        _log.info("dotcal: marker dot is blob %d of 4 (area %.0f px2) — "
+                  "camera orientation resolved from it, not from error",
+                  marker, coarse_areas[marker])
         coarse_fit = geometry.fit(ordered, coarse_stage,
                                   ransac_reproj_px=self.ransac_reproj_px)
 
         fine_stage = grid_points(self.cols, self.rows, self.inset,
                                  self.store.stage_size)
-        fine_cam = self._pass(fine_stage, self.dot_radius, "fine")
+        fine_cam, _fine_areas = self._pass(fine_stage, self.dot_radius, "fine")
 
         # Where the coarse fit says each expected dot should appear in the
         # camera. This is what removes the row-sorting assumption entirely.
@@ -369,11 +430,17 @@ class DotCalibrator:
                             message=message, good=good)
 
     def _pass(self, stage_points: Sequence[Point], radius: float,
-              name: str) -> List[Point]:
+              name: str, first_radius: Optional[float] = None
+              ) -> Tuple[List[Point], List[float]]:
         """Draw a pattern, wait for it to be on the table and exposed, ask
-        the classifier what it sees, return camera-space points.
+        the classifier what it sees, return camera-space points **and their
+        blob areas**.
+
+        The areas are what identify the oversized marker in the coarse pass.
+        They travel on the reply `classifier/main.py` already sends, so
+        nothing about the wire changed to get them here.
         """
-        self._show(overlay_dots(stage_points, radius))
+        self._show(overlay_dots(stage_points, radius, first_radius))
         self._sleep(self.settle_s)
         reply = self._ask(len(stage_points), self.min_area)
         if not isinstance(reply, dict):
@@ -385,8 +452,20 @@ class DotCalibrator:
         points = reply.get("points")
         if not isinstance(points, list):
             raise DotCalError("the classifier's answer made no sense")
-        out = [(float(p[0]), float(p[1])) for p in points
-               if isinstance(p, (list, tuple)) and len(p) >= 2]
+        raw_areas = reply.get("areas")
+        if not isinstance(raw_areas, list):
+            raw_areas = []
+        out: List[Point] = []
+        areas: List[float] = []
+        for i, p in enumerate(points):
+            if not isinstance(p, (list, tuple)) or len(p) < 2:
+                continue
+            out.append((float(p[0]), float(p[1])))
+            # Areas are positional against `points`; a reply without them
+            # (or a short list) yields 0.0, which `identify_marker` then
+            # refuses rather than silently treating as a tie.
+            areas.append(float(raw_areas[i])
+                         if i < len(raw_areas) else 0.0)
         _log.info("dotcal: %s pass drew %d dots, camera saw %d",
                   name, len(stage_points), len(out))
-        return out
+        return out, areas
