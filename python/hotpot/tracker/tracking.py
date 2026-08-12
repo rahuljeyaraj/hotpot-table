@@ -1,0 +1,250 @@
+"""tracker/tracking.py — doc section 11.3's two hands, two roles.
+
+The requirement is one sentence: **the right hand selects; the left hand
+holds the bowl and must never select anything.** Everything below exists
+because the obvious implementation of that sentence — ask MediaPipe which
+hand this is, every frame — does not survive contact with an overhead
+camera. Doc section 11.3: "handedness from an overhead camera with a
+possibly-mirrored image is not reliable enough to bet the interaction on."
+
+So role is a property of a **tracked identity**, not of a frame:
+
+    1. Track hands across frames by nearest-neighbour on the cursor point
+       (gate: 150 px in stage space). Assign each a stable id.
+    2. When a hand first appears:
+         - if no pointer currently exists  -> pointer
+         - else if MediaPipe says "Right"  -> pointer, demote the other
+         - else                            -> ambient
+    3. Role is LOCKED for the lifetime of that tracked id.
+    4. When the pointer disappears for >500ms its role is released. The
+       remaining ambient hand is promoted only after a further 500ms.
+
+Three things about that, worth having written down before anyone changes it:
+
+**Steps 2 and 3 are in tension and the tension is deliberate.** "Role is
+LOCKED for the lifetime of that tracked id" and "demote the other" cannot
+both be unconditionally true. Read literally, and as implemented: a role
+never changes *on its own* — no confidence wobble, no re-classification, no
+drift can flip it mid-gesture. The single exception is the explicit
+demotion in step 2, which fires only at the instant a NEW hand appears and
+is labelled Right. That is the case the exception exists for: a diner puts
+the bowl down first and then reaches in with their right hand.
+
+**The 500ms + 500ms in step 4 is two different guards, not one delay split
+in half.** The first 500ms is "is the pointer really gone, or did the
+detector blink?" — a track survives that long unseen before its id retires,
+so a one-frame dropout cannot mint a new id and re-run step 2. The second
+500ms is "should the bowl hand inherit control?" — and its answer is
+usually no, because the pointer hand normally comes straight back. A new
+hand arriving during that window takes the pointer role immediately (step 2
+sees no pointer), which is right: the delay protects an *incumbent*
+ambient hand from being promoted, it is not a lockout on the table.
+
+**Matching is greedy in order of increasing distance, not in track order.**
+`common.geometry.match_nearest` already does exactly this and is already
+tested, so it is reused rather than reimplemented. The reason it matters
+here is the same reason it mattered there: with two hands close together,
+matching in list order lets the first track claim a detection that belonged
+much more clearly to the second, and the two ids swap. An id swap swaps the
+roles with it — the bowl hand silently becomes the pointer — which is the
+one failure this whole module exists to prevent.
+
+Everything here is pure: no clock of its own (`now` is passed in), no
+sockets, no camera. That is what lets doc section 21's M5 acceptance
+scenarios — "left hand over bin 3, nothing happens; try hard to make it
+select" — be tests rather than only rig work.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import List, Optional, Sequence
+
+from hotpot.common import cursorbus, geometry
+from hotpot.tracker.backend import HAND_RIGHT, Detection
+
+# Doc section 11.3 step 1's gate, in stage-space pixels. A hand crossing
+# the 1524mm table in one 33ms camera frame would have to be moving about
+# 4.5 m/s to break this, which is a slap rather than a reach.
+MATCH_GATE_PX = 150.0
+
+# Doc section 11.3 step 4's two windows. Named separately because they
+# guard different things — see the module docstring.
+TRACK_GRACE_S = 0.5      # unseen this long -> the id retires, role released
+PROMOTE_DELAY_S = 0.5    # ...and only this much later may an ambient inherit
+
+
+@dataclass
+class Track:
+    """One hand identity, alive across frames."""
+
+    id: int
+    role: str
+    x: float
+    y: float
+    conf: float
+    last_seen: float
+    handedness: Optional[str] = None
+    seen_frames: int = 1
+
+    @property
+    def is_pointer(self) -> bool:
+        return self.role == cursorbus.ROLE_POINTER
+
+
+@dataclass
+class HandTracker:
+    """Detections in, doc section 4.6 hands out. Stateful across calls."""
+
+    match_gate_px: float = MATCH_GATE_PX
+    track_grace_s: float = TRACK_GRACE_S
+    promote_delay_s: float = PROMOTE_DELAY_S
+
+    tracks: List[Track] = field(default_factory=list)
+    _next_id: int = 1
+    # When the pointer role last became vacant by a track retiring. None
+    # while a pointer exists or while none ever has. This is what the
+    # second 500ms is measured from — not "when the frame went empty",
+    # which would restart the clock on every frame with no hands in it and
+    # make promotion unreachable.
+    _pointer_released_at: Optional[float] = None
+
+    # -- the one entry point ----------------------------------------------
+
+    def update(self, detections: Sequence[Detection], now: float
+               ) -> List[cursorbus.Hand]:
+        """Advance one frame. Returns what goes on the wire, in stable id
+        order so a consumer reading `hands[0]` frame after frame is not
+        reading a different hand each time.
+
+        `detections` are in **stage space** already — the caller applies
+        the homography before calling, so the 150px gate is a stage-space
+        distance exactly as doc section 11.3 specifies. Doing it the other
+        way round would make the gate a camera-pixel distance that changes
+        meaning with the camera's mounting.
+        """
+        self._match(detections, now)
+        self._retire(now)
+        self._promote(now)
+        return [cursorbus.Hand(id=t.id, role=t.role, x=t.x, y=t.y,
+                               conf=t.conf)
+                for t in sorted(self.tracks, key=lambda t: t.id)]
+
+    # -- step 1: matching --------------------------------------------------
+
+    def _match(self, detections: Sequence[Detection], now: float) -> None:
+        existing = list(self.tracks)
+        paired = geometry.match_nearest(
+            [(t.x, t.y) for t in existing],
+            [(d.x, d.y) for d in detections],
+            max_distance_px=self.match_gate_px)
+
+        claimed = set()
+        for track, det_idx in zip(existing, paired):
+            if det_idx is None:
+                continue
+            det = detections[det_idx]
+            claimed.add(det_idx)
+            track.x, track.y = det.x, det.y
+            track.conf = det.conf
+            track.last_seen = now
+            track.seen_frames += 1
+            # Handedness is refreshed but **the role is not recomputed
+            # from it** (step 3). It is kept only so a future diagnostic
+            # can show what MediaPipe currently thinks, and it is
+            # deliberately never read again by this module after the
+            # track's first frame.
+            if det.handedness is not None:
+                track.handedness = det.handedness
+
+        for idx, det in enumerate(detections):
+            if idx not in claimed:
+                self._appear(det, now)
+
+    # -- step 2: a hand first appears --------------------------------------
+
+    def _appear(self, det: Detection, now: float) -> None:
+        """Doc section 11.3 step 2, in its own order.
+
+        The order is the whole rule and is easy to get subtly wrong. "No
+        pointer exists" is checked FIRST, before handedness — which is what
+        makes a left-handed diner alone at the table able to use it at all
+        (doc section 11.3's own rationale: "with one hand on the table,
+        that hand is the pointer regardless of which hand it is"). Checking
+        handedness first would leave a lone left hand as ambient forever,
+        pointing at a table that never responds.
+        """
+        role = cursorbus.ROLE_AMBIENT
+        current = self.pointer()
+        if current is None:
+            role = cursorbus.ROLE_POINTER
+        elif det.handedness == HAND_RIGHT:
+            # The one sanctioned role change (see the module docstring):
+            # a right hand arriving beside an existing pointer takes over,
+            # and the incumbent is demoted rather than there being two.
+            current.role = cursorbus.ROLE_AMBIENT
+            role = cursorbus.ROLE_POINTER
+
+        self.tracks.append(Track(
+            id=self._next_id, role=role, x=det.x, y=det.y, conf=det.conf,
+            last_seen=now, handedness=det.handedness))
+        self._next_id += 1
+        if role == cursorbus.ROLE_POINTER:
+            self._pointer_released_at = None
+
+    # -- step 4: retirement and promotion ----------------------------------
+
+    def _retire(self, now: float) -> None:
+        keep: List[Track] = []
+        lost_pointer = False
+        for track in self.tracks:
+            if now - track.last_seen > self.track_grace_s:
+                if track.is_pointer:
+                    lost_pointer = True
+                continue
+            keep.append(track)
+        self.tracks = keep
+        if lost_pointer and self.pointer() is None:
+            # Stamped once, when the role actually becomes vacant — not
+            # refreshed on later frames, or the promotion deadline below
+            # would keep moving away and never arrive.
+            self._pointer_released_at = now
+
+    def _promote(self, now: float) -> None:
+        if self._pointer_released_at is None:
+            return
+        if self.pointer() is not None:
+            self._pointer_released_at = None
+            return
+        if now - self._pointer_released_at < self.promote_delay_s:
+            return
+        # The longest-lived ambient hand, not the first in the list: if two
+        # are on the table, the one that has been there longer is the one
+        # the diner has been using as their steady hand.
+        candidates = [t for t in self.tracks
+                      if t.role == cursorbus.ROLE_AMBIENT]
+        if not candidates:
+            return
+        winner = max(candidates, key=lambda t: t.seen_frames)
+        winner.role = cursorbus.ROLE_POINTER
+        self._pointer_released_at = None
+
+    # -- queries -----------------------------------------------------------
+
+    def pointer(self) -> Optional[Track]:
+        for track in self.tracks:
+            if track.is_pointer:
+                return track
+        return None
+
+    def reset(self) -> None:
+        """Forget every track and every role.
+
+        Called when the frame source goes away (doc section 6.4's stale
+        camera): the hands that come back after a camera restart are new
+        hands as far as any 150px gate is concerned, and carrying a role
+        across a gap of unknown length would mean the bowl hand keeping the
+        pointer role it inherited before the outage.
+        """
+        self.tracks = []
+        self._pointer_released_at = None

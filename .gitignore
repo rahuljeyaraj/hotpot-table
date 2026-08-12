@@ -98,6 +98,10 @@ models/**/*.tflite
 models/**/*.pth
 models/**/*.weights
 models/**/*.bin
+# MediaPipe Tasks model bundles (hand_landmarker.task — M5's tracker). Same
+# rule as every other weight file here: re-downloadable, provenance logged in
+# models/README.md, never in git.
+models/**/*.task
 
 # The log itself stays tracked.
 !models/README.md

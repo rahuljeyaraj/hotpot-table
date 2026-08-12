@@ -2344,5 +2344,102 @@ class TestStop(unittest.TestCase):
             core.stop()   # must not raise
 
 
+class TestTrackerWelcomeConfig(CoreCase):
+    """Doc section 4.2's `welcome.cfg`, which was `{}` for every client
+    from M0 to M4 (a known gap in CLAUDE.md) because nothing needed it
+    until the tracker.
+
+    Doc section 5.3: "Core pushes it to `tracker` in the `welcome`
+    message. Tracker converts MediaPipe output to stage space before
+    sending."
+    """
+
+    def welcome_cfg(self, who):
+        got = {}
+        done = threading.Event()
+
+        def on_connect(cfg):
+            got.update(cfg or {})
+            done.set()
+
+        c = wire.Client("127.0.0.1", self.core.control_port, who,
+                        on_connect=on_connect)
+        self._wire_clients.append(c)
+        c.start()
+        self.assertTrue(done.wait(DEADLINE), f"{who} never got a welcome")
+        return got
+
+    def test_the_tracker_is_told_the_homography(self):
+        cfg = self.welcome_cfg("tracker")
+        self.assertEqual(cfg["homography_cam_to_stage"], _FIXTURE_H)
+
+    def test_the_tracker_is_told_the_stage_size_and_emit_rate(self):
+        cfg = self.welcome_cfg("tracker")
+        self.assertEqual(cfg["stage"], [1920, 1080])
+        self.assertEqual(cfg["emit_hz"], coremain.TRACKER_EMIT_HZ)
+        self.assertIs(cfg["mirror_handedness"], False)
+
+    def test_nobody_else_is_given_a_config(self):
+        # `of` holds only rig calibration it reads off disk itself (I2) and
+        # the classifier is told what to do per command (doc section 4.7).
+        # Sending either of them a homography would be handing a second
+        # copy of the geometry to a process that has no business deriving
+        # anything from it.
+        self.assertEqual(self.welcome_cfg("of"), {})
+        self.assertEqual(self.welcome_cfg("classifier"), {})
+
+
+class TestTrackerWelcomeOnAnUncalibratedTable(CoreCase):
+    calibrated_fixture = False
+
+    def test_the_homography_is_null_not_identity(self):
+        # Identity is a matrix that WORKS: it would put camera pixels
+        # straight onto the stage and produce confident cursors in the
+        # wrong place, on a table doc section 9.1 says is not usable yet.
+        # An absent matrix stops the tracker emitting at all.
+        got = {}
+        done = threading.Event()
+
+        def on_connect(cfg):
+            got.update({"cfg": cfg})
+            done.set()
+
+        c = wire.Client("127.0.0.1", self.core.control_port, "tracker",
+                        on_connect=on_connect)
+        self._wire_clients.append(c)
+        c.start()
+        self.assertTrue(done.wait(DEADLINE))
+        self.assertIsNone(got["cfg"]["homography_cam_to_stage"])
+
+
+class TestTrackerConfigIsPushedOnChange(CoreCase):
+    calibrated_fixture = False
+
+    def test_a_new_homography_reaches_a_tracker_that_is_already_connected(self):
+        # The tracker holds no config of its own (doc section 4.2) and was
+        # told "no homography" when it connected. A solve that did not
+        # reach it would leave the table calibrated and the cursor dead
+        # until the next restart — with nothing on any screen saying so.
+        pushed = []
+        got_push = threading.Event()
+
+        def on_msg(m):
+            if m.get("t") == "cfg":
+                pushed.append(m)
+                got_push.set()
+
+        c = self.wire_client("tracker", on_message=on_msg)
+        self.assertTrue(c.wait_connected(DEADLINE))
+
+        ws = self.ws()
+        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        ws.send(json.dumps({"t": "manual_calibrate",
+                            "points": [[100, 900], [1800, 900],
+                                       [1700, 200], [200, 200]]}))
+        self.assertTrue(got_push.wait(DEADLINE),
+                        "the tracker was never told about the new homography")
+        self.assertIsNotNone(pushed[-1]["cfg"]["homography_cam_to_stage"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -153,6 +153,12 @@ MODE_SETTING = "setting"
 NOT_IN_SETTING_MSG = ("Enter setting mode first — the table is still "
                       "serving.")
 
+# Doc section 8.6's `tracker.emit_hz`. Core's default rather than the
+# tracker's, because doc section 4.2 makes core the one place a client's
+# configuration lives — the tracker is told this in `welcome` and holds no
+# copy of its own.
+TRACKER_EMIT_HZ = 60.0
+
 # How long core waits for a classifier reply to one of doc section 4.7's
 # commands — the capture case is a whole burst (doc section 12.7: 10 frames
 # over 5 s) plus the JPEG writes.
@@ -220,6 +226,8 @@ class Core:
         camera_grid_path: Path = bin_grid.CAMERA_GRID_PATH,
         projector_grid_path: Path = bin_grid.PROJECTOR_GRID_PATH,
         view_rotation_path: Path = geometry_store.VIEW_ROTATION_PATH,
+        mirror_handedness: bool = False,
+        emit_hz: float = TRACKER_EMIT_HZ,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -227,8 +235,15 @@ class Core:
             on_message=self._on_message,
             on_connect=self._on_connect,
             on_disconnect=self._on_disconnect,
+            welcome_cfg=self._welcome_cfg,
             name="core",
         )
+        # Doc section 8.6's `tracker.mirror_handedness`, held by core rather
+        # than by the tracker because doc section 4.2 says clients "hold no
+        # config of their own beyond how to find core" — and because doc
+        # section 11.3 wants it toggled live from the staff view, which has
+        # no route to the tracker except through here.
+        self.mirror_handedness = mirror_handedness
         self.web = web.Server(web_host, web_port, static_root,
                               on_join=self._join_msgs, on_message=self._on_web_message)
         # Core beats its own pip from its own loop rather than being
@@ -329,6 +344,11 @@ class Core:
         # that as "not stale", never as a fault.
         self._keystone_fingerprint: Optional[str] = None
 
+        # Doc section 6.4: which frame consumers currently believe the
+        # camera has stalled, by process name. Written from the `stat`
+        # handler, read by the developer panel.
+        self.frames_stale: Dict[str, bool] = {}
+
         # In-flight doc section 4.7 commands to the classifier, by id.
         # Each is an Event plus a slot for the reply — the classifier
         # answers on the control link's read thread and the waiter is a
@@ -371,6 +391,8 @@ class Core:
         # calls cart.reset_session()), and a future handler that takes this
         # and then calls one of those must not deadlock on itself.
         self.state_lock = threading.RLock()
+
+        self.emit_hz = emit_hz
 
         self._state_seq = 0
         self._state_stop = threading.Event()
@@ -428,6 +450,61 @@ class Core:
             ver=ver if isinstance(ver, int) else None,
         )
 
+    # -- doc section 4.2's `welcome` payload --------------------------------
+
+    def _welcome_cfg(self, conn: wire.Connection,
+                     hello: Dict[str, Any]) -> Dict[str, Any]:
+        """What a joining client is told about itself.
+
+        Doc section 4.2: "core replies to hello with the client's current
+        configuration, so clients hold no config of their own beyond how to
+        find core." This was `{}` for every client from M0 to M4 — a known
+        gap in CLAUDE.md — because nothing needed it until the tracker,
+        which cannot convert a cursor into stage space without core's
+        homography (doc section 5.3: "core pushes it to `tracker` in the
+        `welcome` message").
+
+        Keyed on `who` rather than sent to everyone: `of` holds only rig
+        calibration it reads off disk itself (I2), and the classifier is
+        told what to do per command (doc section 4.7), so neither has a
+        config to be given here.
+        """
+        if conn.who == "tracker":
+            return self._tracker_cfg()
+        return {}
+
+    def _tracker_cfg(self) -> Dict[str, Any]:
+        """Doc section 4.2's example payload, with the fields that exist.
+
+        `homography_cam_to_stage` is **`None`, not identity**, when the
+        table is uncalibrated. Identity would be a matrix that works — it
+        would put camera pixels straight onto the stage and produce
+        confident cursors in the wrong place, on a table that is
+        specifically not supposed to be usable yet (doc section 9.1's
+        UNCALIBRATED). An absent matrix stops the tracker emitting at all,
+        which is the honest behaviour and what `tracker/main.py` is written
+        against.
+        """
+        return {
+            "homography_cam_to_stage": self.geometry.h,
+            "stage": list(self.geometry.stage_size),
+            "camera_size": list(self.geometry.camera_size),
+            "emit_hz": self.emit_hz,
+            "mirror_handedness": self.mirror_handedness,
+        }
+
+    def _push_tracker_cfg(self) -> None:
+        """Re-send the tracker's config without waiting for it to reconnect.
+
+        Doc section 11.3 makes `mirror_handedness` "fastest to determine by
+        trying it", which only works if the staff view's swap-hands button
+        takes effect now rather than at the next restart. Sent as `cfg`,
+        the same payload `welcome` carries, so there is one shape for the
+        tracker to parse and not two.
+        """
+        self.control.broadcast({"t": "cfg", "cfg": self._tracker_cfg()},
+                               only=["tracker"])
+
     def _on_message(self, conn: wire.Connection, msg: Dict[str, Any]) -> None:
         if self.registry.handle(conn.who, msg):
             return
@@ -439,6 +516,14 @@ class Core:
             fp = msg.get("keystone_fingerprint")
             if isinstance(fp, str) and fp:
                 self._keystone_fingerprint = fp
+            # Doc section 6.4's second bullet: a consumer that notices the
+            # camera has stopped "reports {"t":"stat","frames_stale":true}
+            # to core". Recorded rather than acted on — the pips already go
+            # red on a dead camera process, and this is the different fact
+            # that the camera is alive but not producing.
+            stale = msg.get("frames_stale")
+            if isinstance(stale, bool):
+                self.frames_stale[conn.who] = stale
             return
         if t in ("dots", "result", "captured"):
             self._resolve_classifier_reply(msg)
@@ -984,6 +1069,12 @@ class Core:
             "t": "manual_calibrate_result", "ok": True,
             "message": "Table corners saved."})
         self.web.broadcast(self._geometry_msg())
+        # The tracker holds no config of its own (doc section 4.2) and was
+        # told the OLD homography — or none at all — when it connected. A
+        # new solve that did not reach it would leave every cursor being
+        # converted through the previous table geometry, silently, until
+        # the next restart.
+        self._push_tracker_cfg()
 
     def _handle_set_view_rotation(self, msg: Dict[str, Any]) -> None:
         """The Setup tab's Rotate button (drag-corner rebuild step 4 — no
@@ -1580,10 +1671,17 @@ def main() -> None:
     # config.py's own docstring says a live system.json seeded from the
     # committed default deep-merges over it, so an operator can repoint the
     # Live tab at a different host without touching code.
-    cam_cfg = config.get(config.load(), "camera", {})
+    cfg = config.load()
+    cam_cfg = config.get(cfg, "camera", {})
     core = start(
         camera_host=cam_cfg.get("host_for_browser", CAMERA_HOST),
         camera_port=cam_cfg.get("mjpeg_port", CAMERA_PORT),
+        # Doc section 8.6's tracker block, read here rather than by the
+        # tracker itself: doc section 4.2 makes core the one holder of
+        # every client's configuration.
+        mirror_handedness=bool(config.get(cfg, "tracker.mirror_handedness",
+                                          False)),
+        emit_hz=float(config.get(cfg, "tracker.emit_hz", TRACKER_EMIT_HZ)),
     )
     # After both ports are bound (doc section 10.2: "say it after the
     # port is bound"), not before — run.py's tier 3 is waiting on this

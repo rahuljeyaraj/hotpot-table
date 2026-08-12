@@ -71,6 +71,57 @@ confidence thresholds. Worth pinning down the threshold on the next run.
 
 ---
 
+---
+
+## `hand_landmarker.task` — MediaPipe Hands (M5's tracker)
+
+Not a trained-here model: a **stock Google-published MediaPipe Tasks bundle**,
+so it has no dataset, no epochs and no metrics of ours to record. What matters
+about it instead is where it came from and what the code expects.
+
+| | |
+|---|---|
+| Filename | `models/hand_landmarker.task` |
+| Source | `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task` |
+| Size | 7,819,105 bytes |
+| Downloaded | 2026-08-12 |
+| Used by | `python/hotpot/tracker/backend_mediapipe.py` |
+| Current | **yes** |
+
+**Re-download with:**
+
+```
+curl -L -o models/hand_landmarker.task \
+  https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+```
+
+Gitignored (`models/**/*.task`), same rule as every other weight file here.
+A missing bundle is **not** a crash: `tracker/build_backend()` falls back to
+`backend_stub` and logs a line pointing at this file, because doc §3.3 requires
+every process to come up and hold its link open regardless of what is absent.
+
+**The API this is loaded through is not the one the architecture doc describes.**
+Doc §11.1–§11.3 are written against `mediapipe.solutions.hands`, which **does not
+exist** in the installed mediapipe 1.0.0 (`mp.solutions` is gone entirely —
+verified, not remembered). The Tasks API replaces it, and it takes this `.task`
+bundle rather than a `model_complexity` integer. See `backend_mediapipe.py`'s
+module docstring for the full list of consequences.
+
+**Doc §11.2's model ladder therefore has one rung on this rig.** `model_complexity
+0 → 1` selected between two bundled `.tflite` landmark models in the old API;
+here the rung *is* which bundle you point at, and Google publishes one. The
+tracker's probe still measures and logs the achieved rate, and
+`backend_mediapipe.MODEL_RUNGS` is the ordered ladder a second bundle would slot
+into — but nothing pretends a one-rung ladder was climbed.
+
+**Measured on the dev machine, 2026-08-12, and this number does NOT transfer to
+the deploy board:** 11.1 ms median per inference at 480×270 with no hands in
+frame (~90 fps). This machine has AVX2; the ODYSSEY J4125 does not (doc §1.4b),
+which is precisely the instruction set MediaPipe's x86 inference leans on. The
+`SIGILL` check doc §11.2 requires is still owed and can only be done on the board.
+
+---
+
 ## Known next step
 
 Retrain after the `tongs` class deletion. `tray` (empty bin) is the weak class.
