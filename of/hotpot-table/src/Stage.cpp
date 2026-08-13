@@ -1,5 +1,6 @@
 #include "Stage.h"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <sstream>
@@ -102,7 +103,7 @@ void Stage::endContent(){
 }
 
 void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx,
-	bool invertedField, const std::function<void()> & drawAboveLightPass){
+	float cutoutCornerRadiusPx, bool invertedField, const std::function<void()> & drawAboveLightPass){
 	// --- I9's exception: dot calibration ---------------------------------
 	// Neither the floor lift nor the light pass runs. Both exist to keep
 	// the table lit for the camera, and during a solve the camera is
@@ -130,7 +131,21 @@ void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & 
 		ofDisableAlphaBlending();
 		ofSetColor(255);
 		for(const auto & r : cutoutsPx){
-			ofDrawRectangle(r);
+			if(cutoutCornerRadiusPx <= 0.0f){
+				ofDrawRectangle(r);
+				continue;
+			}
+			// Filled path, not a stroked rect — same rule as UiLayer's rings
+			// (doc §13.4): a filled shape is the only kind that survives the
+			// programmable renderer M8's fluid will force.
+			const float radius = std::min(cutoutCornerRadiusPx,
+				std::min(r.width, r.height) * 0.5f);
+			ofPath path;
+			path.setFilled(true);
+			path.setFillColor(ofColor(255));
+			path.setCircleResolution(24);
+			path.rectRounded(r, radius);
+			path.draw();
 		}
 
 		// --- step 5: above the light pass, 2026-08-12 ---------------------

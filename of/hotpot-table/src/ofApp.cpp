@@ -150,7 +150,8 @@ void ofApp::draw(){
 			_ui.drawCursorAboveLightPass(state, pointer);
 		};
 	}
-	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx(), false, aboveLightPass);
+	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx(),
+		mmToPxX(CUTOUT_CORNER_RADIUS_MM), false, aboveLightPass);
 
 	if(_screenshotPending){
 		_screenshotPending = false;

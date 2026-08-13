@@ -68,6 +68,11 @@ static constexpr float BIN_H_MM = 255.0f;
 // homography's residual error and the saw kerf on the real cutout.
 static constexpr float CUTOUT_MARGIN_MM = 10.0f;
 
+// Corner radius of the physical bin/cutout, matched in projected space so the
+// projected rectangle's corners line up with the real cut edge. Measured on
+// the rig, not derived — VERIFY against the actual bin/CAD before trusting it.
+static constexpr float CUTOUT_CORNER_RADIUS_MM = 20.0f;
+
 // A bin footprint in table mm. Origin is the corner nearest the far-left of
 // the table, matching the mm axes: +x to the right, +y from the far edge
 // towards the diner - which is why the far row below has the smaller yMM.

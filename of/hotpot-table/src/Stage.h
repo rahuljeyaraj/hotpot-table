@@ -80,7 +80,11 @@ public:
 	// during setting mode (doc §12.7's capture refusal), the cursor only
 	// ever exists during serving mode. Nothing else about I9 changes —
 	// the rest of every cutout is still stamped flat white, always.
+	// cutoutCornerRadiusPx rounds every cutout's corners (0 = square, the old
+	// behaviour). One radius for all bins — TableGeometry.h's
+	// CUTOUT_CORNER_RADIUS_MM converted to px by the caller.
 	void compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx,
+		float cutoutCornerRadiusPx = 0.0f,
 		bool invertedField = false,
 		const std::function<void()> & drawAboveLightPass = nullptr);
 

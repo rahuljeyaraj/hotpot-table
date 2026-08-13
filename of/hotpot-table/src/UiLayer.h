@@ -87,8 +87,10 @@ private:
 	ofRectangle binRectPx(int i) const;
 	ofRectangle cutoutRectPx(int i) const;
 	static ofRectangle cadBinRectPx(int i);
+	// cornerRadiusPx rounds the ring's corners to match a rounded cutout
+	// (0 = square, the old four-bars behaviour — what widgets still use).
 	static void drawRing(const ofRectangle & cut, float widthX, float widthY,
-		const ofColor & colour);
+		const ofColor & colour, float cornerRadiusPx = 0.0f);
 	// A FILLED annulus, and an arc of one — doc §13.4: "circular rings —
 	// the M5 dwell ring, M8's halos: a filled ofPath built from an outer
 	// arc and an inner arcNegative. Never two ofDrawCircle calls with the

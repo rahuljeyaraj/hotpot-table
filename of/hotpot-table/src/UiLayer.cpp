@@ -1,6 +1,7 @@
 #include "UiLayer.h"
 #include "TableGeometry.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -374,7 +375,31 @@ std::vector<ofRectangle> UiLayer::cutoutRectsPx() const {
 }
 
 void UiLayer::drawRing(const ofRectangle & cut, float widthX, float widthY,
-	const ofColor & colour){
+	const ofColor & colour, float cornerRadiusPx){
+	if(cornerRadiusPx > 0.0f){
+		// Rounded cutout (Stage's light pass now stamps one) needs a ring
+		// that follows the same corner, or square bar corners would poke
+		// out past a rounded hole. Two filled rounded-rect contours, ODD
+		// winding, same "filled only" rule as the bars below and doc
+		// §13.4's circular-ring annulus — the ring is the area between
+		// them, not a stroke.
+		const ofRectangle outer(cut.x - widthX, cut.y - widthY,
+			cut.width + 2.0f * widthX, cut.height + 2.0f * widthY);
+		const float widthAvg = 0.5f * (widthX + widthY);
+		const float rOuter = std::min(cornerRadiusPx + widthAvg,
+			std::min(outer.width, outer.height) * 0.5f);
+		const float rInner = std::min(cornerRadiusPx,
+			std::min(cut.width, cut.height) * 0.5f);
+		ofPath path;
+		path.setFilled(true);
+		path.setFillColor(colour);
+		path.setCircleResolution(24);
+		path.setPolyWindingMode(OF_POLY_WINDING_ODD);
+		path.rectRounded(outer, rOuter);
+		path.rectRounded(cut, rInner);
+		path.draw();
+		return;
+	}
 	// Four filled bars, not a stroked path. VERIFIED in the installed oF
 	// rather than assumed, because assuming is what put the ring under the
 	// light pass in the first place: an unfilled ofPath is drawn by
@@ -514,7 +539,7 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 
 	ofColor ring((int)roundf(tw.colR.get()), (int)roundf(tw.colG.get()),
 		(int)roundf(tw.colB.get()));
-	drawRing(cut, ringX, ringY, ring);
+	drawRing(cut, ringX, ringY, ring, mmToPxX(CUTOUT_CORNER_RADIUS_MM));
 
 	// Name/detail text drawn below inherits the draw colour (drawCentered
 	// sets none of its own) — must be the doc §13.4 ink colour, not the
