@@ -229,7 +229,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from hotpot.common import config, cursorbus, framebus, geometry, health, log, wire
 from hotpot.tracker import backend_mediapipe, backend_stub, tracking
@@ -605,14 +605,59 @@ class _AcquisitionWindow:
     other timestamp in this class already uses), read by
     `ACQUISITION_WINDOW_LOST_S` to decide when a window has gone
     unmatched long enough to give up on.
+
+    **RIG_FEEDBACK item 11 (2026-08-13), confirmed on the rig by the
+    diagnostic log this replaces (three real occurrences, all "lost after
+    1.03s" — matching the developer's own reported stuck duration
+    exactly):** a hand fast enough to outrun this window between two
+    service ticks used to leave it frozen at the stale crop for the
+    entire `ACQUISITION_WINDOW_LOST_S` grace period, because only a HIT
+    moved it — a miss left `x0/y0/w/h` untouched, so every retry aimed at
+    the same spot the hand had already left. `hand_x`/`hand_y` (the
+    detected hand centre, capture pixels, at the last REAL hit — separate
+    from `x0/y0/w/h`, which now also move on a speculative miss-chase) and
+    `_prev_hand_x`/`_prev_hand_y`/`_prev_hit_at` (the hit before that) are
+    what let `TrackerProcess._update_acquisition` estimate velocity from
+    two real hits and re-aim the crop ahead of the hand on a miss, rather
+    than leaving it planted. `cold` marks a window that has been
+    speculatively re-aimed since its last real hit — decision 7's own
+    finding is that ongoing tracking survives a SMALL re-centre with no
+    denoise, but this is a much bigger, prediction-driven jump with no
+    guarantee it lands close, which is the same "cold" case cold
+    ACQUISITION already denoises for; `_next_detection_input` denoises a
+    `cold` window's crop for exactly that reason. Cleared by the next real
+    hit, whichever tick that lands on.
     """
 
-    __slots__ = ("x0", "y0", "w", "h", "last_hit")
+    __slots__ = ("x0", "y0", "w", "h", "last_hit", "hand_x", "hand_y",
+                "_prev_hand_x", "_prev_hand_y", "_prev_hit_at", "cold")
 
-    def __init__(self, x0: int, y0: int, w: int, h: int,
-                last_hit: float) -> None:
+    def __init__(self, x0: int, y0: int, w: int, h: int, last_hit: float,
+                hand_x: float, hand_y: float) -> None:
         self.x0, self.y0, self.w, self.h = x0, y0, w, h
         self.last_hit = last_hit
+        self.hand_x, self.hand_y = hand_x, hand_y
+        self._prev_hand_x: Optional[float] = None
+        self._prev_hand_y: Optional[float] = None
+        self._prev_hit_at: Optional[float] = None
+        self.cold = False
+
+    def predict(self, now: float) -> Optional[Tuple[float, float]]:
+        """`(x, y)` the hand is likely at now, extrapolated from the last
+        two REAL hits' velocity — or `None` with too little history (only
+        one hit ever, or the two hits landed at the same instant, which
+        `python/tests`' scripted timestamps can do but a real monotonic
+        clock cannot).
+        """
+        if self._prev_hit_at is None:
+            return None
+        dt = self.last_hit - self._prev_hit_at
+        if dt <= 0:
+            return None
+        vx = (self.hand_x - self._prev_hand_x) / dt
+        vy = (self.hand_y - self._prev_hand_y) / dt
+        elapsed = now - self.last_hit
+        return self.hand_x + vx * elapsed, self.hand_y + vy * elapsed
 
 
 # ---------------------------------------------------------------------------
@@ -1008,6 +1053,13 @@ class TrackerProcess:
         if turn is not None:
             win = self._hand_windows[turn]
             crop = frame[win.y0:win.y0 + win.h, win.x0:win.x0 + win.w]
+            # RIG_FEEDBACK item 11: a `cold` window has been speculatively
+            # re-aimed by `_update_acquisition.predict()` since its last
+            # real hit, not just re-centred on one — the same "no denoise
+            # needed" argument decision 7 makes for ordinary re-centring
+            # does not apply to a jump with no detection behind it at all.
+            if win.cold:
+                crop = _denoise_for_acquisition(crop)
             return crop, (float(win.x0), float(win.y0)), turn
 
         cx, cy = self._acq_centers[self._scan_idx % len(self._acq_centers)]
@@ -1058,7 +1110,16 @@ class TrackerProcess:
             if service_slot is not None:
                 win = self._hand_windows[service_slot]
                 win.x0, win.y0, win.w, win.h = x0, y0, w, h_px
+                # RIG_FEEDBACK item 11: `hand_x`/`hand_y`/`last_hit` are
+                # this window's own real-hit history — shifted down before
+                # being overwritten, never touched by a miss's speculative
+                # `predict()` re-aim below, so velocity is always measured
+                # between two REAL detections, not contaminated by a guess.
+                win._prev_hand_x, win._prev_hand_y = win.hand_x, win.hand_y
+                win._prev_hit_at = win.last_hit
+                win.hand_x, win.hand_y = cx, cy
                 win.last_hit = now
+                win.cold = False
             else:
                 # 2026-08-13 pulsing bug: a scan tile overlapping an
                 # ALREADY-tracked hand used to claim the free slot too,
@@ -1080,28 +1141,42 @@ class TrackerProcess:
                 for i, existing in enumerate(self._hand_windows):
                     if existing is None:
                         self._hand_windows[i] = _AcquisitionWindow(
-                            x0, y0, w, h_px, now)
+                            x0, y0, w, h_px, now, cx, cy)
                         break
             return
         if service_slot is not None:
             win = self._hand_windows[service_slot]
-            if win is not None and now - win.last_hit > ACQUISITION_WINDOW_LOST_S:
-                # RIG_FEEDBACK item 11 (2026-08-13): diagnostic only, no
-                # behaviour change. The window is NOT re-centred on a miss
-                # (only a hit does that, above) — a hand that outran it
-                # sits missed at the same stale crop until this fires, up
-                # to ACQUISITION_WINDOW_LOST_S later. That bound (1.0s) is
-                # close to the developer's own reported "stuck" duration,
-                # which this fix's own diagnosis (the tracking.py match
-                # gate) does not explain: the gate only helps when a
-                # detection exists to match against, and a lost window
-                # produces none at all. Logged so a rig run can confirm or
-                # rule this out directly rather than guessing again.
+            if win is None:
+                return
+            age = now - win.last_hit
+            if age > ACQUISITION_WINDOW_LOST_S:
+                # RIG_FEEDBACK item 11 (2026-08-13), CONFIRMED on the rig
+                # by this same log line before the fix below existed: three
+                # real occurrences, every one "lost after 1.03s" — matching
+                # the developer's own reported stuck duration almost
+                # exactly. A hand fast enough to outrun this window used to
+                # sit missed at the exact same stale crop for the entire
+                # grace period, because nothing below moved it — see
+                # `predict()`'s own docstring for the fix.
                 _log.info("tracker: acquisition window %d lost after %.2fs "
                           "unmatched (hand outran the tracked crop) — "
-                          "freed for rescan", service_slot,
-                          now - win.last_hit)
+                          "freed for rescan", service_slot, age)
                 self._hand_windows[service_slot] = None
+                return
+            # RIG_FEEDBACK item 11: chase the hand instead of sitting still.
+            # Only a real hit used to move `x0/y0/w/h` — every retry during
+            # the grace period aimed at the exact spot the hand had already
+            # left. `predict()` extrapolates from the window's last two
+            # REAL hits; with too little history yet (a window's first-ever
+            # miss right after its first-ever hit) it returns None and this
+            # tick's retry is at the old position, same as before this fix.
+            predicted = win.predict(now)
+            if predicted is not None:
+                x0, y0, w, h_px = _clamp_window(
+                    predicted[0], predicted[1], ACQUISITION_WINDOW_PX,
+                    frame_w, frame_h)
+                win.x0, win.y0, win.w, win.h = x0, y0, w, h_px
+                win.cold = True
 
     def _to_stage(self, detections: Sequence[Detection], scale: float,
                   origin, h: Sequence[Sequence[float]],

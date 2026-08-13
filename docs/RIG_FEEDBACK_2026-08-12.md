@@ -221,8 +221,8 @@ never checked — see the original note above, still true) remain
 unscoped past that. Not yet built.
 
 ## 11. Pointer lags behind a fast hand move, and sometimes sticks then
-    snaps to the new location — DONE, commit 7090f15, not yet
-    rig-confirmed, 2026-08-13
+    snaps to the new location — DONE, commit 7090f15 + a later fix below,
+    CONFIRMED root cause, fix not yet rig-tested, 2026-08-13
 
 Developer's report from the same rig session: the MediaPipe overlay
 (Developer tab, item 9/10) tracks a fast hand move with no trouble, but
@@ -265,9 +265,69 @@ under a reverted mutation, so they're not passing by construction).
 `common/geometry.match_nearest` gained the ability to take a per-point
 gate list (still accepts a single float, existing callers unchanged) so
 each track's own gate — which depends on that track's own time since
-last seen — can differ within one call. **Not yet confirmed against the
-actual stuck/reappear symptom on the rig, and `MATCH_SPEED_PX_S` is a
-starting point, not a measurement — same caveat item 8's own tau has.**
+last seen — can differ within one call.
+
+**2026-08-13, later the same day: developer restarted `run.py` (twice)
+and still saw the stuck cursor — the match-gate fix above was real and
+tested but NOT the actual bottleneck.** New detail from the report that
+narrowed it down: the raw MediaPipe skeleton on the Developer tab (item
+9/10) stays smooth through the same fast move that sticks the cursor,
+and both are built from the exact same per-tick detections
+(`tracker/main.py`'s `tick()` — one `detect()` call feeds both
+`_maybe_send_landmarks` and `tracker.update()`). If detection itself
+were glitching, the skeleton would glitch too. It doesn't, so the loss
+has to be happening downstream of detection but upstream of (or instead
+of) `tracking.py`'s matching — a case the gate fix cannot help, because
+the gate only widens matching against a detection that EXISTS, and this
+is a case where none does.
+
+**Root cause, confirmed with a diagnostic log (commit 733f75e) before
+being fixed — not guessed:** `tracker/main.py`'s module docstring,
+decision 7: each tracked hand gets its own small camera crop
+(`_AcquisitionWindow`) that MediaPipe locks onto, and — this is the part
+that was missing — **the crop is only re-centred on a HIT.** A hand fast
+enough to move further than the crop covers between two service ticks
+makes MediaPipe lose its lock inside that tick's (now stale) crop, and
+the crop does not chase it — every retry aims at the exact spot the hand
+has already left, for up to `ACQUISITION_WINDOW_LOST_S` (1.0s) before
+the system gives up and rescans fresh. Logged (no behaviour change) and
+tested on the rig: **three real occurrences, every one "lost after
+1.03s"** — matching the developer's own "not more than 1 sec" almost
+exactly. During that stretch `tracking.py` gets zero detections for that
+hand: its track freezes (visible as "stuck"), retires after
+`TRACK_GRACE_S` (visible as "disappears"), and a brand-new track only
+appears once the crop is freed and the scan rotation finds the hand
+again fresh (visible as "reappears at the new location"). This also
+explains the developer's second report in this thread — dwell partially
+filling while the cursor is stuck — without a separate cause: the frozen
+track is still sent on the wire every tick at its last position, which
+`core/hover.py`'s dwell accumulator reads as a hand genuinely resting
+there.
+
+**Fixed:** `_AcquisitionWindow` now remembers its last TWO real hits
+(position + time), and a miss extrapolates their velocity to re-aim the
+crop AT the hand's likely current position instead of leaving it planted
+— chasing rather than freezing. A window with only one real hit ever
+(no velocity yet) behaves exactly as before: stays put. A speculatively
+re-aimed crop is marked `cold` and denoised on its next service — the
+same treatment cold ACQUISITION already gets (decision 7's own finding:
+ongoing tracking survives a small re-centre with no denoise, but this is
+a much bigger jump with no detection behind it at all, so it needs the
+same help a first cold acquisition does) — and clears back to warm on
+the next real hit. `ACQUISITION_WINDOW_LOST_S` is untouched (still the
+upper bound if the chase itself keeps missing), so the guard the pulsing
+bugs needed (a briefly-lost hand gets a few more tries at roughly the
+same place) is unchanged; this only makes those tries aim at where the
+hand is now instead of where it was.
+
+**Not yet run on the rig — this is a real, sensitive, hard-won part of
+the tracker (the pulsing bugs, this same file's module docstring) and
+deserves a live check before being trusted, the same discipline that
+area's own history already demands of every change to it.** Ask the
+developer to restart `run.py` and reproduce the fast-move stuck cursor
+again; if it's gone, also re-check the two-hands and edge cases the
+pulsing fixes were originally tuned against, not just the fast-move case
+this fix targets.
 
 ---
 

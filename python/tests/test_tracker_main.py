@@ -512,6 +512,110 @@ class TestAcquisitionScheduling(unittest.TestCase):
         proc.tick(now=tracker.ACQUISITION_WINDOW_LOST_S + 0.1)
         self.assertIsNone(proc._hand_windows[0])
 
+    def test_a_miss_with_only_one_real_hit_ever_leaves_the_window_in_place(self):
+        # RIG_FEEDBACK item 11: `predict()` needs TWO real hits to have a
+        # velocity to extrapolate from. A window's first-ever miss (right
+        # after its first-ever hit — no history yet) must behave exactly
+        # as before this fix: stay put, not fly off toward a guess with
+        # nothing behind it.
+        proc, _src = self._proc(script=[[det(600, 600)], []], max_hands=1)
+        proc.tick(now=0.0)
+        win = proc._hand_windows[0]
+        before = (win.x0, win.y0, win.w, win.h)
+        proc.tick(now=0.1)
+        self.assertIsNotNone(proc._hand_windows[0])
+        self.assertEqual((win.x0, win.y0, win.w, win.h), before)
+        self.assertFalse(win.cold)
+
+    def test_a_miss_chases_the_hand_using_its_last_two_hits_velocity(self):
+        # RIG_FEEDBACK item 11, confirmed on the rig (this file's own
+        # module docstring / the item's own log line): a fast hand used to
+        # leave the window frozen at its stale position for the entire
+        # ACQUISITION_WINDOW_LOST_S grace period. Two real hits, 100px
+        # apart in 0.1s (absolute x: 600 -> 800, origin (600,600) added to
+        # det(0,0) then det(200,0)) give a velocity of 2000px/s; a miss
+        # 0.1s later should re-aim the window 200px further along that
+        # same line (800 + 2000*0.1), not leave it where the second hit
+        # put it.
+        proc, _src = self._proc(script=[[]], max_hands=1)
+        proc.tick(now=0.0)          # populates _acq_centers only
+        proc._update_acquisition(
+            [det(0, 0)], origin=(600.0, 600.0), frame_shape=(1080, 1920, 3),
+            service_slot=None, now=0.0)
+        proc._update_acquisition(
+            [det(200, 0)], origin=(600.0, 600.0), frame_shape=(1080, 1920, 3),
+            service_slot=0, now=0.1)
+        win = proc._hand_windows[0]
+        after_second_hit = (win.x0, win.y0)
+
+        proc._update_acquisition(
+            [], origin=(0.0, 0.0), frame_shape=(1080, 1920, 3),
+            service_slot=0, now=0.2)
+        self.assertIsNotNone(proc._hand_windows[0])
+        expected_x0, expected_y0, _w, _h = tracker._clamp_window(
+            1000.0, 600.0, tracker.ACQUISITION_WINDOW_PX, 1920, 1080)
+        self.assertEqual((win.x0, win.y0), (expected_x0, expected_y0))
+        self.assertNotEqual((win.x0, win.y0), after_second_hit)
+        self.assertTrue(win.cold)
+
+    def test_a_real_hit_after_a_chase_clears_cold(self):
+        proc, _src = self._proc(script=[[]], max_hands=1)
+        proc.tick(now=0.0)
+        proc._update_acquisition(
+            [det(0, 0)], origin=(600.0, 600.0), frame_shape=(1080, 1920, 3),
+            service_slot=None, now=0.0)
+        proc._update_acquisition(
+            [det(200, 0)], origin=(600.0, 600.0), frame_shape=(1080, 1920, 3),
+            service_slot=0, now=0.1)
+        proc._update_acquisition(
+            [], origin=(0.0, 0.0), frame_shape=(1080, 1920, 3),
+            service_slot=0, now=0.2)
+        self.assertTrue(proc._hand_windows[0].cold)
+        proc._update_acquisition(
+            [det(0, 0)], origin=(1000.0, 600.0), frame_shape=(1080, 1920, 3),
+            service_slot=0, now=0.25)
+        self.assertFalse(proc._hand_windows[0].cold)
+
+    def test_a_chased_window_is_denoised_on_its_next_service(self):
+        # A `predict()`-driven jump has no detection behind it at all —
+        # decision 7's "small shift, no denoise" case does not apply, so
+        # this needs the same denoise cold acquisition already gets. Two
+        # ticks: the FIRST miss computes the chase (this tick's own crop
+        # was already committed before that decision, so it is not itself
+        # denoised — see the assertion below); the SECOND tick services
+        # the now-`cold` window and must be.
+        rng = np.random.RandomState(0)
+        noisy = rng.randint(0, 255, size=(1080, 1920, 3)).astype(np.uint8)
+        source = FakeSource([(noisy, 1), (noisy, 2)])
+        backend = ArrayRecordingStub(script=[[], []])
+        proc = tracker.TrackerProcess(
+            source=source, backend=backend, sender=FakeSender(),
+            emit_hz=0.0, max_hands=1)
+        proc._hand_windows[0] = tracker._AcquisitionWindow(
+            250, 250, 700, 700, last_hit=0.1, hand_x=800.0, hand_y=600.0)
+        proc._hand_windows[0]._prev_hand_x = 600.0
+        proc._hand_windows[0]._prev_hand_y = 600.0
+        proc._hand_windows[0]._prev_hit_at = 0.0
+
+        # Pre-tick geometry, exactly as constructed above — this is what
+        # `_next_detection_input` actually serves on tick 1, BEFORE that
+        # same tick's `_update_acquisition` moves the window and sets
+        # `cold`. Reading `win.x0/y0` only after the tick would describe
+        # where the window ENDED UP, not what was served going in.
+        raw_slice_1 = noisy[250:950, 250:950]
+        proc.tick(now=0.2)
+        win = proc._hand_windows[0]
+        self.assertTrue(win.cold)
+        self.assertTrue(np.array_equal(backend.arrays[0], raw_slice_1))
+
+        # State going into tick 2 — this is what gets served THIS tick,
+        # already `cold` from tick 1's chase.
+        pre_tick2 = (win.x0, win.y0, win.w, win.h)
+        proc.tick(now=0.233)
+        raw_slice_2 = noisy[pre_tick2[1]:pre_tick2[1] + pre_tick2[3],
+                            pre_tick2[0]:pre_tick2[0] + pre_tick2[2]]
+        self.assertFalse(np.array_equal(backend.arrays[1], raw_slice_2))
+
     def test_exactly_one_detect_call_per_tick(self):
         backend = backend_stub.Stub(script=[[det(15, 20)], [det(400, 300)]])
         source = FakeSource([(frame(width=1920, height=1080), i)
@@ -562,7 +666,7 @@ class TestAcquisitionScheduling(unittest.TestCase):
         proc, _src = self._proc(script=[[]], max_hands=2)
         proc.tick(now=0.0)          # populates _acq_centers, no hit
         proc._hand_windows[0] = tracker._AcquisitionWindow(
-            500, 500, 700, 700, last_hit=0.0)
+            500, 500, 700, 700, last_hit=0.0, hand_x=850.0, hand_y=850.0)
         # det(100, 100) + origin (500, 500) = absolute (600, 600),
         # inside slot 0's window (500..1200 both axes).
         proc._update_acquisition(
@@ -581,7 +685,7 @@ class TestAcquisitionScheduling(unittest.TestCase):
         proc, _src = self._proc(script=[[]], max_hands=2)
         proc.tick(now=0.0)
         proc._hand_windows[0] = tracker._AcquisitionWindow(
-            500, 500, 700, 700, last_hit=0.0)
+            500, 500, 700, 700, last_hit=0.0, hand_x=850.0, hand_y=850.0)
         # absolute (1700, 900) is well outside 500..1200 both axes
         proc._update_acquisition(
             [det(200, 100)], origin=(1500.0, 800.0),
