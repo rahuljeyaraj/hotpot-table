@@ -46,6 +46,7 @@ die and restart in any order".
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import queue
 import threading
@@ -509,6 +510,32 @@ class Classifier:
         classify()` (doc section 19.4) takes a single crop by design, and a
         confident wrong label on bin 3 must never be able to come from
         code that also looked at bin 4's pixels.
+
+        **The 8 calls run concurrently, not one after another — found to
+        matter by measurement, not by inspection.** `EiCppBackend.
+        classify()` shells out to a compiled binary; timed directly on the
+        dev machine at ~0.6s per call, which makes 8 sequential calls
+        ~5s — right against `core/main.py`'s own `CLASSIFY_LIVE_TIMEOUT_S`
+        (5.0) before this method's own warp/crop work or the wire round
+        trip are even counted, and in practice a real running core timed
+        out on every single live pass because of it (confirmed against it
+        directly: zero `classify` broadcasts over several seconds in
+        SETTING). Safe to parallelise: each call is an independent,
+        CPU-bound subprocess with no shared state (`EiCppBackend` writes
+        its own uniquely-named temp file per call; `subprocess.run`
+        releases the GIL while the child runs), so a thread pool actually
+        runs them at once rather than merely interleaving Python bytecode.
+        A bin's own failure is still caught and reported per-bin, same as
+        before — concurrency changes nothing about doc section 9.3's "one
+        bin's backend failure must not blank the other seven".
+
+        **Traded away by this: `_capture`'s per-shot `stop` checkpoint.**
+        With every bin dispatched at once there is no "next bin" left for
+        a `stop` arriving mid-pass to skip — accepted, because a full pass
+        is now ~1s instead of ~5s+, so there is much less to interrupt.
+        What still holds: a `stop` already set before this method is even
+        entered still does no work at all (checked once, up front, same
+        spirit as `_capture`'s own first-iteration check).
         """
         import cv2      # noqa: WPS433
 
@@ -531,10 +558,8 @@ class Classifier:
         raw_frame = self.source.frame()
         frame = geometry.warp_frame_to_stage(raw_frame, h, stage_size)
 
-        bins: List[Dict[str, Any]] = []
-        for idx, rect in enumerate(rects):
-            if self._cancel.is_set():
-                break
+        def classify_one(idx_rect: Tuple[int, Any]) -> Dict[str, Any]:
+            idx, rect = idx_rect
             bin_i = int(rect[4]) if len(rect) > 4 else idx
             try:
                 patch = crop(frame, rect[:4])
@@ -549,7 +574,17 @@ class Classifier:
                 _log.warning("classifier: bin %d classify failed: %s",
                             bin_i, e)
                 label, conf = None, 0.0
-            bins.append({"i": bin_i, "label": label, "conf": conf})
+            return {"i": bin_i, "label": label, "conf": conf}
+
+        if self._cancel.is_set():
+            bins: List[Dict[str, Any]] = []
+        else:
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=len(rects)) as pool:
+                # `map` preserves `rects`' own order in the result — not a
+                # correctness requirement (core keys every entry off its
+                # own "i"), just keeps the reply's bin order predictable.
+                bins = list(pool.map(classify_one, enumerate(rects)))
 
         ms = round((time.monotonic() - started) * 1000)
         self.send({"t": "result", "id": msg.get("id"), "bins": bins, "ms": ms})

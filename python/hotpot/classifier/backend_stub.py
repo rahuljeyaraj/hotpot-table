@@ -21,6 +21,7 @@ model would have said.
 
 from __future__ import annotations
 
+import threading
 from typing import List, Sequence, Tuple
 
 # A plausible-looking default rather than an arbitrary "a"/"b"/"c" — so a
@@ -47,12 +48,23 @@ class StubBackend:
         self.labels: List[str] = list(labels)
         self.conf = conf
         self._n = 0
+        # classifier/main.py's `_classify` now dispatches every bin's
+        # `classify()` call concurrently (a thread pool, see that method's
+        # own docstring) — without this, two threads racing
+        # `self._n % len(self.labels)` / `self._n += 1` could read the same
+        # `_n` before either writes it, handing out a duplicate label
+        # (and, depending on timing, only advancing the cycle by one
+        # instead of two). Which physical bin gets which step of the cycle
+        # is still not orderable under concurrency — nothing here ever
+        # promised that — but the increment itself is now atomic.
+        self._lock = threading.Lock()
 
     def classify(self, bgr_crop) -> Tuple[str, float]:
         # `bgr_crop` is accepted and ignored — the Protocol's whole point
         # (doc section 19.4) is that a caller cannot tell which backend is
         # behind it from the call site, so this must take the same
         # argument backend_ei.py's real implementation does.
-        label = self.labels[self._n % len(self.labels)]
-        self._n += 1
+        with self._lock:
+            label = self.labels[self._n % len(self.labels)]
+            self._n += 1
         return label, self.conf

@@ -457,26 +457,36 @@ class TestCapture(WorkerCase):
 
 class FakeBackend:
     """Doc section 19.4's `ClassifierBackend` Protocol, driven entirely by
-    the test: `answers` is popped one-per-call (or reused forever, if it
-    has exactly one entry — the common case). Every crop it is handed is
-    recorded, by mean pixel value rather than the array itself, so
-    `test_classify_warps_before_cropping` can assert on which quadrant a
-    call actually saw without a numpy equality dance.
+    the test. Every crop it is handed is recorded, by mean pixel value
+    rather than the array itself, so `test_classify_warps_before_cropping`
+    can assert on which quadrant a call actually saw without a numpy
+    equality dance.
+
+    Answers are keyed by that same mean value (`by_mean`), not by call
+    order — `_classify` now dispatches every bin's backend call
+    concurrently (a thread pool; see that method's own docstring on why),
+    so "the Nth call" stopped meaning a particular bin the moment more
+    than one call could be in flight at once. `by_mean` is optional:
+    with exactly one `answers` entry there is nothing order-dependent to
+    get wrong, so single-rect tests can skip it. A lock guards `calls`
+    itself, appended to from multiple threads once concurrency is real.
     """
 
-    def __init__(self, answers=(("mushroom", 0.9),)):
-        self.answers = list(answers)
+    def __init__(self, answer=("mushroom", 0.9), by_mean=None):
+        self.answer = answer                          # used when by_mean is None
+        self.by_mean = dict(by_mean) if by_mean else None
         self.calls = []
-        self.raise_on_call = {}   # call index -> exception to raise
+        self._lock = threading.Lock()
+        self.raise_by_mean = {}   # rounded mean pixel value -> exception
 
     def classify(self, bgr_crop):
-        idx = len(self.calls)
-        self.calls.append(float(bgr_crop.mean()))
-        if idx in self.raise_on_call:
-            raise self.raise_on_call[idx]
-        if len(self.answers) == 1:
-            return self.answers[0]
-        return self.answers[idx % len(self.answers)]
+        mean = float(bgr_crop.mean())
+        with self._lock:
+            self.calls.append(mean)
+        key = round(mean)
+        if key in self.raise_by_mean:
+            raise self.raise_by_mean[key]
+        return self.by_mean[key] if self.by_mean is not None else self.answer
 
 
 class TestClassify(WorkerCase):
@@ -489,7 +499,13 @@ class TestClassify(WorkerCase):
         return base
 
     def test_one_pass_answers_one_bin_per_rect(self):
-        backend = FakeBackend([("mushroom", 0.91), ("egg", 0.40)])
+        # cmd()'s rects sit in food_field()'s mean=10 (bin 0) and mean=250
+        # (bin 6) quadrants — keyed by mean rather than call order, since
+        # `_classify` dispatches both bins' backend calls concurrently now
+        # (see its own docstring) and there is no longer a guaranteed
+        # "first call, second call" to key off (FakeBackend's own note).
+        backend = FakeBackend(by_mean={10: ("mushroom", 0.91),
+                                       250: ("egg", 0.40)})
         w = self.build(image=food_field(), backend=backend)
         w.on_message(self.cmd())
         reply = self.wait()
@@ -530,10 +546,13 @@ class TestClassify(WorkerCase):
     def test_one_bin_failing_does_not_blank_the_others(self):
         # Doc section 9.3 already treats "no item_id" as unresolved — the
         # right outcome for a bin this pass could not answer for, not a
-        # reason to fail bins that worked.
-        backend = FakeBackend([("mushroom", 0.9)])
-        backend.raise_on_call = {
-            0: backend_ei.ClassifierBackendError("binary is missing")}
+        # reason to fail bins that worked. Keyed by mean (bin 0's crop is
+        # food_field()'s mean=10 quadrant), same reasoning as the test
+        # above — `raise_on_call`'s old call-index key stopped meaning a
+        # particular bin once both bins' calls could be in flight at once.
+        backend = FakeBackend(answer=("mushroom", 0.9))
+        backend.raise_by_mean = {
+            10: backend_ei.ClassifierBackendError("binary is missing")}
         w = self.build(image=food_field(), backend=backend)
         w.on_message(self.cmd())
         reply = self.wait()
@@ -561,24 +580,24 @@ class TestClassify(WorkerCase):
         self.assertFalse(reply["ok"])
         self.assertIn("stage size", reply["error"])
 
-    def test_stop_cancels_a_pass_in_flight(self):
-        # A backend slow enough to still be on bin 0 when `stop` arrives —
-        # the loop must not go on to classify bin 6.
-        class SlowBackend(FakeBackend):
-            def classify(self, bgr_crop):
-                time.sleep(0.3)
-                return super().classify(bgr_crop)
-        backend = SlowBackend()
+    def test_cancel_set_before_the_pass_starts_returns_no_bins(self):
+        # `_classify` now dispatches every bin's backend call at once (a
+        # thread pool — see that method's own docstring on why), so there
+        # is no longer a "next bin" checkpoint mid-pass for a `stop` to
+        # catch the way `_capture`'s per-shot loop still has — by the time
+        # `stop` could arrive, every bin is typically already dispatched.
+        # What is still checked, and still meaningful: a pass that had not
+        # started any backend call yet does none at all. Calls `_classify`
+        # directly (bypassing the worker thread's queue, which clears
+        # `_cancel` at the start of every dispatch) so the flag set here
+        # is the one `_classify` itself actually observes.
+        backend = FakeBackend()
         w = self.build(image=food_field(), backend=backend)
-        w.on_message(self.cmd())
-        time.sleep(0.1)
-        w.on_message({"t": "cmd", "op": "stop"})
-        reply = self.wait(timeout=5)
-        # bin 0's classify() call was already in flight when `stop`
-        # arrived (this method has no mid-call cancellation point, same as
-        # `_capture`'s own per-shot loop) so it completes; the loop's
-        # cancel check runs before bin 6 and stops it going ahead.
-        self.assertEqual(len(reply["bins"]), 1)
+        w._cancel.set()
+        w._classify(self.cmd())
+        reply = self.sent[-1]
+        self.assertEqual(reply["bins"], [])
+        self.assertEqual(backend.calls, [])
 
 
 class TestRingRecovery(WorkerCase):
