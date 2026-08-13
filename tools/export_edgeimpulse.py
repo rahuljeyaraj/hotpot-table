@@ -35,8 +35,12 @@ Three reasons, and none of them is "rearrange the tree":
    prawns. This prints that table, and says so loudly rather than
    exporting a lopsided set in silence.
 
-**It copies; it never moves or deletes.** `datasets/captures/` is the
-only copy of hours of rig time, and an export is a thing people re-run.
+**It copies from `captures/`; it never moves or deletes there.**
+`datasets/captures/` is the only copy of hours of rig time, and an
+export is a thing people re-run. `datasets/export_ei/`, the
+destination, is the opposite: freely reproducible from `captures/`, so
+each run wipes and rebuilds it — a capture deleted or renamed since the
+last export must not leave a stale copy behind to be re-uploaded.
 """
 
 from __future__ import annotations
@@ -89,6 +93,12 @@ def export(src: Path = DEFAULT_SRC, out: Path = DEFAULT_OUT, *,
         raise FileNotFoundError(
             f"{src} does not exist — nothing has been captured yet "
             "(doc section 12.7's Capture tab writes it)")
+
+    # Wipe first so `out` is always a clean mirror of `src` — otherwise a
+    # capture deleted or renamed after a previous export leaves its stale
+    # copy behind forever, silently re-uploaded on every future run.
+    if not dry_run and out.exists():
+        shutil.rmtree(out)
 
     for label_dir in sorted(p for p in src.iterdir() if p.is_dir()):
         label = label_dir.name

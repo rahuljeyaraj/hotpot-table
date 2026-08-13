@@ -101,6 +101,23 @@ class TestTheTree(ExportCase):
         export_ei.export(self.src, self.out)
         self.assertEqual(len(list((self.out / "mushroom").glob("*.jpg"))), 2)
 
+    def test_a_stale_export_is_not_left_behind(self):
+        # A capture later deleted from `captures/` must not leave its old
+        # export copy sitting in `export_ei/` forever, re-uploaded on
+        # every future run.
+        self.capture("mushroom", n=2)
+        self.capture("prawn", n=2)
+        export_ei.export(self.src, self.out)
+        self.assertTrue((self.out / "prawn").exists())
+
+        for f in (self.src / "prawn").iterdir():
+            f.unlink()
+        (self.src / "prawn").rmdir()
+        export_ei.export(self.src, self.out)
+
+        self.assertFalse((self.out / "prawn").exists())
+        self.assertEqual(len(list((self.out / "mushroom").glob("*.jpg"))), 2)
+
     def test_a_dry_run_copies_nothing_but_still_counts(self):
         self.capture("mushroom", n=4)
         result = export_ei.export(self.src, self.out, dry_run=True)
