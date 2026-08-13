@@ -853,9 +853,6 @@
 
         <div class="setup-card">
           <h2>Camera controls</h2>
-          <div class="setup-actions">
-            <button class="setup-btn primary" id="camAutoWbBtn">Auto white balance</button>
-          </div>
           <p class="setup-status" id="camCtrlStatus">Waiting for the camera…</p>
           <div class="cam-ctrl-list" id="camCtrlList"></div>
         </div>
@@ -1296,7 +1293,6 @@
   var CAM_CTRL_POLL_MS = 2000;
   var camCtrlList = document.getElementById("camCtrlList");
   var camCtrlStatus = document.getElementById("camCtrlStatus");
-  var camAutoWbBtn = document.getElementById("camAutoWbBtn");
   var camCtrlRows = {};   // control name -> {row, slider, valueEl, chip, spec}
 
   function camCtrlStatusText(text) {
@@ -1412,14 +1408,6 @@
     });
   }
   setInterval(pollCamControls, CAM_CTRL_POLL_MS);
-
-  // The actual bug in hand: white balance is stuck manually locked
-  // (state/camera_settings.json's own current "locked": true), so the one
-  // control worth a dedicated one-tap fix, rather than making a developer
-  // find it in the list first, is this one.
-  camAutoWbBtn.addEventListener("click", function () {
-    postControl("white_balance", { auto: true });
-  });
 
   // --- mock pick/put-back controls (doc section 12.8, build item 5) -----
   // "the keyboard mock from Stage 2, reborn... with the {45,6,120,3,25,80}
