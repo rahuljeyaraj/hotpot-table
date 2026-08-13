@@ -221,9 +221,12 @@ never checked — see the original note above, still true) remain
 unscoped past that. Not yet built.
 
 ## 11. Pointer lags behind a fast hand move, and sometimes sticks then
-    snaps to the new location — DONE, root cause confirmed by a rig log
-    plus a matching synthetic reproduction, not yet rig-confirmed fixed,
-    2026-08-13
+    snaps to the new location — STILL OPEN on the rig, 2026-08-13. Three
+    real fixes landed and kept (none reverted except the acquisition-
+    window chase, see below); the reported symptom still reproduces.
+    **Read this whole item before touching it again — three separate,
+    each individually confirmed, mechanisms have already been found and
+    fixed here, and NONE of them alone was the whole story.**
 
 Developer's report from the same rig session: the MediaPipe overlay
 (Developer tab, item 9/10) tracks a fast hand move with no trouble, but
@@ -424,6 +427,69 @@ the developer to restart `run.py` and try the fast-move case once more;
 if the stuck/reappear symptom is gone, this item is finally done — if
 any of it remains, read `logs/hotpot-<date>.log`'s `pointer track` lines
 again before guessing further, the same discipline that got here.
+
+**2026-08-13, later still: rig-tested with the fix above running — the
+developer reports the symptom is STILL THERE. Session paused here at the
+developer's own request, to continue in a fresh session, not abandoned
+mid-theory.** This is real, important information and changes what this
+item means: the raw-position fix above is real, independently confirmed
+(rig log numbers + a synthetic reproduction, kept, not reverted — unlike
+the acquisition-window chase, nothing has argued it is WRONG, only that
+it is not SUFFICIENT), so either something else is contributing on top
+of it, or the developer's fast-move reproduction is hitting a mechanism
+this session never got a `pointer track` log for. **No log was pulled
+after this last rig test** — that is the first thing a fresh session
+should do, before any new theory: reproduce again if needed, then read
+`logs/hotpot-<date>.log`'s `pointer track` lines for THIS specific
+run and check whether the pattern that justified the raw-position fix
+(same-tick 1-detection losses, ~`PROMOTE_DELAY_S`-spaced id churn) is
+gone, changed shape, or unchanged.
+
+**What this session ends up having ruled OUT, so a fresh one does not
+re-check any of it:**
+- A genuine detection gap reaching `tracking.py` (0 raw detections on
+  loss) — the log showed 1, not 0, on almost every transition.
+- `tracker/main.py`'s acquisition-window mechanism (decision 7) timing
+  out and re-scanning — only one of a dozen-plus transitions in one
+  session lined up with an actual `"acquisition window ... lost"` line;
+  the chase-on-miss fix built for this was tested on the rig and found
+  to have no effect, and was reverted outright.
+- The match gate being a plain too-small FIXED number at a normal frame
+  rate — already made time-based (commit 7090f15), rig-tested with no
+  effect on its own, kept (still correct for the slow-frame-rate case it
+  targets, just not sufficient alone).
+- Matching against a track's smoothed (lagging) position instead of its
+  real one — confirmed the mechanism with real rig numbers AND a
+  synthetic reproduction, fixed, kept — but the developer's own next rig
+  test shows this alone did not stop the reported symptom either.
+
+**Leads for a fresh session, not yet investigated, in rough order of
+how directly they follow from what is now known:**
+- Get a FRESH `pointer track` log from a run WITH all of the above fixes
+  in place (none exists yet — the "still there" report came with no log
+  pulled) — the pattern may look different now and point somewhere new,
+  or may be unchanged and mean these three fixes address a real problem
+  that simply is not (or not only) the one being reproduced.
+- `tracking.py`'s own opening rationale flags MediaPipe's overhead-camera
+  handedness as unreliable, and this session's rig log showed exactly
+  that unreliability firing the "Right hand takeover" role swap
+  repeatedly (`_appear`'s one sanctioned same-tick role change) — worth
+  checking on its own now, independent of whatever else is stuck-cursor
+  related, since a flickering handedness label deciding who holds the
+  pointer is a real correctness question regardless.
+- Downstream of `tracker/main.py` entirely: the cursorbus UDP send, oF's
+  `CursorLink` (`of/hotpot-table/src/CursorLink.cpp` —
+  `kCursorHoldSeconds=0.35f`, drain-to-latest, sequence gating), or oF's
+  own render loop. Nothing has directly ruled this out; the pointer-
+  transition log answered "is `tracking.py` itself losing/swapping the
+  track", which it was — but that does not prove nothing ALSO goes wrong
+  after this process sends a perfectly good, continuous track.
+- Whether the fast-move reproduction test itself is fully consistent
+  session to session — ask the developer, in the fresh session, to
+  describe exactly what "stuck" looks like now (freeze duration,
+  whether it still fully disappears/reappears or just visibly lags) in
+  case the character of the symptom has changed even if it has not gone
+  away, which would itself be a data point.
 
 ---
 

@@ -10,18 +10,15 @@ It is authoritative. This file is only status + rules.
 
 **Open feedback queue:** `docs/RIG_FEEDBACK_2026-08-12.md` — eleven items
 from the first real M5 rig run, each scoped for one fresh session. Items
-1, 2, 8, 9 are resolved (2 by a workaround, not code). Item 11 (pointer
-lags/snaps on a fast hand move) has its root cause CONFIRMED (a rig log
-plus a matching synthetic reproduction, not just reasoning): `tracking.py`
-matched a new detection against a track's own SMOOTHED position, which
-lags the true hand by design, and under sustained motion the lag alone
-broke the match gate, spawning competing ghost tracks. Fixed by matching
-against a track's last real (`raw_x`/`raw_y`) position instead — not yet
-confirmed fixed ON the rig. Two earlier reasoned fixes for this item (the
-match gate; the acquisition window chasing a fast hand) were tried,
-rig-tested, and found not to be the cause; the second was reverted
-outright. Read item 11's own section for the full trail before touching
-this again. Items 3, 4-7, 10 have developer decisions recorded
+1, 2, 8, 9 are resolved (2 by a workaround, not code). **Item 11 (pointer
+lags/snaps on a fast hand move) is STILL OPEN on the rig, 2026-08-13,
+despite three separate, individually-confirmed fixes (a time-based match
+gate; matching against a track's real position instead of its smoothed,
+lagging one — both kept, real, rig-log-confirmed mechanisms, neither
+reverted) — read item 11's own section in full before starting, it ends
+with a ruled-out list and concrete leads for the next attempt, and skips
+re-deriving this session's already-confirmed-or-ruled-out mechanisms.**
+Items 3, 4-7, 10 have developer decisions recorded
 (2026-08-13) and are ready to build but not
 started. Check that
 file before starting new M5 work.
