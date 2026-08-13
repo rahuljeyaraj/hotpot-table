@@ -264,6 +264,20 @@ class TestControlRoute(ServerCase):
             self.post("/nope", {})
         self.assertEqual(ctx.exception.code, 404)
 
+    def test_options_preflight_gets_the_cors_headers_the_browser_requires(self):
+        # Regression, found 2026-08-13 clicking the Developer tab in a real
+        # browser: postControl()'s JSON Content-Type header makes this a
+        # non-simple request, so the browser sends this OPTIONS preflight
+        # before the real POST and refuses to send the POST at all unless
+        # this answers with the right Access-Control-* headers.
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/control", method="OPTIONS")
+        resp = urllib.request.urlopen(req, timeout=DEADLINE)
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.headers["Access-Control-Allow-Origin"], "*")
+        self.assertIn("POST", resp.headers["Access-Control-Allow-Methods"])
+        self.assertIn("Content-Type", resp.headers["Access-Control-Allow-Headers"])
+
 
 class TestUnknownPath(ServerCase):
 

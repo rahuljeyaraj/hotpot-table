@@ -853,18 +853,6 @@
 
         <div class="setup-card">
           <h2>Camera controls</h2>
-          <p>The live feed drifts yellow/green because exposure/white
-             balance/focus get locked at whatever they converge to on open
-             (doc §6.6) and reapplied verbatim on every restart — the OS
-             camera app looks correct only because it keeps its own
-             auto-white-balance running continuously. <code>Auto</code>
-             lets the driver's own auto-adjust run; <code>Manual</code>
-             unlocks the slider and pins a value, which is written to
-             <code>state/camera_settings.json</code> and survives a
-             restart. Ranges below are approximate on this dev machine's
-             DirectShow backend (no min/max query exists); the number
-             beside each slider is always a real readback, never a
-             requested value.</p>
           <div class="setup-actions">
             <button class="setup-btn primary" id="camAutoWbBtn">Auto white balance</button>
           </div>

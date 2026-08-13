@@ -174,6 +174,22 @@ def _make_handler(frame: LatestFrame, get_info: Callable[[], Dict[str, Any]],
             else:
                 self.send_error(404)
 
+        def do_OPTIONS(self) -> None:
+            # The dev panel's POST /control sends a JSON body with an
+            # explicit Content-Type header, which is not one of the CORS
+            # "simple request" content types — the browser sends a
+            # preflight OPTIONS here first and never even attempts the POST
+            # if this doesn't answer with the right Access-Control-* trio.
+            # Without this handler BaseHTTPRequestHandler 501s the
+            # preflight and every slider/button in the panel fails with a
+            # bare "Failed to fetch", found 2026-08-13 clicking through the
+            # Developer tab in a real browser for the first time.
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+
         def _stream(self) -> None:
             self.send_response(200)
             self.send_header(
