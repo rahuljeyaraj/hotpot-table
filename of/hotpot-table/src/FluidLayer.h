@@ -15,20 +15,20 @@
 // Density alone gives a static blob; velocity (the per-frame position
 // delta) is what makes it flow. Both are required every frame (doc §14.1).
 //
-// First pass only: one fixed look, no style presets (§14.3), no event
-// injections (§14.4), no adaptive quality (§14.6), no setting-mode-off
-// (§14.5). Those are separate follow-ups, not part of getting hand-driven
-// fluid on the table.
+// Injection style and every ftFluidFlow parameter are ported verbatim from
+// apps/myApps/fireTest/src/ofApp.cpp — that app's mouse-driven fluid, tuned
+// live against a white background (fireTest's own draw() calls
+// ofBackground(255), same paper tone this app uses), reused as-is rather
+// than re-derived. The one thing fireTest could not have is multiple named
+// inputs: it tracks one glm::vec2 (the mouse) frame to frame, where this
+// tracks one glm::vec2 PER HAND ID (_lastSimPos), because CursorLink can
+// report several hands at once and any of them can appear/disappear on a
+// given frame — a hand reappearing under the same or a new id must not
+// compute a velocity spike from a stale remembered position.
 //
-// DISABLED at the ofApp call site (kFluidEnabled in ofApp.cpp) — on the
-// rig this rendered as a moving but colourless grey ring, not the warm
-// mala tone the injected density texture actually holds (confirmed
-// correct via a direct pixel readback: the density buffer itself carries
-// the right R>G>B ratio at real alpha, up to ~0.6). Something between
-// that texture and the screen — Stage's composite, the keystone warp, or
-// something else not yet isolated — desaturates it, and that is still
-// unresolved. Re-enable only after that's found; don't just flip the
-// switch back on.
+// Replaces the old dot+ring cursor as the on-table sign of a hand's
+// position (ofApp.cpp no longer passes a pointer to UiLayer while this is
+// enabled) — this IS the hand pointer now, not a decoration next to it.
 class FluidLayer {
 public:
 	// simScale divides stageW/stageH down to the simulation grid, same

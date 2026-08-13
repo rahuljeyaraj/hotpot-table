@@ -13,14 +13,13 @@ namespace {
 	// (§14.6 build item, not part of getting hand-driven fluid on screen).
 	const int kFluidSimScale = 4;
 
-	// Kill switch, same pattern as kDrawSkeleton below — 2026-08-13, first
-	// look on the rig: the fluid moved and tracked the hand correctly but
-	// rendered as a colourless grey ring rather than the warm mala tone
-	// FluidLayer.h's own density readback confirms it actually holds. Cause
-	// not yet found (see FluidLayer.h's class comment for what's been
-	// ruled out already). Off until it is. `_fluid.setup()` still runs so
-	// the object is in a valid state; only update()/draw() are skipped.
-	const bool kFluidEnabled = false;
+	// Kill switch, same pattern as kDrawSkeleton below. Was off
+	// 2026-08-13 pending a colour-desaturation bug on the rig; re-enabled
+	// 2026-08-14 with FluidLayer rebuilt to port fireTest's own
+	// injection/parameters verbatim (FluidLayer.h's class comment) rather
+	// than the more defensive version that shipped disabled. `_fluid.setup()`
+	// always runs so the object is in a valid state regardless of this flag.
+	const bool kFluidEnabled = true;
 
 	// doc §4.1 default; core/main.py's CONTROL_PORT.
 	const std::string kCoreHost = "127.0.0.1";
@@ -142,18 +141,22 @@ void ofApp::draw(){
 		state = _link.getState();
 	}
 
+	// While the fluid is enabled it IS the hand pointer (FluidLayer.h's
+	// class comment) — the old dot+ring cursor is suppressed rather than
+	// drawn on top of it, so there is still exactly one visual answer to
+	// "where is the hand," not two competing ones.
+	const CursorLink::Hand * cursorForUi = kFluidEnabled ? nullptr : _cursor.pointer();
+
 	_stage.beginContent();
 	// doc §13.2's FBO stack, step 1: fluid first, UI drawn on top of it.
 	// I9 is untouched either way — the floor lift and light pass run on
 	// the composite afterward, unconditionally (Stage::compositeAndWarp).
-	// kFluidEnabled: see its own comment above — off until the colour loss
-	// on the rig is understood.
 	if(kFluidEnabled){
 		_fluid.draw(0, 0, PROJ_W_PX, PROJ_H_PX);
 	}
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
 		ofGetFrameRate(), _devOverlayVisible,
-		_cursor.hands(), _cursor.pointer());
+		_cursor.hands(), cursorForUi);
 	// RIG_FEEDBACK item 11 diagnostic: confirmed fixed on the rig,
 	// 2026-08-13 — see kDrawSkeleton's own comment.
 	if(kDrawSkeleton){
@@ -172,10 +175,13 @@ void ofApp::draw(){
 	// there is no live link yet, and that default is exactly right here
 	// too: it is what keeps this condition and UiLayer::draw's the same
 	// single test, so the two can never disagree about which one of them
-	// is responsible for this frame's cursor.
-	const CursorLink::Hand * pointer = _cursor.pointer();
+	// is responsible for this frame's cursor. Uses the same cursorForUi
+	// (nullptr while the fluid is enabled) as the call above, for the same
+	// reason: the fluid is the pointer now, so this above-the-light-pass
+	// path has nothing to draw either.
 	std::function<void()> aboveLightPass = nullptr;
-	if(state.mode == "serving" && pointer != nullptr){
+	if(state.mode == "serving" && cursorForUi != nullptr){
+		const CursorLink::Hand * pointer = cursorForUi;
 		aboveLightPass = [this, &state, pointer](){
 			_ui.drawCursorAboveLightPass(state, pointer);
 		};
