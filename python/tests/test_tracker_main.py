@@ -152,8 +152,8 @@ class TestStageConversion(ProcCase):
         proc, _src, sender = self.make(script=[[det(10, 20)]])
         proc.tick(now=0.0)
         hand = sender.frames[0].hands[0]
-        # Frame is 64px wide, input_width defaults to 480, so no downsample
-        # happens and scale is 1.0: (10,20) -> (2*10+100, 2*20+50), then the
+        # Decision 7: acquisition/tracking windows are never downsampled,
+        # so scale is always 1.0: (10,20) -> (2*10+100, 2*20+50), then the
         # shadow-clearance offset (toward the far edge, smaller Y) is
         # subtracted from Y only.
         clearance_px = (tracker.CURSOR_SHADOW_CLEARANCE_MM * 1080.0
@@ -161,25 +161,23 @@ class TestStageConversion(ProcCase):
         self.assertAlmostEqual(hand.x, 120.0)
         self.assertAlmostEqual(hand.y, 90.0 - clearance_px)
 
-    def test_the_downsample_scale_is_undone_before_the_homography(self):
-        # A 960px-wide frame downsampled to 480 halves every coordinate, so
-        # a detection at x=100 in the small frame is x=200 in capture
-        # pixels and must reach the homography as 200. A tick that fed the
-        # small coordinate straight in would report half the position — a
-        # cursor that tracks the hand at half speed toward the origin,
-        # which looks exactly like a bad calibration.
-        source = FakeSource([(frame(width=960, height=540), 1)])
+    def test_detection_is_never_fed_a_downsampled_window(self):
+        # Module docstring, decision 7: a downsampled whole-frame view is
+        # exactly the framing that could never cold-acquire a real hand,
+        # so `tick` must never resize what it hands the backend, no matter
+        # what `input_width` says. A 1920-wide frame with no table
+        # calibration yet scans in `ACQUISITION_WINDOW_PX`-sized tiles —
+        # a regression that reintroduced a resize would shrink this below
+        # the native window size.
+        source = FakeSource([(frame(width=1920, height=1080), 1)])
         sender = FakeSender()
+        backend = RecordingStub(script=[[]])
         proc = tracker.TrackerProcess(
             source=source, sender=sender, emit_hz=0.0, input_width=480,
-            backend=backend_stub.Stub(script=[[det(100, 50)]]))
-        proc.apply_welcome({"homography_cam_to_stage": H_TEST})
+            backend=backend)
         proc.tick(now=0.0)
-        hand = sender.frames[0].hands[0]
-        clearance_px = (tracker.CURSOR_SHADOW_CLEARANCE_MM * 1080.0
-                        / tracker._TABLE_H_MM)
-        self.assertAlmostEqual(hand.x, 2 * 200.0 + 100.0)
-        self.assertAlmostEqual(hand.y, 2 * 100.0 + 50.0 - clearance_px)
+        self.assertEqual(backend.seen, [(tracker.ACQUISITION_WINDOW_PX,
+                                         tracker.ACQUISITION_WINDOW_PX)])
 
     def test_a_hand_off_the_stage_is_reported_not_clipped(self):
         # A hand held past the table edge is a real hand at a real
@@ -244,12 +242,15 @@ STAGE = (1920.0, 1080.0)
 
 
 class TestTheDetectionCrop(unittest.TestCase):
-    """`tracker/main.py`'s decision 6 — the measured palm-size cliff.
+    """`tracker/main.py`'s `table_roi` — the table's own footprint, now
+    the acquisition scan's BOUND rather than the detection crop itself
+    (decision 6, superseded by decision 7 the same day it was measured;
+    see the module docstring).
 
     The numbers behind the 200px default are in that docstring; these
     tests are about the arithmetic that carries a detection back out of
-    the crop, which is where a silent, constant cursor offset would come
-    from.
+    an acquisition/tracking window, which is where a silent, constant
+    cursor offset would come from.
     """
 
     def test_the_footprint_is_the_table_padded_by_the_margin(self):
@@ -289,6 +290,10 @@ class TestTheDetectionCrop(unittest.TestCase):
         self.assertIsNone(tracker.table_roi(singular, STAGE, (1080, 1920)))
 
     def test_the_crop_reaches_the_backend(self):
+        # First tick, no committed window yet, so this is a scan tile: a
+        # native `ACQUISITION_WINDOW_PX` square, clamped into the table's
+        # own (400,200,1200,800) footprint (this class's own
+        # `test_the_footprint_is_the_table_padded_by_the_margin`).
         backend = RecordingStub(script=[[]])
         proc = tracker.TrackerProcess(
             source=FakeSource([(frame(width=1920, height=1080), 1)]),
@@ -297,7 +302,9 @@ class TestTheDetectionCrop(unittest.TestCase):
         proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
                             "stage": list(STAGE)})
         proc.tick(now=0.0)
-        self.assertEqual(backend.seen, [(800, 1200)])
+        self.assertEqual(backend.seen,
+                         [(tracker.ACQUISITION_WINDOW_PX,
+                           tracker.ACQUISITION_WINDOW_PX)])
 
     def test_the_crop_origin_is_added_back_before_the_homography(self):
         # THE test in this class. A detection at (600,400) inside a crop
@@ -311,25 +318,6 @@ class TestTheDetectionCrop(unittest.TestCase):
             source=FakeSource([(frame(width=1920, height=1080), 1)]),
             backend=backend_stub.Stub(script=[[det(600, 400)]]),
             sender=sender, emit_hz=0.0, input_width=0, roi_margin_px=200)
-        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
-                            "stage": list(STAGE)})
-        proc.tick(now=0.0)
-        clearance_px = (tracker.CURSOR_SHADOW_CLEARANCE_MM * 1080.0
-                        / tracker._TABLE_H_MM)
-        hand = sender.frames[0].hands[0]
-        self.assertAlmostEqual(hand.x, 960.0)
-        self.assertAlmostEqual(hand.y, 540.0 - clearance_px)
-
-    def test_the_downsample_and_the_crop_are_both_undone(self):
-        # Both corrections at once, in the right order: the 1200px crop
-        # downsampled to 600 doubles every coordinate, THEN the origin
-        # goes on. Applying them the other way round lands somewhere else
-        # entirely, so this pins the order as well as the presence.
-        sender = FakeSender()
-        proc = tracker.TrackerProcess(
-            source=FakeSource([(frame(width=1920, height=1080), 1)]),
-            backend=backend_stub.Stub(script=[[det(300, 200)]]),
-            sender=sender, emit_hz=0.0, input_width=600, roi_margin_px=200)
         proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
                             "stage": list(STAGE)})
         proc.tick(now=0.0)
@@ -356,33 +344,294 @@ class TestTheDetectionCrop(unittest.TestCase):
         marks = [m for m in stats if m.get("t") == "landmarks"]
         self.assertEqual(marks[-1]["hands"][0]["points"], [[1000.0, 600.0]])
 
-    def test_a_new_homography_moves_the_crop(self):
-        # A re-calibrated table must not keep detecting against the old
-        # table's footprint until somebody restarts the process.
-        backend = RecordingStub(script=[[]])
+    def test_a_new_homography_moves_the_scan(self):
+        # A re-calibrated table must not keep scanning the old table's
+        # footprint until somebody restarts the process. `RecordingStub`
+        # only records shape, which an acquisition tile holds constant at
+        # `ACQUISITION_WINDOW_PX` regardless of where it sits — checking
+        # the scan geometry itself is what actually proves it moved.
         proc = tracker.TrackerProcess(
             source=FakeSource([(frame(width=1920, height=1080), i)
                                for i in range(2)]),
-            backend=backend, sender=FakeSender(), emit_hz=0.0,
-            input_width=0, roi_margin_px=200)
+            backend=RecordingStub(script=[[]]), sender=FakeSender(),
+            emit_hz=0.0, input_width=0, roi_margin_px=200)
         proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
                             "stage": list(STAGE)})
         proc.tick(now=0.0)
+        first_centers = list(proc._acq_centers)
         moved = [[2.4, 0.0, -1200.0], [0.0, 2.7, -810.0], [0.0, 0.0, 1.0]]
         proc.apply_welcome({"homography_cam_to_stage": moved,
                             "stage": list(STAGE)})
         proc.tick(now=0.1)
-        self.assertEqual(len(backend.seen), 2)
-        self.assertNotEqual(backend.seen[0], backend.seen[1])
+        self.assertNotEqual(first_centers, proc._acq_centers)
 
-    def test_an_uncalibrated_table_still_detects_on_the_whole_frame(self):
-        backend = RecordingStub(script=[[]])
+    def test_an_uncalibrated_table_still_scans_the_whole_frame(self):
+        # The ordinary first-boot state (`test_no_homography_means_no_crop`
+        # above, one layer down). Detection still has to run, so the
+        # Developer tab can answer "does MediaPipe see a hand at all" on a
+        # table nobody has calibrated yet.
         proc = tracker.TrackerProcess(
             source=FakeSource([(frame(width=1920, height=1080), 1)]),
-            backend=backend, sender=FakeSender(), emit_hz=0.0,
-            input_width=0, roi_margin_px=200)
+            backend=RecordingStub(script=[[]]), sender=FakeSender(),
+            emit_hz=0.0, input_width=0, roi_margin_px=200)
+        self.assertEqual(
+            proc._acquisition_bounds(None, proc._stage, (1080, 1920, 3)),
+            (0, 0, 1920, 1080))
         proc.tick(now=0.0)
-        self.assertEqual(backend.seen, [(1080, 1920)])
+        self.assertEqual(len(proc.backend.seen), 1)
+
+
+class TestAcquisitionTiles(unittest.TestCase):
+    """`_acquisition_tile_centers` and `_clamp_window` — module docstring
+    decision 7's scan geometry, as pure functions: a coverage gap should
+    show up here, not as a hand that happened to sit between two tiles on
+    the rig.
+    """
+
+    def test_a_bound_smaller_than_the_window_is_one_centred_tile(self):
+        centers = tracker._acquisition_tile_centers(
+            (100, 200, 300, 250), window_px=700, stride_px=470)
+        self.assertEqual(centers, [(100 + 150.0, 200 + 125.0)])
+
+    def test_tiles_form_a_grid_covering_the_whole_bound(self):
+        # This rig's own table crop (200px margin already applied). Every
+        # point in the bound must fall inside at least one tile's clamped
+        # window — a hand sitting exactly on a tile boundary is the
+        # scenario `ACQUISITION_TILE_STRIDE_PX`'s overlap exists for.
+        import random
+
+        bounds = (209, 0, 1711, 1068)
+        x0, y0, w, h = bounds
+        windows = [tracker._clamp_window(cx, cy, tracker.ACQUISITION_WINDOW_PX,
+                                         x0 + w, y0 + h)
+                  for cx, cy in tracker._acquisition_tile_centers(bounds)]
+        rng = random.Random(0)
+        for _ in range(300):
+            px = x0 + rng.uniform(0, w)
+            py = y0 + rng.uniform(0, h)
+            covered = any(wx <= px <= wx + ww and wy <= py <= wy + wh
+                         for wx, wy, ww, wh in windows)
+            self.assertTrue(covered, f"({px:.0f},{py:.0f}) uncovered")
+
+    def test_clamp_shrinks_a_window_bigger_than_the_frame(self):
+        # The tiny frames python/tests uses everywhere else must not crash
+        # against a 700px window.
+        self.assertEqual(tracker._clamp_window(10, 10, 700, 64, 48),
+                         (0, 0, 64, 48))
+
+    def test_clamp_keeps_the_window_inside_the_frame(self):
+        x0, y0, w, h = tracker._clamp_window(5, 5, 100, 1920, 1080)
+        self.assertEqual((x0, y0, w, h), (0, 0, 100, 100))
+        x0, y0, w, h = tracker._clamp_window(1915, 1075, 100, 1920, 1080)
+        self.assertEqual((x0 + w, y0 + h), (1920, 1080))
+
+
+class ArrayRecordingStub(backend_stub.Stub):
+    """Like `RecordingStub`, but keeps the actual pixels — what a shape
+    comparison cannot answer is "was this crop denoised", and decision 7
+    only denoises acquisition scans, never a warm tracking refresh.
+    """
+
+    def __init__(self, script=None):
+        super().__init__(script=script)
+        self.arrays = []
+
+    def detect(self, frame_bgr, timestamp_ms):
+        self.arrays.append(frame_bgr.copy())
+        return super().detect(frame_bgr, timestamp_ms)
+
+
+class TestAcquisitionScheduling(unittest.TestCase):
+    """`TrackerProcess`'s round-robin between committed tracking windows
+    and the acquisition scan — module docstring decision 7. No homography
+    applied in any of these: the scheduler runs identically calibrated or
+    not (`_maybe_send_landmarks` already relies on that), and skipping
+    `apply_welcome` keeps each test to the one thing it is about.
+    """
+
+    def _proc(self, script, max_hands=2, ticks=300):
+        source = FakeSource([(frame(width=1920, height=1080), i)
+                             for i in range(ticks)])
+        proc = tracker.TrackerProcess(
+            source=source, backend=backend_stub.Stub(script=script),
+            sender=FakeSender(), emit_hz=0.0, max_hands=max_hands)
+        return proc, source
+
+    def test_a_cold_table_scans_every_tile_before_repeating(self):
+        proc, _src = self._proc(script=[[]])
+        proc.tick(now=0.0)               # populates proc._acq_centers
+        n_tiles = len(proc._acq_centers)
+        self.assertGreater(n_tiles, 1)
+        seen = []
+        for i in range(n_tiles):
+            proc.tick(now=(i + 1) * 0.033)
+            seen.append(proc._scan_idx % n_tiles)
+        self.assertEqual(len(set(seen)), n_tiles)
+
+    def test_a_hit_commits_a_window_at_the_detection_position(self):
+        # Tight re-centring on the DETECTION, not just re-using the scan
+        # tile's own origin — `_update_acquisition`'s whole reason for
+        # existing. The offset (450,450) is deliberately large and
+        # deliberately checked against the "ignores the detection"
+        # mutation below: the first scan tile on an uncalibrated
+        # 1920x1080 frame clamps to the top-left corner (0,0), and a
+        # SMALL offset (e.g. 15,20) clamps right back to that same corner
+        # either way, making the two cases indistinguishable — this
+        # exact test passed against a mutated `_update_acquisition` that
+        # ignored `det.x`/`det.y` entirely until the offset was widened
+        # enough to escape the corner clamp.
+        proc, _src = self._proc(script=[[det(450, 450)]], max_hands=1)
+        proc.tick(now=0.0)
+        win = proc._hand_windows[0]
+        self.assertIsNotNone(win)
+        cx, cy = proc._acq_centers[0]
+        tile_x0, tile_y0, _tw, _th = tracker._clamp_window(
+            cx, cy, tracker.ACQUISITION_WINDOW_PX, 1920, 1080)
+        # What a mutation that recentres on the tile's own origin instead
+        # of the detection would have produced — must differ from the
+        # real expectation below, or this test cannot tell them apart.
+        mutant_result = tracker._clamp_window(
+            tile_x0, tile_y0, tracker.ACQUISITION_WINDOW_PX, 1920, 1080)
+        expected_x0, expected_y0, _w, _h = tracker._clamp_window(
+            tile_x0 + 450, tile_y0 + 450, tracker.ACQUISITION_WINDOW_PX,
+            1920, 1080)
+        self.assertNotEqual((expected_x0, expected_y0), mutant_result[:2])
+        self.assertEqual((win.x0, win.y0), (expected_x0, expected_y0))
+
+    def test_a_miss_does_not_free_the_window_immediately(self):
+        proc, _src = self._proc(script=[[det(15, 20)], []], max_hands=1)
+        proc.tick(now=0.0)
+        self.assertIsNotNone(proc._hand_windows[0])
+        proc.tick(now=0.5)      # missed, well under ACQUISITION_WINDOW_LOST_S
+        self.assertIsNotNone(proc._hand_windows[0])
+
+    def test_a_window_lost_long_enough_is_freed(self):
+        proc, _src = self._proc(script=[[det(15, 20)], []], max_hands=1)
+        proc.tick(now=0.0)
+        self.assertIsNotNone(proc._hand_windows[0])
+        proc.tick(now=tracker.ACQUISITION_WINDOW_LOST_S + 0.1)
+        self.assertIsNone(proc._hand_windows[0])
+
+    def test_exactly_one_detect_call_per_tick(self):
+        backend = backend_stub.Stub(script=[[det(15, 20)], [det(400, 300)]])
+        source = FakeSource([(frame(width=1920, height=1080), i)
+                             for i in range(20)])
+        proc = tracker.TrackerProcess(
+            source=source, backend=backend, sender=FakeSender(),
+            emit_hz=0.0, max_hands=2)
+        for i in range(20):
+            proc.tick(now=i * 0.033)
+        self.assertEqual(backend.calls, 20)
+
+    def test_two_hands_at_different_times_claim_two_different_slots(self):
+        # The documented limit is TWO hands in the SAME scan tile on the
+        # SAME tick (`_update_acquisition`'s own docstring) — this is the
+        # ordinary case that limit does not cover: one arrives, then the
+        # other, in separate ticks. `det(15, 20)` reused for both was the
+        # ORIGINAL version of this test and looked right; it was wrong —
+        # on this uncalibrated whole-frame fallback, the first two scan
+        # tiles both clamp to the identical (0,0)-anchored window near
+        # the frame's corner, so both "different" hands landed in the
+        # SAME absolute spot by coincidence. That is exactly the
+        # duplicate case the 2026-08-13 pulsing fix now declines — this
+        # test's own old body was unknowingly exercising the bug it took
+        # a real rig session to find. Second detection moved far enough
+        # (900, 900) added to whatever the second tile's own origin is)
+        # that it cannot land inside slot 0's window, so this is now
+        # actually testing two SEPARATE hands, which is what it always
+        # claimed to test.
+        proc, _src = self._proc(script=[[det(15, 20)], [det(900, 900)]],
+                                max_hands=2)
+        proc.tick(now=0.0)
+        self.assertIsNotNone(proc._hand_windows[0])
+        self.assertIsNone(proc._hand_windows[1])
+        proc.tick(now=0.033)
+        filled = [w for w in proc._hand_windows if w is not None]
+        self.assertEqual(len(filled), 2)
+
+    def test_a_scan_hit_on_an_already_tracked_hand_does_not_claim_a_second_slot(self):
+        # 2026-08-13 pulsing bug (module docstring, decision 7's newest
+        # paragraph). At max_hands capacity minus one real hand, a scan
+        # turn always exists and can re-spot the SAME hand a committed
+        # window is already tracking — before this check, that hit
+        # unconditionally claimed the free slot, cloning a second window
+        # onto one physical hand. `_update_acquisition` is called
+        # directly (not through `tick()`) so the test controls exactly
+        # where the "hit" lands relative to the existing window, rather
+        # than depending on real tile geometry to happen to overlap.
+        proc, _src = self._proc(script=[[]], max_hands=2)
+        proc.tick(now=0.0)          # populates _acq_centers, no hit
+        proc._hand_windows[0] = tracker._AcquisitionWindow(
+            500, 500, 700, 700, last_hit=0.0)
+        # det(100, 100) + origin (500, 500) = absolute (600, 600),
+        # inside slot 0's window (500..1200 both axes).
+        proc._update_acquisition(
+            [det(100, 100)], origin=(500.0, 500.0),
+            frame_shape=(1080, 1920, 3), service_slot=None, now=1.0)
+        self.assertIsNone(proc._hand_windows[1])
+        # unchanged, not merely re-clamped to the same numbers by luck
+        self.assertEqual((proc._hand_windows[0].x0, proc._hand_windows[0].y0),
+                         (500, 500))
+
+    def test_a_scan_hit_away_from_the_tracked_hand_still_claims_the_slot(self):
+        # The positive control for the test above — a hit that is NOT
+        # inside any existing window must still be free to claim a slot,
+        # or the fix above would have quietly broken the ordinary
+        # two-different-hands case instead of only fixing the duplicate.
+        proc, _src = self._proc(script=[[]], max_hands=2)
+        proc.tick(now=0.0)
+        proc._hand_windows[0] = tracker._AcquisitionWindow(
+            500, 500, 700, 700, last_hit=0.0)
+        # absolute (1700, 900) is well outside 500..1200 both axes
+        proc._update_acquisition(
+            [det(200, 100)], origin=(1500.0, 800.0),
+            frame_shape=(1080, 1920, 3), service_slot=None, now=1.0)
+        self.assertIsNotNone(proc._hand_windows[1])
+
+    def test_denoise_applies_to_scan_ticks_not_tracking_ticks(self):
+        rng = np.random.RandomState(0)
+        noisy = rng.randint(0, 255, size=(1080, 1920, 3)).astype(np.uint8)
+        source = FakeSource([(noisy, 1), (noisy, 2)])
+        backend = ArrayRecordingStub(script=[[det(15, 20)], [det(15, 20)]])
+        proc = tracker.TrackerProcess(
+            source=source, backend=backend, sender=FakeSender(),
+            emit_hz=0.0, max_hands=1)
+
+        proc.tick(now=0.0)       # cold -> scan tile -> denoised
+        cx, cy = proc._acq_centers[0]
+        ox0, oy0, ow, oh = tracker._clamp_window(
+            cx, cy, tracker.ACQUISITION_WINDOW_PX, 1920, 1080)
+        raw_scan_slice = noisy[oy0:oy0 + oh, ox0:ox0 + ow]
+        self.assertFalse(np.array_equal(backend.arrays[0], raw_scan_slice))
+
+        proc.tick(now=0.033)     # warm -> committed window -> NOT denoised
+        win = proc._hand_windows[0]
+        raw_track_slice = noisy[win.y0:win.y0 + win.h, win.x0:win.x0 + win.w]
+        self.assertTrue(np.array_equal(backend.arrays[1], raw_track_slice))
+
+    def test_backend_factory_gives_every_slot_and_the_scanner_a_separate_instance(self):
+        # 2026-08-12, found live on the rig: a single shared MediaPipe
+        # instance for scanning AND tracking pulsed, because scanning for
+        # a second hand on the SAME instance a first hand was locked
+        # through resets that lock (module docstring, decision 7's third
+        # finding — `seed_test2.py`). `backend_factory` is the fix; this
+        # is the guard that it actually builds SEPARATE instances rather
+        # than quietly reusing one.
+        made = []
+
+        def factory():
+            b = backend_stub.Stub()
+            made.append(b)
+            return b
+
+        proc = tracker.TrackerProcess(
+            source=FakeSource([]), backend_factory=factory,
+            sender=FakeSender(), emit_hz=0.0, max_hands=2)
+        # 1 scanner + 2 tracking slots = 3 instances, all distinct.
+        self.assertEqual(len(made), 3)
+        self.assertEqual(len({id(b) for b in made}), 3)
+        self.assertIs(proc._scan_backend, made[0])
+        self.assertEqual(proc._track_backends, made[1:])
 
 
 class TestStaleFrames(ProcCase):
@@ -417,6 +666,19 @@ class TestStaleFrames(ProcCase):
         source.queue = [(None, "stale")]
         proc.tick(now=1.0)
         self.assertEqual(proc.tracker.tracks, [])
+
+    def test_going_stale_drops_every_committed_acquisition_window(self):
+        # Module docstring, decision 7: a window survived across an outage
+        # of unknown length could be pointing at nothing (the hand left)
+        # or at the wrong thing entirely (doc section 20.1's camera
+        # restart at a different capture resolution).
+        proc, source, _sender = self.make(script=[[det(10, 10)]],
+                                          max_hands=1)
+        proc.tick(now=0.0)
+        self.assertIsNotNone(proc._hand_windows[0])
+        source.queue = [(None, "stale")]
+        proc.tick(now=1.0)
+        self.assertEqual(proc._hand_windows, [None])
 
     def test_frames_resuming_is_reported_and_emission_restarts(self):
         proc, source, sender = self.make(script=[[det(10, 10)]])

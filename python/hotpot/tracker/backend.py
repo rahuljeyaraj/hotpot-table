@@ -20,12 +20,16 @@ so all of it is testable against the stub.
 
 `Detection.x`/`.y` are in the pixel coordinates **of the frame that was
 passed in** — not the camera's full capture resolution and not stage space.
-The tracker downsamples before inference (doc section 6.5: "tracker
-downsamples with cv2.resize before MediaPipe — cheap, and MediaPipe wants
-small"), so the caller is the only party that knows the scale factor back
-to capture resolution, and it applies it. A backend that tried to return
-capture-space coordinates would have to be told the scale, which is exactly
-the sort of shared secret that goes stale.
+Doc section 6.5 originally had the tracker downsampling before inference;
+`tracker/main.py`'s module docstring, decision 7 (2026-08-12) removed that
+step for hand detection specifically (a downsampled frame is exactly the
+framing that could never cold-acquire a real hand) in favour of native-
+resolution acquisition/tracking windows, but the CONTRACT here is
+unchanged either way — the caller is the only party that knows the scale
+factor (1.0 for a window, or otherwise) back to capture resolution, and it
+applies it. A backend that tried to return capture-space coordinates would
+have to be told the scale, which is exactly the sort of shared secret that
+goes stale.
 """
 
 from __future__ import annotations
