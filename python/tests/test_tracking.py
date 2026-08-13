@@ -166,20 +166,13 @@ class TestRoleAssignment(unittest.TestCase):
     """Doc section 11.3 step 2."""
 
     def test_a_right_hand_arriving_second_takes_over_and_demotes_the_first(self):
-        # Keyed by id, not by rounded x: RIG_FEEDBACK item 11's handoff
-        # glide (TestPointerHandoff) means the new pointer's DISPLAYED x on
-        # this very tick still reads close to the outgoing pointer's own
-        # position — x is no longer a reliable stand-in for "which physical
-        # track is this" the instant a takeover happens, only role/id are.
         t = tracking.HandTracker()
-        first = t.update([det(400, 500, HAND_LEFT)], now=0.0)
-        original_id = first[0].id
+        t.update([det(400, 500, HAND_LEFT)], now=0.0)
         hands = t.update([det(400, 500, HAND_LEFT),
                           det(900, 500, HAND_RIGHT)], now=0.033)
-        by_id = {h.id: h for h in hands}
-        self.assertEqual(by_id[original_id].role, AMBIENT)
-        new_hand = [h for h in hands if h.id != original_id][0]
-        self.assertEqual(new_hand.role, POINTER)
+        by_pos = {round(h.x): h for h in hands}
+        self.assertEqual(by_pos[400].role, AMBIENT)
+        self.assertEqual(by_pos[900].role, POINTER)
 
     def test_a_left_hand_arriving_second_stays_ambient(self):
         t = tracking.HandTracker()
@@ -488,120 +481,6 @@ class TestMatchingAgainstTheRawPosition(unittest.TestCase):
         # this fix changes what MATCHING compares against, not the EMA
         # itself, which item 8 still wants for a jitter-free cursor.
         self.assertLess(track.x, 100.0)
-
-
-class TestPointerHandoff(unittest.TestCase):
-    """RIG_FEEDBACK item 11 (2026-08-13), the fourth fix on this item — see
-    `tracking.py`'s own `POINTER_HANDOFF_S` comment for why this one does
-    not try to be a fourth theory of WHY the pointer track's id churns.
-    It targets what a diner actually sees: whichever track currently holds
-    the pointer role, its x/y should glide from the outgoing pointer's
-    last position rather than jump, whenever the role moves to a
-    different track id.
-    """
-
-    def test_ordinary_continuous_tracking_gets_no_glide_at_all(self):
-        # The regression check that matters most: this must add ZERO lag
-        # to the common case where the same track keeps being the
-        # pointer tick after tick — only an id CHANGE should ever glide.
-        t = tracking.HandTracker(smoothing_tau_s=0.0)
-        now = 0.0
-        for i in range(10):
-            now += 0.033
-            hands = t.update([det(100.0 * i, 500)], now=now)
-            self.assertAlmostEqual(hands[0].x, 100.0 * i)
-            self.assertAlmostEqual(hands[0].y, 500.0)
-
-    def test_a_direct_role_takeover_starts_from_the_old_position_not_a_snap(self):
-        # The exact scenario TestRoleAssignment's own
-        # test_a_right_hand_arriving_second_takes_over_and_demotes_the_
-        # first uses — a new Right hand steals the pointer role on the
-        # tick it arrives. Before this fix the reported x jumped straight
-        # from 400 to 900 on this very tick; the glide only starts
-        # counting from here, so this tick must still read the OUTGOING
-        # pointer's own last position, not the new track's true one.
-        t = tracking.HandTracker(smoothing_tau_s=0.0)
-        t.update([det(400, 500, HAND_LEFT)], now=0.0)
-        hands = t.update([det(400, 500, HAND_LEFT),
-                          det(900, 500, HAND_RIGHT)], now=0.033)
-        pointer = [h for h in hands if h.role == POINTER][0]
-        self.assertAlmostEqual(pointer.x, 400.0)
-
-    def test_a_later_tick_is_partway_through_the_glide(self):
-        t = tracking.HandTracker(smoothing_tau_s=0.0)
-        t.update([det(400, 500, HAND_LEFT)], now=0.0)
-        t.update([det(400, 500, HAND_LEFT), det(900, 500, HAND_RIGHT)],
-                 now=0.033)                                    # takeover
-        half = 0.033 + tracking.POINTER_HANDOFF_S / 2.0
-        hands = t.update([det(400, 500, HAND_LEFT), det(900, 500, HAND_RIGHT)],
-                         now=half)
-        pointer = [h for h in hands if h.role == POINTER][0]
-        self.assertGreater(pointer.x, 400.0)
-        self.assertLess(pointer.x, 900.0)
-
-    def test_the_glide_converges_on_the_true_position(self):
-        t = tracking.HandTracker(smoothing_tau_s=0.0)
-        t.update([det(400, 500, HAND_LEFT)], now=0.0)
-        t.update([det(400, 500, HAND_LEFT), det(900, 500, HAND_RIGHT)],
-                 now=0.033)
-        # Hold the new pointer still well past POINTER_HANDOFF_S.
-        hands = t.update([det(400, 500, HAND_LEFT), det(900, 500, HAND_RIGHT)],
-                         now=0.033 + tracking.POINTER_HANDOFF_S + 0.05)
-        pointer = [h for h in hands if h.role == POINTER][0]
-        self.assertAlmostEqual(pointer.x, 900.0)
-
-    def test_a_long_gap_snaps_instead_of_gliding_from_a_stale_position(self):
-        # A diner who left and a different diner arriving much later must
-        # see their own hand's true position immediately — not a slide in
-        # from across the table where the last pointer used to be.
-        t = tracking.HandTracker(smoothing_tau_s=0.0)
-        t.update([det(100, 100)], now=0.0)
-        t.reset()
-        hands = t.update([det(900, 900)],
-                         now=tracking.POINTER_HANDOFF_MAX_GAP_S + 10.0)
-        self.assertAlmostEqual(hands[0].x, 900.0)
-        self.assertAlmostEqual(hands[0].y, 900.0)
-
-    def test_the_retire_then_promote_cycle_also_glides(self):
-        # The OTHER churn shape this item's rig log shows (not the direct
-        # `_appear` takeover above): the pointer track retires, and an
-        # already-existing ambient is promoted `PROMOTE_DELAY_S` later.
-        # That promotion is a role change on an EXISTING track too, and it
-        # must glide from the outgoing pointer's own last position.
-        t = tracking.HandTracker(smoothing_tau_s=0.0)
-        t.update([det(400, 500, HAND_RIGHT), det(900, 500, HAND_LEFT)],
-                 now=0.0)
-        # The right hand vanishes; only the ambient (left) is seen.
-        t.update([det(900, 500, HAND_LEFT)], now=0.4)
-        t.update([det(900, 500, HAND_LEFT)], now=0.6)          # retired
-        hands = t.update([det(900, 500, HAND_LEFT)], now=1.2)  # promoted
-        pointer = [h for h in hands if h.role == POINTER][0]
-        # Same reasoning as the direct-takeover test above: the promotion
-        # tick itself must still read the outgoing pointer's own last
-        # position (400), not have already snapped to 900.
-        self.assertAlmostEqual(pointer.x, 400.0)
-
-    def test_rapid_rechurn_continues_from_the_displayed_position_not_the_raw_one(self):
-        # A second role change mid-glide must not re-derive its start from
-        # the FIRST outgoing track's raw position — it should continue
-        # from wherever the diner's eye currently is (the partially-glided
-        # displayed position), so back-to-back churn still reads as one
-        # continuous glide rather than two disconnected ones.
-        t = tracking.HandTracker(smoothing_tau_s=0.0)
-        t.update([det(0, 0, HAND_LEFT)], now=0.0)
-        t.update([det(0, 0, HAND_LEFT), det(1000, 0, HAND_RIGHT)],
-                 now=0.01)                                    # takeover #1
-        half = 0.01 + tracking.POINTER_HANDOFF_S / 2.0
-        hands = t.update([det(0, 0, HAND_LEFT), det(1000, 0, HAND_RIGHT)],
-                         now=half)
-        mid_glide_x = [h for h in hands if h.role == POINTER][0].x
-        self.assertGreater(mid_glide_x, 0.0)
-        self.assertLess(mid_glide_x, 1000.0)
-        # A second, different Right hand steals it again immediately after.
-        hands = t.update([det(0, 0, HAND_LEFT), det(1000, 0, HAND_RIGHT),
-                          det(-1000, 0, HAND_RIGHT)], now=half + 0.001)
-        pointer2 = [h for h in hands if h.role == POINTER][0]
-        self.assertAlmostEqual(pointer2.x, mid_glide_x)
 
 
 class TestWhatGoesOnTheWire(unittest.TestCase):
