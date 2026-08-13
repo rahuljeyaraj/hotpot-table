@@ -195,6 +195,31 @@ watched live on the rig** — the mechanism explains the reported symptom
 precisely and is grounded in the two ruled-out tests above, not in
 guesswork, but "the code can produce this" is not the same claim as "and
 this is what did" until someone sees the pulsing actually stop.
+
+**2026-08-13, later the same day: live A/B on the rig — `562eeed` was
+necessary but not sufficient, and `max_hands=1` is what actually stops
+the pulsing.** Three tests, in order, same rig, same edge position that
+pulsed before: `max_hands=1` — pulsing gone, one real hand, developer
+confirmed. `max_hands=2` restored, same one-hand-at-the-edge case that
+had just been clean — pulsing came straight back. With a SECOND real
+hand also at the edge (both slots filled, so `_next_detection_input`
+never offers a scan turn — `len(active) == max_hands`), both hands
+pulsed, not in lockstep: right detected/left not, then flipped, and
+sometimes both missed the same tick. **This is a different failure from
+the duplicate-window bug above, which needs a FREE slot to reproduce at
+all, and it has not been root-caused** — the round-robin arithmetic
+alone (each filled slot serviced every other tick, ~15Hz here at a
+~30Hz capture rate, against `tracking.py`'s 500ms `TRACK_GRACE_S`)
+does not obviously explain a miss this frequent, and nobody has yet
+logged per-tick `conf` at the edge to see whether detection confidence
+itself is what is marginal there, the way `min_hand_detection_confidence`
+flickering was flagged as a live possibility before this test ran.
+**Decided, not diagnosed further: `tracker.max_hands` defaults to `1`
+in both `config/system.json` and `config/system.default.json`.**
+Two-hand tracking is disabled, not fixed — `_hand_windows`, the round
+robin and `backend_factory`'s per-slot instances are all still here,
+unchanged, for whenever this is revisited, but nothing on the rig has
+shown it can be made to hold up with two real hands yet.
 """
 
 from __future__ import annotations

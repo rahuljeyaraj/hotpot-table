@@ -19,7 +19,7 @@
   },
   "tracker": {
     "model_complexity": 1,
-    "max_hands": 2,
+    "max_hands": 1,
     "emit_hz": 60,
     "mirror_handedness": false,
     "input_width": 480,
