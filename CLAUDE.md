@@ -8,10 +8,13 @@ Product name: Hot Pot (en) / 称重火锅 (zh).
 Read docs/HOTPOT_ARCHITECTURE_v3.md before doing anything.
 It is authoritative. This file is only status + rules.
 
-**Open feedback queue:** `docs/RIG_FEEDBACK_2026-08-12.md` — ten items
-from the first real M5 rig run, each scoped for one fresh session. Item 1
-is done (commit 0ef1fe9), item 8 is done (commit 9854a5e, not yet
-rig-confirmed); check that file before starting new M5 work.
+**Open feedback queue:** `docs/RIG_FEEDBACK_2026-08-12.md` — eleven items
+from the first real M5 rig run, each scoped for one fresh session. Items
+1, 2, 8, 9 are resolved (2 by a workaround, not code). Items 3, 4-7, 10
+have developer decisions recorded (2026-08-13) and are ready to build but
+not started. Item 11 (pointer lags/snaps on a fast hand move) is new,
+2026-08-13, with an unconfirmed candidate cause noted in the doc. Check
+that file before starting new M5 work.
 
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.

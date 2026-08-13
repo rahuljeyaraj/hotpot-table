@@ -31,7 +31,12 @@ still wrong after a rig run, this is the file/constant
 (`CURSOR_SHADOW_CLEARANCE_MM`) to retune — see the commit message for the
 full reasoning before changing the direction or approach.
 
-## 2. Cursor doesn't appear when the hand is near the table edges
+## 2. Cursor doesn't appear when the hand is near the table edges — RESOLVED (workaround), 2026-08-13
+
+Developer applied a physical/operational workaround on the rig; no code
+change landed for this item and the root-cause candidates below were
+never investigated. Left in place as reference in case the workaround
+doesn't hold under different conditions.
 
 Only shows once the hand moves toward the centre, even though the hand is
 clearly visible to the operator. Not yet diagnosed. Candidates to check,
@@ -59,7 +64,21 @@ roughly in order of likely cause:
   off-stage by the 70mm shift could be a contributing factor now, not
   before. Check this after item 1 is confirmed on the rig, not before.
 
-## 3. No dwell-select progress shown while hovering a bin
+## 3. No dwell-select progress shown while hovering a bin — DECISION MADE, 2026-08-13, not yet built
+
+**Developer's decision, resolving the "needs a product decision" question
+below:** bins ARE dwell targets after all. Hover-red-on-enter stays
+(unchanged). Continued dwell should accumulate progress, and on
+completing dwell a window should open explaining the food item. This
+reverses this item's original reading ("bins are not dwell targets at
+all") — `core/hover.py`'s `bin_under`/dwell machinery exists and is
+generic (see items 4-7's note below), so the accumulator itself doesn't
+need inventing, but a bin has never been wired into `DwellTracker` as a
+dwellable target (only the three widgets are today), and the
+"window... explaining the food item" has no design yet (staff-view
+modal? oF-rendered overlay? what content, sourced from where —
+`Catalogue`/`data/catalogue.json` presumably). Scoped for its own
+session; not started.
 
 The bin outline goes red on hover (working as designed — hover-on-bin is
 feedback only, doc §9.4: "Hover on a *bin* is feedback only. It never
@@ -119,6 +138,16 @@ today's three widgets' exact placement/styling; `core/hover.py`'s
 changing the roster later is contained there plus `_fire_widget`'s
 dispatch table.
 
+**DECISION, items 4-7, 2026-08-13: remove all three buttons (Done,
+Cancel, Language) outright; keep the dwell mechanism for later use.**
+The developer's own item-7 note above already called them placeholders.
+`core/hover.py`'s `widgets_for()` is the one place to change — return no
+widgets (or none of these three) — and `Widget`/`layout()`/
+`DwellTracker`/`_fire_widget`'s dispatch table stay intact and unused,
+ready for whatever real widget set replaces them and for item 3's bin
+dwell (which uses the same `DwellTracker`, just fed a bin instead of a
+widget). Not yet built.
+
 ## 8. Pointer is jittery, needs smoothing — DONE, commit 9854a5e, not yet rig-confirmed
 
 Fixed in `tracker/tracking.py`: `HandTracker._smoothed()`, a per-track EMA
@@ -143,7 +172,15 @@ per-track `last_seen` state `tracking.py` already keeps, rather than
 inventing a second per-hand history in `main.py` before track identity
 exists.
 
-## 9. Live tab doesn't render the MediaPipe hand overlay
+## 9. Live tab doesn't render the MediaPipe hand overlay — RESOLVED, 2026-08-13
+
+Resolved by a design change rather than by wiring `draw()` as this item
+originally scoped: the developer decided the Live tab does not need a
+hand-tracking view at all. It stays the plain rectified picture. The raw
+MediaPipe skeleton (21 landmarks) moved to the new Developer tab instead
+(item 10's "first slice" — `#devImg`/`#devOverlay`, `index.html` ~line
+799), independent of calibration by design since MediaPipe runs upstream
+of the homography. Confirmed working by the developer on the rig.
 
 `core/web/static/index.html`'s Live tab has a `hands` toggle chip
 (~line 595) and canvas overlay plumbing already built, but the comment
@@ -158,23 +195,73 @@ their own wiring once M4's bin-rect data is confirmed flowing (check
 whether those are also still stubs while in there).
 
 ## 10. Add a Developer tab: process status, live view (+ optional
-    MediaPipe overlay), weight, classification output
+    MediaPipe overlay), weight, classification output — PARTIALLY BUILT
 
-Today "Developer" is a toggle/panel bolted onto every tab (six process
-pips + mock pick/put-back controls, `index.html` ~line 485, doc §12.8),
-not a tab of its own. The ask is to consolidate developer-facing
-instrumentation into one dedicated tab: the existing process pips, the
-Live view with the item-9 MediaPipe/hands overlay as an optional toggle,
-live per-bin weight (the Bins tab already has this — reuse rather than
-duplicate), and classifier output (check what, if anything, the
-classifier process currently puts on the wire for the staff view — this
-may need new wire messages, not just new markup). This is the largest
-item on this list and should probably be broken down further once
-scoped; treat this entry as the starting point for that scoping
-conversation, not a ready-to-code spec.
+**Since this item was written, a "first slice" landed** (`index.html`
+data-tab="developer", ~line 785): its own raw-camera `<img>`/`<canvas>`
+pair drawing the full 21-point MediaPipe hand skeleton, independent of
+calibration. That closed item 9 the way item 9's own resolution note
+above describes. **But the OLD top-right toggle/panel (`devToggle`/
+`devPanel`, ~line 604/823) is still there too, alongside the new tab, not
+folded into it** — it still gates the six process pips' visibility, the
+camera-stats block (doc §12.8: resolution/fps/frame_id/shm slot/
+dropped), and the "Mock picks/put-backs" grid (the {45,6,120,3,25,80}g
+cycle — the "fake weight addition" below).
+
+**DECISION, 2026-08-13:** remove the top-right `devToggle` button and
+`devPanel` entirely. Everything they gated moves into the Developer tab,
+each as its OWN separate control rather than one master switch turning
+all of it on together — specifically the mock pick/put-back grid ("fake
+weight addition") and the six process pips ("active process") must be
+independently toggleable, not bundled. Camera stats and the MediaPipe
+skeleton view already live in/near the tab; fold them in on the same
+one-control-per-thing basis. Live per-bin weight and classifier output
+(the doc §12.4 Bins tab already has live weight; classifier output was
+never checked — see the original note above, still true) remain
+unscoped past that. Not yet built.
+
+## 11. Pointer lags behind a fast hand move, and sometimes sticks then
+    snaps to the new location — NEW, 2026-08-13
+
+Developer's report from the same rig session: the MediaPipe overlay
+(Developer tab, item 9/10) tracks a fast hand move with no trouble, but
+the actual cursor drawn on the projected table lags, and on a fast move
+sometimes freezes in place for a moment, disappears, then reappears
+already at the new hand location — not a smooth slide there.
+
+**Not yet fixed. A candidate root cause, found reading `tracker/
+tracking.py` while documenting this item (not yet confirmed on the rig —
+verify before trusting it):** `MATCH_GATE_PX` (150px stage-space,
+`tracking.py` ~line 102) is a *fixed* per-frame distance, unlike item 8's
+EMA smoothing right next to it, which was deliberately made time-based
+(`alpha = 1 - exp(-dt/tau)`) because this process's own frame interval
+ranges 4-30Hz. The gate wasn't given the same treatment: at the low end
+of that range (4Hz, dt=250ms) a hand moving at an ordinary reach speed
+(~1 m/s) covers ~250mm between frames — already past the 150px gate,
+which the code's own comment computed against a 33ms (30Hz) frame. A
+detection that misses the gate does not get matched to the existing
+track (`_match`); it becomes a brand-new, **unsmoothed** track instead
+(`_appear` — item 8's own docstring: "a brand new track is never
+smoothed"). The old track isn't retired yet (`TRACK_GRACE_S` = 500ms
+grace), so if it held the pointer role it sits frozen at the old
+position — visible as "stuck" — until it retires, while the real hand's
+new position exists only as an *ambient* track (a pointer already
+existed, so step 2 doesn't promote it) until `PROMOTE_DELAY_S` (another
+500ms) lets it inherit the role — visible as the cursor "disappearing"
+then "reappearing" already at the new spot, matching the report closely.
+If this is confirmed, the fix likely wants the gate made time-based too
+(distance budget scaling with `dt`, the same reasoning already used for
+the EMA), not just a bigger fixed number — a bigger fixed gate risks
+mis-pairing two hands close together, which `tracking.py`'s own docstring
+already flags as the one failure this module exists to prevent. Not
+started; needs a rig session to confirm the diagnosis before writing a
+fix.
 
 ---
 
 **Order isn't prescribed** — pick whichever item the developer wants
-worked next. Items 4-7 need a product decision before any code; items 2,
-8, 9 are ready to investigate/implement now; item 10 needs scoping first.
+worked next. Resolved, no action needed: 1, 2 (workaround), 8, 9.
+Decided, ready to build: 3 (bin dwell + food-item window), 4-7 (remove
+the three widgets, keep the dwell machinery), 10 (fold the top-right
+developer toggle into the Developer tab, one control per thing). New,
+needs investigation before a fix: 11 (pointer lag/snap on fast moves).
