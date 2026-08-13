@@ -221,7 +221,8 @@ never checked — see the original note above, still true) remain
 unscoped past that. Not yet built.
 
 ## 11. Pointer lags behind a fast hand move, and sometimes sticks then
-    snaps to the new location — DONE, not yet rig-confirmed, 2026-08-13
+    snaps to the new location — DONE, commit 7090f15, not yet
+    rig-confirmed, 2026-08-13
 
 Developer's report from the same rig session: the MediaPipe overlay
 (Developer tab, item 9/10) tracks a fast hand move with no trouble, but

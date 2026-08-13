@@ -11,11 +11,11 @@ It is authoritative. This file is only status + rules.
 **Open feedback queue:** `docs/RIG_FEEDBACK_2026-08-12.md` — eleven items
 from the first real M5 rig run, each scoped for one fresh session. Items
 1, 2, 8, 9 are resolved (2 by a workaround, not code). Item 11 (pointer
-lags/snaps on a fast hand move) is done, not yet rig-confirmed — the
-match gate is now time-based, the same way item 8's smoothing already
-was. Items 3, 4-7, 10 have developer decisions recorded (2026-08-13) and
-are ready to build but not started. Check that file before starting new
-M5 work.
+lags/snaps on a fast hand move) is done (commit 7090f15), not yet
+rig-confirmed — the match gate is now time-based, the same way item 8's
+smoothing already was. Items 3, 4-7, 10 have developer decisions
+recorded (2026-08-13) and are ready to build but not started. Check that
+file before starting new M5 work.
 
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
