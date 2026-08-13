@@ -22,6 +22,15 @@ namespace {
 	// default reasoning as kCursorPort.
 	const int kSkeletonPort = 8772;
 
+	// RIG_FEEDBACK item 11 confirmed fixed on the rig, 2026-08-13 — kill
+	// switch, same pattern as UiLayer.cpp's own kUseCoreRects (see
+	// CLAUDE.md's M4n note on that one). `SkeletonLink` still listens
+	// (tracker/main.py has simply stopped sending to it, its own side of
+	// this same call) and `UiLayer::drawSkeleton` still exists —
+	// flipping this back to `true` is the whole re-enable if the raw-
+	// skeleton-vs-cursor comparison is ever needed again.
+	const bool kDrawSkeleton = false;
+
 	// doc §4.5/§12: telemetry cadence. Not the 60Hz state rate — `stat` is
 	// a developer/staff-view number, once a second is plenty.
 	const float kStatInterval = 1.0f;
@@ -115,13 +124,11 @@ void ofApp::draw(){
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
 		ofGetFrameRate(), _devOverlayVisible,
 		_cursor.hands(), _cursor.pointer());
-	// RIG_FEEDBACK item 11 diagnostic: drawn inside the content pass, same
-	// as the ordinary (non-serving-mode) cursor above it, so it goes
-	// through the keystone warp and lines up with the real table — and so
-	// it is erased by the light pass over a bin cutout exactly like the
-	// pre-item-1 cursor was, which is itself part of what this view is
-	// for showing. See UiLayer::drawSkeleton's own comment.
-	_ui.drawSkeleton(_skeleton.hands());
+	// RIG_FEEDBACK item 11 diagnostic: confirmed fixed on the rig,
+	// 2026-08-13 — see kDrawSkeleton's own comment.
+	if(kDrawSkeleton){
+		_ui.drawSkeleton(_skeleton.hands());
+	}
 	_stage.endContent();
 
 	// 2026-08-12: the cursor is allowed to survive on top of a bin cutout

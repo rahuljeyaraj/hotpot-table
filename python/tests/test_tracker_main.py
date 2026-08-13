@@ -369,62 +369,6 @@ class TestTheDetectionCrop(unittest.TestCase):
         marks = [m for m in stats if m.get("t") == "landmarks"]
         self.assertEqual(marks[-1]["hands"][0]["points"], [[1000.0, 600.0]])
 
-    def test_the_raw_skeleton_is_mapped_to_stage_space_with_no_clearance_offset(self):
-        # RIG_FEEDBACK item 11 diagnostic (skeletonbus.py). Same capture-
-        # pixel point as `test_the_landmark_debug_view_carries_the_origin_
-        # too` above (1000,600) — H_OFFSET puts that at the stage centre
-        # (960,540), same as the cursor pipeline's own
-        # `test_the_crop_origin_is_added_back_before_the_homography` — but
-        # UNLIKE that test, no CURSOR_SHADOW_CLEARANCE_MM is subtracted:
-        # this is the raw signal, not the cursor-visibility offset applied
-        # on top of it.
-        skel_sender = FakeSkeletonSender()
-        proc = tracker.TrackerProcess(
-            source=FakeSource([(frame(width=1920, height=1080), 1)]),
-            backend=backend_stub.Stub(script=[[
-                Detection(x=600.0, y=400.0, conf=0.9, handedness=HAND_RIGHT,
-                          landmarks=[(600.0, 400.0)])]]),
-            sender=FakeSender(), skeleton_sender=skel_sender, emit_hz=0.0,
-            input_width=0, roi_margin_px=200)
-        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
-                            "stage": list(STAGE)})
-        proc.tick(now=0.0)
-        hand = skel_sender.frames[-1].hands[0]
-        self.assertEqual(hand.handedness, HAND_RIGHT)
-        self.assertEqual(len(hand.points), 1)
-        self.assertAlmostEqual(hand.points[0][0], 960.0)
-        self.assertAlmostEqual(hand.points[0][1], 540.0)
-
-    def test_the_raw_skeleton_carries_every_landmark_not_just_the_tracked_point(self):
-        skel_sender = FakeSkeletonSender()
-        proc = tracker.TrackerProcess(
-            source=FakeSource([(frame(width=1920, height=1080), 1)]),
-            backend=backend_stub.Stub(script=[[
-                Detection(x=600.0, y=400.0, conf=0.9, handedness=HAND_LEFT,
-                          landmarks=[(600.0, 400.0), (610.0, 410.0),
-                                    (620.0, 420.0)])]]),
-            sender=FakeSender(), skeleton_sender=skel_sender, emit_hz=0.0,
-            input_width=0, roi_margin_px=200)
-        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
-                            "stage": list(STAGE)})
-        proc.tick(now=0.0)
-        self.assertEqual(len(skel_sender.frames[-1].hands[0].points), 3)
-
-    def test_a_hand_with_no_landmarks_sends_no_skeleton(self):
-        # `det()` (this file's own helper) never sets `landmarks` — the
-        # stub-detection shape most of this file's other tests already
-        # use — and that must not crash `_skeleton_to_stage` or produce a
-        # phantom empty-points hand.
-        skel_sender = FakeSkeletonSender()
-        proc = tracker.TrackerProcess(
-            source=FakeSource([(frame(width=1920, height=1080), 1)]),
-            backend=backend_stub.Stub(script=[[det(600, 400)]]),
-            sender=FakeSender(), skeleton_sender=skel_sender, emit_hz=0.0,
-            input_width=0, roi_margin_px=200)
-        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
-                            "stage": list(STAGE)})
-        proc.tick(now=0.0)
-        self.assertEqual(skel_sender.frames[-1].hands, [])
 
     def test_a_new_homography_moves_the_scan(self):
         # A re-calibrated table must not keep scanning the old table's
@@ -750,6 +694,57 @@ class TestPointerTransitionLogging(ProcCase):
         self.assertEqual(len(transitions), 2)
         self.assertIn("pointer disappeared", transitions[1])
         self.assertIn("0 raw detections", transitions[1])
+
+
+class TestSkeletonMapping(ProcCase):
+    """RIG_FEEDBACK item 11's raw-skeleton diagnostic (`skeletonbus.py`).
+
+    **2026-08-13: confirmed on the rig, disabled.** `tick()` no longer
+    calls `skeleton_sender.send()` — see `tick()`'s own comment. The
+    mapping method itself, `_skeleton_to_stage`, is untouched and still
+    tested directly here rather than through `tick()`, so it stays
+    correct and ready to re-wire if this item's fix is ever undone or a
+    similar comparison is needed again — the same "kept, not deleted"
+    call this file makes for `dots.detect_best` (CLAUDE.md's M4i).
+    """
+
+    def test_maps_capture_pixels_through_scale_origin_and_homography(self):
+        proc, _src, _sender = self.make(calibrated=False)
+        detections = [Detection(x=10.0, y=20.0, conf=0.9, handedness=HAND_RIGHT,
+                                landmarks=[(10.0, 20.0)])]
+        hands = proc._skeleton_to_stage(detections, scale=2.0,
+                                        origin=(100.0, 50.0), h=H_TEST)
+        # crop-local (10,20) * scale 2 + origin (100,50) = (120,90) capture
+        # px; H_TEST doubles + offsets: (120*2+100, 90*2+50) = (340, 230).
+        hand = hands[0]
+        self.assertEqual(hand.handedness, HAND_RIGHT)
+        self.assertEqual(len(hand.points), 1)
+        self.assertAlmostEqual(hand.points[0][0], 340.0)
+        self.assertAlmostEqual(hand.points[0][1], 230.0)
+
+    def test_carries_every_landmark_not_just_the_tracked_point(self):
+        proc, _src, _sender = self.make(calibrated=False)
+        detections = [Detection(x=0.0, y=0.0, conf=0.9, handedness=HAND_LEFT,
+                                landmarks=[(0.0, 0.0), (10.0, 10.0),
+                                          (20.0, 20.0)])]
+        hands = proc._skeleton_to_stage(detections, scale=1.0,
+                                        origin=(0.0, 0.0), h=H_TEST)
+        self.assertEqual(len(hands[0].points), 3)
+
+    def test_a_hand_with_no_landmarks_sends_no_skeleton(self):
+        # `det()` (this file's own helper) never sets `landmarks` — the
+        # stub-detection shape most of this file's other tests already
+        # use — and that must not crash `_skeleton_to_stage` or produce a
+        # phantom empty-points hand.
+        proc, _src, _sender = self.make(calibrated=False)
+        hands = proc._skeleton_to_stage([det(600, 400)], scale=1.0,
+                                        origin=(0.0, 0.0), h=H_TEST)
+        self.assertEqual(hands, [])
+
+    def test_tick_no_longer_sends_a_skeleton_frame(self):
+        proc, _src, _sender = self.make(script=[[det(10, 20)]])
+        proc.tick(now=0.0)
+        self.assertEqual(proc.skeleton_sender.frames, [])
 
 
 class TestStaleFrames(ProcCase):

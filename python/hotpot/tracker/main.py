@@ -945,14 +945,14 @@ class TrackerProcess:
         hands = self.tracker.update(staged, now)
         self._log_pointer_transition(hands, staged, now)
         self.sender.send(hands, ts=time.time())
-        # RIG_FEEDBACK item 11 diagnostic (skeletonbus.py's module
-        # docstring): the raw skeleton, mapped to stage space, sent to oF
-        # ALONGSIDE the real cursor — never derived from `hands`/`staged`,
-        # so nothing about item 8's smoothing or `tracking.py`'s matching
-        # touches it.
-        self.skeleton_sender.send(
-            self._skeleton_to_stage(detections, scale, origin, h),
-            ts=time.time())
+        # RIG_FEEDBACK item 11 diagnostic: confirmed fixed on the rig,
+        # 2026-08-13 — no longer called here, same call `classifier/
+        # main.py` made for `dots.detect_best` (CLAUDE.md's M4i): the
+        # mechanism (`self.skeleton_sender`, `_skeleton_to_stage`) is
+        # untouched and still directly tested
+        # (test_tracker_main.py's `TestSkeletonMapping`), just not wired
+        # into the tick loop any more. oF's own side of this is
+        # `ofApp.cpp`'s `kDrawSkeleton` kill switch.
         self._last_emit = now
         self.emitted += 1
         self._count_probe_frame(now)

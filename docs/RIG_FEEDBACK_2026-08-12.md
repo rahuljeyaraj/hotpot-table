@@ -657,26 +657,37 @@ same call made elsewhere in this project).
 old `test_tracking.py`) no longer describe anything this module does and
 were deleted with it, not weakened in place.
 
-**Not yet rig-confirmed — this is the fourth code change on this item,
-and the discipline that got here says say so plainly: watch the actual
-projected table on a fast hand move before calling this item done.** If
-the stuck-then-snap look is gone, this item is resolved as a genuine
-architecture simplification, not a masking mitigation — the diner's
-cursor is now, structurally, the same one-hand-smoothed-only data path
-the skeleton diagnostic already proved reads as smooth. If a glitch
-remains, it did not come from anything this session removed (matching,
-roles, hysteresis are gone, not merely quieter) — the next places to
-look are upstream of `tracking.py` entirely: the acquisition window
-(theory A above, still unconfirmed either way), MediaPipe's own
-per-frame jitter through the smoothing filter, or downstream of this
-process (cursorbus/`CursorLink`/oF's render loop, never directly ruled
-out).
+**RIG-CONFIRMED, 2026-08-13 — DONE. Developer, watching the projected
+table: "it is working."** Fourth code change on this item, and the only
+one of the four that was a genuine architecture simplification rather
+than a mitigation or a partial fix — deleting the two-hand role/match/
+hysteresis machinery is what actually closed the gap between the
+skeleton (always smooth) and the cursor (now the same data path, plus
+smoothing only). Items A/B above (the acquisition-window shift budget,
+handedness flicker) are moot for this rig's current config: there is no
+more matching for either to break.
+
+**Same session, the skeleton diagnostic disabled — the developer's
+following instruction, now that it has done its job.** Not deleted:
+`self.skeleton_sender.send(...)` is simply no longer called from
+`tracker/main.py`'s `tick()` (the mechanism — `skeletonbus.py`,
+`_skeleton_to_stage`, `SkeletonLink.h/.cpp` — is untouched and still
+tested), and oF's `ofApp.cpp` gained a `kDrawSkeleton` kill switch
+(`false`), same pattern as `UiLayer.cpp`'s own `kUseCoreRects`. Re-
+enabling either side later is a one-line flip, not a rebuild. `SkeletonLink`
+still binds UDP 8772 and logs its startup line; it just never receives
+anything now that the Python side has stopped sending. Confirmed clean:
+`run.py --stop`, a real relink (msbuild, 0 errors, 1 pre-existing
+unrelated LNK4075 warning), `run.py` again — all six processes reached
+HOTPOT-READY.
+
+**Item 11 is DONE.**
 
 ---
 
 **Order isn't prescribed** — pick whichever item the developer wants
-worked next. Resolved, no action needed: 1, 2 (workaround), 8, 9. Done,
-not yet rig-confirmed: 11 (pointer lag/snap on fast moves). Decided,
+worked next. Resolved, no action needed: 1, 2 (workaround), 8, 9, 11
+(pointer lag/snap on fast moves — rig-confirmed 2026-08-13). Decided,
 ready to build: 3 (bin dwell + food-item window), 4-7 (remove the three
 widgets, keep the dwell machinery), 10 (fold the top-right developer
 toggle into the Developer tab, one control per thing).
