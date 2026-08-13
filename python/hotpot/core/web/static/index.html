@@ -3066,12 +3066,21 @@
   var actBody = document.getElementById("actBody");
   var actActions = document.getElementById("actActions");
 
-  // Whether *this* tablet is the one waiting on a set_mode it sent.
+  // Which direction *this* tablet is waiting on a set_mode reply for —
+  // `"setting"`, `"serving"`, or `false` for "not waiting on one at all".
   // The `mode` reply is a broadcast to every attached tablet (core's
   // _publish_mode: the mode is global state and they must all agree on
   // it), so without this a refusal would pop a dialog on a tablet
   // nobody was holding. Every tablet still gets the state; only the one
   // that asked gets the modal.
+  //
+  // A direction, not a bool, since doc §9.3 added a SECOND refusal
+  // reason (M7: exit blocked while a bin is unresolved) alongside §9.1's
+  // original one (entry blocked while an order is active) — `refused`
+  // alone cannot say which of the two just happened, and showing the
+  // wrong dialog for one of them is worse than showing neither (a
+  // "Can't turn Serving off" title on a tap that was trying to turn it
+  // ON, with no button that actually does what the message asks for).
   var awaitingMode = false;
 
   function closeDialog() {
@@ -3094,10 +3103,12 @@
     actBackdrop.classList.add("show");
   }
 
-  function sendMode(next) {
+  function sendMode(next, confirm) {
     if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
-    awaitingMode = true;
-    currentWs.send(JSON.stringify({ t: "set_mode", mode: next }));
+    awaitingMode = next;
+    var msg = { t: "set_mode", mode: next };
+    if (confirm) msg.confirm = true;
+    currentWs.send(JSON.stringify(msg));
   }
 
   // Doc §9.1: "The staff view shows *why* it is refused and offers
@@ -3111,6 +3122,21 @@
       { label: "Close", onClick: closeDialog },
       { label: "Cancel the order first", cls: "primary",
         onClick: askCancelOrder },
+    ], true);
+  }
+
+  // Doc §9.3's OTHER refusal — exit blocked while a bin is unresolved.
+  // core's reason string already ends in "Exit anyway?" (core/main.py's
+  // `_handle_set_mode`), so this dialog's body is that sentence verbatim,
+  // same as showRefusal above; what it needs that showRefusal does not
+  // have is a button that can actually push through, since cancelling
+  // the order does nothing to resolve a bin the classifier couldn't
+  // identify.
+  function showExitRefusal(reason) {
+    showDialog("Some bins are unresolved", reason, [
+      { label: "Stay in Setting", onClick: closeDialog },
+      { label: "Exit anyway", cls: "danger",
+        onClick: function () { closeDialog(); sendMode("serving", true); } },
     ], true);
   }
 
@@ -3166,7 +3192,11 @@
     applySetupGating();
     applyCaptureGating();
 
-    if (msg.refused && awaitingMode) showRefusal(msg.refused);
+    // Which dialog depends on which direction THIS tablet asked for —
+    // see awaitingMode's own comment for why a bool could not tell these
+    // two doc §9.1/§9.3 refusals apart.
+    if (msg.refused && awaitingMode === "setting") showRefusal(msg.refused);
+    else if (msg.refused && awaitingMode === "serving") showExitRefusal(msg.refused);
     awaitingMode = false;
   }
 
