@@ -1086,6 +1086,21 @@ class TrackerProcess:
         if service_slot is not None:
             win = self._hand_windows[service_slot]
             if win is not None and now - win.last_hit > ACQUISITION_WINDOW_LOST_S:
+                # RIG_FEEDBACK item 11 (2026-08-13): diagnostic only, no
+                # behaviour change. The window is NOT re-centred on a miss
+                # (only a hit does that, above) — a hand that outran it
+                # sits missed at the same stale crop until this fires, up
+                # to ACQUISITION_WINDOW_LOST_S later. That bound (1.0s) is
+                # close to the developer's own reported "stuck" duration,
+                # which this fix's own diagnosis (the tracking.py match
+                # gate) does not explain: the gate only helps when a
+                # detection exists to match against, and a lost window
+                # produces none at all. Logged so a rig run can confirm or
+                # rule this out directly rather than guessing again.
+                _log.info("tracker: acquisition window %d lost after %.2fs "
+                          "unmatched (hand outran the tracked crop) — "
+                          "freed for rescan", service_slot,
+                          now - win.last_hit)
                 self._hand_windows[service_slot] = None
 
     def _to_stage(self, detections: Sequence[Detection], scale: float,
