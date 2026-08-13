@@ -666,6 +666,27 @@ class TestPointerTransitionLogging(ProcCase):
         self.assertIn("-> None", transitions[1])
         self.assertIn("0 raw detections", transitions[1])
 
+    def test_a_role_swap_logs_the_distance_and_gate_that_were_compared(self):
+        # This is the exact shape found on the rig (2026-08-13): a direct
+        # id-to-id jump with no "-> None" in between, via `_appear`'s Right
+        # -hand-takeover rule — det(400,20) is far enough past the match
+        # gate at this dt (H_TEST doubles + offsets, so ~780px stage-space
+        # apart, against a ~150px gate) that it cannot be the SAME hand
+        # continuing by the gate's own arithmetic, only a new one taking
+        # over.
+        proc, _src, _sender = self.make(
+            script=[[det(10, 20)], [det(400, 20, handedness=HAND_RIGHT)]])
+        with self.assertLogs("hotpot.tracker", level="INFO") as cm:
+            proc.tick(now=0.0)
+            proc.tick(now=0.033)
+        transitions = [m for m in cm.output if "pointer track" in m]
+        self.assertEqual(len(transitions), 2)
+        swap = transitions[1]
+        self.assertNotIn("-> None", swap)
+        self.assertIn("outgoing pointer was at", swap)
+        self.assertIn("gate was", swap)
+        self.assertIn("px away", swap)
+
 
 class TestStaleFrames(ProcCase):
     """Doc section 6.4: "stop emitting (tracker sends nothing rather than

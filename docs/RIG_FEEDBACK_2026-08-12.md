@@ -329,6 +329,47 @@ Ask the developer to restart `run.py` once more, reproduce the fast-move
 stuck cursor, then read `logs/hotpot-<date>.log` for `pointer track`
 lines around that moment.
 
+**2026-08-13, later still: done, and the log answered the question —
+it is #3, `tracking.py`'s own matching, NOT a data gap and NOT
+downstream of this process.** ~20s of one rig session
+(`logs/hotpot-2026-08-13.log` lines 735-758) shows the pointer track
+dying and a brand-new one taking over **12+ times**, roughly every
+1-3 seconds, almost every single time with **1 raw detection present on
+the very tick the old track dies** — not 0. Only the LAST of
+these transitions coincides with an actual `"acquisition window ...
+lost"` log line; all the others have no matching acquisition-loss event
+at all, ruling that theory out too, independently of the developer's own
+already-sound counter-argument above. Two further things the pattern itself gives away, both consistent
+with a single mechanism:
+- **Every `None -> newid` line lands almost exactly `PROMOTE_DELAY_S`
+  (0.5s) after the preceding `id -> None`** — the "new" id was not new
+  at all, it is the SAME ambient track quietly created (and never logged,
+  since creating an ambient track doesn't change who the pointer is) the
+  moment the old one first failed to match, now promoted on schedule.
+- **Several transitions jump id-to-id with NO `-> None` in between at
+  all** — `tracking.py._appear`'s one sanctioned same-tick role swap,
+  "a hand MediaPipe currently calls Right arriving beside an existing
+  pointer takes over immediately." Firing this often on what should be
+  one continuous hand strongly suggests MediaPipe's own handedness label
+  is flickering on an overhead camera, exactly the unreliability
+  `tracking.py`'s own opening paragraph already assumes and the reason
+  role is locked to a track id rather than re-read every frame — except
+  here it is deciding which track WINS in the first place, upstream of
+  that lock.
+Both symptoms point at the same root: **something keeps failing to match
+one continuous hand's consecutive detections to its own existing track,
+even though detections keep arriving on the very same, never-freed
+acquisition window.** `_log_pointer_transition` (this same commit) now
+also logs the actual arithmetic a real match attempt would have used —
+the distance from the outgoing pointer's last position to the nearest
+`staged` (stage-space) point THIS tick, against the gate that applied —
+whenever a transition happens with a previous pointer to compare against.
+**Still not fixed — the next rig test's log will show whether the
+reported distance is a genuinely large jump (a real, if surprising, hand
+speed or a `tracking.py` gate bug) or something that looks like a
+coordinate bug (e.g. a small camera-space wobble coming out amplified in
+stage space) — read that number before writing any more code here.**
+
 ---
 
 **Order isn't prescribed** — pick whichever item the developer wants

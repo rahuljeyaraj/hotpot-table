@@ -225,6 +225,7 @@ shown it can be made to hold up with two real hands yet.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 import time
@@ -936,8 +937,13 @@ class TrackerProcess:
             return False
 
         staged = self._to_stage(detections, scale, origin, h, stage)
+        # RIG_FEEDBACK item 11: captured BEFORE `update()` mutates
+        # `self.tracker`'s own state — this is "what the outgoing pointer
+        # looked like going into this tick", exactly what `_match` itself
+        # would have compared `staged` against.
+        prev_pointer = self.tracker.pointer()
         hands = self.tracker.update(staged, now)
-        self._log_pointer_transition(hands, len(detections), now)
+        self._log_pointer_transition(hands, staged, prev_pointer, now)
         self.sender.send(hands, ts=time.time())
         self._last_emit = now
         self.emitted += 1
@@ -945,39 +951,58 @@ class TrackerProcess:
         return True
 
     def _log_pointer_transition(self, hands: Sequence[cursorbus.Hand],
-                                num_raw_detections: int, now: float) -> None:
+                                staged: Sequence[Detection],
+                                prev_pointer, now: float) -> None:
         """RIG_FEEDBACK item 11 (2026-08-13): logs ONLY when the pointer
         ROLE moves to a different track id (or appears/disappears) — never
         every tick, so this is cheap enough to leave running.
 
-        Two previous theories for the stuck/reappear cursor report (the
-        match-gate widening, commit 7090f15; the acquisition-window chase,
-        reverted after the developer tested it and found no effect) were
-        both reasoned from code and both turned out not to be it — the
-        developer's own counter-argument was sound: `tracker/main.py`'s
-        raw MediaPipe skeleton (Developer tab) and the cursor are built
-        from the exact same per-tick `detections`, and the skeleton does
-        not stick, so guessing about WHERE upstream of the cursor a gap
-        might be is not working. This answers the one question that
-        actually splits the search space in two: **when the pointer
-        disappears, is `tracker.py` genuinely losing the track (a real
-        gap reaching this module), or does the pointer id stay the SAME
-        the whole time and the freeze is happening somewhere AFTER this
-        process** — the cursorbus UDP send, `CursorLink` on the oF side,
-        or oF's own render loop? `num_raw_detections` on the SAME tick a
-        pointer vanishes answers it directly: 0 means a real detection
-        gap (upstream of tracking.py); >0 means tracking.py itself is
-        dropping a track it was actually given data for this tick, which
-        would be a different bug in `tracking.py`'s own matching/retire
-        logic, not a data-availability problem at all.
+        **2026-08-13, updated after the first version of this log ruled
+        out both prior theories.** The rig log it produced showed neither
+        a real detection gap (`len(staged)` was 1, not 0, on almost every
+        loss) nor an acquisition-window timeout (no matching
+        `"acquisition window lost"` line for all but the very last of a
+        dozen-plus transitions in one ~20s stretch) — instead a repeating
+        pattern: the pointer track dies, and ~`PROMOTE_DELAY_S` (0.5s)
+        later a BRAND NEW id becomes pointer, over and over, sometimes
+        with no gap at all (a direct id-to-id jump — the "a Right hand
+        arriving demotes the incumbent" rule in `tracking.py._appear`
+        firing on what should be the SAME hand's continuation). That
+        pattern means detections keep arriving, on the SAME committed
+        acquisition window, but each new one is failing to MATCH the
+        existing pointer track and is instead starting a fresh one — a
+        `tracking.py._match` gate question, not a data-availability one.
+        This version logs the actual numbers a real match would have
+        compared: the distance from the outgoing pointer's own last
+        position to the nearest point in `staged` (what this tick
+        actually detected, in stage space — the same space `_match`'s
+        gate operates in), against what that gate would have been. If the
+        distance is huge (hundreds+ px in one tick at a normal camera
+        rate) with a modest gate, that is either a genuinely implausible
+        hand speed or a coordinate-space bug (e.g. stage-space jitter
+        amplified from a small camera-space wobble) — this is the
+        evidence that tells the two apart.
         """
         current = next((h.id for h in hands
                         if h.role == cursorbus.ROLE_POINTER), None)
         if current == self._last_pointer_id:
             return
+        detail = ""
+        if prev_pointer is not None and staged:
+            dist, nearest = min(
+                ((math.hypot(d.x - prev_pointer.x, d.y - prev_pointer.y), d)
+                 for d in staged), key=lambda pair: pair[0])
+            gate = max(self.tracker.match_gate_px,
+                      self.tracker.match_speed_px_s
+                      * (now - prev_pointer.last_seen))
+            detail = (
+                f" — outgoing pointer was at ({prev_pointer.x:.0f},"
+                f"{prev_pointer.y:.0f}), nearest staged point this tick at "
+                f"({nearest.x:.0f},{nearest.y:.0f}), {dist:.0f}px away, "
+                f"gate was {gate:.0f}px")
         _log.info("tracker: pointer track %s -> %s at t=%.3f "
-                  "(%d raw detections this tick)",
-                  self._last_pointer_id, current, now, num_raw_detections)
+                  "(%d raw detections this tick)%s",
+                  self._last_pointer_id, current, now, len(staged), detail)
         self._last_pointer_id = current
 
     # -- acquisition (module docstring, decision 7) -------------------------
