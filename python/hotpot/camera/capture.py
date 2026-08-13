@@ -52,7 +52,7 @@ import logging
 import re
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Protocol
 
 log = logging.getLogger("hotpot.camera.capture")
@@ -131,6 +131,19 @@ class ControlSpec:
     V4L2 they come straight from `v4l2-ctl --list-ctrls`, the real device
     range. Either way, `ControlState.value` — never this spec — is what a
     caller should trust as the picture actually in force.
+
+    `default` is the Developer tab's "reset to camera defaults" target —
+    `None` where this backend has no way to know one, in which case the
+    reset button leaves that control alone rather than guessing. On V4L2
+    it's `v4l2-ctl --list-ctrls`'s own `default=` field, the same real
+    device data `min`/`max` already come from. On Windows there is no
+    query for it (same limitation as the range fields), so it's a
+    *boot snapshot* instead: whatever this control read back immediately
+    after `open()`, before this process changed anything — the best
+    available stand-in, not a verified factory/EEPROM default, and only
+    populated for manual-only controls (auto-capable ones reset via
+    `auto=True` instead, since a mid-convergence snapshot at boot is not
+    a value worth pinning to).
     """
 
     name: str
@@ -140,6 +153,7 @@ class ControlSpec:
     max: Optional[int]
     step: int
     unit: str = ""
+    default: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -221,7 +235,8 @@ _FAKE_CONTROL_SPECS = [
     ControlSpec(name="white_balance", label="White balance",
                auto_capable=True, min=2000, max=10000, step=100, unit="K"),
     ControlSpec(name="brightness", label="Brightness",
-               auto_capable=False, min=-64, max=64, step=1, unit=""),
+               auto_capable=False, min=-64, max=64, step=1, unit="",
+               default=0),
 ]
 
 
@@ -412,7 +427,8 @@ class V4L2Capture:
             specs.append(ControlSpec(
                 name=short, label=short.replace("_", " ").title(),
                 auto_capable=aname in raw, min=f.get("min"), max=f.get("max"),
-                step=f.get("step", 1), unit="K" if short == "white_balance" else ""))
+                step=f.get("step", 1), unit="K" if short == "white_balance" else "",
+                default=f.get("default")))
         for name in self._EXTRA_CONTROLS:
             f = raw.get(name)
             if f is None:
@@ -420,7 +436,7 @@ class V4L2Capture:
             specs.append(ControlSpec(
                 name=name, label=name.replace("_", " ").title(),
                 auto_capable=False, min=f.get("min"), max=f.get("max"),
-                step=f.get("step", 1)))
+                step=f.get("step", 1), default=f.get("default")))
         return specs
 
     def get_control_states(self) -> Dict[str, ControlState]:
@@ -640,6 +656,12 @@ class WindowsCapture:
         # every other "before open()" guard in this file.
         self._controls_table: Optional[Dict[str, "_WinControlDef"]] = None
         self._auto_state: Dict[str, bool] = {}
+        # "Reset to camera defaults" targets for manual-only controls — see
+        # `ControlSpec.default`'s docstring for why this is a boot snapshot,
+        # not a verified factory default. Populated in `open()`, before
+        # `_lock_controls` or `CameraProcess._restore_extra_controls` (a
+        # later, separate call) can change anything.
+        self._boot_defaults: Dict[str, Optional[int]] = {}
 
     def open(self) -> CaptureInfo:
         import cv2  # local import — see V4L2Capture's docstring for why
@@ -696,6 +718,17 @@ class WindowsCapture:
         log.info("camera: opened index %s at %dx%d@%.1ffps, fourcc=%s "
                  "(DirectShow, Windows dev backend)",
                  self.device, actual_w, actual_h, actual_fps, fourcc)
+
+        # Boot snapshot for `ControlSpec.default`, manual-only knobs only
+        # (auto-capable ones reset via `auto=True`, not a pinned value —
+        # see that field's docstring). Must happen before `_lock_controls`
+        # below and before `CameraProcess._restore_extra_controls` (which
+        # runs after this whole `open()` call returns) touch anything, or
+        # this would snapshot hotpot's own prior settings instead of
+        # whatever the driver itself handed back on a fresh open.
+        for name, d in self._controls_table.items():
+            if d.auto_prop is None:
+                self._boot_defaults[name] = self._readback(cap, d.value_prop)
 
         exposure, wb, focus, locked = self._lock_controls(cap, cv2)
         if locked:
@@ -781,7 +814,8 @@ class WindowsCapture:
     def list_controls(self) -> List[ControlSpec]:
         if self._controls_table is None:
             raise CameraError("list_controls() before open()")
-        return [d.spec for d in self._controls_table.values()]
+        return [replace(d.spec, default=self._boot_defaults.get(name))
+                for name, d in self._controls_table.items()]
 
     def get_control_states(self) -> Dict[str, ControlState]:
         if self._cap is None or self._controls_table is None:

@@ -391,7 +391,7 @@ class CameraProcess:
                 "name": spec.name, "label": spec.label,
                 "auto_capable": spec.auto_capable,
                 "min": spec.min, "max": spec.max, "step": spec.step,
-                "unit": spec.unit,
+                "unit": spec.unit, "default": spec.default,
                 "auto": state.auto if state else None,
                 "value": state.value if state else None,
             })

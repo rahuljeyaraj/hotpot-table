@@ -109,6 +109,15 @@ class TestFakeCaptureControls(unittest.TestCase):
         with self.assertRaises(capture.CameraError):
             cap.set_control("not_a_control", value=1)
 
+    def test_manual_only_control_reports_a_default_auto_capable_does_not(self):
+        # Auto-capable controls reset via auto=True, not a pinned default —
+        # see ControlSpec.default's own docstring for why.
+        cap = capture.FakeCapture()
+        cap.open()
+        specs = {s.name: s for s in cap.list_controls()}
+        self.assertEqual(specs["brightness"].default, 0)
+        self.assertIsNone(specs["white_balance"].default)
+
 
 # ---------------------------------------------------------------------------
 # V4L2Capture control locking, with subprocess.run faked
@@ -309,6 +318,17 @@ class TestV4L2CaptureControls(unittest.TestCase):
         cap = capture.V4L2Capture("/dev/video0", 1920, 1080, 30)
         with self.assertRaises(capture.CameraError):
             cap.set_control("nope", value=1)
+
+    @patch("hotpot.camera.capture.subprocess.run")
+    def test_specs_carry_the_real_device_default(self, run):
+        # Unlike WindowsCapture's boot-snapshot guess, this is the actual
+        # `default=` field v4l2-ctl reports for the device.
+        run.side_effect = self.fake_run
+        cap = capture.V4L2Capture("/dev/video0", 1920, 1080, 30)
+        specs = {s.name: s for s in cap.list_controls()}
+        self.assertEqual(specs["brightness"].default, 0)
+        self.assertEqual(specs["contrast"].default, 32)
+        self.assertEqual(specs["white_balance"].default, 4600)
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +607,35 @@ class TestWindowsCaptureControls(unittest.TestCase):
         cap, _fake = self.open_cap()
         with self.assertRaises(capture.CameraError):
             cap.set_control("nope", value=1)
+
+    @patch("hotpot.camera.capture.time.sleep")
+    def open_cap_with_brightness(self, brightness, sleep):
+        # open_cap()'s shared fixture reports CAP_PROP_BRIGHTNESS=0, which
+        # collides with _readback's "0 means unsupported" sentinel — these
+        # two tests need a genuine, distinguishable reading instead.
+        import cv2
+        fake = FakeCv2Cap(props={
+            cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 6500,
+            cv2.CAP_PROP_FOCUS: 10, cv2.CAP_PROP_BRIGHTNESS: brightness})
+        cap = capture.WindowsCapture(
+            0, 640, 480, 30, video_capture_factory=lambda: fake)
+        cap.open()
+        return cap, fake
+
+    def test_manual_only_default_is_the_boot_snapshot_auto_capable_has_none(self):
+        # The boot-time reading is what `default` should carry. Auto-capable
+        # controls (white_balance here) reset via auto=True instead, so
+        # they carry no default at all.
+        cap, _fake = self.open_cap_with_brightness(5)
+        specs = {s.name: s for s in cap.list_controls()}
+        self.assertEqual(specs["brightness"].default, 5)
+        self.assertIsNone(specs["white_balance"].default)
+
+    def test_default_reflects_the_value_at_open_not_a_later_manual_change(self):
+        cap, _fake = self.open_cap_with_brightness(5)
+        cap.set_control("brightness", value=40)
+        specs = {s.name: s for s in cap.list_controls()}
+        self.assertEqual(specs["brightness"].default, 5)
 
 
 class TestUnlockedPriorsAreNotApplied(unittest.TestCase):

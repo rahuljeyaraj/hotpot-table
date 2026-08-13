@@ -853,6 +853,9 @@
 
         <div class="setup-card">
           <h2>Camera controls</h2>
+          <div class="setup-actions">
+            <button class="setup-btn" id="camResetBtn">Reset to camera defaults</button>
+          </div>
           <p class="setup-status" id="camCtrlStatus">Waiting for the camera…</p>
           <div class="cam-ctrl-list" id="camCtrlList"></div>
         </div>
@@ -1293,6 +1296,7 @@
   var CAM_CTRL_POLL_MS = 2000;
   var camCtrlList = document.getElementById("camCtrlList");
   var camCtrlStatus = document.getElementById("camCtrlStatus");
+  var camResetBtn = document.getElementById("camResetBtn");
   var camCtrlRows = {};   // control name -> {row, slider, valueEl, chip, spec}
 
   function camCtrlStatusText(text) {
@@ -1408,6 +1412,22 @@
     });
   }
   setInterval(pollCamControls, CAM_CTRL_POLL_MS);
+
+  // Auto-capable controls (white_balance/exposure/focus) reset by going
+  // back to Auto, not by pinning a value — `spec.default` is only ever
+  // populated for the manual-only ones (see ControlSpec's own docstring
+  // for why: a boot-time snapshot on this backend, real device data on
+  // V4L2). A control with neither is left alone rather than guessed at.
+  camResetBtn.addEventListener("click", function () {
+    Object.keys(camCtrlRows).forEach(function (name) {
+      var spec = camCtrlRows[name].spec;
+      if (spec.auto_capable) {
+        postControl(name, { auto: true });
+      } else if (spec.default != null) {
+        postControl(name, { value: spec.default });
+      }
+    });
+  });
 
   // --- mock pick/put-back controls (doc section 12.8, build item 5) -----
   // "the keyboard mock from Stage 2, reborn... with the {45,6,120,3,25,80}

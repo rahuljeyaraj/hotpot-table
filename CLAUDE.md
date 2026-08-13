@@ -1327,6 +1327,47 @@ session) — not just reasoned through:**
   sliders on screen yet. The app is live on this machine right now; that
   observation is a browser tab away, not a rebuild.
 
+**2026-08-13, same day, follow-up — the click-through above actually
+happened, and found two real problems the HTTP-only verification could
+not have caught.**
+
+- **Every slider/button failed with "Failed to fetch."** `postControl()`
+  sends a JSON `Content-Type` header, which makes `POST /control` a
+  non-simple CORS request — the browser sends an `OPTIONS` preflight
+  first, and `mjpeg.py` had no handler for it, so `BaseHTTPRequestHandler`
+  501'd the preflight and the browser never even attempted the real POST.
+  `curl -X POST` from this same session's own earlier verification never
+  hit this, because `curl` doesn't preflight — a `curl`-only check of a
+  browser-only bug was never going to catch it. Fixed with a `do_OPTIONS`
+  handler answering the three `Access-Control-Allow-*` headers the
+  preflight needs; confirmed against the restarted live process (`204`
+  with the right headers, then the real POST applying `white_balance:
+  auto=true`).
+- **The explanatory paragraph and the "Auto white balance" button were
+  redundant/unwanted UI**, removed at the user's request. The button in
+  particular turned out to be genuine duplication, not just clutter: the
+  white_balance row's own Auto/Manual chip already posts the identical
+  `{auto: true}` request, so the dedicated button was a leftover from
+  before the generic per-control UI existed.
+- **Added a "Reset to camera defaults" button** (the user's next ask,
+  once the sliders actually worked): `ControlSpec` gained a `default`
+  field. Auto-capable controls (white_balance/exposure/focus) don't use
+  it — resetting them means `auto: true`, not pinning a value. Manual-only
+  controls do: on `V4L2Capture` it's `v4l2-ctl --list-ctrls`'s own real
+  `default=` field; on `WindowsCapture`, which has no default-query API
+  (same limitation as the min/max ranges), it's a **boot snapshot** —
+  whatever each manual-only control read back immediately after `open()`,
+  before `_lock_controls` or `_restore_extra_controls` touch anything.
+  Documented explicitly, in `ControlSpec`'s own docstring and here, as a
+  best-available stand-in, not a verified factory/EEPROM default — some
+  drivers/OS layers persist the last-used value across app restarts, in
+  which case this "default" would actually be whatever a previous manual
+  session left behind, not what the camera ships with. Verified via unit
+  tests (`FakeCapture`'s fixture default, V4L2's parsed `default=` field,
+  Windows's boot-snapshot behaviour including that a later manual change
+  doesn't move the reported default) — not yet re-observed against the
+  live browser a second time.
+
 ## M4 — CALIBRATION AND DATASET CAPTURE (in progress)
 
 M4.1 (2026-08-12) is build item 1: `common/geometry.py` and

@@ -224,6 +224,14 @@ class TestControls(CameraProcessCase):
         states = self.proc.control_states()
         self.assertEqual(states["white_balance"].value, 4600)
 
+    def test_controls_snapshot_carries_the_default_field(self):
+        # /controls.json's shape — the Developer tab's "Reset to camera
+        # defaults" button relies on this key being present per control.
+        self.proc.start()
+        snap = {c["name"]: c for c in self.proc._controls_snapshot()}
+        self.assertEqual(snap["brightness"]["default"], 0)
+        self.assertIsNone(snap["white_balance"]["default"])
+
     def test_set_control_on_a_tracked_field_updates_info_and_persists_locked(self):
         self.proc.start()
         state = self.proc.set_control("white_balance", auto=False, value=5200)
