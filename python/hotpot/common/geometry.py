@@ -36,7 +36,7 @@ disk.
 from __future__ import annotations
 
 import math
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
 Point = Tuple[float, float]
 Matrix = List[List[float]]
@@ -461,9 +461,10 @@ def order_quad_marker_first(points: Sequence[Point],
 
 
 def match_nearest(expected: Sequence[Point], found: Sequence[Point], *,
-                  max_distance_px: float) -> List[Optional[int]]:
+                  max_distance_px: Union[float, Sequence[float]]
+                  ) -> List[Optional[int]]:
     """Pair each `expected` point with the closest unused point in `found`,
-    or None if nothing is within `max_distance_px`.
+    or None if nothing is within its gate.
 
     Used for the second calibration pass: the coarse homography from pass
     one projects every expected stage dot into camera space, and each
@@ -477,12 +478,29 @@ def match_nearest(expected: Sequence[Point], found: Sequence[Point], *,
     point that another expected dot matched far better. One-to-one by
     construction: a detected point is consumed by the first expected point
     that claims it.
+
+    `max_distance_px` is one number shared by every `expected` point, or a
+    per-`expected`-point sequence the same length — RIG_FEEDBACK item 11
+    (2026-08-13): `tracker/tracking.py`'s track gate has to widen with how
+    long a given track has gone unseen, and every track can be at a
+    different point in that clock on the same frame, so one shared number
+    cannot express it. A single float keeps every existing caller (the
+    calibration pass above) unchanged.
     """
+    if isinstance(max_distance_px, (int, float)):
+        gates: Sequence[float] = [float(max_distance_px)] * len(expected)
+    else:
+        gates = max_distance_px
+        if len(gates) != len(expected):
+            raise ValueError(
+                "max_distance_px must be a single number or one per "
+                "expected point")
+
     pairs = []
     for ei, e in enumerate(expected):
         for fi, f in enumerate(found):
             d = math.hypot(float(f[0]) - float(e[0]), float(f[1]) - float(e[1]))
-            if d <= max_distance_px:
+            if d <= gates[ei]:
                 pairs.append((d, ei, fi))
     pairs.sort()
 

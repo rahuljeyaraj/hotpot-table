@@ -49,6 +49,30 @@ much more clearly to the second, and the two ids swap. An id swap swaps the
 roles with it — the bowl hand silently becomes the pointer — which is the
 one failure this whole module exists to prevent.
 
+**RIG_FEEDBACK item 11 (2026-08-13): the match gate widens with how long a
+track has gone unseen, for the same reason item 8's smoothing is
+time-based rather than a fixed per-frame blend.** `MATCH_GATE_PX` alone
+was a fixed 150px *regardless of `dt`*, sized (see the constant's own
+comment) against a 33ms/30Hz frame. At this rig's measured low end
+(4Hz, `tracker/main.py`'s docstring) an ordinary fast reach — nowhere
+near the "slap" the 150px number was reasoned against — already covers
+more than 150px between frames. A detection that misses the gate is not
+treated as the same hand moving fast; it is treated as a *second* hand
+(`_appear`), and the true hand's motion is stranded on a fresh,
+**unsmoothed** track (see below) while the old one sits frozen for up to
+`TRACK_GRACE_S` before retiring — which reads, on the table, as the
+cursor sticking in place and then reappearing already at the new spot,
+not sliding there. `_match_gate_px()` returns `max(match_gate_px,
+match_speed_px_s * dt)`: unchanged at a normal camera rate (the floor
+dominates, so every existing gate test below is untouched), wider only
+when a track's own `dt` says the frame really was that far apart. This
+does not fully remove the two-hands-passing-close risk the fixed gate
+existed to bound (see `_match`'s own docstring) — it only lets that risk
+grow on the same slow frames where matching is already less certain,
+rather than on every frame regardless of rate. **Reasoned, not yet
+confirmed against the actual stuck/reappear symptom on the rig** — see
+RIG_FEEDBACK item 11.
+
 **RIG_FEEDBACK item 8 (2026-08-13): the tracked position is smoothed here,
 by a per-track time-based EMA, not fixed-per-frame.** No filter existed
 between a raw per-frame detection and what went on the wire; the cursor
@@ -98,8 +122,27 @@ from hotpot.tracker.backend import HAND_RIGHT, Detection
 
 # Doc section 11.3 step 1's gate, in stage-space pixels. A hand crossing
 # the 1524mm table in one 33ms camera frame would have to be moving about
-# 4.5 m/s to break this, which is a slap rather than a reach.
+# 4.5 m/s to break this, which is a slap rather than a reach. This is a
+# FLOOR now (see `_match_gate_px` and RIG_FEEDBACK item 11 below) — the
+# effective gate never shrinks below it, at any frame rate.
 MATCH_GATE_PX = 150.0
+
+# RIG_FEEDBACK item 11's widening term, in stage px/s. `_match_gate_px`
+# uses `max(MATCH_GATE_PX, MATCH_SPEED_PX_S * dt)`. 3 m/s is a fast,
+# deliberate reach — brisker than an ordinary pick, still well under the
+# 4.5 m/s "slap" the fixed floor above was reasoned against — chosen so
+# it stays BELOW the floor's own implied budget at this rig's high end
+# (30Hz, dt=33ms: 3000 * 0.033 = 99px < 150px, so the floor alone governs
+# and every gate test written before this item is unaffected) and only
+# takes over at the low end this rig has actually measured (4Hz, dt=250ms:
+# 3000 * 0.25 = 750px), where the fixed floor was the whole problem.
+# Widening the gate on a slow frame does trade away some of the
+# two-hands-passing-close protection the fixed gate existed for (see
+# `_match`'s own docstring) — accepted deliberately, and only on the same
+# slow frames where matching was already less certain to begin with, not
+# on every frame regardless of rate. **Not yet tuned against the rig's
+# real stuck/reappear symptom — a starting point, same as item 8's tau.**
+MATCH_SPEED_PX_S = 3000.0
 
 # Doc section 11.3 step 4's two windows. Named separately because they
 # guard different things — see the module docstring.
@@ -144,6 +187,7 @@ class HandTracker:
     """Detections in, doc section 4.6 hands out. Stateful across calls."""
 
     match_gate_px: float = MATCH_GATE_PX
+    match_speed_px_s: float = MATCH_SPEED_PX_S
     track_grace_s: float = TRACK_GRACE_S
     promote_delay_s: float = PROMOTE_DELAY_S
     smoothing_tau_s: float = TRACK_SMOOTHING_TAU_S
@@ -185,7 +229,7 @@ class HandTracker:
         paired = geometry.match_nearest(
             [(t.x, t.y) for t in existing],
             [(d.x, d.y) for d in detections],
-            max_distance_px=self.match_gate_px)
+            max_distance_px=[self._match_gate_px(t, now) for t in existing])
 
         claimed = set()
         for track, det_idx in zip(existing, paired):
@@ -208,6 +252,17 @@ class HandTracker:
         for idx, det in enumerate(detections):
             if idx not in claimed:
                 self._appear(det, now)
+
+    def _match_gate_px(self, track: "Track", now: float) -> float:
+        """RIG_FEEDBACK item 11 — see the module docstring. `dt <= 0` (a
+        track updated this same tick already, or a non-monotonic clock)
+        gets the plain floor, the same guard `_smoothed` uses for the same
+        reason.
+        """
+        dt = now - track.last_seen
+        if dt <= 0:
+            return self.match_gate_px
+        return max(self.match_gate_px, self.match_speed_px_s * dt)
 
     def _smoothed(self, track: "Track", det: Detection, now: float):
         """RIG_FEEDBACK item 8 — see the module docstring. `(x, y)` blended

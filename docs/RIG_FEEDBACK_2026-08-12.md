@@ -221,7 +221,7 @@ never checked — see the original note above, still true) remain
 unscoped past that. Not yet built.
 
 ## 11. Pointer lags behind a fast hand move, and sometimes sticks then
-    snaps to the new location — NEW, 2026-08-13
+    snaps to the new location — DONE, not yet rig-confirmed, 2026-08-13
 
 Developer's report from the same rig session: the MediaPipe overlay
 (Developer tab, item 9/10) tracks a fast hand move with no trouble, but
@@ -229,9 +229,10 @@ the actual cursor drawn on the projected table lags, and on a fast move
 sometimes freezes in place for a moment, disappears, then reappears
 already at the new hand location — not a smooth slide there.
 
-**Not yet fixed. A candidate root cause, found reading `tracker/
-tracking.py` while documenting this item (not yet confirmed on the rig —
-verify before trusting it):** `MATCH_GATE_PX` (150px stage-space,
+**Fixed, same read of `tracker/tracking.py` this item's diagnosis came
+from — but not yet confirmed against the actual stuck/reappear symptom
+on the rig, per this file's own rule (item 8's own status line is the
+same shape).** `MATCH_GATE_PX` (150px stage-space,
 `tracking.py` ~line 102) is a *fixed* per-frame distance, unlike item 8's
 EMA smoothing right next to it, which was deliberately made time-based
 (`alpha = 1 - exp(-dt/tau)`) because this process's own frame interval
@@ -249,19 +250,29 @@ new position exists only as an *ambient* track (a pointer already
 existed, so step 2 doesn't promote it) until `PROMOTE_DELAY_S` (another
 500ms) lets it inherit the role — visible as the cursor "disappearing"
 then "reappearing" already at the new spot, matching the report closely.
-If this is confirmed, the fix likely wants the gate made time-based too
-(distance budget scaling with `dt`, the same reasoning already used for
-the EMA), not just a bigger fixed number — a bigger fixed gate risks
-mis-pairing two hands close together, which `tracking.py`'s own docstring
-already flags as the one failure this module exists to prevent. Not
-started; needs a rig session to confirm the diagnosis before writing a
-fix.
+Fixed by making the gate time-based too — `_match_gate_px()` returns
+`max(MATCH_GATE_PX, MATCH_SPEED_PX_S * dt)` per track (`MATCH_SPEED_PX_S
+= 3000.0`, 3 m/s, reasoned in the constant's own comment) — rather than
+widening the fixed number outright, since a bigger fixed gate at every
+frame rate would cost more of the two-hands-passing-close protection
+`tracking.py`'s own docstring already flags as the one failure this
+module exists to prevent. The widening only takes over on the slow
+frames this rig has actually measured (4Hz); at a normal ~30Hz rate the
+150px floor still governs and every gate test written before this item
+is unchanged (checked: full suite green, and the widened-gate tests fail
+under a reverted mutation, so they're not passing by construction).
+`common/geometry.match_nearest` gained the ability to take a per-point
+gate list (still accepts a single float, existing callers unchanged) so
+each track's own gate — which depends on that track's own time since
+last seen — can differ within one call. **Not yet confirmed against the
+actual stuck/reappear symptom on the rig, and `MATCH_SPEED_PX_S` is a
+starting point, not a measurement — same caveat item 8's own tau has.**
 
 ---
 
 **Order isn't prescribed** — pick whichever item the developer wants
-worked next. Resolved, no action needed: 1, 2 (workaround), 8, 9.
-Decided, ready to build: 3 (bin dwell + food-item window), 4-7 (remove
-the three widgets, keep the dwell machinery), 10 (fold the top-right
-developer toggle into the Developer tab, one control per thing). New,
-needs investigation before a fix: 11 (pointer lag/snap on fast moves).
+worked next. Resolved, no action needed: 1, 2 (workaround), 8, 9. Done,
+not yet rig-confirmed: 11 (pointer lag/snap on fast moves). Decided,
+ready to build: 3 (bin dwell + food-item window), 4-7 (remove the three
+widgets, keep the dwell machinery), 10 (fold the top-right developer
+toggle into the Developer tab, one control per thing).

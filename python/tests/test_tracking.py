@@ -104,6 +104,40 @@ class TestTheGate(unittest.TestCase):
                          [h.id for h in later if h.id != first[0].id])
         self.assertEqual(len(later), 1)
 
+    def test_a_fast_move_on_a_slow_frame_keeps_the_id(self):
+        # RIG_FEEDBACK item 11: at this rig's measured low end (4Hz,
+        # dt=0.25s) an ordinary fast reach covers more than the fixed
+        # 150px gate. Before the fix this minted a second, unsmoothed
+        # track and left the old one frozen — the "stuck, then reappears
+        # at the new spot" report. 400px in 0.25s is 1.6 m/s, well under
+        # the 3 m/s budget `MATCH_SPEED_PX_S` is reasoned against.
+        t = tracking.HandTracker(smoothing_tau_s=0.0)
+        first = t.update([det(500, 500)], now=0.0)
+        second = t.update([det(900, 500)], now=0.25)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(first[0].id, second[0].id)
+
+    def test_a_move_beyond_even_the_widened_gate_is_still_a_new_hand(self):
+        # The widening has an upper bound — it must not turn into "any
+        # jump at all is the same hand".
+        t = tracking.HandTracker(smoothing_tau_s=0.0)
+        first = t.update([det(500, 500)], now=0.0)
+        second = t.update([det(500 + 5000, 500)], now=0.25)
+        self.assertEqual(len(second), 2)
+        new = [h for h in second if h.id != first[0].id]
+        self.assertEqual(len(new), 1)
+
+    def test_the_gate_does_not_widen_at_a_normal_camera_rate(self):
+        # Pins the floor half of max(match_gate_px, speed*dt): at a 30Hz
+        # frame interval the speed term (3000 * 0.033 ≈ 99px) must stay
+        # under the 150px floor, so a jump just past 150px is still a new
+        # hand exactly as TestTheGate's own gate tests above assume.
+        t = tracking.HandTracker()
+        first = t.update([det(500, 500)], now=0.0)
+        second = t.update([det(500 + 151, 500)], now=0.033)
+        self.assertEqual(len(second), 2)
+        self.assertTrue(any(h.id != first[0].id for h in second))
+
     def test_two_hands_do_not_swap_ids_when_they_pass_close(self):
         # THE matching test. Greedy in list order rather than in distance
         # order lets the first track claim the detection that belonged much

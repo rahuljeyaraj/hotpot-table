@@ -323,6 +323,29 @@ class TestMatchNearest(unittest.TestCase):
                                      max_distance_px=20)
         self.assertEqual(sorted(v for v in got if v is not None), [0])
 
+    def test_a_per_point_gate_list_is_honoured_per_point(self):
+        # RIG_FEEDBACK item 11: expected[0]'s own gate (5px) is too tight
+        # for its 10px-away match, but expected[1]'s (20px) is not — a
+        # single shared number could not express that.
+        expected = [(0, 0), (100, 0)]
+        found = [(10, 0), (110, 0)]
+        got = geometry.match_nearest(expected, found,
+                                     max_distance_px=[5.0, 20.0])
+        self.assertEqual(got, [None, 1])
+
+    def test_a_scalar_gate_still_applies_to_every_point(self):
+        # The single-float call shape existing callers use must keep
+        # working identically once a sequence is also accepted.
+        expected = [(0, 0), (100, 0)]
+        found = [(10, 0), (110, 0)]
+        got = geometry.match_nearest(expected, found, max_distance_px=20.0)
+        self.assertEqual(got, [0, 1])
+
+    def test_a_mismatched_gate_list_length_raises(self):
+        with self.assertRaises(ValueError):
+            geometry.match_nearest([(0, 0), (100, 0)], [(0, 0)],
+                                   max_distance_px=[20.0])
+
 
 if __name__ == "__main__":
     unittest.main()
