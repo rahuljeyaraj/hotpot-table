@@ -304,7 +304,7 @@ track is still sent on the wire every tick at its last position, which
 `core/hover.py`'s dwell accumulator reads as a hand genuinely resting
 there.
 
-**Fixed:** `_AcquisitionWindow` now remembers its last TWO real hits
+**Fixed, commit 7f33248:** `_AcquisitionWindow` now remembers its last TWO real hits
 (position + time), and a miss extrapolates their velocity to re-aim the
 crop AT the hand's likely current position instead of leaving it planted
 — chasing rather than freezing. A window with only one real hit ever
