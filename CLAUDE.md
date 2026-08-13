@@ -2788,6 +2788,51 @@ extracted `<script>` block, plus a script cross-checking every new
 Capture-tab change before this one has carried; reasoned from tests and
 the syntax/id checks only.
 
+## M4p — camera no longer auto-locks WB/exposure/focus on every boot
+(2026-08-13, not a doc build item — a dev-loop bug fix)
+Developer report: every `run.py` start opened the camera with a yellow
+tint, fixable only by manually going to the dev panel and resetting white
+balance — and it came back on the next restart.
+
+**Root cause: `_lock_controls` (both `WindowsCapture` and `V4L2Capture`,
+`camera/capture.py`) auto-locked on every open with no explicit prior
+lock, not just once.** With no `"locked": true` in
+`state/camera_settings.json`, it let auto-exposure/WB/focus run for
+`AUTO_SETTLE_S` (1.5s), then froze whatever they'd reached at that instant
+and wrote `"locked": true`. 1.5s does not reliably let white balance
+settle, so a boot could freeze a bad (yellow) value. Fixing it via the dev
+panel's "Auto white balance" writes `"locked": false` back to the file —
+which just re-armed the *next* boot to repeat the same 1.5s-converge-
+then-lock cycle. A loop, not a one-off bad value — the same shape as the
+2026-08-12 yellow-cast bug (M4h) but one layer further in: that fix
+stopped a *stale* unlocked value from being reapplied; it never questioned
+locking fresh from a short settle window on every single boot.
+
+**Fix: no prior lock means nothing is touched at all.** Every control is
+left exactly as `open()` finds it — continuous auto, same as the OS
+camera app — until a human deliberately locks one (dev panel, or a future
+dataset-capture flow). A genuine `"locked": true` prior is still applied
+verbatim, unchanged. Removed `AUTO_SETTLE_S` and the `time` import
+entirely from `capture.py` — nothing in the module sleeps any more.
+**Trade-off, explicit, developer's call:** doc §6.6's "sweep on the rig,
+then freeze" reproducibility guarantee for M4's dataset capture now
+depends entirely on a deliberate lock (dev panel or a future explicit
+flow) — nothing auto-freezes a baseline on first boot any more. Applied to
+both backends for consistency (they're built to mirror each other); the
+V4L2 half is unverified against real hardware, same as the rest of that
+class.
+17 tests in `test_camera_capture.py` rewritten to match (no more
+`time.sleep` patches — `capture.py` no longer imports `time` at all): the
+converge-then-lock tests became leave-running tests, `TestWindowsCapture
+Controls`'s shared fixture now reports auto state as `None` (unknown)
+right after `open()` since nothing was ever set, matching the new honest-
+readback behaviour. 912 tests pass,
+`python -m unittest discover -s python/tests`.
+**Not yet re-observed on the rig** — reasoned from the code and the
+2026-08-13 evidence trail (M3's own session notes) that a short settle
+window can converge to a bad value; the next `run.py` on this machine is
+the actual check.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

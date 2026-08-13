@@ -199,10 +199,12 @@ class TestLockControls(unittest.TestCase):
                     if any("--get-ctrl" in a for a in c.args[0])]
         self.assertEqual(get_calls, [])
 
-    @patch("hotpot.camera.capture.time.sleep")
     @patch("hotpot.camera.capture.subprocess.run")
-    def test_no_prior_settings_converges_then_locks_at_read_back_values(
-            self, run, sleep):
+    def test_no_prior_settings_leaves_autos_running_unlocked(self, run):
+        # Superseded 2026-08-13: this used to converge for AUTO_SETTLE_S
+        # then lock at whatever it read — the recurring-yellow-cast bug
+        # (see capture.py's own docstring). Now: no prior lock means
+        # nothing is touched at all, just read back as-is.
         def fake_run(cmd, **kwargs):
             args = cmd[1:]
             joined = " ".join(args)
@@ -219,19 +221,10 @@ class TestLockControls(unittest.TestCase):
         exposure, wb, focus, locked = cap._lock_controls()
 
         self.assertEqual((exposure, wb, focus), (111, 4600, 5))
-        # This path DOES leave the device in manual mode, so the values it
-        # reports are reproducible and the flag says so.
-        self.assertTrue(locked)
-        sleep.assert_called_once()
-        set_calls = [" ".join(c.args[0][1:]) for c in run.call_args_list
+        self.assertFalse(locked)
+        set_calls = [c for c in run.call_args_list
                     if any("--set-ctrl" in a for a in c.args[0])]
-        # First: turn autos on. Last two: lock autos off, then pin the
-        # exact read-back numbers.
-        self.assertIn("exposure_auto=3", set_calls[0])
-        self.assertTrue(any("exposure_auto=1" in c for c in set_calls))
-        self.assertTrue(any("exposure_absolute=111" in c for c in set_calls))
-        self.assertTrue(any("white_balance_temperature=4600" in c for c in set_calls))
-        self.assertTrue(any("focus_absolute=5" in c for c in set_calls))
+        self.assertEqual(set_calls, [])
 
 
 class TestV4L2CaptureControls(unittest.TestCase):
@@ -464,18 +457,14 @@ class TestWindowsCaptureLockControls(unittest.TestCase):
         self.assertIsNone(info.exposure_absolute)
         self.assertIsNone(info.white_balance_temperature)
 
-    @patch("hotpot.camera.capture.time.sleep")
-    def test_no_prior_settings_converges_then_locks(self, sleep):
-        # Superseded 2026-08-12: this used to leave every auto running
-        # forever, which was a deliberate stop-gap (unconverged locking had
-        # looked worse than the OS's own camera app, and the DirectShow
-        # manual-exposure trigger was unverified). Both blockers were
-        # cleared by testing directly on the rig: EXPOSURE's readback moves
-        # the picture and forces manual mode by itself with no separate
-        # trigger, and a 5s watch after converge-then-lock held at
-        # 40.3-40.4 where the auto had been visibly ramping moments before.
-        # So this now mirrors V4L2Capture's own converge-then-lock, not the
-        # incomplete "touch nothing" version of it.
+    def test_no_prior_settings_leaves_autos_running_unlocked(self):
+        # Superseded 2026-08-13: this used to converge for AUTO_SETTLE_S
+        # then lock at whatever it read, every single open — the recurring
+        # yellow-cast bug (see capture.py's own docstring: a 1.5s settle
+        # window doesn't reliably converge WB, and unlocking it via the dev
+        # panel just set up the next open to repeat the cycle). Now: no
+        # prior lock means nothing is touched at all, just read back as-is,
+        # same as the OS camera app.
         import cv2
         fake = FakeCv2Cap(props={
             cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 4600,
@@ -483,35 +472,24 @@ class TestWindowsCaptureLockControls(unittest.TestCase):
         cap = capture.WindowsCapture(
             0, 640, 480, 30, video_capture_factory=lambda: fake)
         info = cap.open()
-        sleep.assert_called_once()
-        touched_props = {prop for prop, _value in fake.set_calls}
-        self.assertIn(cv2.CAP_PROP_AUTO_WB, touched_props)
-        self.assertIn(cv2.CAP_PROP_AUTOFOCUS, touched_props)
-        self.assertIn(cv2.CAP_PROP_EXPOSURE, touched_props)
-        self.assertIn(cv2.CAP_PROP_WB_TEMPERATURE, touched_props)
+        # Only the lock-relevant props matter here — `open()` itself always
+        # touches FOURCC/width/height/fps regardless of any of this.
+        lock_props = {cv2.CAP_PROP_EXPOSURE, cv2.CAP_PROP_AUTO_EXPOSURE,
+                     cv2.CAP_PROP_WB_TEMPERATURE, cv2.CAP_PROP_AUTO_WB,
+                     cv2.CAP_PROP_FOCUS, cv2.CAP_PROP_AUTOFOCUS}
+        touched = {prop for prop, _value in fake.set_calls}
+        self.assertEqual(touched & lock_props, set())
+        self.assertFalse(info.controls_locked)
         self.assertEqual(
             (info.exposure_absolute, info.white_balance_temperature,
              info.focus_absolute), (-6, 4600, 12))
 
-    @patch("hotpot.camera.capture.time.sleep")
-    def test_a_fresh_lock_reports_controls_locked_true(self, sleep):
-        # This IS a real lock now, taken this call and used immediately —
-        # not the stale-value-from-a-previous-run pattern that caused the
-        # yellow-cast bug. controls_locked=True here is honest.
-        import cv2
-        fake = FakeCv2Cap(props={
-            cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 4600})
-        cap = capture.WindowsCapture(
-            0, 640, 480, 30, video_capture_factory=lambda: fake)
-        info = cap.open()
-        self.assertTrue(info.controls_locked)
-
-    @patch("hotpot.camera.capture.time.sleep")
-    def test_an_unlocked_prior_is_ignored_and_converges_fresh(self, sleep):
+    def test_an_unlocked_prior_is_ignored_and_left_running(self):
         # The exact shape of the poisoned file from the 2026-08-12 bug:
         # real numbers, no `"locked": true`. Must not be applied verbatim —
-        # that is the bug — and must still end up locked, from a fresh
-        # convergence, not left on auto forever either.
+        # that is the bug — and, since 2026-08-13, must not be re-locked
+        # from a fresh convergence either (that was the recurring-yellow-
+        # cast loop). Every control is simply left running.
         import cv2
         fake = FakeCv2Cap(props={
             cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 6500})
@@ -521,18 +499,22 @@ class TestWindowsCaptureLockControls(unittest.TestCase):
                             "white_balance_temperature": 6500,
                             "focus_absolute": None})
         info = cap.open()
-        sleep.assert_called_once()
-        self.assertTrue(info.controls_locked)
+        lock_props = {cv2.CAP_PROP_EXPOSURE, cv2.CAP_PROP_AUTO_EXPOSURE,
+                     cv2.CAP_PROP_WB_TEMPERATURE, cv2.CAP_PROP_AUTO_WB,
+                     cv2.CAP_PROP_FOCUS, cv2.CAP_PROP_AUTOFOCUS}
+        touched = {prop for prop, _value in fake.set_calls}
+        self.assertEqual(touched & lock_props, set())
+        self.assertFalse(info.controls_locked)
 
 
 class TestWindowsCaptureControls(unittest.TestCase):
-    """The doc §12.8 dev-panel control API. `open()` always locks
-    exposure/WB/focus to manual on this fixture (no prior settings, so the
-    fresh converge-then-lock path runs) — that starting state is what
-    `test_after_open_the_three_tracked_controls_read_as_manual` pins."""
+    """The doc §12.8 dev-panel control API. `open()` no longer locks
+    anything on this fixture (no prior settings, so the leave-running path
+    runs — see capture.py's docstring) — that starting state is what
+    `test_after_open_the_three_tracked_controls_report_unknown_auto_state`
+    pins."""
 
-    @patch("hotpot.camera.capture.time.sleep")
-    def open_cap(self, sleep):
+    def open_cap(self):
         import cv2
         fake = FakeCv2Cap(props={
             cv2.CAP_PROP_EXPOSURE: -6, cv2.CAP_PROP_WB_TEMPERATURE: 6500,
@@ -555,12 +537,15 @@ class TestWindowsCaptureControls(unittest.TestCase):
             "saturation", "gain", "sharpness", "hue",
             "backlight_compensation"})
 
-    def test_after_open_the_three_tracked_controls_read_as_manual(self):
+    def test_after_open_the_three_tracked_controls_report_unknown_auto_state(self):
+        # Nothing was ever set on any of them (no prior lock, so `open()`
+        # touches nothing) — the honest answer is "don't know", not a
+        # fabricated True or False.
         cap, _fake = self.open_cap()
         states = cap.get_control_states()
-        self.assertEqual(states["white_balance"].auto, False)
-        self.assertEqual(states["exposure"].auto, False)
-        self.assertEqual(states["focus"].auto, False)
+        self.assertIsNone(states["white_balance"].auto)
+        self.assertIsNone(states["exposure"].auto)
+        self.assertIsNone(states["focus"].auto)
         # No auto concept for this one — always None, never False.
         self.assertIsNone(states["brightness"].auto)
 
@@ -608,8 +593,7 @@ class TestWindowsCaptureControls(unittest.TestCase):
         with self.assertRaises(capture.CameraError):
             cap.set_control("nope", value=1)
 
-    @patch("hotpot.camera.capture.time.sleep")
-    def open_cap_with_brightness(self, brightness, sleep):
+    def open_cap_with_brightness(self, brightness):
         # open_cap()'s shared fixture reports CAP_PROP_BRIGHTNESS=0, which
         # collides with _readback's "0 means unsupported" sentinel — these
         # two tests need a genuine, distinguishable reading instead.
@@ -639,25 +623,24 @@ class TestWindowsCaptureControls(unittest.TestCase):
 
 
 class TestUnlockedPriorsAreNotApplied(unittest.TestCase):
-    """The yellow-cast regression, both backends (found 2026-08-12).
+    """The yellow-cast regression, both backends.
 
-    The failure was a loop, not a single bad write: run 1 left auto-WB on
-    and read back 6500 K, main.py recorded it, and run 2 read that file and
-    turned auto-WB OFF to pin 6500 K under projector light. Every run after
-    inherited it, so the cast looked like a camera fault rather than a file.
+    Found 2026-08-12: run 1 left auto-WB on and read back 6500 K, main.py
+    recorded it, and run 2 read that file and turned auto-WB OFF to pin
+    6500 K under projector light. Every run after inherited it.
 
-    What breaks the loop is provenance, so that is what these test: values
-    carrying no `"locked": true` must never reach the device.
+    A first fix (provenance: only reproduce a value recorded with
+    `"locked": true`) stopped a STALE unlocked value from being applied,
+    but a fresh convergence-then-lock still ran on every open with no
+    locked prior — which turned out to be its own recurring version of the
+    same loop (found 2026-08-13: a short settle window can itself converge
+    to a bad value, and unlocking it via the dev panel just re-armed the
+    next open to repeat the cycle). What these now test: an unlocked prior
+    must never reach the device, AND no open with no locked prior touches
+    the device at all — it just leaves every auto running.
     """
 
-    @patch("hotpot.camera.capture.time.sleep")
-    def test_windows_ignores_priors_recorded_without_the_locked_flag(
-            self, sleep):
-        # Exactly the poisoned file: real numbers, no provenance. The stale
-        # 6500 K must never reach the device — but unlike the earlier fix
-        # (which just left the autos on forever), this now converges a
-        # FRESH value and locks to that instead, which is the difference
-        # between the old regression test and this one.
+    def test_windows_ignores_priors_recorded_without_the_locked_flag(self):
         import cv2
         fake = FakeCv2Cap(props={
             cv2.CAP_PROP_EXPOSURE: -7, cv2.CAP_PROP_WB_TEMPERATURE: 4200})
@@ -667,38 +650,32 @@ class TestUnlockedPriorsAreNotApplied(unittest.TestCase):
                             "white_balance_temperature": 6500,
                             "focus_absolute": None})
         info = cap.open()
-        sleep.assert_called_once()
-        wb_sets = [v for prop, v in fake.set_calls
-                  if prop == cv2.CAP_PROP_WB_TEMPERATURE]
-        # AUTO_WB and WB_TEMPERATURE ARE touched (that is the lock this
-        # class now performs) — the poisoned 6500 specifically must not be
-        # the value they are touched WITH.
-        self.assertNotIn(6500, wb_sets)
+        # The poisoned 6500 never gets a chance to reach the device,
+        # because no lock-relevant control is touched at all — `open()`
+        # itself still touches FOURCC/width/height/fps regardless.
+        lock_props = {cv2.CAP_PROP_EXPOSURE, cv2.CAP_PROP_AUTO_EXPOSURE,
+                     cv2.CAP_PROP_WB_TEMPERATURE, cv2.CAP_PROP_AUTO_WB,
+                     cv2.CAP_PROP_FOCUS, cv2.CAP_PROP_AUTOFOCUS}
+        touched = {prop for prop, _value in fake.set_calls}
+        self.assertEqual(touched & lock_props, set())
         self.assertEqual(info.white_balance_temperature, 4200)
-        self.assertTrue(info.controls_locked)
+        self.assertFalse(info.controls_locked)
 
-    @patch("hotpot.camera.capture.time.sleep")
     @patch("hotpot.camera.capture.subprocess.run")
-    def test_v4l2_reconverges_rather_than_applying_unlocked_priors(
-            self, run, sleep):
+    def test_v4l2_ignores_unlocked_priors_and_leaves_autos_running(
+            self, run):
         run.return_value = CompletedProcess(returncode=0, stdout="")
         cap = capture.V4L2Capture(
             "/dev/video0", 1920, 1080, 30,
             prior_settings={"exposure_absolute": 300,
                             "white_balance_temperature": 6500,
                             "focus_absolute": 10})
-        cap._lock_controls()
-        # The converge-then-lock path ran instead of the apply-verbatim one.
-        sleep.assert_called_once()
+        exposure, wb, focus, locked = cap._lock_controls()
+        self.assertFalse(locked)
         set_calls = [" ".join(c.args[0][1:]) for c in run.call_args_list
                      if any("--set-ctrl" in a for a in c.args[0])]
-        self.assertTrue(any("white_balance_temperature_auto=1" in c
-                            for c in set_calls),
-                        "autos were never re-enabled, so the unlocked prior "
-                        "was trusted after all")
-        self.assertFalse(any("white_balance_temperature=6500" in c
-                             for c in set_calls),
-                         "the unlocked 6500 K prior reached the device")
+        self.assertEqual(set_calls, [],
+                         "the unlocked prior should never reach the device")
 
 
 if __name__ == "__main__":
