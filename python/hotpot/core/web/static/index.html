@@ -106,18 +106,12 @@
   /* The six process pips are a developer instrument, not an operator's:
      an operator cannot act on "tracker is amber", and six coloured dots
      in the corner of every screen train them to ignore colour in the one
-     UI where colour carries the mode. RIG_FEEDBACK item 10 (2026-08-13):
-     they live on the Developer tab now, behind their own chip toggle —
-     see .dev-section below — not a single master switch bundling them
-     with everything else a developer might want to see. */
-  .pips { display: none; }
-  .pips.show { display: flex; }
-  /* A Developer-tab block gated by its own chip (item 10's "each as its
-     own separate control" — camera stats, mock picks/put-backs). Unlike
-     .pips this has no default content of its own, so it's a generic
-     block rather than baked into one feature's class. */
-  .dev-section { display: none; margin-top: 18px; }
-  .dev-section.show { display: block; }
+     UI where colour carries the mode. RIG_FEEDBACK item 10 (2026-08-13,
+     revised): they live in their own card on the Developer tab, the same
+     one-topic-per-rectangle shape the Setup tab's cards already use —
+     see .dev-shell/.setup-card below — not behind a chip that hides the
+     whole thing, which doesn't scale past a couple of extras. Uses the
+     base `.pips` flex layout above (header rule, still shared). */
 
   /* --- mode switch (doc section 12.2, M2.6) -----------------------------
      ONE switch for ONE thing: is the table SERVING, yes or no. Off IS
@@ -229,11 +223,21 @@
   }
   .chip.on { color: var(--text); border-color: var(--green); }
 
-  /* --- Developer tab: raw confirmation that MediaPipe sees a hand,
-     independent of anything oF chooses to render (RIG_FEEDBACK item 10).
-     Text readout beside the dot markers because a dot near the feed's
-     edge is easy to miss at a glance — the numbers are the actual
-     evidence, the dot is just where to look. */
+  /* --- Developer tab (RIG_FEEDBACK item 10) ------------------------------
+     One topic per card, the same shape the Setup/Capture tabs already use
+     (.setup-card, reused as-is rather than inventing a second card class)
+     — replaces the old top-right devToggle/devPanel master switch AND its
+     2026-08-13 first replacement (a chip per section hiding/showing a
+     whole block), which the developer flagged as not scaling past a
+     couple of extras. Every card here is always visible whenever this tab
+     is open; nothing is hidden behind a toggle any more except the one
+     genuine feature toggle that was always a feature, not a section
+     switch — whether the skeleton card draws its overlay. */
+  .dev-shell { max-width: 1100px; }
+  /* Raw confirmation that MediaPipe sees a hand, independent of anything
+     oF chooses to render. Text readout beside the dot markers because a
+     dot near the feed's edge is easy to miss at a glance — the numbers
+     are the actual evidence, the dot is just where to look. */
   .dev-hands-list {
     margin-top: 10px; font-size: 13px; color: var(--muted);
     font-variant-numeric: tabular-nums;
@@ -509,16 +513,14 @@
   }
 
   /* --- developer panel contents (doc section 12.8) ----------------------
-     RIG_FEEDBACK item 10 decision, 2026-08-13: the old top-right
+     RIG_FEEDBACK item 10, revised 2026-08-13: the old top-right
      devToggle/devPanel (a single master switch bundling all of this) is
-     deleted outright. Camera stats and the mock picks/put-backs grid now
-     live inside the Developer tab, each in its own .dev-section gated by
-     its own chip — see the Developer tab markup and the chip-wiring
-     script below. */
-  .dev-section h3 {
-    margin: 0 0 4px; font-size: 14px; font-weight: 600;
-  }
-  .dev-note { color: var(--muted); font-weight: 400; font-size: 12px; }
+     deleted outright, and so is its first replacement (a chip hiding a
+     whole section) — flagged as not scaling past a couple of extras.
+     Camera stats and the mock picks/put-backs grid now live inside the
+     Developer tab as their own .setup-card, same as Setup/Capture's
+     cards; titles are <h2>/<p>, .setup-card's own rule, not a bespoke
+     heading class. */
   .mock-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 8px; margin-top: 10px;
@@ -776,44 +778,52 @@
       </div>
     </section>
     <section class="tab-panel" data-tab="developer">
-      <!-- RIG_FEEDBACK item 10: raw 21-point MediaPipe hand skeleton
-           (tracker/main.py's `landmarks`, relayed by core verbatim,
-           ~10Hz), drawn on the RAW camera feed rather than the rectified
-           one so this view stays independent of calibration entirely —
-           MediaPipe detection happens upstream of the homography, which
-           is exactly why this exists: to answer "does MediaPipe see a
-           hand at all" without anything else (a bad calibration, oF's
-           own cursor logic) able to hide the answer.
-
-           Everything below the skeleton view — process pips, camera
-           stats, the mock pick/put-back grid — used to live behind one
-           shared top-right devToggle/devPanel master switch. Per the
-           developer's 2026-08-13 decision, that switch is deleted
-           outright and each piece gets its own chip instead, so turning
-           one on doesn't drag the other two along with it. -->
-      <div class="live-shell">
-        <div class="live-feed-wrap">
-          <img id="devImg" alt="">
-          <canvas id="devOverlay"></canvas>
-          <div id="devPlaceholder" class="live-feed-placeholder">
-            Waiting for the camera…
+      <!-- RIG_FEEDBACK item 10, revised 2026-08-13: one topic per card,
+           the same shape the Setup/Capture tabs already use for exactly
+           this reason — see the .dev-shell CSS comment above for why the
+           two things tried before this (a single devToggle/devPanel
+           master switch, then a chip per section hiding a whole block)
+           are both gone. Every card here is always visible on this tab;
+           the only thing still behind a chip is a genuine feature toggle
+           inside a card (draw the skeleton overlay, yes/no), not a
+           section on/off switch. -->
+      <div class="dev-shell">
+        <div class="setup-card">
+          <h2>MediaPipe hand skeleton</h2>
+          <p>Raw 21-point MediaPipe output (`tracker/main.py`'s
+             `landmarks`, relayed by core verbatim, ~10Hz), drawn on the
+             RAW camera feed rather than the rectified one so this view
+             stays independent of calibration entirely — MediaPipe
+             detection happens upstream of the homography, which is
+             exactly why this exists: to answer "does MediaPipe see a
+             hand at all" without anything else (a bad calibration, oF's
+             own cursor logic) able to hide the answer.</p>
+          <div class="live-feed-wrap">
+            <img id="devImg" alt="">
+            <canvas id="devOverlay"></canvas>
+            <div id="devPlaceholder" class="live-feed-placeholder">
+              Waiting for the camera…
+            </div>
           </div>
+          <div class="chips" style="margin-top:12px">
+            <button class="chip on" data-toggle="devHands">MediaPipe hands</button>
+          </div>
+          <div class="dev-hands-list" id="devHandsList">No hands detected.</div>
         </div>
-        <div class="chips">
-          <button class="chip on" data-toggle="devHands">MediaPipe hands</button>
-          <button class="chip" data-toggle="devPips">Active processes</button>
-          <button class="chip" data-toggle="devCamStats">Camera stats</button>
-          <button class="chip" data-toggle="devMock">Fake weight addition</button>
+
+        <div class="setup-card">
+          <h2>Active processes</h2>
+          <p>Doc §12.2's six process pips (camera·tracker·classifier·
+             voice·core·table). An operator cannot act on "tracker is
+             amber"; this is a developer instrument.</p>
+          <div class="pips" id="pips"></div>
         </div>
-        <div class="dev-hands-list" id="devHandsList">No hands detected.</div>
 
-        <!-- The six process pips, formerly in the header behind devToggle. -->
-        <div class="pips" id="pips"></div>
-
-        <div class="dev-section" id="camStatsSection">
-          <h3>Camera
-            <span class="dev-note">— doc §12.8's capture resolution, actual FPS, frame_id, shm slot, dropped frames, polled from `/info.json` while this is toggled on</span>
-          </h3>
+        <div class="setup-card">
+          <h2>Camera stats</h2>
+          <p>Doc §12.8's capture resolution, actual FPS, frame_id, shm
+             slot, dropped frames — fetched from the camera process's own
+             `/info.json` while this tab is open.</p>
           <div class="cam-stats" id="camStats">
             <div><span class="k">resolution</span> <span id="camRes">—</span></div>
             <div><span class="k">actual fps</span> <span id="camFps">—</span></div>
@@ -823,10 +833,10 @@
           </div>
         </div>
 
-        <div class="dev-section" id="mockGridSection">
-          <h3>Mock picks / put-backs
-            <span class="dev-note">— doc §12.8's {45,6,120,3,25,80} g cycle, one shared pointer for every button below</span>
-          </h3>
+        <div class="setup-card">
+          <h2>Fake weight addition</h2>
+          <p>Doc §12.8's {45,6,120,3,25,80} g mock pick/put-back cycle,
+             one shared pointer for every button below.</p>
           <div class="mock-grid" id="mockGrid"></div>
         </div>
       </div>
@@ -965,11 +975,6 @@
       try { localStorage.setItem(TOGGLE_KEY_PREFIX + key, toggleState[key] ? "1" : "0"); } catch (e) { /* ignore */ }
       drawOverlay();
       drawDevOverlay();
-      // devPips/devCamStats/devMock don't just redraw a canvas, they show
-      // or hide a whole Developer-tab section (and camera-stats polling) —
-      // applyDevSectionVisibility is defined further down, but this only
-      // ever runs from a real click, long after the whole script has run.
-      if (key === "devPips" || key === "devCamStats" || key === "devMock") applyDevSectionVisibility();
     });
   });
 
@@ -1205,15 +1210,19 @@
     pollCamInfo();
   }
 
-  // --- developer panel: camera stats (doc §12.8, M3 build item 4) -------
+  // --- Developer tab: camera stats (doc §12.8, M3 build item 4) ---------
   // Fetched straight from the camera process's own `/info.json`, the same
   // "core never touches a frame" split the Live tab's <img> already uses
   // (I3) — core has no reason to proxy numbers it doesn't own. Polled
-  // only while the panel is open: nobody reads these thirteen-point
-  // numbers with the panel closed, and there is no reason to keep hitting
-  // camera's HTTP server for a page nobody has open.
+  // only while the Developer tab is the one on screen, the same
+  // active-tab gate the Setup tab's own rectified-preview redraw loop
+  // uses (`setupPanel`, below) — nobody reads these numbers on a
+  // different tab, and there is no reason to keep hitting camera's HTTP
+  // server for a tab nobody is looking at. RIG_FEEDBACK item 10, revised
+  // 2026-08-13: this card is always visible on the tab now (no separate
+  // chip to gate it), so the tab itself is the only gate left.
+  var developerPanel = document.querySelector('.tab-panel[data-tab="developer"]');
   var CAM_POLL_MS = 1000;
-  var camPollTimer = null;
   var camResEl = document.getElementById("camRes");
   var camFpsEl = document.getElementById("camFps");
   var camFrameIdEl = document.getElementById("camFrameId");
@@ -1234,7 +1243,7 @@
   }
 
   function pollCamInfo() {
-    if (!cameraInfoUrl || !toggleState.devCamStats) return;
+    if (!cameraInfoUrl || !developerPanel.classList.contains("active")) return;
     fetch(cameraInfoUrl).then(function (r) {
       if (!r.ok) throw new Error("bad status " + r.status);
       return r.json();
@@ -1243,14 +1252,7 @@
         camShmSlotEl.textContent = camDroppedEl.textContent = "camera unreachable";
     });
   }
-
-  function setCamPolling(on) {
-    if (camPollTimer) { clearInterval(camPollTimer); camPollTimer = null; }
-    if (on) {
-      pollCamInfo();
-      camPollTimer = setInterval(pollCamInfo, CAM_POLL_MS);
-    }
-  }
+  setInterval(pollCamInfo, CAM_POLL_MS);
 
   // --- mock pick/put-back controls (doc section 12.8, build item 5) -----
   // "the keyboard mock from Stage 2, reborn... with the {45,6,120,3,25,80}
@@ -1331,24 +1333,6 @@
     })(i);
   }
   refreshHints();
-
-  // --- Developer tab: three independently toggleable sections (RIG_FEEDBACK
-  // item 10 decision, 2026-08-13) — the old devToggle/devPanel master
-  // switch bundled the pips, camera stats and mock grid behind one on/off;
-  // now each has its own chip (wired into the generic .chip[data-toggle]
-  // loop above) and this is the one place that says what each chip's
-  // on/off state actually does to the page. Called once here for the
-  // state loaded from localStorage before any click happens, and again
-  // from inside the chip click handler above for these three keys only.
-  var camStatsSection = document.getElementById("camStatsSection");
-  var mockGridSection = document.getElementById("mockGridSection");
-  function applyDevSectionVisibility() {
-    pipsEl.classList.toggle("show", toggleState.devPips);
-    camStatsSection.classList.toggle("show", toggleState.devCamStats);
-    mockGridSection.classList.toggle("show", toggleState.devMock);
-    setCamPolling(toggleState.devCamStats);
-  }
-  applyDevSectionVisibility();
 
   // --- Bins tab (doc section 12.4, M2 build item 4) ---------------------
 

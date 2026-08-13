@@ -216,8 +216,8 @@ their own wiring once M4's bin-rect data is confirmed flowing (check
 whether those are also still stubs while in there).
 
 ## 10. Add a Developer tab: process status, live view (+ optional
-    MediaPipe overlay), weight, classification output — devToggle/
-    devPanel folded in, 2026-08-13, not yet rig/browser-confirmed
+    MediaPipe overlay), weight, classification output — revised
+    2026-08-13, not yet rig/browser-confirmed
 
 **Since this item was written, a "first slice" landed** (`index.html`
 data-tab="developer", ~line 785): its own raw-camera `<img>`/`<canvas>`
@@ -269,6 +269,41 @@ the original state. `python -m unittest discover -s python/tests`: 865
 passed (no Python touched by this item). **Not opened in a real browser,
 not run on the rig** — same honest gap this doc's own precedent (M4l,
 M4m, item 9) always flags before a real pass; do that before trusting it.
+
+**Revised same day, developer feedback on the chip-per-section version
+above: "not scalable" — pointed at the Setup tab's cards (`.setup-card`,
+one topic per rectangle, e.g. "Bin grid") as the pattern to use instead.**
+The chip-per-section shape (previous paragraph) does not scale because
+every new dev instrument adds another chip AND another hidden block the
+developer has to remember to turn on before it's useful — a card that is
+just always there when you're on the tab has neither problem. Reworked:
+`devPips`/`devCamStats`/`devMock` and their show/hide plumbing
+(`.dev-section`, `applyDevSectionVisibility`, `#camStatsSection`/
+`#mockGridSection`) are deleted outright. The Developer tab is now
+`.dev-shell` containing four `.setup-card`s — the same card class Setup
+and Capture already use, not a new one — each with an `<h2>` title and a
+`<p>` description: **MediaPipe hand skeleton** (the raw feed/overlay,
+unchanged), **Active processes** (`#pips`, now just always visible via
+the header's own base `.pips{display:flex}` rule — the show/hide override
+added earlier this session is gone), **Camera stats**, **Fake weight
+addition**. The only toggle left anywhere on this tab is `devHands` — a
+genuine feature switch (draw the skeleton overlay or don't) living inside
+its own card, not a section on/off switch, so it wasn't part of what the
+developer flagged. `pollCamInfo` no longer has a chip to key off of;
+polling is gated on the Developer tab itself being the active tab
+(`developerPanel.classList.contains("active")`), the same pattern
+`setupPanel`'s own redraw loop already uses for the Setup tab's rectified
+preview — one `setInterval` that no-ops when the tab isn't on screen,
+not a start/stop pair.
+**Verified the same way as the chip version:** `node --check`, every
+`getElementById` cross-checked against the DOM (no misses), and a
+rewritten DOM shim confirming the script loads with no throw, all three
+cards' elements exist unconditionally (no hidden class), `devHands` is
+the only `data-toggle` chip left besides the Live tab's five, and
+`pollCamInfo`'s registered interval only fetches while the Developer
+tab-panel carries `.active`. **Still not opened in a real browser, still
+not run on the rig** — same gap as above, now against the card layout
+instead of the chip one.
 
 ## 11. Pointer lags behind a fast hand move, and sometimes sticks then
     snaps to the new location — STILL OPEN on the rig, 2026-08-13. Three
@@ -738,7 +773,7 @@ HOTPOT-READY.
 **Order isn't prescribed** — pick whichever item the developer wants
 worked next. Resolved, no action needed: 1, 2 (workaround), 8, 9, 11
 (pointer lag/snap on fast moves — rig-confirmed 2026-08-13). Built, not
-yet rig/browser-confirmed: 10 (devToggle/devPanel folded into the
-Developer tab, one control per thing — 2026-08-13); **4-7 (the three
-widgets removed outright, dwell mechanism kept — 2026-08-13).** Decided,
-ready to build: 3 (bin dwell + food-item window).
+yet rig/browser-confirmed: 10 (devToggle/devPanel replaced by one
+Setup-tab-style card per topic in the Developer tab — 2026-08-13); **4-7
+(the three widgets removed outright, dwell mechanism kept — 2026-08-13).**
+Decided, ready to build: 3 (bin dwell + food-item window).
