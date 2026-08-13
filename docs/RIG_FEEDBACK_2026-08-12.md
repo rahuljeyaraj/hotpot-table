@@ -195,7 +195,8 @@ their own wiring once M4's bin-rect data is confirmed flowing (check
 whether those are also still stubs while in there).
 
 ## 10. Add a Developer tab: process status, live view (+ optional
-    MediaPipe overlay), weight, classification output — PARTIALLY BUILT
+    MediaPipe overlay), weight, classification output — devToggle/
+    devPanel folded in, 2026-08-13, not yet rig/browser-confirmed
 
 **Since this item was written, a "first slice" landed** (`index.html`
 data-tab="developer", ~line 785): its own raw-camera `<img>`/`<canvas>`
@@ -218,7 +219,35 @@ skeleton view already live in/near the tab; fold them in on the same
 one-control-per-thing basis. Live per-bin weight and classifier output
 (the doc §12.4 Bins tab already has live weight; classifier output was
 never checked — see the original note above, still true) remain
-unscoped past that. Not yet built.
+unscoped past that.
+
+**Built, 2026-08-13: the top-right `devToggle` button and `devPanel` are
+deleted outright** (not disabled — this codebase's usual rule for a
+removed mechanism), together with their CSS (`.dev-toggle`, `.dev-panel`).
+Everything they gated now lives in the Developer tab's own `live-shell`,
+below the existing MediaPipe-hands view: the six process pips (`#pips`,
+moved verbatim out of the header), a `#camStatsSection` (the same
+`#camStats` markup/ids `applyCamInfo`/`pollCamInfo` already targeted), and
+a `#mockGridSection` (the same `#mockGrid` the mock pick/put-back builder
+already targeted) — **each behind its own chip** (`devPips`/`devCamStats`/
+`devMock`, alongside the pre-existing `devHands` chip), wired through the
+same generic `.chip[data-toggle]` mechanism the Live tab's rects/labels/
+weights/hands/dots chips already use, localStorage-persisted the same way.
+No master switch left to bundle them — turning one on does not turn the
+others on. `pollCamInfo`'s gate moved from `devPanel.classList.contains
+("show")` to `toggleState.devCamStats`, so camera-stats polling starts/
+stops with that one chip specifically, not with the tab or any other
+toggle. Live per-bin weight and classifier output remain out of scope,
+unchanged from the decision above.
+**Verified:** `node --check` on the extracted `<script>` block, every
+`getElementById` target cross-checked against the DOM by script (no
+misses), and a throwaway DOM shim (not committed) driving the three new
+chips through real clicks — each independently shows/hides its own
+section with no bleed into the other two, and toggling twice returns to
+the original state. `python -m unittest discover -s python/tests`: 865
+passed (no Python touched by this item). **Not opened in a real browser,
+not run on the rig** — same honest gap this doc's own precedent (M4l,
+M4m, item 9) always flags before a real pass; do that before trusting it.
 
 ## 11. Pointer lags behind a fast hand move, and sometimes sticks then
     snaps to the new location — STILL OPEN on the rig, 2026-08-13. Three
@@ -687,7 +716,8 @@ HOTPOT-READY.
 
 **Order isn't prescribed** — pick whichever item the developer wants
 worked next. Resolved, no action needed: 1, 2 (workaround), 8, 9, 11
-(pointer lag/snap on fast moves — rig-confirmed 2026-08-13). Decided,
-ready to build: 3 (bin dwell + food-item window), 4-7 (remove the three
-widgets, keep the dwell machinery), 10 (fold the top-right developer
-toggle into the Developer tab, one control per thing).
+(pointer lag/snap on fast moves — rig-confirmed 2026-08-13). Built, not
+yet rig/browser-confirmed: 10 (devToggle/devPanel folded into the
+Developer tab, one control per thing — 2026-08-13). Decided, ready to
+build: 3 (bin dwell + food-item window), 4-7 (remove the three widgets,
+keep the dwell machinery).
