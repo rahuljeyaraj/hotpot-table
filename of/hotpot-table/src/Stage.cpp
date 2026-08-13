@@ -102,7 +102,7 @@ void Stage::endContent(){
 }
 
 void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx,
-	bool invertedField){
+	bool invertedField, const std::function<void()> & drawAboveLightPass){
 	// --- I9's exception: dot calibration ---------------------------------
 	// Neither the floor lift nor the light pass runs. Both exist to keep
 	// the table lit for the camera, and during a solve the camera is
@@ -131,6 +131,15 @@ void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & 
 		ofSetColor(255);
 		for(const auto & r : cutoutsPx){
 			ofDrawRectangle(r);
+		}
+
+		// --- step 5: above the light pass, 2026-08-12 ---------------------
+		// See the header comment on `drawAboveLightPass` for the full
+		// reasoning. `nullptr` (not serving, or no pointer this frame) means
+		// this is a no-op and I9 applies exactly as it always has.
+		if(drawAboveLightPass){
+			ofEnableAlphaBlending();
+			drawAboveLightPass();
 		}
 		_fbo.end();
 	}

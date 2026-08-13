@@ -266,14 +266,19 @@ class GeometryStore:
         """The Setup tab's Rotate button: cycles the operator's display of
         the live feed through 0/90/180/270 degrees.
 
-        A **display preference, not calibration data** — it does not touch
-        `H_cam->stage` or anything the classifier/oF receive, so it lives
-        in its own file and saves immediately rather than waiting on a
-        Confirm the way a dragged corner does. Validated here rather than
-        left to whatever calls this, because doc section 20.4's rule for
-        every state file applies just as much to a 4-way enum as to a
-        homography: a bad value on disk must never look like a plausible
-        rotation.
+        Not calibration data — it does not touch `H_cam->stage` or
+        anything oF receives, so it lives in its own file and saves
+        immediately rather than waiting on a Confirm the way a dragged
+        corner does. **No longer purely a display preference as of
+        2026-08-12**: `core/main.py`'s `_tracker_cfg()` also sends this
+        value to the tracker, which uses it to compensate MediaPipe's own
+        detection for the camera's physical mount rotation
+        (`backend_mediapipe.py`'s "180-degree mount compensation") — the
+        same physical fact, now read by a second consumer for a different
+        reason. Validated here rather than left to whatever calls this,
+        because doc section 20.4's rule for every state file applies just
+        as much to a 4-way enum as to a homography: a bad value on disk
+        must never look like a plausible rotation.
         """
         if (not isinstance(deg, int) or isinstance(deg, bool)
                 or deg not in VALID_VIEW_ROTATIONS):

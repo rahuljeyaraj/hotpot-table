@@ -3,6 +3,7 @@
 #include "ofMain.h"
 
 #include <array>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -66,8 +67,22 @@ public:
 	// table by the same warp that will later carry the UI. Solving
 	// through an un-warped pattern would produce a homography that is
 	// correct for a table nobody is projecting onto.
+	// drawAboveLightPass, if given, is called on the content FBO AFTER the
+	// light pass has stamped its cutout rectangles — 2026-08-12, a
+	// deliberate, narrow carve-out from I9's "nothing drawn after the
+	// light pass can put anything but flat white into a cutout" rule,
+	// for exactly one thing: the hand cursor, and only while serving
+	// (ofApp is what decides that and passes nullptr otherwise). This is
+	// safe because the classifier (the reason I9 exists at all — a
+	// cutout must be flat and unpatterned for the training photos it
+	// takes) and the cursor (only exists while hand-tracking is live)
+	// are mutually exclusive by MODE: the classifier only ever runs
+	// during setting mode (doc §12.7's capture refusal), the cursor only
+	// ever exists during serving mode. Nothing else about I9 changes —
+	// the rest of every cutout is still stamped flat white, always.
 	void compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx,
-		bool invertedField = false);
+		bool invertedField = false,
+		const std::function<void()> & drawAboveLightPass = nullptr);
 
 	int stageWidth() const { return _w; }
 	int stageHeight() const { return _h; }

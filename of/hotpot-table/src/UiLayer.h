@@ -45,6 +45,18 @@ public:
 	// is what stops a plate's ink from ever landing inside its own cutout.
 	std::vector<ofRectangle> cutoutRectsPx() const;
 
+	// 2026-08-12: draws ONLY the pointer cursor + dwell ring, with no
+	// cutout it cannot reach. This is the ONE place the cursor is drawn
+	// while serving — `draw()` itself skips its own cursor block in that
+	// mode, specifically so the cursor is never drawn twice in a frame.
+	// Meant to be passed as `Stage::compositeAndWarp`'s
+	// `drawAboveLightPass` callback, and ONLY while `state.mode ==
+	// "serving"` (ofApp's call site decides that, this method does not
+	// check mode itself) — see that parameter's own comment for why this
+	// is safe. A no-op when `pointer` is null, same as `draw()`'s own.
+	void drawCursorAboveLightPass(const StateLink::State & state,
+		const CursorLink::Hand * pointer) const;
+
 private:
 	struct BinTween {
 		Spring picked{0.15f};
@@ -75,6 +87,7 @@ private:
 	void drawWidgets(const StateLink::State & state) const;
 	void drawWidget(const StateLink::Widget & w) const;
 	void drawCursor(const CursorLink::Hand & pointer, float dwell) const;
+	float dwellFraction(const StateLink::State & state) const;
 	static ofColor highlightColour(const std::string & hl);
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
 	void drawTotal(const StateLink::Total & total) const;

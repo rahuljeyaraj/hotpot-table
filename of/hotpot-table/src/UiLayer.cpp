@@ -818,6 +818,44 @@ void UiLayer::drawCursor(const CursorLink::Hand & pointer, float dwell) const {
 	ofSetColor(255);
 }
 
+float UiLayer::dwellFraction(const StateLink::State & state) const {
+	// The dwell fraction comes from CORE, per widget (doc §9.4: "oF does
+	// not time anything"). Looked up by the widget the pointer is inside
+	// rather than by remembering which one core said was active — there is
+	// no such field on the wire, and adding one would be a second source
+	// of truth for something already implied. Shared by `draw()`'s own
+	// cursor pass and `drawCursorAboveLightPass()` so the two never
+	// compute two different dwell fractions for the same frame.
+	float dwell = 0.0f;
+	for(const StateLink::Widget & w : state.widgets){
+		if(w.dwell > dwell){
+			dwell = w.dwell;
+		}
+	}
+	return dwell;
+}
+
+void UiLayer::drawCursorAboveLightPass(const StateLink::State & state,
+	const CursorLink::Hand * pointer) const {
+	// The ONLY place the cursor is drawn while serving — `draw()`'s own
+	// cursor block above explicitly skips it in that mode so the two call
+	// sites can never both fire for the same frame (a cursor drawn twice
+	// was tried and rejected: one draw site per mode, not two draws
+	// layered on top of each other).
+	//
+	// Safe specifically because ofApp only ever builds the
+	// `drawAboveLightPass` callback this feeds while `state.mode ==
+	// "serving"` (see Stage::compositeAndWarp's own comment) — the
+	// classifier can never be running then (doc §12.7's capture refusal
+	// requires setting mode), so nothing drawn here after the light pass
+	// can ever land in a photo the classifier takes. The null check below
+	// is the ordinary "no pointer this frame" case, same as `draw()`'s own.
+	if(pointer == nullptr){
+		return;
+	}
+	drawCursor(*pointer, dwellFraction(state));
+}
+
 void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
 	bool connected, float fps) const {
 	char buf[128];
@@ -860,23 +898,24 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 	}
 
 	// The cursor goes on LAST of everything the diner reads, so it is never
-	// buried under a label or a button it is sitting on top of. (It still
-	// cannot reach a bin cutout: Stage's light pass runs after all of this
-	// and re-stamps every cutout white — doc §13.2's safety property, which
-	// covers "any overlay added later" and this is one.)
-	if(pointer != nullptr){
-		// The dwell fraction comes from CORE, per widget (doc §9.4: "oF
-		// does not time anything"). It is looked up by the widget the
-		// pointer is inside rather than by remembering which one core said
-		// was active — there is no such field on the wire, and adding one
-		// would be a second source of truth for something already implied.
-		float dwell = 0.0f;
-		for(const StateLink::Widget & w : state.widgets){
-			if(w.dwell > dwell){
-				dwell = w.dwell;
-			}
-		}
-		drawCursor(*pointer, dwell);
+	// buried under a label or a button it is sitting on top of. Over a bin
+	// cutout specifically it is NOT drawn here at all while serving — see
+	// the condition below and `drawCursorAboveLightPass`'s own comment.
+	// Exactly one of those two call sites ever draws the cursor for a
+	// given frame; which one depends on mode, never both — a cursor drawn
+	// twice per frame was tried and rejected as the wrong design.
+	//
+	// Every mode OTHER than serving keeps the original, single-pass
+	// behaviour unchanged: drawn here, and erased by Stage's light pass if
+	// it lands on a cutout (I9, full strength — a bin cutout must stay
+	// unpatterned while the classifier could be running, which is exactly
+	// setting mode). Serving is the one mode the classifier can never be
+	// active in (doc §12.7's capture refusal), so it is the one mode where
+	// skipping this draw and doing it after the light pass instead is
+	// safe — see ofApp::draw's own comment on why it only ever builds the
+	// `aboveLightPass` callback when `state.mode == "serving"`.
+	if(pointer != nullptr && state.mode != "serving"){
+		drawCursor(*pointer, dwellFraction(state));
 	}
 
 	drawConnectionIndicator(connected, staleSeconds);

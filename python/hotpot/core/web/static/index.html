@@ -186,11 +186,14 @@
      overlay sized to naturalWidth x naturalHeight and CSS-scaled
      identically (doc §5.4's scaling rule) — the two share one wrapper so
      "scaled identically" is a single CSS rule (width/height: 100%) rather
-     than two elements kept in sync by hand. No bin rects (M4), no hands
-     (M5), no dots (M4) exist on the wire yet, so the overlay's draw() is
-     structurally wired to the toggle chips but currently paints nothing:
-     the naturalWidth rule has to be right before there is anything to
-     scale, not after. */
+     than two elements kept in sync by hand. No bin rects (M4) or dots
+     (M4) exist on the wire yet, so those chips' half of the overlay's
+     draw() still paints nothing. `hands` DOES exist on the wire now
+     (tracker/main.py's `landmarks`, M5) but is deliberately NOT drawn
+     here — the developer decided this tab does not need a hand-tracking
+     view; the raw MediaPipe output lives on the Developer tab instead
+     (RIG_FEEDBACK item 10). The naturalWidth rule has to be right before
+     there is anything to scale, not after. */
   .live-shell {
     max-width: 960px;
   }
@@ -223,6 +226,27 @@
     font-size: 13px; cursor: pointer;
   }
   .chip.on { color: var(--text); border-color: var(--green); }
+
+  /* --- Developer tab: raw confirmation that MediaPipe sees a hand,
+     independent of anything oF chooses to render (RIG_FEEDBACK item 10).
+     Text readout beside the dot markers because a dot near the feed's
+     edge is easy to miss at a glance — the numbers are the actual
+     evidence, the dot is just where to look. */
+  .dev-hands-list {
+    margin-top: 10px; font-size: 13px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  /* This rig's camera is mounted at 180 degrees (CLAUDE.md's M4h finding,
+     confirmed again by a Developer-tab screenshot showing every label on
+     the table upside-down) — display-only, for legibility while reading
+     this tab, and deliberately just a CSS transform on both the <img>
+     and the <canvas> together: rotating the whole stacked pair around
+     its own centre keeps the landmark overlay aligned with the video
+     under it with no change to how points are drawn (they still land at
+     their real, un-rotated camera pixel coordinates; the rotation is
+     applied to the finished picture, after the fact). Scoped to this tab
+     only — the Live/Setup tabs' own feeds are untouched. */
+  #devImg, #devOverlay { transform: rotate(180deg); }
 
   /* --- Bins tab (doc section 12.4) --------------------------------------
      8 cards: name, live grams (doc 12.9: 44px tabular-nums for the large
@@ -558,6 +582,7 @@
       <button class="tab" data-tab="bins">Bins</button>
       <button class="tab" data-tab="setup">Setup</button>
       <button class="tab" data-tab="capture">Capture</button>
+      <button class="tab" data-tab="developer">Developer</button>
     </nav>
     <div class="order" id="order">—</div>
     <div class="spacer"></div>
@@ -757,6 +782,34 @@
         <div class="crop-grid" id="cropGrid"></div>
       </div>
     </section>
+    <section class="tab-panel" data-tab="developer">
+      <!-- RIG_FEEDBACK item 10, first slice: "draw every point that
+           MediaPipe identifies" — the raw 21-point hand skeleton
+           (tracker/main.py's `landmarks`, relayed by core verbatim,
+           ~10Hz), not a reduced single-point cursor, and drawn on the
+           RAW camera feed rather than the rectified one so this view
+           stays independent of calibration entirely — MediaPipe
+           detection happens upstream of the homography, which is exactly
+           why this exists: to answer "does MediaPipe see a hand at all"
+           without anything else (a bad calibration, oF's own cursor
+           logic) able to hide the answer. The rest of item 10 (process
+           pips, weights, classifier output) is not built here — the
+           feedback doc's own note says it should be broken down further,
+           and this slice answers the immediate question first. -->
+      <div class="live-shell">
+        <div class="live-feed-wrap">
+          <img id="devImg" alt="">
+          <canvas id="devOverlay"></canvas>
+          <div id="devPlaceholder" class="live-feed-placeholder">
+            Waiting for the camera…
+          </div>
+        </div>
+        <div class="chips">
+          <button class="chip on" data-toggle="devHands">MediaPipe hands</button>
+        </div>
+        <div class="dev-hands-list" id="devHandsList">No hands detected.</div>
+      </div>
+    </section>
   </main>
   <!-- Doc §12.2's action bar. The primary button names what happens
        next; `Cancel order` is fsm.cancel()'s first caller since it was
@@ -882,10 +935,23 @@
   // turns "hands" off should not have it turn back on after a reload.
   var TOGGLE_KEY_PREFIX = "hotpot.liveToggle.";
   var toggleState = {};
+  // Latest `landmarks` broadcast (tracker/main.py's `_maybe_send_landmarks`,
+  // relayed verbatim by core, ~10Hz) — every raw MediaPipe hand skeleton,
+  // in CAPTURE-resolution camera pixels, upstream of the homography, role
+  // assignment and hysteresis that produce the reduced cursor oF draws.
+  // Read only by the Developer tab (RIG_FEEDBACK item 10 said the Live
+  // tab does not need a hand-tracking view at all — see that tab's own
+  // comment).
+  var latestLandmarks = [];
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-toggle]"), function (btn) {
     var key = btn.dataset.toggle;
-    var stored = "0";
-    try { stored = localStorage.getItem(TOGGLE_KEY_PREFIX + key) || "0"; } catch (e) { /* private mode, etc — not fatal */ }
+    // Default comes from the markup itself (class="on") rather than being
+    // hardcoded "off" here, so a chip like the Developer tab's "MediaPipe
+    // hands" — whose entire purpose is to be looked at, not opted into —
+    // can start on. localStorage still wins on every load after the first.
+    var fallback = btn.classList.contains("on") ? "1" : "0";
+    var stored = fallback;
+    try { stored = localStorage.getItem(TOGGLE_KEY_PREFIX + key) || fallback; } catch (e) { /* private mode, etc — not fatal */ }
     toggleState[key] = stored === "1";
     btn.classList.toggle("on", toggleState[key]);
     btn.addEventListener("click", function () {
@@ -893,6 +959,7 @@
       btn.classList.toggle("on", toggleState[key]);
       try { localStorage.setItem(TOGGLE_KEY_PREFIX + key, toggleState[key] ? "1" : "0"); } catch (e) { /* ignore */ }
       drawOverlay();
+      drawDevOverlay();
     });
   });
 
@@ -906,6 +973,79 @@
   // different ideas of "flattened."
   function liveShowsRectified() {
     return !!confirmedCorners && !!liveImg.naturalWidth;
+  }
+
+  // --- raw MediaPipe landmarks, Developer tab only (RIG_FEEDBACK item 10:
+  // "draw every point that MediaPipe identifies", not a reduced cursor) --
+  // Standard 21-point hand-landmark connectivity (thumb/index/middle/ring/
+  // pinky chains plus the palm base) — the same topology MediaPipe's own
+  // examples draw, reused here only for line indices, no dependency on
+  // MediaPipe's JS bindings (this page has none).
+  var HAND_CONNECTIONS = [
+    [0, 1], [1, 2], [2, 3], [3, 4],
+    [0, 5], [5, 6], [6, 7], [7, 8],
+    [5, 9], [9, 10], [10, 11], [11, 12],
+    [9, 13], [13, 14], [14, 15], [15, 16],
+    [13, 17], [17, 18], [18, 19], [19, 20],
+    [0, 17],
+  ];
+  var CURSOR_LANDMARK = 8;   // tracker/backend_mediapipe.py's own constant
+
+  // `landmarks` (tracker/main.py's `_maybe_send_landmarks`) is CAPTURE-
+  // resolution camera pixels — the same space the Developer tab's raw
+  // (never rectified) feed is shown in, so every point is drawn exactly
+  // where it arrived, no transform. This deliberately does NOT need
+  // `confirmedCorners`/a homography at all: MediaPipe detection happens
+  // upstream of calibration, and that independence is the whole point of
+  // this view existing.
+  function drawLandmarks(ctx, hands) {
+    (hands || []).forEach(function (h) {
+      var pts = h.points || [];
+      ctx.strokeStyle = "rgba(64,200,120,0.8)";
+      ctx.lineWidth = 2;
+      HAND_CONNECTIONS.forEach(function (pair) {
+        var a = pts[pair[0]], b = pts[pair[1]];
+        if (!a || !b) return;
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+        ctx.stroke();
+      });
+      pts.forEach(function (p, i) {
+        var isCursor = i === CURSOR_LANDMARK;
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], isCursor ? 7 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = isCursor ? "#ffd93c" : "#4ee08a";
+        ctx.fill();
+      });
+      if (pts[0]) {
+        ctx.font = "13px sans-serif";
+        ctx.fillStyle = "#fff";
+        ctx.fillText((h.handedness || "?") + " " + h.conf.toFixed(2),
+          pts[0][0] + 12, pts[0][1] + 4);
+      }
+    });
+  }
+
+  var devHandsList = document.getElementById("devHandsList");
+  function updateDevHandsList() {
+    if (!devHandsList) return;
+    if (!latestLandmarks.length) {
+      devHandsList.textContent = "No hands detected.";
+      return;
+    }
+    devHandsList.textContent = latestLandmarks.map(function (h) {
+      return (h.handedness || "?") + ": " + (h.points || []).length +
+        " points, conf " + h.conf.toFixed(2);
+    }).join("    ");
+  }
+
+  // core relays tracker/main.py's `landmarks` message verbatim, ~10Hz —
+  // see core/main.py `_on_message`'s own comment on why this is not part
+  // of `state`. Only the Developer tab reads it.
+  function applyLandmarks(msg) {
+    latestLandmarks = msg.hands || [];
+    drawDevOverlay();
   }
 
   // Doc §5.4: the canvas's own pixel buffer is sized to naturalWidth x
@@ -929,10 +1069,12 @@
     drawOverlay();
   }
 
-  // The rectified preview when corners are confirmed; otherwise nothing
-  // yet (see the toggle-chip comment above — M4/M5 have one place here to
-  // add rects/hands on top of either background rather than inventing a
-  // second draw path).
+  // The rectified preview when corners are confirmed; nothing before that
+  // (see the toggle-chip comment above). RIG_FEEDBACK: the Live tab does
+  // not need a hand-tracking view at all — it stayed the plain rectified
+  // picture it already was; MediaPipe's raw output lives on the
+  // Developer tab below instead, where the remaining chips (rects,
+  // labels, weights, dots) still have nothing to gate yet either.
   function drawOverlay() {
     overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(0, 0, liveOverlay.width, liveOverlay.height);
@@ -941,6 +1083,48 @@
                            liveOverlay.width, liveOverlay.height);
     }
   }
+
+  // --- Developer tab (RIG_FEEDBACK item 10, first slice) -----------------
+  // Its own <img>/<canvas> pair, same reason the Setup tab has its own
+  // rather than sharing the Live tab's: doc §5.4's naturalWidth scaling
+  // has to be read off the element actually laid out on screen. Always
+  // the RAW feed, never the rectified preview — deliberately, and unlike
+  // the Live/Setup tabs: `landmarks` arrives in capture-resolution camera
+  // pixels (see `drawLandmarks`'s own comment on why), so this canvas has
+  // to stay in that same space regardless of whether the table has been
+  // calibrated at all. Sized once the image loads and left alone after —
+  // no periodic redraw loop is needed the way the Live tab's rectified
+  // view needs one, because the raw <img> paints itself natively (MJPEG)
+  // and the canvas only needs to redraw when a new `landmarks` message
+  // arrives (`applyLandmarks`, push-driven, ~10Hz).
+  var devImg = document.getElementById("devImg");
+  var devOverlay = document.getElementById("devOverlay");
+  var devPlaceholder = document.getElementById("devPlaceholder");
+  var devOverlayCtx = devOverlay.getContext("2d");
+
+  function sizeDevOverlay() {
+    if (!devImg.naturalWidth || !devImg.naturalHeight) return;
+    if (devOverlay.width !== devImg.naturalWidth) devOverlay.width = devImg.naturalWidth;
+    if (devOverlay.height !== devImg.naturalHeight) devOverlay.height = devImg.naturalHeight;
+    drawDevOverlay();
+  }
+
+  function drawDevOverlay() {
+    devOverlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    devOverlayCtx.clearRect(0, 0, devOverlay.width, devOverlay.height);
+    if (toggleState.devHands) drawLandmarks(devOverlayCtx, latestLandmarks);
+    updateDevHandsList();
+  }
+
+  devImg.addEventListener("load", function () {
+    devPlaceholder.classList.add("hide");
+    sizeDevOverlay();
+  });
+  devImg.addEventListener("error", function () {
+    devPlaceholder.textContent = "Camera offline — retrying…";
+    devPlaceholder.classList.remove("hide");
+    scheduleCameraRetry();
+  });
 
   // MJPEG has no per-frame JS hook (same reason the Setup tab's own tick
   // exists) — needed here only while showing the rectified preview, which
@@ -954,9 +1138,7 @@
   var LIVE_FRAME_MS = 100;   // ~10fps, same budget as the Setup tab's
   var livePanel = document.querySelector('.tab-panel[data-tab="live"]');
   setInterval(function () {
-    if (!livePanel.classList.contains("active")) return;
-    if (!liveShowsRectified()) return;
-    drawOverlay();
+    if (livePanel.classList.contains("active") && liveShowsRectified()) drawOverlay();
   }, LIVE_FRAME_MS);
 
   var CAMERA_RETRY_MS = 3000;
@@ -971,14 +1153,15 @@
     // what actually forces a new connection on retry — the doc section 21
     // M3 acceptance test's "the feed resumes automatically after restart"
     // needs this, not just the red pip camera's health link already gives.
-    // Two <img> elements on one MJPEG server, deliberately: the Live tab
-    // and the Setup tab are never both visible, and giving Setup its own
-    // element means doc §5.4's naturalWidth scaling is read off the
-    // element the operator is actually dragging on rather than off a
-    // hidden one whose layout box is zero.
+    // Three <img> elements on one MJPEG server, deliberately: the Live,
+    // Setup and Developer tabs are never more than one visible at a time,
+    // and each keeping its own element means doc §5.4's naturalWidth
+    // scaling is read off the element actually laid out on screen rather
+    // than off a hidden one whose layout box is zero.
     var bust = "?t=" + Date.now();
     liveImg.src = cameraUrl + bust;
     setupImg.src = cameraUrl + bust;
+    devImg.src = cameraUrl + bust;
   }
 
   function scheduleCameraRetry() {
@@ -2245,6 +2428,7 @@
     // confirmed, not wait for its <img> to next fire `load` — an
     // operator watching the Live tab during Confirm should see it happen.
     sizeOverlayToImage();
+    sizeDevOverlay();
     geoCalibrated.textContent = msg.calibrated ? "yes" : "no";
     geoRms.textContent = msg.rms_px === null || msg.rms_px === undefined
       ? "—" : msg.rms_px + " px";
@@ -2785,6 +2969,7 @@
       else if (msg.t === "grid_projector_result") applyGridProjectorResult(msg);
       else if (msg.t === "capture_info") applyCaptureInfo(msg);
       else if (msg.t === "capture_result") applyCaptureResult(msg);
+      else if (msg.t === "landmarks") applyLandmarks(msg);
     };
     ws.onclose = function () {
       // A set_mode whose reply will now never arrive. Left true, the

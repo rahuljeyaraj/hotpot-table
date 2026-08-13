@@ -532,6 +532,13 @@ class Core:
             "camera_size": list(self.geometry.camera_size),
             "emit_hz": self.emit_hz,
             "mirror_handedness": self.mirror_handedness,
+            # 2026-08-12: added for `backend_mediapipe.py`'s 180-degree
+            # mount compensation — this was a display-only preference
+            # until now (see `GeometryStore.set_view_rotation`'s own
+            # docstring), but the tracker needs the same physical fact
+            # for detection quality, and `geometry.view_rotation_deg` is
+            # the one place core already tracks it.
+            "view_rotation_deg": self.geometry.view_rotation_deg,
         }
 
     def _push_tracker_cfg(self) -> None:
@@ -565,6 +572,17 @@ class Core:
             stale = msg.get("frames_stale")
             if isinstance(stale, bool):
                 self.frames_stale[conn.who] = stale
+            return
+        if t == "landmarks":
+            # Staff-view Developer tab debug telemetry only (RIG_FEEDBACK
+            # item 10 — "draw every point MediaPipe identifies"), relayed
+            # to every connected tablet verbatim. Not state: core stores
+            # nothing from it and nothing else in this process ever reads
+            # it — the tracker's own raw detections are upstream of the
+            # homography, roles and hysteresis that make up `hands`
+            # (`_hands_msg`), so they are not a variant of core's state,
+            # they are a different, earlier fact about the same frame.
+            self.web.broadcast(msg)
             return
         if t in ("dots", "result", "captured"):
             self._resolve_classifier_reply(msg)
@@ -1309,10 +1327,19 @@ class Core:
 
     def _handle_set_view_rotation(self, msg: Dict[str, Any]) -> None:
         """The Setup tab's Rotate button (drag-corner rebuild step 4 — no
-        UI sends this yet). A display preference, not calibration data, so
-        it saves immediately rather than waiting on a Confirm — but it is
-        still gated behind setting mode like every other Setup-tab action,
-        since it is still something only staff should be changing.
+        UI sends this yet). Saves immediately rather than waiting on a
+        Confirm — but it is still gated behind setting mode like every
+        other Setup-tab action, since it is still something only staff
+        should be changing.
+
+        **No longer purely a display preference** (2026-08-12): the
+        tracker now applies this same value to compensate MediaPipe's own
+        detection for the camera's physical mount rotation
+        (`backend_mediapipe.py`'s "180-degree mount compensation"), so a
+        change here has to reach it immediately, the same way a new
+        homography does in `_handle_manual_calibrate` — a rotation solved
+        here but not pushed would leave the tracker detecting against the
+        old orientation until its next restart.
         """
         if not self._in_setting():
             self.web.broadcast({"t": "set_view_rotation_result", "ok": False,
@@ -1327,6 +1354,7 @@ class Core:
         self.web.broadcast({"t": "set_view_rotation_result", "ok": True,
                             "message": "View rotation saved."})
         self.web.broadcast(self._geometry_msg())
+        self._push_tracker_cfg()
 
     def _handle_set_grid(self, msg: Dict[str, Any]) -> None:
         """Doc section 12.6's "Adjust bin boundaries — drag the grid lines

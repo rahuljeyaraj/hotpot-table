@@ -107,7 +107,26 @@ void ofApp::draw(){
 		_cursor.hands(), _cursor.pointer());
 	_stage.endContent();
 
-	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx());
+	// 2026-08-12: the cursor is allowed to survive on top of a bin cutout
+	// during serving mode — see Stage::compositeAndWarp's own comment on
+	// `drawAboveLightPass` for why this does not weaken I9, and
+	// UiLayer::draw's own cursor block for the other half of this: it
+	// skips drawing the cursor itself under this exact condition, so
+	// there is exactly one draw site per frame, never two. Checked on
+	// `state.mode` alone, with no separate `hasState` guard — `state`
+	// defaults to mode "serving" (StateLink::State's own default) when
+	// there is no live link yet, and that default is exactly right here
+	// too: it is what keeps this condition and UiLayer::draw's the same
+	// single test, so the two can never disagree about which one of them
+	// is responsible for this frame's cursor.
+	const CursorLink::Hand * pointer = _cursor.pointer();
+	std::function<void()> aboveLightPass = nullptr;
+	if(state.mode == "serving" && pointer != nullptr){
+		aboveLightPass = [this, &state, pointer](){
+			_ui.drawCursorAboveLightPass(state, pointer);
+		};
+	}
+	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx(), false, aboveLightPass);
 
 	if(_screenshotPending){
 		_screenshotPending = false;
