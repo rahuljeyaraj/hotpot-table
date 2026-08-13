@@ -164,29 +164,26 @@ def layout() -> Dict[str, Rect]:
 
 
 def widgets_for(*, selecting: bool, locales_available: int) -> List[Widget]:
-    """Which widgets exist right now.
+    """Which widgets exist right now: none.
 
-    Empty in every state but SELECTING except for `LANGUAGE`, which doc
-    section 17.1 makes a standing offer ("locale switches via: a projected
-    button (dwell)") rather than something only available mid-order.
+    **DECISION, RIG_FEEDBACK_2026-08-12.md items 4-7, 2026-08-13: the three
+    widgets this milestone shipped (Done/Cancel/Language) are removed
+    outright.** The developer's own item-7 note called them placeholders
+    ("all these buttons are not expected to be here, we can change it
+    later"), and each of the other three items was a symptom of that: Cancel
+    cleared the whole cart with no product decision behind that ever made
+    (item 4), Done had nowhere to go until M6 (item 5), Language had nothing
+    to switch to until a second locale file exists (item 6).
 
-    **`LANGUAGE` is `enabled: False` while only one locale is loaded, and
-    that is the honest shape rather than hiding it.** `data/locales/zh.json`
-    does not exist yet (CLAUDE.md: the Chinese strings "must not be
-    invented"), so there is nothing to switch to — but the mechanism is
-    built and the button lights up on its own the day that file lands, with
-    no code change. Doc section 4.3 already carries `enabled` for exactly
-    this.
+    `layout()`, `Widget`, `DwellTracker` and `core/main.py`'s
+    `_fire_widget` dispatch table are all left intact and unused, ready for
+    whatever real widget set replaces these three, and for item 3's bin
+    dwell (which reuses `DwellTracker`, just fed a bin instead of a
+    widget) — not yet built. `selecting`/`locales_available` are kept as
+    parameters, unused, so callers and tests need not change shape the day
+    a real widget set replaces this.
     """
-    rects = layout()
-    out = [Widget(id=LANGUAGE, rect=rects[LANGUAGE], label_key="language",
-                  style="tertiary", enabled=locales_available > 1)]
-    if selecting:
-        out.append(Widget(id=CANCEL, rect=rects[CANCEL], label_key="cancel",
-                          style="secondary"))
-        out.append(Widget(id=DONE, rect=rects[DONE], label_key="done",
-                          style="primary"))
-    return out
+    return []
 
 
 # ---------------------------------------------------------------------------

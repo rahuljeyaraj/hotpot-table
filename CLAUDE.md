@@ -26,10 +26,15 @@ kill switch and `tracker/main.py` simply not calling
 `skeleton_sender.send()` any more, both one-line re-enables. **Read item
 11's own section before touching any of this again — it has the full
 reasoning and what was ruled out along the way.**
-Items 3, 4-7, 10 have developer decisions recorded
-(2026-08-13) and are ready to build but not
-started. Check that
-file before starting new M5 work.
+**Items 4-7 (the Done/Cancel/Language widgets) and 10 (devToggle/devPanel
+folded into the Developer tab) are built (2026-08-13), neither yet
+rig/browser-confirmed.** `core/hover.py`'s `widgets_for()` now always
+returns no widgets — the three were the developer's own placeholders
+("all these buttons are not expected to be here"); `layout()`/`Widget`/
+`DwellTracker`/`_fire_widget`'s dispatch table are untouched and unused,
+ready for a real widget set and for item 3's bin dwell. Item 3 (bin dwell
++ food-item window) has a developer decision recorded but is not started.
+Check that file before starting new M5 work.
 
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.

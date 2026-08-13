@@ -35,6 +35,29 @@ def frame(hands, seq=1):
     return cursorbus.CursorFrame(seq=seq, ts=0.0, hands=list(hands))
 
 
+def build_widgets(*, selecting: bool = True, locales_available: int = 2):
+    """The three-widget set `widgets_for()` used to return, built directly
+    from `layout()` instead.
+
+    `widgets_for()` itself now always returns `[]` — RIG_FEEDBACK_2026-08-12
+    .md items 4-7's decision to remove Done/Cancel/Language outright — but
+    `layout()`/`Widget`/`DwellTracker` are kept intact for whatever real
+    widget set replaces them. This mirrors `widgets_for()`'s old body so the
+    layout and dwell mechanism below stay exercised against something,
+    rather than only against production's now-permanently-empty list.
+    """
+    rects = hover.layout()
+    out = [hover.Widget(id=hover.LANGUAGE, rect=rects[hover.LANGUAGE],
+                        label_key="language", style="tertiary",
+                        enabled=locales_available > 1)]
+    if selecting:
+        out.append(hover.Widget(id=hover.CANCEL, rect=rects[hover.CANCEL],
+                                label_key="cancel", style="secondary"))
+        out.append(hover.Widget(id=hover.DONE, rect=rects[hover.DONE],
+                                label_key="done", style="primary"))
+    return out
+
+
 class TestAmbientIsolation(unittest.TestCase):
     """Doc section 11.4: core "discards [ambient hands] entirely before
     hit-testing"."""
@@ -58,7 +81,7 @@ class TestAmbientIsolation(unittest.TestCase):
 
     def test_an_ambient_hand_cannot_dwell(self):
         d = hover.DwellTracker()
-        widgets = hover.widgets_for(selecting=True, locales_available=2)
+        widgets = build_widgets()
         done = [w for w in widgets if w.id == hover.DONE][0]
         cx = done.rect[0] + done.rect[2] / 2
         cy = done.rect[1] + done.rect[3] / 2
@@ -76,7 +99,7 @@ class TestWidgetLayout(unittest.TestCase):
 
     def test_the_widgets_sit_in_the_centre_column(self):
         x0, width = hover.centre_column_px()
-        for w in hover.widgets_for(selecting=True, locales_available=2):
+        for w in build_widgets():
             with self.subTest(widget=w.id):
                 self.assertGreaterEqual(w.rect[0], x0)
                 self.assertLessEqual(w.rect[0] + w.rect[2], x0 + width)
@@ -87,7 +110,7 @@ class TestWidgetLayout(unittest.TestCase):
         # precisely because it is the one span with no bin in it.
         from hotpot.core import bin_grid
         cad = bin_grid.cad_bin_grid_stage().rects()
-        for w in hover.widgets_for(selecting=True, locales_available=2):
+        for w in build_widgets():
             wx, wy, ww, wh = w.rect
             for i, (bx, by, bw, bh) in enumerate(cad):
                 overlaps = (wx < bx + bw and bx < wx + ww
@@ -96,7 +119,7 @@ class TestWidgetLayout(unittest.TestCase):
                                  f"widget {w.id} overlaps bin {i}")
 
     def test_no_two_widgets_overlap_each_other(self):
-        ws = hover.widgets_for(selecting=True, locales_available=2)
+        ws = build_widgets()
         for i, a in enumerate(ws):
             for b in ws[i + 1:]:
                 ax, ay, aw, ah = a.rect
@@ -107,44 +130,42 @@ class TestWidgetLayout(unittest.TestCase):
 
     def test_done_is_nearest_the_diner(self):
         # Reach, not importance: the near edge is the bottom of the stage.
-        ws = {w.id: w for w in hover.widgets_for(selecting=True,
-                                                 locales_available=2)}
+        ws = {w.id: w for w in build_widgets()}
         self.assertGreater(ws[hover.DONE].rect[1], ws[hover.CANCEL].rect[1])
         self.assertGreater(ws[hover.CANCEL].rect[1],
                            ws[hover.LANGUAGE].rect[1])
 
     def test_done_is_the_biggest_target(self):
-        ws = {w.id: w for w in hover.widgets_for(selecting=True,
-                                                 locales_available=2)}
+        ws = {w.id: w for w in build_widgets()}
         area = lambda w: w.rect[2] * w.rect[3]     # noqa: E731
         self.assertGreater(area(ws[hover.DONE]), area(ws[hover.CANCEL]))
 
 
 class TestWhichWidgetsExist(unittest.TestCase):
+    """RIG_FEEDBACK_2026-08-12.md items 4-7: Done/Cancel/Language are
+    removed outright. `widgets_for()` returns none, regardless of state or
+    locale count — the dwell mechanism these used to exercise is kept for a
+    future real widget set (see `build_widgets()` above and `TestDwell`
+    below), but nothing today should ever see a widget on the wire.
+    """
 
-    def test_only_language_exists_outside_selecting(self):
+    def test_no_widgets_exist_outside_selecting(self):
         ws = hover.widgets_for(selecting=False, locales_available=2)
-        self.assertEqual([w.id for w in ws], [hover.LANGUAGE])
+        self.assertEqual(ws, [])
 
-    def test_done_and_cancel_appear_in_selecting(self):
-        ws = {w.id for w in hover.widgets_for(selecting=True,
-                                              locales_available=2)}
-        self.assertEqual(ws, {hover.LANGUAGE, hover.CANCEL, hover.DONE})
+    def test_no_widgets_exist_in_selecting_either(self):
+        ws = hover.widgets_for(selecting=True, locales_available=2)
+        self.assertEqual(ws, [])
 
-    def test_language_is_disabled_with_only_one_locale(self):
-        # `zh.json` does not exist yet. The button is still drawn — doc
-        # section 4.3 carries `enabled` for exactly this — so the mechanism
-        # is visible and lights up on its own when the file lands.
-        ws = {w.id: w for w in hover.widgets_for(selecting=True,
-                                                 locales_available=1)}
-        self.assertFalse(ws[hover.LANGUAGE].enabled)
-        self.assertTrue(ws[hover.DONE].enabled)
+    def test_locale_count_does_not_resurrect_language(self):
+        ws = hover.widgets_for(selecting=True, locales_available=1)
+        self.assertEqual(ws, [])
 
 
 class DwellCase(unittest.TestCase):
 
     def setUp(self):
-        self.widgets = hover.widgets_for(selecting=True, locales_available=2)
+        self.widgets = build_widgets()
         self.done = [w for w in self.widgets if w.id == hover.DONE][0]
         self.cancel = [w for w in self.widgets if w.id == hover.CANCEL][0]
         self.d = hover.DwellTracker()
@@ -251,7 +272,7 @@ class TestDwell(DwellCase):
         self.assertEqual(fired, [])
 
     def test_a_disabled_widget_never_accumulates(self):
-        widgets = hover.widgets_for(selecting=True, locales_available=1)
+        widgets = build_widgets(locales_available=1)
         lang = [w for w in widgets if w.id == hover.LANGUAGE][0]
         cx = lang.rect[0] + lang.rect[2] / 2
         cy = lang.rect[1] + lang.rect[3] / 2

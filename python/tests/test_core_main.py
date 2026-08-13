@@ -282,10 +282,10 @@ class TestStateBroadcast(CoreCase):
         self.assertEqual(msg["mode"], "serving")
         self.assertEqual(msg["locale"], "en")
         self.assertEqual(len(msg["bins"]), 8)
-        # Not empty any more (M5 build item 4). Doc section 17.1 makes the
-        # language button a standing offer rather than something that only
-        # exists mid-order, so it is the one widget present in IDLE.
-        self.assertEqual([w["id"] for w in msg["widgets"]], ["language"])
+        # RIG_FEEDBACK_2026-08-12.md items 4-7: Done/Cancel/Language were
+        # removed outright 2026-08-13 (placeholders, developer's own call).
+        # `widgets_for()` always returns none now.
+        self.assertEqual(msg["widgets"], [])
         self.assertEqual(msg["overlay"], {"kind": "none"})
         self.assertIn("style", msg["fluid"])
         self.assertIn("amount", msg["total"])
@@ -2451,35 +2451,34 @@ class TestHoverAndDwellOverTheWire(CoreCase):
             time.sleep(0.02)
         self.assertIs(self.core.fsm.state, coremain.fsm.State.IDLE)
 
-    def test_done_and_cancel_appear_once_a_session_starts(self):
+    def test_no_widgets_appear_once_a_session_starts(self):
+        # RIG_FEEDBACK_2026-08-12.md items 4-7, 2026-08-13: Done/Cancel/
+        # Language are removed outright — `widgets_for()` always returns
+        # none, so `state.widgets` must stay empty even in SELECTING, not
+        # just in IDLE (`test_shape_matches_doc_4_3` already covers IDLE).
         c, msgs, lock = self.of_client()
         tx = self.cursor_sender()
         x, y = self.bin_centre(0)
         end = time.time() + DEADLINE
-        got = None
-        while time.time() < end and got is None:
+        while (time.time() < end
+               and self.core.fsm.state is not coremain.fsm.State.SELECTING):
             self.send_pointer(tx, x, y)
             time.sleep(0.02)
-            got = self.wait_for_state(
-                msgs, lock,
-                lambda m: {w["id"] for w in m["widgets"]} ==
-                {"language", "cancel", "done"},
-                timeout=0.1)
-        self.assertIsNotNone(got, "Done/Cancel never appeared in SELECTING")
-        done = [w for w in got["widgets"] if w["id"] == "done"][0]
-        # Doc section 4.3's widget shape, and doc section 9.4's "core sends
-        # dwell as a 0..1 fraction".
-        self.assertEqual(done["kind"], "button")
-        self.assertEqual(len(done["rect"]), 4)
-        self.assertEqual(done["label"], "Done")     # resolved, not a key (I2)
-        self.assertGreaterEqual(done["dwell"], 0.0)
-        self.assertLessEqual(done["dwell"], 1.0)
-        self.assertIs(done["enabled"], True)
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.SELECTING)
+        self.wait_for_n(msgs, lock, 5)
+        with lock:
+            recent = list(msgs[-5:])
+        for m in recent:
+            self.assertEqual(m["widgets"], [])
 
-    def test_a_dwell_on_done_fills_the_ring_and_fires(self):
-        # Doc section 21's M5 acceptance test, end to end. A short dwell so
-        # the test is not 1.2s of sleeping per run.
-        self.core.dwell.dwell_ms = 300.0
+    def test_dwelling_where_done_used_to_be_does_nothing(self):
+        # The dwell mechanism (`DwellTracker`, `_fire_widget`'s dispatch
+        # table) is kept intact and unused for a future real widget set —
+        # this guards against it silently reactivating: with no widgets
+        # ever produced, holding a hand over the old Done rect for well
+        # past the (shortened) dwell time must fire nothing and touch
+        # nothing.
+        self.core.dwell.dwell_ms = 200.0
         c, msgs, lock = self.of_client()
         evts = []
 
@@ -2487,26 +2486,13 @@ class TestHoverAndDwellOverTheWire(CoreCase):
             if m.get("t") == "evt":
                 evts.append(m)
 
-        # A second `of` link would supersede the first (wire.py closes the
-        # stale one), so the event listener rides the same connection the
-        # state messages arrive on.
         c.stop()
         self._wire_clients.remove(c)
-        msgs2, lock2 = [], threading.Lock()
-
-        def both(m):
-            if m.get("t") == "state":
-                with lock2:
-                    msgs2.append(m)
-            elif m.get("t") == "evt":
-                evts.append(m)
-
-        c2 = self.wire_client("of", on_message=both)
+        c2 = self.wire_client("of", on_message=on_msg)
         self.assertTrue(c2.wait_connected(DEADLINE))
 
         tx = self.cursor_sender()
         bx, by = self.bin_centre(0)
-        # Start the session, then move onto Done and hold.
         end = time.time() + DEADLINE
         while (time.time() < end
                and self.core.fsm.state is not coremain.fsm.State.SELECTING):
@@ -2516,59 +2502,23 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         rects = coremain.hover.layout()
         dx = rects["done"][0] + rects["done"][2] / 2
         dy = rects["done"][1] + rects["done"][3] / 2
-
-        seen_partial = False
-        end = time.time() + DEADLINE
+        end = time.time() + 1.0
         while time.time() < end:
             self.send_pointer(tx, dx, dy)
             time.sleep(0.02)
-            with lock2:
-                recent = list(msgs2[-20:])
-            for m in recent:
-                for w in m["widgets"]:
-                    if w["id"] == "done" and 0.0 < w["dwell"] < 1.0:
-                        seen_partial = True
-            if any(e.get("id") == "dwell_fire" for e in evts):
-                break
-        self.assertTrue(seen_partial,
-                        "the ring never showed a partial fill on the wire")
-        self.assertTrue(any(e.get("id") == "dwell_fire" for e in evts),
-                        "the dwell never fired")
+        self.assertFalse(any(e.get("id") == "dwell_fire" for e in evts),
+                         "dwelling the old Done rect fired something")
 
-    def test_a_dwell_on_cancel_clears_the_cart(self):
-        self.core.dwell.dwell_ms = 200.0
-        with self.core.state_lock:
-            self.core.cart.mock_pick(0, 120.0)
-        self.assertTrue(self.core.cart.is_active())
-
-        tx = self.cursor_sender()
-        bx, by = self.bin_centre(0)
-        end = time.time() + DEADLINE
-        while (time.time() < end
-               and self.core.fsm.state is not coremain.fsm.State.SELECTING):
-            self.send_pointer(tx, bx, by)
-            time.sleep(0.02)
-
-        rects = coremain.hover.layout()
-        cx = rects["cancel"][0] + rects["cancel"][2] / 2
-        cy = rects["cancel"][1] + rects["cancel"][3] / 2
-        end = time.time() + DEADLINE
-        while time.time() < end and self.core.cart.is_active():
-            self.send_pointer(tx, cx, cy)
-            time.sleep(0.02)
-        self.assertFalse(self.core.cart.is_active(),
-                         "dwelling Cancel did not clear the order")
-
-    def test_the_language_button_is_disabled_with_one_locale(self):
-        # `data/locales/zh.json` does not exist. The button still ships —
-        # doc section 4.3's `enabled` is what says it is not available —
-        # so the mechanism is visible and lights up when the file lands.
+    def test_no_language_widget_on_the_wire(self):
+        # Language is gone with the other two (RIG_FEEDBACK items 4-7) —
+        # `test_hover.py`'s `test_locale_count_does_not_resurrect_language`
+        # covers `widgets_for()` itself across locale counts; this is the
+        # over-the-wire half, that a real Core never puts one on `state`.
         c, msgs, lock = self.of_client()
         self.wait_for_n(msgs, lock, 1)
         with lock:
             widgets = msgs[0]["widgets"]
-        lang = [w for w in widgets if w["id"] == "language"][0]
-        self.assertIs(lang["enabled"], False)
+        self.assertEqual(widgets, [])
 
     def test_hover_outranks_picked_on_a_bin_already_taken_from(self):
         # A bin the diner has already taken from must still respond to

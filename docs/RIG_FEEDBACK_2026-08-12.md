@@ -148,6 +148,27 @@ ready for whatever real widget set replaces them and for item 3's bin
 dwell (which uses the same `DwellTracker`, just fed a bin instead of a
 widget). Not yet built.
 
+**DONE, 2026-08-13.** `core/hover.py`'s `widgets_for()` now always
+returns `[]`, regardless of `selecting`/`locales_available` (both kept as
+unused parameters). `Widget`, `layout()`, `DwellTracker` and
+`core/main.py`'s `_fire_widget` dispatch table are all untouched — the
+mechanism is intact, just fed nothing today. `test_hover.py`'s layout/
+dwell tests were re-pointed at a local `build_widgets()` helper (built
+from `layout()` directly) instead of `widgets_for()`, so the mechanism
+stays exercised even though production's own path is now permanently
+empty; `TestWhichWidgetsExist` now asserts the empty list instead of the
+old three-widget shape. `test_core_main.py`'s `TestHoverAndDwellOverThe
+Wire` lost its three widget-specific wire tests (Done/Cancel dwell firing,
+Language's disabled state) — replaced with tests confirming `state.widgets`
+stays empty through SELECTING and that dwelling the old Done rect fires
+nothing, so the dispatch table's dormancy is itself covered. 864 tests
+pass (`python -m unittest discover -s python/tests`). oF is untouched —
+`UiLayer::drawWidgets` already just iterates `state.widgets`, so an
+always-empty list already means no button is drawn; nothing there needed
+changing. **Not run on the rig** — reasoned from code and the test suite
+only, same honest gap every other M5 item in this file starts from before
+a rig pass.
+
 ## 8. Pointer is jittery, needs smoothing — DONE, commit 9854a5e, not yet rig-confirmed
 
 Fixed in `tracker/tracking.py`: `HandTracker._smoothed()`, a per-track EMA
@@ -718,6 +739,6 @@ HOTPOT-READY.
 worked next. Resolved, no action needed: 1, 2 (workaround), 8, 9, 11
 (pointer lag/snap on fast moves — rig-confirmed 2026-08-13). Built, not
 yet rig/browser-confirmed: 10 (devToggle/devPanel folded into the
-Developer tab, one control per thing — 2026-08-13). Decided, ready to
-build: 3 (bin dwell + food-item window), 4-7 (remove the three widgets,
-keep the dwell machinery).
+Developer tab, one control per thing — 2026-08-13); **4-7 (the three
+widgets removed outright, dwell mechanism kept — 2026-08-13).** Decided,
+ready to build: 3 (bin dwell + food-item window).
