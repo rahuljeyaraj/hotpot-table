@@ -232,7 +232,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from hotpot.common import config, cursorbus, framebus, geometry, health, log, wire
+from hotpot.common import (config, cursorbus, framebus, geometry, health,
+                           log, skeletonbus, wire)
 from hotpot.tracker import backend_mediapipe, backend_stub, tracking
 from hotpot.tracker.backend import Backend, Detection
 
@@ -631,6 +632,7 @@ class TrackerProcess:
                  backend: Optional[Backend] = None,
                  backend_factory: Optional[Callable[[], Backend]] = None,
                  sender: Optional[cursorbus.Sender] = None,
+                 skeleton_sender: Optional[skeletonbus.Sender] = None,
                  send_stat: Optional[Callable[[Dict[str, Any]], Any]] = None,
                  input_width: int = DEFAULT_INPUT_WIDTH,
                  roi_margin_px: float = DEFAULT_ROI_MARGIN_PX,
@@ -640,6 +642,10 @@ class TrackerProcess:
                  ) -> None:
         self.source = source or FrameSource()
         self.sender = sender or cursorbus.Sender()
+        # RIG_FEEDBACK item 11 diagnostic — see skeletonbus.py's module
+        # docstring. A separate sender/target from `self.sender` on
+        # purpose: oF only, never core, and a distinct wire shape.
+        self.skeleton_sender = skeleton_sender or skeletonbus.Sender()
         self.send_stat = send_stat or (lambda msg: None)
         self.input_width = input_width
         self.roi_margin_px = roi_margin_px
@@ -945,6 +951,14 @@ class TrackerProcess:
         hands = self.tracker.update(staged, now)
         self._log_pointer_transition(hands, staged, prev_pointer, now)
         self.sender.send(hands, ts=time.time())
+        # RIG_FEEDBACK item 11 diagnostic (skeletonbus.py's module
+        # docstring): the raw skeleton, mapped to stage space, sent to oF
+        # ALONGSIDE the real cursor — never derived from `hands`/`staged`,
+        # so nothing about item 8's smoothing or `tracking.py`'s matching
+        # touches it.
+        self.skeleton_sender.send(
+            self._skeleton_to_stage(detections, scale, origin, h),
+            ts=time.time())
         self._last_emit = now
         self.emitted += 1
         self._count_probe_frame(now)
@@ -1213,6 +1227,46 @@ class TrackerProcess:
                                  handedness=det.handedness))
         return out
 
+    # -- projected-table debug: raw skeleton, stage space (RIG_FEEDBACK
+    # item 11) --------------------------------------------------------------
+
+    def _skeleton_to_stage(self, detections: Sequence[Detection],
+                           scale: float, origin,
+                           h: Sequence[Sequence[float]]
+                           ) -> List[skeletonbus.SkeletonHand]:
+        """Every detected hand's FULL raw landmark set, mapped through the
+        same camera->stage homography `_to_stage` uses for the single
+        tracked point — and nothing else `_to_stage` does. No
+        `CURSOR_SHADOW_CLEARANCE_MM` offset (that is a cursor-visibility
+        choice about where to draw a dot, not a fact about where MediaPipe
+        saw the hand) and no `tracking.HandTracker` involvement of any
+        kind — this method never reads or writes `self.tracker`.
+
+        A hand with no `landmarks` (the stub backend, or `max(hands) <=
+        CURSOR_LANDMARK` per `backend_mediapipe.py`) is skipped, same as
+        `_maybe_send_landmarks`. A landmark that maps to infinity through a
+        badly conditioned homography is dropped individually rather than
+        dropping the whole hand — one bad point among 21 should not blank
+        the rest of a real, visible hand.
+        """
+        origin_x, origin_y = origin
+        out: List[skeletonbus.SkeletonHand] = []
+        for det in detections:
+            if not det.landmarks:
+                continue
+            points: List[Any] = []
+            for lm_x, lm_y in det.landmarks:
+                try:
+                    sx, sy = geometry.apply(
+                        h, (lm_x * scale + origin_x, lm_y * scale + origin_y))
+                except geometry.GeometryError:
+                    continue
+                points.append((sx, sy))
+            if points:
+                out.append(skeletonbus.SkeletonHand(
+                    handedness=det.handedness, conf=det.conf, points=points))
+        return out
+
     # -- staff view debug: every raw MediaPipe point (RIG_FEEDBACK item 10) -
 
     def _maybe_send_landmarks(self, detections: Sequence[Detection],
@@ -1419,6 +1473,12 @@ def main() -> None:
             ("127.0.0.1", int(config.get(cfg, "cursor.core_port",
                                          cursorbus.CORE_PORT))),
         ]),
+        # RIG_FEEDBACK item 11 diagnostic (skeletonbus.py's module
+        # docstring) — oF only, no `cursor.skeleton_of_port` in doc §8.6
+        # since this transport isn't in the doc at all.
+        skeleton_sender=skeletonbus.Sender(
+            ("127.0.0.1", int(config.get(cfg, "skeleton.of_port",
+                                         skeletonbus.OF_PORT)))),
         input_width=int(config.get(cfg, "tracker.input_width",
                                    DEFAULT_INPUT_WIDTH)),
         roi_margin_px=float(config.get(cfg, "tracker.roi_margin_px",

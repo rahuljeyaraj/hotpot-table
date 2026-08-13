@@ -2,6 +2,7 @@
 
 #include "ofMain.h"
 #include "CursorLink.h"
+#include "SkeletonLink.h"
 #include "StateLink.h"
 #include "Stage.h"
 #include "UiLayer.h"
@@ -38,6 +39,11 @@ private:
 
 	StateLink _link;
 	CursorLink _cursor;
+	// RIG_FEEDBACK item 11 diagnostic (SkeletonLink.h's own docstring) —
+	// the raw, unsmoothed MediaPipe skeleton, drawn on the projected table
+	// alongside the real cursor for a side-by-side comparison. Not part
+	// of the documented wire protocol.
+	SkeletonLink _skeleton;
 	Stage _stage;
 	UiLayer _ui;
 

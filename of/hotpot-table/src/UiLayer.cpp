@@ -150,6 +150,36 @@ namespace {
 	const ofColor kDwellTrackColor(150, 150, 150);
 	const ofColor kDwellFillColor(200, 120, 0);
 
+	// --- RIG_FEEDBACK item 11 diagnostic: the raw skeleton ----------------
+	// Deliberately NOT reusing kCursorColor — this must read as a different
+	// thing from the real cursor at a glance, since the whole point is
+	// telling the two apart on the same table. Same lime/gold pairing the
+	// staff view's Developer tab already uses for this
+	// (index.html's drawLandmarks: "rgba(64,200,120,0.8)" lines,
+	// "#4ee08a" joints, "#ffd93c" the tracked landmark) so a person who has
+	// looked at that view recognises this one.
+	const ofColor kSkeletonLineColor(64, 200, 120, 200);
+	const ofColor kSkeletonJointColor(78, 224, 138);
+	const ofColor kSkeletonTrackedColor(255, 217, 60);
+	const float kSkeletonJointRadius = 4.0f;
+	const float kSkeletonTrackedRadius = 7.0f;
+	const float kSkeletonLineWidth = 2.0f;
+	// backend_mediapipe.py's own CURSOR_LANDMARK (index 8) — the tracked
+	// point `_to_stage` builds the real cursor from — drawn larger, same
+	// as the Developer tab's own CURSOR_LANDMARK highlight.
+	const int kSkeletonCursorLandmark = 8;
+	// Standard 21-point hand topology, byte-for-byte the same pairs as
+	// index.html's HAND_CONNECTIONS — kept identical on purpose so the two
+	// views draw the same skeleton shape.
+	const int kSkeletonConnections[][2] = {
+		{0, 1}, {1, 2}, {2, 3}, {3, 4},
+		{0, 5}, {5, 6}, {6, 7}, {7, 8},
+		{5, 9}, {9, 10}, {10, 11}, {11, 12},
+		{9, 13}, {13, 14}, {14, 15}, {15, 16},
+		{13, 17}, {17, 18}, {18, 19}, {19, 20},
+		{0, 17},
+	};
+
 	// --- M5: the projected buttons ----------------------------------------
 	// A button is drawn the same way a plate is — a filled rect ring with
 	// the label inside it — so the two read as one system rather than as a
@@ -854,6 +884,34 @@ void UiLayer::drawCursorAboveLightPass(const StateLink::State & state,
 		return;
 	}
 	drawCursor(*pointer, dwellFraction(state));
+}
+
+void UiLayer::drawSkeleton(const std::vector<SkeletonLink::Hand> & hands) const {
+	// RIG_FEEDBACK item 11 diagnostic — see this method's own header
+	// comment. Deliberately the simplest possible draw: no tween, no
+	// hysteresis, no role, nothing hidden past a hold time — whatever
+	// SkeletonLink last accepted is drawn exactly as it arrived, so what
+	// is on the table this frame is the raw signal for this frame and
+	// nothing else.
+	for(const SkeletonLink::Hand & h : hands){
+		ofSetColor(kSkeletonLineColor);
+		ofSetLineWidth(kSkeletonLineWidth);
+		for(const auto & pair : kSkeletonConnections){
+			size_t a = (size_t)pair[0], b = (size_t)pair[1];
+			if(a >= h.points.size() || b >= h.points.size()){
+				continue;
+			}
+			ofDrawLine(h.points[a].x, h.points[a].y,
+				h.points[b].x, h.points[b].y);
+		}
+		for(size_t i = 0; i < h.points.size(); i++){
+			bool isTracked = ((int)i == kSkeletonCursorLandmark);
+			ofSetColor(isTracked ? kSkeletonTrackedColor : kSkeletonJointColor);
+			ofDrawCircle(h.points[i].x, h.points[i].y,
+				isTracked ? kSkeletonTrackedRadius : kSkeletonJointRadius);
+		}
+	}
+	ofSetColor(255);
 }
 
 void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,

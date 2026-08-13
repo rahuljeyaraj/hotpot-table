@@ -10,6 +10,9 @@
 		<ClCompile Include="src\CursorLink.cpp">
 			<Filter>src</Filter>
 		</ClCompile>
+		<ClCompile Include="src\SkeletonLink.cpp">
+			<Filter>src</Filter>
+		</ClCompile>
 		<ClCompile Include="src\StateLink.cpp">
 			<Filter>src</Filter>
 		</ClCompile>
@@ -237,6 +240,9 @@
 			<Filter>src</Filter>
 		</ClInclude>
 		<ClInclude Include="src\CursorLink.h">
+			<Filter>src</Filter>
+		</ClInclude>
+		<ClInclude Include="src\SkeletonLink.h">
 			<Filter>src</Filter>
 		</ClInclude>
 		<ClInclude Include="src\StateLink.h">

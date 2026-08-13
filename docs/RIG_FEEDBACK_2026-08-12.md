@@ -491,6 +491,65 @@ how directly they follow from what is now known:**
   case the character of the symptom has changed even if it has not gone
   away, which would itself be a data point.
 
+**2026-08-13, later still: a new diagnostic tool, not a new theory.** The
+developer asked to see the raw MediaPipe skeleton (the same 21-point view
+that renders smoothly on the Developer tab, item 9/10) drawn directly on
+the PROJECTED table, alongside the real cursor, to watch the two side by
+side rather than reason from logs alone. Built as a second, separate UDP
+path — `python/hotpot/common/skeletonbus.py` (tracker -> oF only, never
+core), fed from the SAME per-tick detections `_to_stage` already maps for
+the cursor but taken BEFORE `tracking.HandTracker.update()` touches them:
+no matching, no item 8 EMA smoothing, no role assignment, no hysteresis.
+oF's `SkeletonLink.h/.cpp` mirrors `CursorLink`'s drain-to-latest
+discipline; `UiLayer::drawSkeleton()` draws it plainly (lime/gold dots and
+bones, same colours as the Developer tab's own view) inside the ordinary
+content pass, so it goes through the keystone warp and — deliberately —
+is erased by the light pass over a bin cutout exactly like the pre-item-1
+cursor was. Not part of the documented cursor wire protocol (doc §4.6):
+a separate wire shape on a separate port (8772), since this carries an
+unbounded number of hands with up to 21 points each, not one point per
+role. Rig-run this session (`run.py --stop`, a clean relink, `run.py`
+again) — all six processes reached HOTPOT-READY, `SkeletonLink` logged
+"listening for raw skeletons on UDP 8772," no errors in the merged log.
+**Physically observed the same session, immediately after: the raw
+skeleton is smooth on the projected table. The real cursor is not.**
+Developer's own words: "the sceleton movement is sooo smooth, then why
+our pointer is not moving like that." This is the comparison the tool was
+built for, and it answers the question the fresh-session leads above were
+posed to split:
+
+- The raw skeleton and the real cursor travel to the SAME oF process,
+  drawn in the SAME render loop, over near-identical UDP transports
+  (`skeletonbus`/`SkeletonLink` mirror `cursorbus`/`CursorLink`'s
+  drain-to-latest discipline line for line). The skeleton being smooth
+  rules out oF's render loop and the UDP transport itself as the cause —
+  if either were at fault, the skeleton would stick too.
+- The skeleton is mapped through the exact same `H_cam_to_stage` the
+  cursor is. Ruling that in would have shown up as the skeleton lagging
+  or jumping too. It doesn't, so the homography is not the cause either.
+- The skeleton is MediaPipe's raw output with nothing done to it — no
+  `tracking.HandTracker.update()`, no matching, no item 8 EMA, no role
+  assignment. It's smooth, so MediaPipe's own detection is not the cause.
+
+**What's left, and it's the one thing the skeleton never touches:
+`tracking.py`'s matching/role-assignment logic itself** — the track-id
+churn and ghost-track competition this item's own rig log already caught
+once (12+ pointer-id swaps in ~20s, roughly `PROMOTE_DELAY_S`-spaced,
+some direct id-to-id jumps via `_appear`'s handedness-flicker takeover
+rule). The raw-position fix (`raw_x`/`raw_y`, matching against the real
+position instead of the smoothed one) is real and kept, but the
+developer's last rig test before this tool was built already showed it
+alone did not stop the symptom. This observation does not identify which
+part of `tracking.py` is still wrong — only that the search is now
+narrowed to that module (or something downstream of `tracker.update()`
+but still inside this process, e.g. how `cursorbus.Sender` is fed the
+`hands` list `update()` returns) rather than anything upstream of it.
+Next step: get a fresh `pointer track` transition log (this item's own
+existing instrumentation, `_log_pointer_transition`) from a run alongside
+this skeleton view, so an id churn/role swap can be matched, tick for
+tick, against a moment the skeleton stayed on one smooth path and the
+cursor visibly stuck.
+
 ---
 
 **Order isn't prescribed** — pick whichever item the developer wants

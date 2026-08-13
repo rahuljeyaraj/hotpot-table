@@ -229,6 +229,7 @@
 		<ClCompile Include="src\main.cpp" />
 		<ClCompile Include="src\ofApp.cpp" />
 		<ClCompile Include="src\CursorLink.cpp" />
+		<ClCompile Include="src\SkeletonLink.cpp" />
 		<ClCompile Include="src\StateLink.cpp" />
 		<ClCompile Include="src\Stage.cpp" />
 		<ClCompile Include="src\UiLayer.cpp" />
@@ -271,6 +272,7 @@
 		<ClInclude Include="src\TableGeometry.h" />
 		<ClInclude Include="src\Spring.h" />
 		<ClInclude Include="src\CursorLink.h" />
+		<ClInclude Include="src\SkeletonLink.h" />
 		<ClInclude Include="src\StateLink.h" />
 		<ClInclude Include="src\Stage.h" />
 		<ClInclude Include="src\UiLayer.h" />

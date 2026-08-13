@@ -17,6 +17,11 @@ namespace {
 	// (see kWhiteFloor's comment) and this is the one port oF listens on.
 	const int kCursorPort = 8770;
 
+	// skeletonbus.OF_PORT (RIG_FEEDBACK item 11 diagnostic — not in doc
+	// §4.1, this transport isn't in the doc at all). Same hardcoded-
+	// default reasoning as kCursorPort.
+	const int kSkeletonPort = 8772;
+
 	// doc §4.5/§12: telemetry cadence. Not the 60Hz state rate — `stat` is
 	// a developer/staff-view number, once a second is plenty.
 	const float kStatInterval = 1.0f;
@@ -63,6 +68,8 @@ void ofApp::setup(){
 	// The cursor link needs no thread and takes none — see CursorLink's
 	// class comment on why it differs from StateLink here.
 	_cursor.setup(kCursorPort);
+	// RIG_FEEDBACK item 11 diagnostic — see SkeletonLink's class comment.
+	_skeleton.setup(kSkeletonPort);
 }
 
 //--------------------------------------------------------------
@@ -73,6 +80,9 @@ void ofApp::update(){
 	// (doc §4) — CursorLink::update() is the only place that rule lives on
 	// this side.
 	_cursor.update();
+	// RIG_FEEDBACK item 11 diagnostic — same drain-to-latest discipline,
+	// see SkeletonLink::update()'s own comment.
+	_skeleton.update();
 	bool hasState = _link.hasState();
 	if(hasState){
 		StateLink::State state = _link.getState();
@@ -105,6 +115,13 @@ void ofApp::draw(){
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
 		ofGetFrameRate(), _devOverlayVisible,
 		_cursor.hands(), _cursor.pointer());
+	// RIG_FEEDBACK item 11 diagnostic: drawn inside the content pass, same
+	// as the ordinary (non-serving-mode) cursor above it, so it goes
+	// through the keystone warp and lines up with the real table — and so
+	// it is erased by the light pass over a bin cutout exactly like the
+	// pre-item-1 cursor was, which is itself part of what this view is
+	// for showing. See UiLayer::drawSkeleton's own comment.
+	_ui.drawSkeleton(_skeleton.hands());
 	_stage.endContent();
 
 	// 2026-08-12: the cursor is allowed to survive on top of a bin cutout
@@ -148,6 +165,7 @@ void ofApp::exit(){
 	// its own window with a link thread still trying to reconnect.
 	_link.shutdown();
 	_cursor.close();
+	_skeleton.close();
 }
 
 //--------------------------------------------------------------

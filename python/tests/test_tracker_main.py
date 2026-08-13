@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np  # noqa: E402
 
-from hotpot.common import cursorbus  # noqa: E402
+from hotpot.common import cursorbus, skeletonbus  # noqa: E402
 from hotpot.tracker import backend_stub, main as tracker  # noqa: E402
 from hotpot.tracker.backend import HAND_LEFT, HAND_RIGHT, Detection  # noqa: E402
 
@@ -79,6 +79,27 @@ class FakeSender:
         self.closed = True
 
 
+class FakeSkeletonSender:
+    """RIG_FEEDBACK item 11 diagnostic (skeletonbus.py) — the same fake-
+    over-a-real-socket discipline `FakeSender` gives the cursor pipeline,
+    for `TrackerProcess.skeleton_sender`. Every test that constructs a
+    `TrackerProcess` passes one explicitly so a test run never opens a
+    real UDP socket."""
+
+    def __init__(self):
+        self.frames = []
+        self.closed = False
+
+    def send(self, hands, ts):
+        f = skeletonbus.SkeletonFrame(seq=len(self.frames), ts=ts,
+                                      hands=list(hands))
+        self.frames.append(f)
+        return f
+
+    def close(self):
+        self.closed = True
+
+
 class ProcCase(unittest.TestCase):
 
     def make(self, script=None, frames=6, calibrated=True, **kwargs):
@@ -89,6 +110,7 @@ class ProcCase(unittest.TestCase):
             source=source,
             backend=backend_stub.Stub(script=script),
             sender=sender,
+            skeleton_sender=FakeSkeletonSender(),
             send_stat=self.stats.append,
             emit_hz=0.0,        # no rate cap: the tests step the clock
             **kwargs)
@@ -173,8 +195,8 @@ class TestStageConversion(ProcCase):
         sender = FakeSender()
         backend = RecordingStub(script=[[]])
         proc = tracker.TrackerProcess(
-            source=source, sender=sender, emit_hz=0.0, input_width=480,
-            backend=backend)
+            source=source, sender=sender, skeleton_sender=FakeSkeletonSender(),
+            emit_hz=0.0, input_width=480, backend=backend)
         proc.tick(now=0.0)
         self.assertEqual(backend.seen, [(tracker.ACQUISITION_WINDOW_PX,
                                          tracker.ACQUISITION_WINDOW_PX)])
@@ -297,7 +319,8 @@ class TestTheDetectionCrop(unittest.TestCase):
         backend = RecordingStub(script=[[]])
         proc = tracker.TrackerProcess(
             source=FakeSource([(frame(width=1920, height=1080), 1)]),
-            backend=backend, sender=FakeSender(), emit_hz=0.0,
+            backend=backend, sender=FakeSender(),
+            skeleton_sender=FakeSkeletonSender(), emit_hz=0.0,
             input_width=0, roi_margin_px=200)
         proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
                             "stage": list(STAGE)})
@@ -317,7 +340,8 @@ class TestTheDetectionCrop(unittest.TestCase):
         proc = tracker.TrackerProcess(
             source=FakeSource([(frame(width=1920, height=1080), 1)]),
             backend=backend_stub.Stub(script=[[det(600, 400)]]),
-            sender=sender, emit_hz=0.0, input_width=0, roi_margin_px=200)
+            sender=sender, skeleton_sender=FakeSkeletonSender(), emit_hz=0.0,
+            input_width=0, roi_margin_px=200)
         proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
                             "stage": list(STAGE)})
         proc.tick(now=0.0)
@@ -336,13 +360,71 @@ class TestTheDetectionCrop(unittest.TestCase):
             backend=backend_stub.Stub(script=[[
                 Detection(x=600.0, y=400.0, conf=0.9, handedness=HAND_RIGHT,
                           landmarks=[(600.0, 400.0)])]]),
-            sender=FakeSender(), send_stat=stats.append, emit_hz=0.0,
+            sender=FakeSender(), skeleton_sender=FakeSkeletonSender(),
+            send_stat=stats.append, emit_hz=0.0,
             input_width=0, roi_margin_px=200)
         proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
                             "stage": list(STAGE)})
         proc.tick(now=0.0)
         marks = [m for m in stats if m.get("t") == "landmarks"]
         self.assertEqual(marks[-1]["hands"][0]["points"], [[1000.0, 600.0]])
+
+    def test_the_raw_skeleton_is_mapped_to_stage_space_with_no_clearance_offset(self):
+        # RIG_FEEDBACK item 11 diagnostic (skeletonbus.py). Same capture-
+        # pixel point as `test_the_landmark_debug_view_carries_the_origin_
+        # too` above (1000,600) — H_OFFSET puts that at the stage centre
+        # (960,540), same as the cursor pipeline's own
+        # `test_the_crop_origin_is_added_back_before_the_homography` — but
+        # UNLIKE that test, no CURSOR_SHADOW_CLEARANCE_MM is subtracted:
+        # this is the raw signal, not the cursor-visibility offset applied
+        # on top of it.
+        skel_sender = FakeSkeletonSender()
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), 1)]),
+            backend=backend_stub.Stub(script=[[
+                Detection(x=600.0, y=400.0, conf=0.9, handedness=HAND_RIGHT,
+                          landmarks=[(600.0, 400.0)])]]),
+            sender=FakeSender(), skeleton_sender=skel_sender, emit_hz=0.0,
+            input_width=0, roi_margin_px=200)
+        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.0)
+        hand = skel_sender.frames[-1].hands[0]
+        self.assertEqual(hand.handedness, HAND_RIGHT)
+        self.assertEqual(len(hand.points), 1)
+        self.assertAlmostEqual(hand.points[0][0], 960.0)
+        self.assertAlmostEqual(hand.points[0][1], 540.0)
+
+    def test_the_raw_skeleton_carries_every_landmark_not_just_the_tracked_point(self):
+        skel_sender = FakeSkeletonSender()
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), 1)]),
+            backend=backend_stub.Stub(script=[[
+                Detection(x=600.0, y=400.0, conf=0.9, handedness=HAND_LEFT,
+                          landmarks=[(600.0, 400.0), (610.0, 410.0),
+                                    (620.0, 420.0)])]]),
+            sender=FakeSender(), skeleton_sender=skel_sender, emit_hz=0.0,
+            input_width=0, roi_margin_px=200)
+        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.0)
+        self.assertEqual(len(skel_sender.frames[-1].hands[0].points), 3)
+
+    def test_a_hand_with_no_landmarks_sends_no_skeleton(self):
+        # `det()` (this file's own helper) never sets `landmarks` — the
+        # stub-detection shape most of this file's other tests already
+        # use — and that must not crash `_skeleton_to_stage` or produce a
+        # phantom empty-points hand.
+        skel_sender = FakeSkeletonSender()
+        proc = tracker.TrackerProcess(
+            source=FakeSource([(frame(width=1920, height=1080), 1)]),
+            backend=backend_stub.Stub(script=[[det(600, 400)]]),
+            sender=FakeSender(), skeleton_sender=skel_sender, emit_hz=0.0,
+            input_width=0, roi_margin_px=200)
+        proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
+                            "stage": list(STAGE)})
+        proc.tick(now=0.0)
+        self.assertEqual(skel_sender.frames[-1].hands, [])
 
     def test_a_new_homography_moves_the_scan(self):
         # A re-calibrated table must not keep scanning the old table's
@@ -354,6 +436,7 @@ class TestTheDetectionCrop(unittest.TestCase):
             source=FakeSource([(frame(width=1920, height=1080), i)
                                for i in range(2)]),
             backend=RecordingStub(script=[[]]), sender=FakeSender(),
+            skeleton_sender=FakeSkeletonSender(),
             emit_hz=0.0, input_width=0, roi_margin_px=200)
         proc.apply_welcome({"homography_cam_to_stage": H_OFFSET,
                             "stage": list(STAGE)})
@@ -373,6 +456,7 @@ class TestTheDetectionCrop(unittest.TestCase):
         proc = tracker.TrackerProcess(
             source=FakeSource([(frame(width=1920, height=1080), 1)]),
             backend=RecordingStub(script=[[]]), sender=FakeSender(),
+            skeleton_sender=FakeSkeletonSender(),
             emit_hz=0.0, input_width=0, roi_margin_px=200)
         self.assertEqual(
             proc._acquisition_bounds(None, proc._stage, (1080, 1920, 3)),
@@ -454,7 +538,8 @@ class TestAcquisitionScheduling(unittest.TestCase):
                              for i in range(ticks)])
         proc = tracker.TrackerProcess(
             source=source, backend=backend_stub.Stub(script=script),
-            sender=FakeSender(), emit_hz=0.0, max_hands=max_hands)
+            sender=FakeSender(), skeleton_sender=FakeSkeletonSender(),
+            emit_hz=0.0, max_hands=max_hands)
         return proc, source
 
     def test_a_cold_table_scans_every_tile_before_repeating(self):
@@ -518,7 +603,7 @@ class TestAcquisitionScheduling(unittest.TestCase):
                              for i in range(20)])
         proc = tracker.TrackerProcess(
             source=source, backend=backend, sender=FakeSender(),
-            emit_hz=0.0, max_hands=2)
+            skeleton_sender=FakeSkeletonSender(), emit_hz=0.0, max_hands=2)
         for i in range(20):
             proc.tick(now=i * 0.033)
         self.assertEqual(backend.calls, 20)
@@ -595,7 +680,7 @@ class TestAcquisitionScheduling(unittest.TestCase):
         backend = ArrayRecordingStub(script=[[det(15, 20)], [det(15, 20)]])
         proc = tracker.TrackerProcess(
             source=source, backend=backend, sender=FakeSender(),
-            emit_hz=0.0, max_hands=1)
+            skeleton_sender=FakeSkeletonSender(), emit_hz=0.0, max_hands=1)
 
         proc.tick(now=0.0)       # cold -> scan tile -> denoised
         cx, cy = proc._acq_centers[0]
@@ -626,7 +711,8 @@ class TestAcquisitionScheduling(unittest.TestCase):
 
         proc = tracker.TrackerProcess(
             source=FakeSource([]), backend_factory=factory,
-            sender=FakeSender(), emit_hz=0.0, max_hands=2)
+            sender=FakeSender(), skeleton_sender=FakeSkeletonSender(),
+            emit_hz=0.0, max_hands=2)
         # 1 scanner + 2 tracking slots = 3 instances, all distinct.
         self.assertEqual(len(made), 3)
         self.assertEqual(len({id(b) for b in made}), 3)

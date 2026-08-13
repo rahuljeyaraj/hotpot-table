@@ -2,6 +2,7 @@
 
 #include "ofMain.h"
 #include "CursorLink.h"
+#include "SkeletonLink.h"
 #include "Spring.h"
 #include "StateLink.h"
 
@@ -56,6 +57,17 @@ public:
 	// is safe. A no-op when `pointer` is null, same as `draw()`'s own.
 	void drawCursorAboveLightPass(const StateLink::State & state,
 		const CursorLink::Hand * pointer) const;
+
+	// RIG_FEEDBACK item 11 diagnostic (SkeletonLink.h's own docstring): the
+	// raw, unsmoothed MediaPipe skeleton, drawn plainly — no tween, no
+	// dwell ring, no role — for a side-by-side comparison against the real
+	// (processed) cursor on the same table. Called from ofApp right after
+	// draw(), inside the same content pass, so it is subject to the same
+	// keystone warp and the same light-pass erasure over a bin cutout that
+	// the ordinary cursor was subject to before item 1's fix — seeing that
+	// happen here IS part of the diagnostic. Must be called with Stage's
+	// content FBO already begin()'d, same requirement as draw().
+	void drawSkeleton(const std::vector<SkeletonLink::Hand> & hands) const;
 
 private:
 	struct BinTween {
