@@ -49,6 +49,38 @@ much more clearly to the second, and the two ids swap. An id swap swaps the
 roles with it — the bowl hand silently becomes the pointer — which is the
 one failure this whole module exists to prevent.
 
+**RIG_FEEDBACK item 8 (2026-08-13): the tracked position is smoothed here,
+by a per-track time-based EMA, not fixed-per-frame.** No filter existed
+between a raw per-frame detection and what went on the wire; the cursor
+visibly jittered. `alpha = 1 - exp(-dt / tau)` rather than a constant
+blend factor because this process's own frame interval is not constant
+(`tracker/main.py`'s docstring: measured camera rate has ranged 4-30Hz on
+this rig depending on what the acquisition scheduler is doing that tick) —
+a fixed alpha tuned for one interval would over-smooth a slow frame and
+under-smooth a fast one, where the time-based form gives the same real-
+world responsiveness either way.
+
+This is *step 1½*, folded into `_match`'s existing per-track update rather
+than a second per-hand history kept in `tracker/main.py`: a track's
+identity and its `last_seen` timestamp already exist here, which is
+exactly the state an EMA needs (the previous value and the elapsed time
+since it), and nowhere else in the pipeline has that continuity yet — a
+detection hasn't been matched to an id until this module runs. A brand
+new track (step 2, `_appear`) is never smoothed: there is no history to
+blend against, and blending a first sighting toward its own value would
+be a no-op with extra steps, not a safety measure.
+
+**Sits downstream of `tracker/main.py`'s `_to_stage`, which is where
+RIG_FEEDBACK item 1's shadow-clearance offset is applied — deliberately,
+and it does not matter which side of the offset the filter is on.** The
+offset is a fixed per-axis constant (`CURSOR_SHADOW_CLEARANCE_MM`
+converted to px), and an EMA is linear: `EMA(x + c) = EMA(x) + c` for any
+constant `c`. Filtering before adding a constant offset or after produces
+the identical output, so "before" was not built as a second filtering
+pass ahead of `_to_stage` — that would have needed a second per-hand
+history to exist before track identity does, purely to end up with a
+number this module's own state already produces for free.
+
 Everything here is pure: no clock of its own (`now` is passed in), no
 sockets, no camera. That is what lets doc section 21's M5 acceptance
 scenarios — "left hand over bin 3, nothing happens; try hard to make it
@@ -57,6 +89,7 @@ select" — be tests rather than only rig work.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
 
@@ -72,6 +105,20 @@ MATCH_GATE_PX = 150.0
 # guard different things — see the module docstring.
 TRACK_GRACE_S = 0.5      # unseen this long -> the id retires, role released
 PROMOTE_DELAY_S = 0.5    # ...and only this much later may an ambient inherit
+
+# RIG_FEEDBACK item 8's EMA time constant, in seconds — see the module
+# docstring. Not measured against the rig's actual jitter yet, only
+# reasoned: 100ms is under `TRACK_GRACE_S`/`PROMOTE_DELAY_S` (so it cannot
+# make either guard's timing feel different) and comfortably above a
+# single frame interval at every rate this rig has measured (4-30Hz per
+# `tracker/main.py`'s docstring, i.e. 33-250ms between frames), so it
+# blends more than one sample without lagging a deliberate hand movement
+# by something a diner would notice. **A starting point, tuned by
+# watching it on the rig, not guessed once and left** — the developer
+# feedback's own words for exactly this number. `0.0` disables smoothing
+# outright (used by a few tests below whose own job is matching/role
+# logic, not filtering).
+TRACK_SMOOTHING_TAU_S = 0.10
 
 
 @dataclass
@@ -99,6 +146,7 @@ class HandTracker:
     match_gate_px: float = MATCH_GATE_PX
     track_grace_s: float = TRACK_GRACE_S
     promote_delay_s: float = PROMOTE_DELAY_S
+    smoothing_tau_s: float = TRACK_SMOOTHING_TAU_S
 
     tracks: List[Track] = field(default_factory=list)
     _next_id: int = 1
@@ -145,7 +193,7 @@ class HandTracker:
                 continue
             det = detections[det_idx]
             claimed.add(det_idx)
-            track.x, track.y = det.x, det.y
+            track.x, track.y = self._smoothed(track, det, now)
             track.conf = det.conf
             track.last_seen = now
             track.seen_frames += 1
@@ -160,6 +208,27 @@ class HandTracker:
         for idx, det in enumerate(detections):
             if idx not in claimed:
                 self._appear(det, now)
+
+    def _smoothed(self, track: "Track", det: Detection, now: float):
+        """RIG_FEEDBACK item 8 — see the module docstring. `(x, y)` blended
+        `alpha` of the way from the track's current position toward this
+        frame's detection, `alpha` derived from the real time elapsed
+        since the track was last updated rather than assumed to be one
+        frame interval.
+
+        `dt <= 0` (a duplicate or out-of-order timestamp — should not
+        happen with a real monotonic clock, but costs nothing to guard)
+        snaps straight to the detection rather than dividing by a
+        non-positive number.
+        """
+        if self.smoothing_tau_s <= 0:
+            return det.x, det.y
+        dt = now - track.last_seen
+        if dt <= 0:
+            return det.x, det.y
+        alpha = 1.0 - math.exp(-dt / self.smoothing_tau_s)
+        return (track.x + alpha * (det.x - track.x),
+                track.y + alpha * (det.y - track.y))
 
     # -- step 2: a hand first appears --------------------------------------
 

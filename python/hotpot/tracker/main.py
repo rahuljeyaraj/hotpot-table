@@ -634,7 +634,9 @@ class TrackerProcess:
                  input_width: int = DEFAULT_INPUT_WIDTH,
                  roi_margin_px: float = DEFAULT_ROI_MARGIN_PX,
                  max_hands: int = 2,
-                 emit_hz: float = 60.0) -> None:
+                 emit_hz: float = 60.0,
+                 smoothing_tau_s: float = tracking.TRACK_SMOOTHING_TAU_S
+                 ) -> None:
         self.source = source or FrameSource()
         self.sender = sender or cursorbus.Sender()
         self.send_stat = send_stat or (lambda msg: None)
@@ -642,7 +644,10 @@ class TrackerProcess:
         self.roi_margin_px = roi_margin_px
         self.max_hands = max(1, int(max_hands))
         self.emit_hz = emit_hz
-        self.tracker = tracking.HandTracker()
+        # RIG_FEEDBACK item 8: `tracking.py`'s own module docstring has the
+        # full reasoning for why the filter lives inside `HandTracker`
+        # rather than out here.
+        self.tracker = tracking.HandTracker(smoothing_tau_s=smoothing_tau_s)
 
         # **2026-08-12, found live on the rig, not in a test:** a single
         # shared MediaPipe instance for both scanning and tracking pulsed
@@ -1345,6 +1350,11 @@ def main() -> None:
         # process handing state to another that has no other use for it.
         max_hands=int(config.get(cfg, "tracker.max_hands", 2) or 2),
         emit_hz=float(config.get(cfg, "tracker.emit_hz", 60)),
+        # RIG_FEEDBACK item 8. Config key, not a hardcoded constant, for
+        # the same reason `min_hand_detection_confidence` above is one —
+        # tunable from the rig against a real hand with no rebuild.
+        smoothing_tau_s=float(config.get(
+            cfg, "tracker.smoothing_tau_s", tracking.TRACK_SMOOTHING_TAU_S)),
     )
 
     client = wire.Client(host, port, "tracker",

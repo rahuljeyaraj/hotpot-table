@@ -119,19 +119,29 @@ today's three widgets' exact placement/styling; `core/hover.py`'s
 changing the roster later is contained there plus `_fire_widget`'s
 dispatch table.
 
-## 8. Pointer is jittery, needs smoothing
+## 8. Pointer is jittery, needs smoothing — DONE, not yet rig-confirmed
 
-No smoothing exists today between the raw per-frame stage cursor
-(`tracker/tracking.py`'s `Track.x/y`, updated straight from each
-detection) and what's sent out. Likely the most self-contained item on
-this list: add a filter (simple EMA is the usual first move, matching
-this repo's existing bias toward "one line of Python" over a heavier fix
-— see CLAUDE.md's load-cell median-of-N precedent) either in
-`tracking.py`'s `Track` update or `tracker/main.py`'s `_to_stage`/tick
-path. Needs a decision on where it sits relative to item 1's new offset
-(smooth before or after the offset — probably before, since the offset
-is a fixed geometric shift, not a source of noise) and on a starting
-time-constant, tuned by watching it on the rig, not guessed once and left.
+Fixed in `tracker/tracking.py`: `HandTracker._smoothed()`, a per-track EMA
+folded into the existing `_match` update (`Track.x/y`), time-based
+(`alpha = 1 - exp(-dt/tau)`) rather than a fixed per-frame blend, because
+`tracker/main.py`'s own measured camera rate ranges 4-30Hz on this rig — a
+constant alpha would over- or under-smooth depending on which rate a
+given tick happened to be running at. `tracker.smoothing_tau_s` in
+`config/system.default.json`, default 0.10s, a reasoned starting point
+(see the constant's own comment) — **not yet tuned by watching it on the
+rig**, per this item's own instruction; retune there, not by guessing
+again. A new track (a hand's first sighting) is never smoothed — no
+history exists yet to blend against.
+
+Placement decision, made and documented in `tracking.py`'s module
+docstring: the filter sits downstream of item 1's shadow-clearance
+offset (`tracker/main.py`'s `_to_stage`), not upstream of it. This
+doesn't matter in practice — the offset is a fixed per-axis constant, and
+EMA is linear, so filtering before or after an additive constant gives
+the identical output — and downstream is what let the filter reuse the
+per-track `last_seen` state `tracking.py` already keeps, rather than
+inventing a second per-hand history in `main.py` before track identity
+exists.
 
 ## 9. Live tab doesn't render the MediaPipe hand overlay
 

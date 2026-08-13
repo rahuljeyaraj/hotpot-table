@@ -16,6 +16,7 @@ these tests cannot tell you MediaPipe labelled the hand correctly — but
 every way the ROLE LOGIC could hand selection to the wrong hand is here.
 """
 
+import math
 import os
 import sys
 import unittest
@@ -60,7 +61,11 @@ class TestOneHand(unittest.TestCase):
         self.assertEqual(second[0].id, third[0].id)
 
     def test_the_position_follows_the_detection(self):
-        t = tracking.HandTracker()
+        # Smoothing disabled (RIG_FEEDBACK item 8, see TestSmoothing below
+        # for that behaviour): this test's job is confirming a matched
+        # track takes its position from the detection it was matched to,
+        # not from filtering — the two are separate concerns since M5.
+        t = tracking.HandTracker(smoothing_tau_s=0.0)
         t.update([det(500, 500)], now=0.0)
         hands = t.update([det(560, 480)], now=0.033)
         self.assertAlmostEqual(hands[0].x, 560.0)
@@ -103,8 +108,10 @@ class TestTheGate(unittest.TestCase):
         # THE matching test. Greedy in list order rather than in distance
         # order lets the first track claim the detection that belonged much
         # more clearly to the second — and an id swap is a ROLE swap, i.e.
-        # the bowl hand silently becoming the pointer.
-        t = tracking.HandTracker()
+        # the bowl hand silently becoming the pointer. Smoothing disabled
+        # (RIG_FEEDBACK item 8) so the asserted positions check MATCHING,
+        # not how far a filter let the position move this frame.
+        t = tracking.HandTracker(smoothing_tau_s=0.0)
         first = t.update([det(400, 500, HAND_RIGHT), det(600, 500, HAND_LEFT)],
                          now=0.0)
         pointer_id = [h.id for h in first if h.role == POINTER][0]
@@ -322,6 +329,77 @@ class TestReset(unittest.TestCase):
         t.reset()
         hands = t.update([det(900, 500, HAND_LEFT)], now=30.0)
         self.assertEqual(hands[0].role, POINTER)
+
+
+class TestSmoothing(unittest.TestCase):
+    """RIG_FEEDBACK item 8 — "pointer is jittery, needs smoothing." See
+    `tracking.py`'s module docstring for why the filter lives here (in
+    `HandTracker`, downstream of `tracker/main.py`'s shadow-clearance
+    offset, and why that placement is equivalent to filtering upstream of
+    it) rather than in `tracker/main.py` itself.
+    """
+
+    def test_a_new_track_is_not_smoothed(self):
+        # No history to blend against — a first sighting must appear at
+        # its own true position, not creep in from zero.
+        t = tracking.HandTracker()
+        hands = t.update([det(500, 500)], now=0.0)
+        self.assertAlmostEqual(hands[0].x, 500.0)
+        self.assertAlmostEqual(hands[0].y, 500.0)
+
+    def test_a_matched_update_blends_toward_the_detection(self):
+        # Not snapped (that would be item 8 unfixed) and not stuck (that
+        # would be a filter with the wrong sign) — strictly between the
+        # old and new position, and matching the EMA formula exactly.
+        t = tracking.HandTracker(smoothing_tau_s=0.1)
+        t.update([det(0, 0)], now=0.0)
+        hands = t.update([det(100, 0)], now=0.033)
+        alpha = 1.0 - math.exp(-0.033 / 0.1)
+        self.assertGreater(hands[0].x, 0.0)
+        self.assertLess(hands[0].x, 100.0)
+        self.assertAlmostEqual(hands[0].x, 100.0 * alpha, places=6)
+
+    def test_repeated_updates_converge_on_a_steady_target(self):
+        # 100px is inside the 150px match gate (doc section 11.3 step 1) —
+        # this has to stay the SAME track converging, not a gate-breaking
+        # jump that mints a fresh, unsmoothed one at the target.
+        t = tracking.HandTracker(smoothing_tau_s=0.1)
+        now = 0.0
+        hands = t.update([det(0, 0)], now=now)
+        for _ in range(60):          # ~2s at a 30Hz frame rate
+            now += 0.033
+            hands = t.update([det(100, 0)], now=now)
+        self.assertAlmostEqual(hands[0].x, 100.0, delta=0.5)
+
+    def test_a_bigger_time_gap_blends_more_than_a_smaller_one(self):
+        # THE reason this is time-based rather than a fixed per-frame
+        # blend (module docstring): this rig's own measured camera rate
+        # has ranged 4-30Hz, so a constant alpha would mean a different
+        # amount of real-world smoothing depending on what the frame rate
+        # happened to be that tick.
+        fast = tracking.HandTracker(smoothing_tau_s=0.1)
+        fast.update([det(0, 0)], now=0.0)
+        fast_hands = fast.update([det(100, 0)], now=0.01)
+
+        slow = tracking.HandTracker(smoothing_tau_s=0.1)
+        slow.update([det(0, 0)], now=0.0)
+        slow_hands = slow.update([det(100, 0)], now=0.2)
+
+        self.assertLess(fast_hands[0].x, slow_hands[0].x)
+
+    def test_zero_tau_disables_smoothing(self):
+        # Move within the 150px match gate (doc section 11.3 step 1) so
+        # this stays the same track matching a new detection, not a jump
+        # past the gate minting a second one.
+        t = tracking.HandTracker(smoothing_tau_s=0.0)
+        t.update([det(0, 0)], now=0.0)
+        hands = t.update([det(100, -50)], now=0.001)
+        self.assertAlmostEqual(hands[0].x, 100.0)
+        self.assertAlmostEqual(hands[0].y, -50.0)
+
+    def test_default_tau_matches_the_module_constant(self):
+        t = tracking.HandTracker()
+        self.assertEqual(t.smoothing_tau_s, tracking.TRACK_SMOOTHING_TAU_S)
 
 
 class TestWhatGoesOnTheWire(unittest.TestCase):

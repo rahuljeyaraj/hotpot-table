@@ -26,7 +26,8 @@
     "roi_margin_px": 200,
     "min_hand_detection_confidence": 0.5,
     "min_hand_presence_confidence": 0.5,
-    "min_tracking_confidence": 0.5
+    "min_tracking_confidence": 0.5,
+    "smoothing_tau_s": 0.10
   },
   "cursor": {
     "of_port": 8770,
