@@ -122,6 +122,50 @@ which is precisely the instruction set MediaPipe's x86 inference leans on. The
 
 ---
 
+---
+
+## `hotpot-ingredients` — Edge Impulse (doc §19.2, M7)
+
+**Not an `.eim` file.** Deployed as a **C++ library** instead of the
+`Linux (x86_64)` `.eim` doc §19.2 originally specified — see
+`tools/eim_cpp/CMakeLists.txt`'s top comment for the full reasoning
+(short version: this dev machine is Windows, `edge_impulse_linux`'s
+`ImageImpulseRunner` needs Linux, and the C++ library is the one export
+that compiles on both this machine and the ODYSSEY, doc §1.4, from the
+identical source). `classifier/backend_ei.py` (`EiCppBackend`) shells out
+to the compiled `tools/eim_cpp/build/classify[.exe]` binary rather than
+loading a `.eim` at runtime.
+
+| | |
+|---|---|
+| EI project | `hotpot-ingredients`, id `1087506`, owner `rahuljeyaraj` |
+| EI deploy version | 2 |
+| Deployment target | C++ library, EON Compiler, quantized (int8) |
+| Input | 160×160 RGB, squash resize |
+| Classes (8) | `button_mushrooms`, `chicken_eggs`, `instant_noodle_block`, `loose_straight_noodles`, `lotus_root_slices`, `small_round_rusk`, `soya_chunks`, `white_rusk` |
+| Validation accuracy | (unrecorded) — read it off the Studio training page and fill this in |
+| Confusion matrix | (unrecorded) |
+| Dataset session ranges | One capture session, 2026-08-13 — see `tools/export_edgeimpulse.py`'s own dry-run output for exact per-class counts. **Well short of doc §19.2's ≥150 images/class across ≥4 sessions; treat this deploy as a toolchain check, not a trained model.** |
+| Downloaded | 2026-08-13, `models/hotpot-table-cpp-mcu-v2-impulse-#1.zip` (gitignored, `models/*.zip`) |
+| Current | **yes** |
+
+**Known gap, not yet closed: `dried_small_shrimps` is not one of the 8
+classes.** The catalogue has 12 items; only 9 have any captures at all
+(`datasets/captures/`), and `dried_small_shrimps` had only 4 images at
+export time — thin enough that it did not make it into this training run.
+A bin actually holding dried shrimp will be classified as one of the
+other 8 (most likely `soya_chunks` or `button_mushrooms` — doc §22's own
+"known-hard set"), not as "unrecognised". Capture more shrimp images,
+re-export (`tools\upload_edgeimpulse.ps1`), retrain, and redeploy before
+trusting a shrimp bin's label. `dried_mango_strips`, `flat_round_cookies`
+and `yellow_rusk` (3 more catalogue items) have no captures at all yet and
+have the same gap.
+
+**Re-download:** Studio → `hotpot-ingredients` project → Deployment →
+`C++ library`, same EON/int8 settings as above, then unzip over
+`tools/eim_cpp/vendor/` and rebuild (that directory's own CMakeLists.txt
+has the MSVC/nmake steps this was last built with).
+
 ## Known next step
 
 Retrain after the `tongs` class deletion. `tray` (empty bin) is the weak class.

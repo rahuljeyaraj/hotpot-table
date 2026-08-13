@@ -184,6 +184,21 @@ POINTER_STALE_S = 0.35
 # over 5 s) plus the JPEG writes.
 CLASSIFIER_REPLY_TIMEOUT_S = 30.0
 
+# A SEPARATE, much shorter timeout for `classify` specifically (doc section
+# 19's M7 acceptance: "physically swap two trays -> both labels follow
+# within ~2s"). Reusing CLASSIFIER_REPLY_TIMEOUT_S's 30s here would let one
+# slow classifier pass blow that budget by 15x before core even notices —
+# this bounds a single bad/slow pass, not the steady state, which is why it
+# is still well above `1/live_hz` (0.5s at the doc section 8.6 default):
+# a pass that takes 3s should be logged and skipped, not treated the same
+# as a genuinely hung process.
+CLASSIFY_LIVE_TIMEOUT_S = 5.0
+
+# Doc section 8.6's `classifier.live_hz` — core's default rather than the
+# classifier's, same reasoning as TRACKER_EMIT_HZ above: doc section 4.2
+# makes core the one place a client's effective configuration lives.
+CLASSIFIER_LIVE_HZ = 2.0
+
 
 def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
     """M1's fixed hand-built bin map (binmap.py's docstring, doc section
@@ -250,6 +265,7 @@ class Core:
         emit_hz: float = TRACKER_EMIT_HZ,
         cursor_port: int = cursorbus.CORE_PORT,
         dwell_ms: float = hover.DEFAULT_DWELL_MS,
+        classify_hz: float = CLASSIFIER_LIVE_HZ,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -447,6 +463,18 @@ class Core:
         self._state_stop = threading.Event()
         self._state_thread: Optional[threading.Thread] = None
 
+        # Doc section 19's M7 build items 2-3: a full-table classify pass
+        # at boot, then again at `classify_hz` for as long as the table is
+        # in SETTING. Its own thread, never the 60Hz `_state_thread` above
+        # or a tablet's WebSocket thread — `_send_classifier_cmd`'s own
+        # docstring says its blocking wait "must never be called from the
+        # 60Hz state loop", and this is the same argument for why
+        # `_handle_capture` already runs on a caller's WebSocket thread
+        # rather than in here, just with no tablet request to ride.
+        self._classify_hz = classify_hz
+        self._classify_stop = threading.Event()
+        self._classify_thread: Optional[threading.Thread] = None
+
     # -- lifecycle -----------------------------------------------------
 
     def start(self) -> None:
@@ -468,11 +496,24 @@ class Core:
         self._state_thread = threading.Thread(
             target=self._state_loop, name="core-state", daemon=True)
         self._state_thread.start()
+        self._classify_thread = threading.Thread(
+            target=self._classify_loop, name="core-classify", daemon=True)
+        self._classify_thread.start()
 
     def stop(self) -> None:
         self._state_stop.set()
+        self._classify_stop.set()
         if self._state_thread is not None and self._state_thread.is_alive():
             self._state_thread.join(2.0)
+        if (self._classify_thread is not None
+                and self._classify_thread.is_alive()):
+            # A single classify pass can legitimately take a couple of
+            # seconds (8 bins, each a backend subprocess call up to
+            # CLASSIFY_LIVE_TIMEOUT_S) — 2.0s here, matching
+            # `_state_thread`'s own join budget, would routinely time out
+            # mid-pass and leave a `classify` command in flight with
+            # nothing left to receive its reply.
+            self._classify_thread.join(CLASSIFY_LIVE_TIMEOUT_S + 1.0)
         self._self_beat.stop()
         self.scale.stop()
         self.cursor.close()
@@ -826,8 +867,32 @@ class Core:
                 if refused is None:
                     self.fsm.enter_setting()
             else:
-                self.fsm.exit_setting()
+                # Doc section 9.3: exit is blocked with a confirm while any
+                # bin is unresolved — same shape as can_enter_setting()
+                # above (a reason string the tablet must show), except the
+                # operator can push through it once shown, which
+                # can_enter_setting()'s refusal never offers. `confirm`
+                # rides the same `set_mode` message rather than a second
+                # message type: the tablet's dialog resends the identical
+                # request with one field added, the same round trip
+                # `_handle_cancel_order`'s own comment describes for its
+                # confirm ("the tablet's job... by the time a frame arrives
+                # here the operator has already said yes").
+                unresolved = self._unresolved_bin_count()
+                if unresolved and not msg.get("confirm"):
+                    refused = (
+                        f"{unresolved} bin{'s' if unresolved != 1 else ''} "
+                        "unresolved — items taken from them will not be "
+                        "charged. Exit anyway?")
+                else:
+                    self.fsm.exit_setting()
         self._publish_mode(refused=refused)
+
+    def _unresolved_bin_count(self) -> int:
+        """Doc section 9.3. Caller holds `state_lock` (matches every other
+        `self.binmap`/`self.fsm` read in this file)."""
+        return sum(1 for i in range(binmap.NUM_BINS)
+                  if not self.binmap.resolved(i))
 
     def _handle_cancel_order(self) -> None:
         """Doc section 12.2's second action-bar button, and the first
@@ -1066,6 +1131,70 @@ class Core:
                 continue
             self.cart.seed_live_grams(i, g)
             self._scale_baselined[i] = True
+
+    # -- classifier live updates (doc section 19's M7, build items 2-3) -----
+
+    def _classify_loop(self) -> None:
+        """Runs for the whole life of the process, on its own thread.
+
+        One pass at boot regardless of mode (build item 2's "startup scan:
+        all 8 bins at once, slow is fine" — a table rebooted with trays
+        already sitting on it should not come up with all 8 bins
+        unresolved when the mock seed's placeholders are the only reason
+        it would). After that, a pass every `1/classify_hz` seconds, but
+        **only while the table is in SETTING** (build item 5: "No re-scan
+        after normal diner picks... re-scanning there is pure risk") —
+        `_classify_pass` itself is the same call either way, this loop
+        just decides when to make it.
+        """
+        self._classify_pass()
+        interval = 1.0 / self._classify_hz if self._classify_hz > 0 else 1.0
+        while not self._classify_stop.wait(interval):
+            if self._in_setting():
+                self._classify_pass()
+
+    def _classify_pass(self) -> None:
+        """One full-table `classify` command (doc section 4.7), covering
+        all 8 bins at once — see `_classify_loop`'s own docstring for when
+        this is called and why always `mode:"once"` rather than the doc's
+        literal `mode:"live"` wire example.
+
+        Best-effort, quietly: a table with no saved geometry yet (still
+        UNCALIBRATED) or a classifier that is not connected/times out
+        skips this pass exactly the way `_apply_scale_to_cart` skips an
+        unreadable bin — there is nothing to show for it, not a fault to
+        raise. `self.binmap`'s existing mock seed (`_seed_binmap`) is left
+        untouched until a pass actually succeeds, so a classifier that
+        never starts leaves the table exactly as billable as it always was
+        rather than downgrading it to unresolved for no reason.
+        """
+        with self.state_lock:
+            has_geo = self.geometry.has_homography and self.camera_grid.has_grid
+            if not has_geo:
+                return
+            rects = [list(r) + [i]
+                    for i, r in enumerate(self.camera_grid.rects())]
+            h = self.geometry.h
+            stage_size = list(self.geometry.stage_size)
+
+        reply = self._send_classifier_cmd(
+            "classify", CLASSIFY_LIVE_TIMEOUT_S,
+            rects=rects, mode="once", h=h, stage_size=stage_size)
+        if not reply or reply.get("ok") is False:
+            _log.debug("core: classify pass skipped: %s",
+                      (reply or {}).get("error") or "no reply")
+            return
+
+        bins = reply.get("bins") or []
+        with self.state_lock:
+            for entry in bins:
+                i = entry.get("i")
+                if not isinstance(i, int) or not (0 <= i < binmap.NUM_BINS):
+                    continue
+                self.binmap.set_bin(
+                    i, item_id=entry.get("label"),
+                    conf=float(entry.get("conf") or 0.0),
+                    source="classifier")
 
     # -- hover and dwell (doc section 9.4 — M5 build item 4) ---------------
 
@@ -1986,6 +2115,8 @@ def main() -> None:
                                    cursorbus.CORE_PORT)),
         dwell_ms=float(config.get(cfg, "core.dwell_ms",
                                   hover.DEFAULT_DWELL_MS)),
+        classify_hz=float(config.get(cfg, "classifier.live_hz",
+                                     CLASSIFIER_LIVE_HZ)),
     )
     # After both ports are bound (doc section 10.2: "say it after the
     # port is bound"), not before — run.py's tier 3 is waiting on this

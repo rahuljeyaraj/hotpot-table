@@ -53,6 +53,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from hotpot.classifier import backend_ei, backend_stub
 from hotpot.common import atomicio, config, framebus, geometry, health, log, wire
 
 _log = logging.getLogger("hotpot.classifier")
@@ -283,11 +284,18 @@ class Classifier:
                  source: Optional[RingSource] = None,
                  send: Optional[Callable[[Dict[str, Any]], Any]] = None,
                  captures_dir: Path = CAPTURES_DIR,
-                 settings_path: Path = CAMERA_SETTINGS_PATH) -> None:
+                 settings_path: Path = CAMERA_SETTINGS_PATH,
+                 backend: Optional[Any] = None) -> None:
         self.source = source or RingSource()
         self.send = send or (lambda msg: None)
         self.captures_dir = Path(captures_dir)
         self.settings_path = Path(settings_path)
+        # Doc section 19.4's backend split: `main()` picks the real one
+        # off `config.classifier.backend`; a test (or an M0-era boot with
+        # no model built yet) gets `StubBackend`'s deterministic cycle so
+        # `classify` always has something to answer with rather than the
+        # M7-not-built refusal this used to be unconditionally.
+        self.backend = backend or backend_stub.StubBackend()
 
         self._queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
         self._thread: Optional[threading.Thread] = None
@@ -343,11 +351,7 @@ class Classifier:
         if op == "capture":
             self._capture(msg)
         elif op == "classify":
-            # Doc section 19.4's backends and a trained model — M7. Said
-            # out loud rather than ignored: core waits on a reply.
-            raise ClassifierError(
-                "food classification is not built yet (M7) — the bin map is "
-                "still set by hand")
+            self._classify(msg)
         else:
             raise ClassifierError(f"unknown command {op!r}")
 
@@ -479,10 +483,100 @@ class Classifier:
         self.send({"t": "captured", "id": msg.get("id"), "files": files,
                    "cancelled": self._cancel.is_set()})
 
+    # -- classify (doc sections 4.7, 19.4 — M7 build items 1-3) -------------
+
+    def _classify(self, msg: Dict[str, Any]) -> None:
+        """Doc section 4.7's `classify` — one pass over every rect core
+        sends, answered with a label and confidence per bin.
+
+        Shares `_capture`'s table-crop discipline and for the same reason:
+        core owns the homography and the camera bin grid but never touches
+        a frame (a hard invariant), so it sends `h`/`stage_size` alongside
+        `rects` and this is the process that warps
+        (`geometry.warp_frame_to_stage`) before cropping — the model must
+        see the same canvas the operator dragged the bin grid against, not
+        raw sensor pixels.
+
+        `msg.get("mode")` is accepted but not branched on: core always
+        sends `"once"` today (`core/main.py`'s `_classify_pass` — a
+        deliberate simplification of the doc's literal `mode:"live"` wire
+        example, explained in that method's own docstring) and repeats it
+        on its own timer while in SETTING mode, so "live" classification is
+        a property of the *caller's* loop, not a persistent command this
+        process would otherwise have to run and separately cancel.
+
+        One backend call per rect, not one batched call — `ClassifierBackend.
+        classify()` (doc section 19.4) takes a single crop by design, and a
+        confident wrong label on bin 3 must never be able to come from
+        code that also looked at bin 4's pixels.
+        """
+        import cv2      # noqa: WPS433
+
+        rects = msg.get("rects") or []
+        if not rects:
+            raise ClassifierError("no rects to classify")
+        h = msg.get("h")
+        if (not isinstance(h, list) or len(h) != 3
+                or any(not isinstance(row, list) or len(row) != 3
+                       for row in h)):
+            raise ClassifierError(
+                "no homography to crop against — calibrate the table "
+                "corners before classifying")
+        stage_size = msg.get("stage_size")
+        if (not isinstance(stage_size, list) or len(stage_size) != 2
+                or not all(isinstance(v, (int, float)) for v in stage_size)):
+            raise ClassifierError("no stage size to warp the frame into")
+
+        started = time.monotonic()
+        raw_frame = self.source.frame()
+        frame = geometry.warp_frame_to_stage(raw_frame, h, stage_size)
+
+        bins: List[Dict[str, Any]] = []
+        for idx, rect in enumerate(rects):
+            if self._cancel.is_set():
+                break
+            bin_i = int(rect[4]) if len(rect) > 4 else idx
+            try:
+                patch = crop(frame, rect[:4])
+                label, conf = self.backend.classify(patch)
+            except backend_ei.ClassifierBackendError as e:
+                # One bin's backend failure (a missing binary, a timed-out
+                # subprocess) must not blank out the seven bins that
+                # worked — doc section 9.3 already treats "no item_id" as
+                # unresolved, which is exactly the right outcome for a bin
+                # this pass could not answer for, not a reason to fail the
+                # whole command.
+                _log.warning("classifier: bin %d classify failed: %s",
+                            bin_i, e)
+                label, conf = None, 0.0
+            bins.append({"i": bin_i, "label": label, "conf": conf})
+
+        ms = round((time.monotonic() - started) * 1000)
+        self.send({"t": "result", "id": msg.get("id"), "bins": bins, "ms": ms})
+
 
 # ---------------------------------------------------------------------------
 # Process entry point
 # ---------------------------------------------------------------------------
+
+def build_backend(cfg: Dict[str, Any]) -> Any:
+    """Doc section 19.4's selection line: "Selected by `config.classifier.
+    backend`." Three values today — `"stub"` (the committed default,
+    config/system.default.json), `"ei_cpp"` (this project's native-binary
+    substitute for doc section 19.4's `ImageImpulseRunner`, see backend_ei.
+    py's own module docstring for why), and anything else falls back to
+    `"stub"` with a loud warning rather than crashing the process a typo'd
+    config value would otherwise take down.
+    """
+    name = config.get(cfg, "classifier.backend", "stub")
+    if name == "stub":
+        return backend_stub.StubBackend()
+    if name == "ei_cpp":
+        return backend_ei.EiCppBackend()
+    _log.warning("classifier: unknown classifier.backend %r — using the "
+                "stub instead of refusing to start", name)
+    return backend_stub.StubBackend()
+
 
 def main() -> None:
     log.setup("classifier")
@@ -490,7 +584,7 @@ def main() -> None:
     host = config.get(cfg, "core.host", CORE_HOST)
     port = config.get(cfg, "core.control_port", CORE_PORT)
 
-    worker = Classifier()
+    worker = Classifier(backend=build_backend(cfg))
     client = wire.Client(host, port, "classifier",
                          on_message=worker.on_message)
     worker.send = client.send

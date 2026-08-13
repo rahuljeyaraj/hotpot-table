@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np  # noqa: E402
 
-from hotpot.classifier import main as cmain  # noqa: E402
+from hotpot.classifier import backend_ei, main as cmain  # noqa: E402
 
 
 class FakeFrame:
@@ -136,13 +136,14 @@ class WorkerCase(unittest.TestCase):
         self.sent = []
         self.got = threading.Event()
 
-    def build(self, image=None, reader=None, stale=False):
+    def build(self, image=None, reader=None, stale=False, backend=None):
         self.reader = reader or FakeReader(
             image if image is not None else dot_field(), stale=stale)
         source = cmain.RingSource(open_reader=lambda: self.reader)
         worker = cmain.Classifier(source=source, send=self._send,
                                   captures_dir=self.captures,
-                                  settings_path=self.settings)
+                                  settings_path=self.settings,
+                                  backend=backend)
         worker.start()
         self.addCleanup(worker.stop)
         return worker
@@ -173,15 +174,6 @@ class WorkerCase(unittest.TestCase):
 
 
 class TestUnknownCommands(WorkerCase):
-
-    def test_classify_says_it_is_not_built_yet(self):
-        # Core waits on a reply. Silence here is a wizard hung on a
-        # screen with nothing to look at.
-        w = self.build()
-        w.on_message({"t": "cmd", "id": 17, "op": "classify", "rects": []})
-        reply = self.wait()
-        self.assertFalse(reply["ok"])
-        self.assertIn("M7", reply["error"])
 
     def test_an_unknown_op_is_answered_not_dropped(self):
         w = self.build()
@@ -461,6 +453,132 @@ class TestCapture(WorkerCase):
         jpg = next((self.captures / "egg").glob("*.jpg"))
         img = cv2.imread(str(jpg))
         self.assertLess(int(img.mean()), 50)
+
+
+class FakeBackend:
+    """Doc section 19.4's `ClassifierBackend` Protocol, driven entirely by
+    the test: `answers` is popped one-per-call (or reused forever, if it
+    has exactly one entry — the common case). Every crop it is handed is
+    recorded, by mean pixel value rather than the array itself, so
+    `test_classify_warps_before_cropping` can assert on which quadrant a
+    call actually saw without a numpy equality dance.
+    """
+
+    def __init__(self, answers=(("mushroom", 0.9),)):
+        self.answers = list(answers)
+        self.calls = []
+        self.raise_on_call = {}   # call index -> exception to raise
+
+    def classify(self, bgr_crop):
+        idx = len(self.calls)
+        self.calls.append(float(bgr_crop.mean()))
+        if idx in self.raise_on_call:
+            raise self.raise_on_call[idx]
+        if len(self.answers) == 1:
+            return self.answers[0]
+        return self.answers[idx % len(self.answers)]
+
+
+class TestClassify(WorkerCase):
+
+    def cmd(self, **over):
+        base = {"t": "cmd", "id": 17, "op": "classify",
+                "rects": [[10, 10, 100, 100, 0], [330, 250, 100, 100, 6]],
+                "mode": "once", "h": IDENTITY_H, "stage_size": [640, 480]}
+        base.update(over)
+        return base
+
+    def test_one_pass_answers_one_bin_per_rect(self):
+        backend = FakeBackend([("mushroom", 0.91), ("egg", 0.40)])
+        w = self.build(image=food_field(), backend=backend)
+        w.on_message(self.cmd())
+        reply = self.wait()
+        self.assertEqual(reply["t"], "result")
+        self.assertEqual(len(reply["bins"]), 2)
+        self.assertEqual(reply["bins"][0], {"i": 0, "label": "mushroom",
+                                            "conf": 0.91})
+        self.assertEqual(reply["bins"][1], {"i": 6, "label": "egg",
+                                            "conf": 0.40})
+        self.assertIn("ms", reply)
+
+    def test_the_crop_classified_is_the_crop_asked_for(self):
+        # Same discipline as capture's own "the crop saved is the crop
+        # asked for" — the backend must see the bin's own patch, never the
+        # whole frame. food_field()'s quadrants are 10/90/170/250; a rect
+        # at (330, 250, 100, 100) sits entirely in the bottom-right one.
+        backend = FakeBackend()
+        w = self.build(image=food_field(), backend=backend)
+        w.on_message(self.cmd(rects=[[330, 250, 100, 100, 6]]))
+        self.wait()
+        self.assertEqual(len(backend.calls), 1)
+        self.assertAlmostEqual(backend.calls[0], 250.0, delta=1.0)
+
+    def test_classify_warps_before_cropping(self):
+        # Mirrors TestCapture's own version of this test exactly, for the
+        # same reason: the model must see the same warped canvas the
+        # operator dragged the bin grid against, not raw sensor pixels.
+        shift_h = [[1.0, 0.0, 200.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        backend = FakeBackend()
+        w = self.build(image=food_field(), backend=backend)
+        w.on_message(self.cmd(rects=[[350, 50, 100, 100, 0]],
+                              h=shift_h, stage_size=[900, 480]))
+        self.wait()
+        # Warped (350, 50) <- raw (150, 50), food_field()'s top-left
+        # quadrant (value 10) — not raw (350, 50), the top-right one (90).
+        self.assertAlmostEqual(backend.calls[0], 10.0, delta=1.0)
+
+    def test_one_bin_failing_does_not_blank_the_others(self):
+        # Doc section 9.3 already treats "no item_id" as unresolved — the
+        # right outcome for a bin this pass could not answer for, not a
+        # reason to fail bins that worked.
+        backend = FakeBackend([("mushroom", 0.9)])
+        backend.raise_on_call = {
+            0: backend_ei.ClassifierBackendError("binary is missing")}
+        w = self.build(image=food_field(), backend=backend)
+        w.on_message(self.cmd())
+        reply = self.wait()
+        self.assertEqual(reply["bins"][0], {"i": 0, "label": None,
+                                            "conf": 0.0})
+        self.assertEqual(reply["bins"][1],
+                         {"i": 6, "label": "mushroom", "conf": 0.9})
+
+    def test_a_classify_with_no_rects_is_refused(self):
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(rects=[]))
+        self.assertFalse(self.wait()["ok"])
+
+    def test_a_classify_with_no_homography_is_refused(self):
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(h=None))
+        reply = self.wait()
+        self.assertFalse(reply["ok"])
+        self.assertIn("homography", reply["error"])
+
+    def test_a_classify_with_no_stage_size_is_refused(self):
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(stage_size=None))
+        reply = self.wait()
+        self.assertFalse(reply["ok"])
+        self.assertIn("stage size", reply["error"])
+
+    def test_stop_cancels_a_pass_in_flight(self):
+        # A backend slow enough to still be on bin 0 when `stop` arrives —
+        # the loop must not go on to classify bin 6.
+        class SlowBackend(FakeBackend):
+            def classify(self, bgr_crop):
+                time.sleep(0.3)
+                return super().classify(bgr_crop)
+        backend = SlowBackend()
+        w = self.build(image=food_field(), backend=backend)
+        w.on_message(self.cmd())
+        time.sleep(0.1)
+        w.on_message({"t": "cmd", "op": "stop"})
+        reply = self.wait(timeout=5)
+        # bin 0's classify() call was already in flight when `stop`
+        # arrived (this method has no mid-call cancellation point, same as
+        # `_capture`'s own per-shot loop) so it completes; the loop's
+        # cancel check runs before bin 6 and stops it going ahead.
+        self.assertEqual(len(reply["bins"]), 1)
 
 
 class TestRingRecovery(WorkerCase):

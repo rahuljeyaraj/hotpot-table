@@ -106,6 +106,23 @@ models/**/*.task
 # The log itself stays tracked.
 !models/README.md
 
+# The raw Edge Impulse Studio download (Deployment page, "C++ library") —
+# same category as the *.eim/*.tflite rows above, re-downloadable and not
+# meant to be diffed, just distributed as a zip instead of a single file.
+models/*.zip
+
+# ---------------------------------------------------------------------------
+# tools/eim_cpp/ — the native classify CLI (classifier/backend_ei.py)
+# ---------------------------------------------------------------------------
+# vendor/ is the unzipped Edge Impulse C++ library export — same
+# re-downloadable/not-diffed category as models/*.eim above, just shipped
+# as a source tree instead of one file. tools/eim_cpp/CMakeLists.txt,
+# main.cpp and this README-equivalent stay tracked; only the SDK drop
+# itself does not.
+tools/eim_cpp/vendor/
+# Standard out-of-source CMake build directory.
+tools/eim_cpp/build/
+
 # ---------------------------------------------------------------------------
 # OS junk
 # ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@ from hotpot.common import health  # noqa: E402
 from hotpot.common import log as hlog  # noqa: E402
 from hotpot.common import wire  # noqa: E402
 from hotpot.core import bin_grid  # noqa: E402
+from hotpot.core import fsm  # noqa: E402
 from hotpot.core import geometry_store  # noqa: E402
 from hotpot.core import main as coremain  # noqa: E402
 
@@ -2245,6 +2246,181 @@ class TestCaptureTab(CoreCase):
                 continue
             self.assertEqual(label, item.class_name)
             self.assertNotEqual(label, item.display_name("en"))
+
+
+class TestClassifyLive(CoreCase):
+    """Doc section 19's M7 build items 2-3: `_classify_pass`/
+    `_classify_loop`, and §9.3's unresolved-bin exit gate.
+
+    A real classify pass runs unconditionally right after `core.start()`
+    (build item 2's startup scan) — every `CoreCase` already has a
+    calibrated fixture, so that pass is in flight from `setUp()` onward in
+    every test in this class, same as every other CoreCase test in the
+    file. It races nothing here: no fake classifier is connected until a
+    test wires one up, so early attempts just see "not connected" and
+    return, same tolerance `_apply_scale_to_cart` has for an unplugged
+    scale.
+    """
+
+    def fake_classifier(self, answer_for):
+        """`answer_for(rects) -> bins list` builds the `result` reply's
+        `bins` field for whatever rects this pass sent — a callable, not a
+        fixed list, so a test can make the answer depend on which bin
+        indices were actually asked about.
+        """
+        self.classify_cmds = []
+
+        def on_message(msg):
+            if msg.get("t") == "cmd" and msg.get("op") == "classify":
+                self.classify_cmds.append(msg)
+                client.send({"t": "result", "id": msg.get("id"),
+                            "bins": answer_for(msg.get("rects") or []),
+                            "ms": 5})
+        client = self.wire_client("classifier", on_message=on_message)
+        self.assertTrue(client.wait_connected(DEADLINE))
+        return client
+
+    def test_a_pass_writes_the_reply_into_the_bin_map(self):
+        self.fake_classifier(lambda rects: [
+            {"i": r[4], "label": "soya_chunks", "conf": 0.88} for r in rects])
+        self.core._classify_pass()
+        b = self.core.binmap.bins[0]
+        self.assertEqual(b.item_id, "soya_chunks")
+        self.assertEqual(b.conf, 0.88)
+        self.assertEqual(b.source, "classifier")
+
+    def test_a_pass_sends_cores_own_grid_same_as_capture(self):
+        # Doc §4.7: rects are camera space, from core's own camera grid —
+        # never a tablet's, and h/stage_size ride along because core never
+        # touches a frame (classifier/main.py's `_classify` docstring).
+        self.fake_classifier(lambda rects: [])
+        self.core._classify_pass()
+        self.assertEqual(len(self.classify_cmds), 1)
+        cmd = self.classify_cmds[0]
+        self.assertEqual(cmd["mode"], "once")
+        own_rects = self.core.camera_grid.rects()
+        for i, r in enumerate(cmd["rects"]):
+            self.assertEqual(r[4], i)
+            self.assertEqual(r[:4], list(own_rects[i]))
+        self.assertEqual(cmd["h"], self.core.geometry.h)
+        self.assertEqual(cmd["stage_size"], list(self.core.geometry.stage_size))
+
+    def test_a_low_confidence_answer_leaves_the_bin_unresolved(self):
+        # binmap.resolved()'s own rule (doc §9.3) — nothing classify-
+        # specific needs to enforce this separately, and this test is what
+        # checks that claim rather than assuming it.
+        self.fake_classifier(lambda rects: [
+            {"i": r[4], "label": "soya_chunks", "conf": 0.10} for r in rects])
+        self.core._classify_pass()
+        self.assertFalse(self.core.binmap.resolved(0))
+
+    def test_no_classifier_connected_leaves_the_mock_seed_untouched(self):
+        # `_seed_binmap` starts every bin resolved at conf 1.0 (source
+        # "mock"). A classifier that never answers must not downgrade a
+        # table that was billable a moment ago to unresolved for no
+        # reason — same tolerance _apply_scale_to_cart has for a bin the
+        # scale cannot currently weigh.
+        before = self.core.binmap.bins[0]
+        self.core._classify_pass()
+        after = self.core.binmap.bins[0]
+        self.assertEqual((before.item_id, before.conf, before.source),
+                         (after.item_id, after.conf, after.source))
+
+    def test_a_classifier_error_reply_is_tolerated(self):
+        def on_message(msg):
+            if msg.get("t") == "cmd" and msg.get("op") == "classify":
+                client.send({"t": "result", "id": msg.get("id"),
+                            "ok": False, "error": "no camera frames yet"})
+        client = self.wire_client("classifier", on_message=on_message)
+        self.assertTrue(client.wait_connected(DEADLINE))
+        before = self.core.binmap.bins[0].item_id
+        self.core._classify_pass()   # must not raise
+        self.assertEqual(self.core.binmap.bins[0].item_id, before)
+
+    def test_the_live_loop_only_runs_while_setting(self):
+        # White-box: replaces `_classify_pass` with a counter and shrinks
+        # the loop's own interval, rather than waiting out real 0.5s ticks
+        # — deterministic and fast either way, and it is `_classify_loop`'s
+        # own gating being tested, not the real network path (the other
+        # tests in this class already cover that).
+        calls = []
+        self.core._classify_pass = lambda: calls.append(
+            self.core.fsm.state)
+        self.core._classify_hz = 200.0   # 5ms ticks
+        t = threading.Thread(target=self.core._classify_loop, daemon=True)
+        t.start()
+        self.addCleanup(self.core._classify_stop.set)
+        try:
+            time.sleep(0.05)   # several ticks while still SERVING
+            with_serving = len(calls)
+            self.assertGreaterEqual(with_serving, 1)   # the boot scan
+
+            self.ws_ = self.ws()
+            for _ in range(6):
+                self.recv_json(self.ws_)
+            self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+            self.assertTrue(wait_for(
+                lambda: self.core.fsm.state is fsm.State.SETTING))
+            time.sleep(0.05)
+            self.assertGreater(len(calls), with_serving)
+            self.assertTrue(all(s is fsm.State.SETTING
+                                for s in calls[with_serving:]))
+        finally:
+            self.core._classify_stop.set()
+            t.join(2.0)
+
+    def test_exit_is_blocked_while_a_bin_is_unresolved(self):
+        self.core.binmap.set_bin(0, item_id=None, conf=0.0, source="mock")
+        self.ws_ = self.ws()
+        for _ in range(6):
+            self.recv_json(self.ws_)
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.drain_until("mode")
+
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "serving"}))
+        reply = self.drain_until("mode")
+        self.assertEqual(reply["mode"], "setting")   # exit did NOT happen
+        self.assertIsNotNone(reply["refused"])
+        self.assertIn("unresolved", reply["refused"])
+        self.assertIs(self.core.fsm.state, fsm.State.SETTING)
+
+    def test_confirm_pushes_the_exit_through_anyway(self):
+        self.core.binmap.set_bin(0, item_id=None, conf=0.0, source="mock")
+        self.ws_ = self.ws()
+        for _ in range(6):
+            self.recv_json(self.ws_)
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.drain_until("mode")
+
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "serving",
+                                  "confirm": True}))
+        reply = self.drain_until("mode")
+        self.assertEqual(reply["mode"], "serving")
+        self.assertIsNone(reply["refused"])
+        self.assertIs(self.core.fsm.state, fsm.State.IDLE)
+
+    def test_exit_is_not_blocked_when_every_bin_is_resolved(self):
+        # The mock seed already resolves every bin at boot — the ordinary
+        # case, and the one every other CoreCase test in this file already
+        # relies on implicitly. Named explicitly here as the control for
+        # the two tests above.
+        self.ws_ = self.ws()
+        for _ in range(6):
+            self.recv_json(self.ws_)
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.drain_until("mode")
+        self.ws_.send(json.dumps({"t": "set_mode", "mode": "serving"}))
+        reply = self.drain_until("mode")
+        self.assertEqual(reply["mode"], "serving")
+        self.assertIsNone(reply["refused"])
+
+    def drain_until(self, want, timeout=DEADLINE):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            msg = self.recv_json(self.ws_, timeout=deadline - time.monotonic())
+            if msg.get("t") == want:
+                return msg
+        self.fail(f"no {want} message arrived")
 
 
 class TestUncalibratedBoot(CoreCase):
