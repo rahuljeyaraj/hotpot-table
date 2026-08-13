@@ -13,6 +13,15 @@ namespace {
 	// (§14.6 build item, not part of getting hand-driven fluid on screen).
 	const int kFluidSimScale = 4;
 
+	// Kill switch, same pattern as kDrawSkeleton below — 2026-08-13, first
+	// look on the rig: the fluid moved and tracked the hand correctly but
+	// rendered as a colourless grey ring rather than the warm mala tone
+	// FluidLayer.h's own density readback confirms it actually holds. Cause
+	// not yet found (see FluidLayer.h's class comment for what's been
+	// ruled out already). Off until it is. `_fluid.setup()` still runs so
+	// the object is in a valid state; only update()/draw() are skipped.
+	const bool kFluidEnabled = false;
+
 	// doc §4.1 default; core/main.py's CONTROL_PORT.
 	const std::string kCoreHost = "127.0.0.1";
 	const int kCorePort = 8765;
@@ -99,7 +108,9 @@ void ofApp::update(){
 	// callbacks are all empty, deliberately — v3 §7.1's deleted OSC hand
 	// mock is not coming back as a fluid-testing shortcut). Every hand
 	// injects, pointer and ambient alike (doc §14.4).
-	_fluid.update(dt, _cursor.hands());
+	if(kFluidEnabled){
+		_fluid.update(dt, _cursor.hands());
+	}
 	// RIG_FEEDBACK item 11 diagnostic — same drain-to-latest discipline,
 	// see SkeletonLink::update()'s own comment.
 	_skeleton.update();
@@ -135,7 +146,11 @@ void ofApp::draw(){
 	// doc §13.2's FBO stack, step 1: fluid first, UI drawn on top of it.
 	// I9 is untouched either way — the floor lift and light pass run on
 	// the composite afterward, unconditionally (Stage::compositeAndWarp).
-	_fluid.draw(0, 0, PROJ_W_PX, PROJ_H_PX);
+	// kFluidEnabled: see its own comment above — off until the colour loss
+	// on the rig is understood.
+	if(kFluidEnabled){
+		_fluid.draw(0, 0, PROJ_W_PX, PROJ_H_PX);
+	}
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
 		ofGetFrameRate(), _devOverlayVisible,
 		_cursor.hands(), _cursor.pointer());

@@ -19,6 +19,16 @@
 // injections (§14.4), no adaptive quality (§14.6), no setting-mode-off
 // (§14.5). Those are separate follow-ups, not part of getting hand-driven
 // fluid on the table.
+//
+// DISABLED at the ofApp call site (kFluidEnabled in ofApp.cpp) — on the
+// rig this rendered as a moving but colourless grey ring, not the warm
+// mala tone the injected density texture actually holds (confirmed
+// correct via a direct pixel readback: the density buffer itself carries
+// the right R>G>B ratio at real alpha, up to ~0.6). Something between
+// that texture and the screen — Stage's composite, the keystone warp, or
+// something else not yet isolated — desaturates it, and that is still
+// unresolved. Re-enable only after that's found; don't just flip the
+// switch back on.
 class FluidLayer {
 public:
 	// simScale divides stageW/stageH down to the simulation grid, same
