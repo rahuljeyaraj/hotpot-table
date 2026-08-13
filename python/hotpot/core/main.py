@@ -125,6 +125,15 @@ CAMERA_PORT = 8081
 # counts what is in it for the tab's per-label session counter.
 CAPTURES_DIR = Path(__file__).resolve().parents[3] / "datasets" / "captures"
 
+# Capture-tab label choices with no catalogue entry — these are never
+# billable (no price, never `resolved()` by BinMap) and so must never
+# live in data/catalogue.json (Catalogue.load() requires a price and an
+# `en` name of every item it holds). They exist only so the classifier
+# can be trained to recognise the two non-food states a bin is actually
+# in some of the time: nothing there at all, or the tray itself lifted
+# out (2026-08-13, replaces the earlier single placeholder "empty").
+NON_FOOD_CAPTURE_LABELS = ("empty_tray", "no_tray")
+
 # Doc section 12.4's Bins tab is "live" but does not need `state`'s 60Hz —
 # nobody reads eight numbers that fast. 10Hz (every 6th state tick) is
 # comfortably above flicker perception for a static numeric readout and a
@@ -1684,7 +1693,7 @@ class Core:
             "choices": sorted({self.catalogue.item(i).class_name
                                for i in self.catalogue.ids()
                                if self.catalogue.item(i) is not None}
-                              | {"empty"}),
+                              | set(NON_FOOD_CAPTURE_LABELS)),
             "counts": self._capture_counts(),
         }
 

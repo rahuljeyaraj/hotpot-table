@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("hotpot.pricing")
 
-CATALOGUE_SCHEMA = 3
+CATALOGUE_SCHEMA = 4
 
 
 @dataclass(frozen=True)
@@ -41,14 +41,17 @@ class Item:
 
     SHOWN — the only strings a diner ever reads:
         names       display name per locale.
+        pinyin      romanisation of the `zh` name, en-locale only (doc
+                    section 8.1) — a pronunciation aid, not a translation,
+                    so it rides beside `names["zh"]` rather than inside it.
 
     `names` is **not** a translation of `id`. The label names a thing that
     is easy to photograph and train on; the display name is the hot pot
-    ingredient it stands in for on the table. `soya_chunks` may be shown
-    as a fish ball, `curly_noodle` as whatever noodle the menu actually
-    sells. Sometimes the two coincide in English — `egg` shows as "Egg" —
-    and that is a coincidence of that one locale, not a rule: its `zh`
-    name is still a real translation of the *display* name.
+    ingredient it stands in for on the table. In this catalogue the two
+    usually coincide (2026-08-13's real ingredient photos), same as `egg`
+    always has — but that is still a coincidence of what was photographed,
+    not a rule this class enforces, and nothing here derives one from the
+    other.
 
     So there is no derivation from `id` to a display name, no
     prettifier, and no fallback that reaches for one. See display_name().
@@ -59,6 +62,7 @@ class Item:
     names: Dict[str, str]
     tags: List[str]
     class_name: str
+    pinyin: str = ""
 
     def display_name(self, locale: Optional[str] = None) -> str:
         """The label the table prints. **Cannot return `id` or
@@ -133,6 +137,7 @@ class Catalogue:
                 names=names,
                 tags=list(it.get("tags", [])),
                 class_name=it["class_name"],
+                pinyin=it.get("pinyin", ""),
             ))
         return cls(items)
 

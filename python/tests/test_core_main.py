@@ -2204,7 +2204,8 @@ class TestCaptureTab(CoreCase):
         info = next(m for m in seeds if m["t"] == "capture_info")
         self.assertEqual(len(info["rects"]), 8)
         self.assertEqual(len(info["labels"]), 8)
-        self.assertIn("empty", info["choices"])
+        self.assertIn("empty_tray", info["choices"])
+        self.assertIn("no_tray", info["choices"])
         self.assertIn("counts", info)
 
     def test_the_label_default_is_the_class_name_not_the_display_name(self):

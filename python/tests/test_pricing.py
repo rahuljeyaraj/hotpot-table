@@ -88,7 +88,7 @@ class TestCatalogueLoad(unittest.TestCase):
             f.write(text)
 
     def test_loads_a_well_formed_file(self):
-        self.write('{"schema":3,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,'
                    '"names":{"en":"Tofu","zh":"豆腐"},'
                    '"tags":["vegetarian"],"class_name":"tofu"}]}')
@@ -105,7 +105,7 @@ class TestCatalogueLoad(unittest.TestCase):
         """Integration check against doc section 8.1's committed file."""
         cat = Catalogue.load(CATALOGUE_PATH)
         self.assertEqual(len(cat), 8)
-        it = cat.item("mushroom")
+        it = cat.item("egg")
         self.assertIsNotNone(it)
         self.assertIn("en", it.names)
         self.assertIn("zh", it.names)
@@ -353,7 +353,7 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
             f.write(text)
 
     def test_item_with_no_english_name_is_refused_at_load(self):
-        self.write('{"schema":3,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"soya_chunks","pricePer100g":10.0,'
                    '"names":{"zh":"鱼丸"},'
                    '"tags":[],"class_name":"soya_chunks"}]}')
@@ -362,7 +362,7 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
         self.assertIn("soya_chunks", str(ctx.exception))
 
     def test_item_with_empty_names_is_refused_at_load(self):
-        self.write('{"schema":3,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,"names":{},'
                    '"tags":[],"class_name":"tofu"}]}')
         with self.assertRaises(ValueError):
@@ -372,7 +372,7 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
         """An empty string is not a name. It would render a blank plate
         that still bills — worse than refusing to start.
         """
-        self.write('{"schema":3,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,'
                    '"names":{"en":"","zh":"豆腐"},'
                    '"tags":[],"class_name":"tofu"}]}')
@@ -383,7 +383,7 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
         """Missing translations are tolerated — they fall back to English.
         Missing *English* is not, because nothing is below it.
         """
-        self.write('{"schema":3,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"soya_chunks","pricePer100g":10.0,'
                    '"names":{"en":"Fish Ball"},'
                    '"tags":[],"class_name":"soya_chunks"}]}')

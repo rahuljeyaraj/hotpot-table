@@ -285,12 +285,32 @@ and `Catalogue.load()` refuses an item with no `en` name so that chain is
 total. 12 tests; the call-site guard was confirmed to fail by restoring
 the old line and watching a plate read `curly_noodle`.
 
-**OWED — data, not code.** `data/catalogue.json`'s `names` are still
-placeholders that simply restate the labels ("Soya Chunks", "Curly
-Noodles"). The mechanism is built and tested; the actual mapping from each
-of the 8 labels to the hot pot ingredient it represents is the developer's
-to fill in, and was explicitly undecided as of 2026-08-11. Editing that
-file is the whole job — no code change is needed to go with it.
+**RESOLVED 2026-08-13.** `data/catalogue.json`'s 8 placeholder items
+(`curly_noodle`/`long_noodle`/`dried_prawns`/`soya_chunks`/`tofu`/
+`baby_corn`/`mushroom`, plus `egg`) are replaced with 8 real ingredients
+photographed the same day: `instant_noodles`, `hand_pulled_noodles`,
+`fried_tofu_roll`, `fish_balls`, `dried_shrimp`, `beef_balls`, `egg`
+(id unchanged), `button_mushrooms`. Unlike the old placeholders, `id`/
+`class_name` and the English display name now usually coincide — these
+are real photographed ingredients, not a hidden-label stand-in for a
+different displayed ingredient (doc §8.1's HIDDEN/SHOWN split is
+unchanged as a mechanism; it just has less to hide today).
+Schema bumped 3 → 4: `Item` gained an optional `pinyin` field (en-locale
+romanisation of the `zh` name, defaults to `""` for any file that omits
+it) — a display aid, not a translation, so it rides beside `names["zh"]`
+rather than inside it. Nothing renders it yet (oF/staff view are
+untouched). `base_currency` is now `"USD"` (was `"INR"`) and
+`data/locales/en.json`'s `_currency.symbol` matches (`$`, was `₹`) —
+prices are placeholder-sensible, not sourced from a real menu, per the
+developer's explicit call.
+Two non-food capture-tab labels, `empty_tray`/`no_tray`, replace the
+single placeholder `"empty"` in `core/main.py`'s `NON_FOOD_CAPTURE_LABELS`
+— unioned into the Capture tab's label dropdown the same way `"empty"`
+always was, **not** added to `catalogue.json`: neither is ever billable
+(no price, never `resolved()` by BinMap), and `Catalogue.load()` requires
+a price on every entry it holds, so a non-food state has no home there by
+construction, not by omission.
+902 tests pass (`python -m unittest discover -s python/tests`).
 
 M2.2 (2026-08-11) is build item 2: `core/scale.py`, the serial thread.
 Owns the port and nothing else does — parse, median, staleness, settle,

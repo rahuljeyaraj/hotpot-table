@@ -1,62 +1,70 @@
 {
-  "schema": 3,
-  "base_currency": "INR",
+  "schema": 4,
+  "base_currency": "USD",
   "items": [
     {
-      "id": "curly_noodle",
-      "pricePer100g": 18.0,
-      "names": {"en": "Curly Noodles", "zh": "卷面"},
-      "tags": ["vegetarian", "vegan"],
-      "class_name": "curly_noodle"
+      "id": "instant_noodles",
+      "pricePer100g": 1.50,
+      "names": {"en": "Instant Noodles", "zh": "方便面"},
+      "pinyin": "Fāngbiànmiàn",
+      "tags": ["vegetarian", "vegan", "noodle"],
+      "class_name": "instant_noodles"
     },
     {
-      "id": "long_noodle",
-      "pricePer100g": 20.0,
-      "names": {"en": "Long Noodles", "zh": "细面"},
-      "tags": ["vegetarian", "vegan"],
-      "class_name": "long_noodle"
+      "id": "hand_pulled_noodles",
+      "pricePer100g": 1.80,
+      "names": {"en": "Hand-Pulled Wheat Noodles", "zh": "拉面"},
+      "pinyin": "Lāmiàn",
+      "tags": ["vegetarian", "vegan", "noodle"],
+      "class_name": "hand_pulled_noodles"
     },
     {
-      "id": "dried_prawns",
-      "pricePer100g": 55.0,
-      "names": {"en": "Dried Prawns", "zh": "虾干"},
+      "id": "fried_tofu_roll",
+      "pricePer100g": 2.50,
+      "names": {"en": "Fried Tofu Roll", "zh": "响铃卷"},
+      "pinyin": "Xiǎnglíngjuǎn",
+      "tags": ["vegetarian", "vegan", "tofu"],
+      "class_name": "fried_tofu_roll"
+    },
+    {
+      "id": "fish_balls",
+      "pricePer100g": 3.50,
+      "names": {"en": "Fish Balls", "zh": "鱼丸"},
+      "pinyin": "Yúwán",
       "tags": ["seafood"],
-      "class_name": "dried_prawns"
+      "class_name": "fish_balls"
+    },
+    {
+      "id": "dried_shrimp",
+      "pricePer100g": 4.50,
+      "names": {"en": "Dried Shrimp", "zh": "虾米"},
+      "pinyin": "Xiāmǐ",
+      "tags": ["seafood"],
+      "class_name": "dried_shrimp"
+    },
+    {
+      "id": "beef_balls",
+      "pricePer100g": 4.00,
+      "names": {"en": "Beef Balls", "zh": "牛肉丸"},
+      "pinyin": "Niúròuwán",
+      "tags": ["meat"],
+      "class_name": "beef_balls"
     },
     {
       "id": "egg",
-      "pricePer100g": 11.0,
+      "pricePer100g": 1.20,
       "names": {"en": "Egg", "zh": "鸡蛋"},
-      "tags": ["vegetarian"],
+      "pinyin": "Jīdàn",
+      "tags": ["vegetarian", "egg"],
       "class_name": "egg"
     },
     {
-      "id": "mushroom",
-      "pricePer100g": 12.0,
-      "names": {"en": "Shiitake mushroom", "zh": "香菇"},
-      "tags": ["vegetarian", "vegan"],
-      "class_name": "mushroom"
-    },
-    {
-      "id": "soya_chunks",
-      "pricePer100g": 10.0,
-      "names": {"en": "Soya Chunks", "zh": "大豆蛋白块"},
-      "tags": ["vegetarian", "vegan"],
-      "class_name": "soya_chunks"
-    },
-    {
-      "id": "tofu",
-      "pricePer100g": 18.0,
-      "names": {"en": "Tofu", "zh": "豆腐"},
-      "tags": ["vegetarian", "vegan"],
-      "class_name": "tofu"
-    },
-    {
-      "id": "baby_corn",
-      "pricePer100g": 16.0,
-      "names": {"en": "Baby Corn", "zh": "玉米笋"},
-      "tags": ["vegetarian", "vegan"],
-      "class_name": "baby_corn"
+      "id": "button_mushrooms",
+      "pricePer100g": 2.20,
+      "names": {"en": "Button Mushrooms", "zh": "口蘑"},
+      "pinyin": "Kǒumó",
+      "tags": ["vegetarian", "vegan", "mushroom"],
+      "class_name": "button_mushrooms"
     }
   ]
 }
