@@ -71,6 +71,12 @@ class ExportResult:
         self.copied: List[Path] = []
         self.skipped_sidecars = 0
         self.thin: List[Tuple[str, int]] = []
+        # None if `out` didn't exist yet (nothing to wipe); otherwise the
+        # count of files the previous export left behind, wiped before
+        # this run started copying. main() logs it so a wipe is never
+        # silent — see export()'s own wipe-first comment for why it
+        # happens at all.
+        self.wiped_files: Optional[int] = None
 
     @property
     def total(self) -> int:
@@ -98,6 +104,7 @@ def export(src: Path = DEFAULT_SRC, out: Path = DEFAULT_OUT, *,
     # capture deleted or renamed after a previous export leaves its stale
     # copy behind forever, silently re-uploaded on every future run.
     if not dry_run and out.exists():
+        result.wiped_files = sum(1 for p in out.rglob("*") if p.is_file())
         shutil.rmtree(out)
 
     for label_dir in sorted(p for p in src.iterdir() if p.is_dir()):
@@ -175,6 +182,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     except FileNotFoundError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+
+    if result.wiped_files is not None:
+        print(f"Removed {result.wiped_files} file(s) from the previous "
+              f"export at {args.out} before rebuilding it\n")
 
     sessions = sessions_per_label(args.src)
     print(f"{'label':<20}{'images':>8}{'days':>7}")

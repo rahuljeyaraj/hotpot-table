@@ -107,16 +107,18 @@ class TestTheTree(ExportCase):
         # every future run.
         self.capture("mushroom", n=2)
         self.capture("prawn", n=2)
-        export_ei.export(self.src, self.out)
+        first = export_ei.export(self.src, self.out)
+        self.assertIsNone(first.wiped_files)  # nothing to wipe yet
         self.assertTrue((self.out / "prawn").exists())
 
         for f in (self.src / "prawn").iterdir():
             f.unlink()
         (self.src / "prawn").rmdir()
-        export_ei.export(self.src, self.out)
+        second = export_ei.export(self.src, self.out)
 
         self.assertFalse((self.out / "prawn").exists())
         self.assertEqual(len(list((self.out / "mushroom").glob("*.jpg"))), 2)
+        self.assertEqual(second.wiped_files, 4)  # 2 mushroom + 2 prawn
 
     def test_a_dry_run_copies_nothing_but_still_counts(self):
         self.capture("mushroom", n=4)
