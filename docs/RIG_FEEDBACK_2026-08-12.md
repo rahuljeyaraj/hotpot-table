@@ -119,7 +119,7 @@ today's three widgets' exact placement/styling; `core/hover.py`'s
 changing the roster later is contained there plus `_fire_widget`'s
 dispatch table.
 
-## 8. Pointer is jittery, needs smoothing — DONE, not yet rig-confirmed
+## 8. Pointer is jittery, needs smoothing — DONE, commit 9854a5e, not yet rig-confirmed
 
 Fixed in `tracker/tracking.py`: `HandTracker._smoothed()`, a per-track EMA
 folded into the existing `_match` update (`Track.x/y`), time-based

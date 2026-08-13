@@ -10,7 +10,8 @@ It is authoritative. This file is only status + rules.
 
 **Open feedback queue:** `docs/RIG_FEEDBACK_2026-08-12.md` — ten items
 from the first real M5 rig run, each scoped for one fresh session. Item 1
-is done (commit 0ef1fe9); check that file before starting new M5 work.
+is done (commit 0ef1fe9), item 8 is done (commit 9854a5e, not yet
+rig-confirmed); check that file before starting new M5 work.
 
 ## STATUS
 Architecture v3 adopted. Full rewrite in progress.
