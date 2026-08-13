@@ -664,38 +664,6 @@ class TestAcquisitionScheduling(unittest.TestCase):
         self.assertEqual(proc._track_backends, made[1:])
 
 
-class TestPointerTransitionLogging(ProcCase):
-    """RIG_FEEDBACK item 11 (2026-08-13): logs only when the single
-    pointer appears or disappears, cheap enough to leave running on the
-    rig — see `_log_pointer_transition`'s own docstring for what this log
-    used to do (three theories about `tracking.py`'s old two-hand id
-    churn, each real, none sufficient) and why it's simpler now that
-    module has no id to churn.
-    """
-
-    def test_a_present_hand_logs_once_on_appear_and_not_again(self):
-        proc, _src, _sender = self.make(
-            script=[[det(10, 20)], [det(12, 22)]])
-        with self.assertLogs("hotpot.tracker", level="INFO") as cm:
-            proc.tick(now=0.0)      # appear
-            proc.tick(now=0.033)    # still present: no new line
-        transitions = [m for m in cm.output
-                       if "pointer appeared" in m or "pointer disappeared" in m]
-        self.assertEqual(len(transitions), 1)
-        self.assertIn("pointer appeared", transitions[0])
-
-    def test_a_lost_hand_logs_the_drop_with_the_raw_detection_count(self):
-        proc, _src, _sender = self.make(script=[[det(10, 20)], []])
-        with self.assertLogs("hotpot.tracker", level="INFO") as cm:
-            proc.tick(now=0.0)
-            proc.tick(now=0.033)    # no detection this tick: a real gap
-        transitions = [m for m in cm.output
-                       if "pointer appeared" in m or "pointer disappeared" in m]
-        self.assertEqual(len(transitions), 2)
-        self.assertIn("pointer disappeared", transitions[1])
-        self.assertIn("0 raw detections", transitions[1])
-
-
 class TestSkeletonMapping(ProcCase):
     """RIG_FEEDBACK item 11's raw-skeleton diagnostic (`skeletonbus.py`).
 

@@ -720,10 +720,6 @@ class TrackerProcess:
         self._stale = False
         self._last_emit: Optional[float] = None
         self._last_landmarks_send: Optional[float] = None
-        # RIG_FEEDBACK item 11 (2026-08-13): whether the single pointer was
-        # present last tick, logged only on CHANGE — see
-        # `_log_pointer_transition`'s own docstring for why this exists.
-        self._pointer_present: bool = False
         # MediaPipe's VIDEO mode rejects a timestamp that does not
         # increase, and this process owns the clock (backend.py's
         # docstring) so a backend swap mid-probe cannot restart it.
@@ -943,7 +939,6 @@ class TrackerProcess:
 
         staged = self._to_stage(detections, scale, origin, h, stage)
         hands = self.tracker.update(staged, now)
-        self._log_pointer_transition(hands, staged, now)
         self.sender.send(hands, ts=time.time())
         # RIG_FEEDBACK item 11 diagnostic: confirmed fixed on the rig,
         # 2026-08-13 — no longer called here, same call `classifier/
@@ -957,31 +952,6 @@ class TrackerProcess:
         self.emitted += 1
         self._count_probe_frame(now)
         return True
-
-    def _log_pointer_transition(self, hands: Sequence[cursorbus.Hand],
-                                staged: Sequence[Detection],
-                                now: float) -> None:
-        """Logs only when the single pointer appears or disappears — never
-        every tick, so this is cheap enough to leave running.
-
-        RIG_FEEDBACK item 11's whole investigation lived in this method
-        through three fixes to `tracking.py`'s old two-hand matching/role
-        logic, each real, none sufficient — because that machinery was
-        answering "which of two hands is this" on a rig that only ever
-        tracks one. `tracking.py` is now a plain single-hand filter with
-        no id to churn (see its own module docstring), so there is
-        nothing left to log a distance/gate comparison for. What remains
-        useful: how often the one hand drops out at all, and whether a
-        drop lines up with 0 raw detections (a real gap this tick) or a
-        raw detection MediaPipe just failed to smooth into (which would
-        point at `tracking.py` again, not at MediaPipe).
-        """
-        present = bool(hands)
-        if present == self._pointer_present:
-            return
-        _log.info("tracker: pointer %s at t=%.3f (%d raw detections this tick)",
-                  "appeared" if present else "disappeared", now, len(staged))
-        self._pointer_present = present
 
     # -- acquisition (module docstring, decision 7) -------------------------
 
@@ -1130,21 +1100,10 @@ class TrackerProcess:
         if service_slot is not None:
             win = self._hand_windows[service_slot]
             if win is not None and now - win.last_hit > ACQUISITION_WINDOW_LOST_S:
-                # RIG_FEEDBACK item 11 (2026-08-13): diagnostic only, no
-                # behaviour change. The window is NOT re-centred on a miss
-                # (only a hit does that, above) — a hand that outran it
-                # sits missed at the same stale crop until this fires, up
-                # to ACQUISITION_WINDOW_LOST_S later. That bound (1.0s) is
-                # close to the developer's own reported "stuck" duration,
-                # which this fix's own diagnosis (the tracking.py match
-                # gate) does not explain: the gate only helps when a
-                # detection exists to match against, and a lost window
-                # produces none at all. Logged so a rig run can confirm or
-                # rule this out directly rather than guessing again.
-                _log.info("tracker: acquisition window %d lost after %.2fs "
-                          "unmatched (hand outran the tracked crop) — "
-                          "freed for rescan", service_slot,
-                          now - win.last_hit)
+                # The window is NOT re-centred on a miss (only a hit does
+                # that, above) — a hand that outran it sits missed at the
+                # same stale crop until this fires, up to
+                # ACQUISITION_WINDOW_LOST_S later.
                 self._hand_windows[service_slot] = None
 
     def _to_stage(self, detections: Sequence[Detection], scale: float,
