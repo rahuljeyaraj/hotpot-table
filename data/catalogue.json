@@ -3,60 +3,60 @@
   "base_currency": "USD",
   "items": [
     {
-      "id": "instant_noodles",
+      "id": "instant_noodle_block",
       "pricePer100g": 1.50,
       "names": {"en": "Instant Noodles", "zh": "方便面"},
       "pinyin": "Fāngbiànmiàn",
       "tags": ["vegetarian", "vegan", "noodle"],
-      "class_name": "instant_noodles"
+      "class_name": "instant_noodle_block"
     },
     {
-      "id": "hand_pulled_noodles",
+      "id": "loose_straight_noodles",
       "pricePer100g": 1.80,
       "names": {"en": "Hand-Pulled Wheat Noodles", "zh": "拉面"},
       "pinyin": "Lāmiàn",
       "tags": ["vegetarian", "vegan", "noodle"],
-      "class_name": "hand_pulled_noodles"
+      "class_name": "loose_straight_noodles"
     },
     {
-      "id": "fried_tofu_roll",
+      "id": "white_rusk",
       "pricePer100g": 2.50,
       "names": {"en": "Fried Tofu Roll", "zh": "响铃卷"},
       "pinyin": "Xiǎnglíngjuǎn",
       "tags": ["vegetarian", "vegan", "tofu"],
-      "class_name": "fried_tofu_roll"
+      "class_name": "white_rusk"
     },
     {
-      "id": "fish_balls",
+      "id": "soya_chunks",
       "pricePer100g": 3.50,
       "names": {"en": "Fish Balls", "zh": "鱼丸"},
       "pinyin": "Yúwán",
       "tags": ["seafood"],
-      "class_name": "fish_balls"
+      "class_name": "soya_chunks"
     },
     {
-      "id": "dried_shrimp",
+      "id": "dried_small_shrimps",
       "pricePer100g": 4.50,
       "names": {"en": "Dried Shrimp", "zh": "虾米"},
       "pinyin": "Xiāmǐ",
       "tags": ["seafood"],
-      "class_name": "dried_shrimp"
+      "class_name": "dried_small_shrimps"
     },
     {
-      "id": "beef_balls",
+      "id": "small_round_rusk",
       "pricePer100g": 4.00,
       "names": {"en": "Beef Balls", "zh": "牛肉丸"},
       "pinyin": "Niúròuwán",
       "tags": ["meat"],
-      "class_name": "beef_balls"
+      "class_name": "small_round_rusk"
     },
     {
-      "id": "egg",
+      "id": "chicken_eggs",
       "pricePer100g": 1.20,
       "names": {"en": "Egg", "zh": "鸡蛋"},
       "pinyin": "Jīdàn",
       "tags": ["vegetarian", "egg"],
-      "class_name": "egg"
+      "class_name": "chicken_eggs"
     },
     {
       "id": "button_mushrooms",
@@ -67,28 +67,28 @@
       "class_name": "button_mushrooms"
     },
     {
-      "id": "dried_eel_strips",
+      "id": "dried_mango_strips",
       "pricePer100g": 5.00,
       "names": {"en": "Dried Eel Strips", "zh": "鳝鱼条"},
       "pinyin": "Shànyú Tiáo",
       "tags": ["seafood"],
-      "class_name": "dried_eel_strips"
+      "class_name": "dried_mango_strips"
     },
     {
-      "id": "shrimp_cake",
+      "id": "flat_round_cookies",
       "pricePer100g": 3.80,
       "names": {"en": "Shrimp Cake", "zh": "虾饼"},
       "pinyin": "Xiābǐng",
       "tags": ["seafood"],
-      "class_name": "shrimp_cake"
+      "class_name": "flat_round_cookies"
     },
     {
-      "id": "potato_slices",
+      "id": "yellow_rusk",
       "pricePer100g": 1.00,
       "names": {"en": "Potato Slices", "zh": "土豆片"},
       "pinyin": "Tǔdòu Piàn",
       "tags": ["vegetarian", "vegan"],
-      "class_name": "potato_slices"
+      "class_name": "yellow_rusk"
     },
     {
       "id": "lotus_root_slices",

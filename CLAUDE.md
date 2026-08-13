@@ -290,11 +290,11 @@ the old line and watching a plate read `curly_noodle`.
 `baby_corn`/`mushroom`, plus `egg`) are replaced with 8 real ingredients
 photographed the same day: `instant_noodles`, `hand_pulled_noodles`,
 `fried_tofu_roll`, `fish_balls`, `dried_shrimp`, `beef_balls`, `egg`
-(id unchanged), `button_mushrooms`. Unlike the old placeholders, `id`/
-`class_name` and the English display name now usually coincide — these
-are real photographed ingredients, not a hidden-label stand-in for a
-different displayed ingredient (doc §8.1's HIDDEN/SHOWN split is
-unchanged as a mechanism; it just has less to hide today).
+(id unchanged), `button_mushrooms`. **This paragraph's "id/class_name
+and display name now usually coincide" claim is WRONG and is corrected
+below (same day, third pass) — most of these are photographed as a
+substitute prop after all, not the real ingredient.** Left here as a
+record of the assumption at the time, not deleted.
 Schema bumped 3 → 4: `Item` gained an optional `pinyin` field (en-locale
 romanisation of the `zh` name, defaults to `""` for any file that omits
 it) — a display aid, not a translation, so it rides beside `names["zh"]`
@@ -329,6 +329,41 @@ new items sit in the catalogue unseeded into any bin at boot — available
 to the Capture tab's label dropdown (`_capture_msg`'s `choices`, which
 unions every catalogue `class_name`) for photographing training data
 before any bin ever carries them for real. 907 tests pass.
+
+**Same day, third pass: `id`/`class_name` renamed off the display name
+and onto what was actually photographed — `docs/INGREDIENT_SUBSTITUTES.md`,
+developer-supplied, is why.** That table makes explicit what the first
+pass above assumed away: 9 of these 12 items are photographed as a
+**substitute prop**, not the real ingredient — e.g. what's in front of
+the camera for the "Fish Balls" plate is literally Soya Chunks, chosen
+for a similar shape. Doc §8.1's hidden-label rule says `class_name`
+names the thing that was actually photographed, precisely so the model
+can emit a label for what it was trained on — a folder called
+`fish_balls` full of soya-chunk photos is a folder the model can never
+honestly produce a label for. Every `id`/`class_name` in the catalogue
+is now a slug of the substitute prop instead: `instant_noodle_block`,
+`loose_straight_noodles`, `white_rusk`, `soya_chunks`, `dried_small_
+shrimps`, `small_round_rusk`, `chicken_eggs` (was `egg` — the one
+surprising rename, since "Chicken Eggs" the prop and "Egg" the display
+both look like the same thing in English; the table says otherwise so
+the code follows it), `button_mushrooms`, `dried_mango_strips`,
+`flat_round_cookies`, `yellow_rusk`, `lotus_root_slices` (the last two
+of these, plus `button_mushrooms`, are unchanged from pass two — their
+substitute IS the real ingredient). `names.en`/`names.zh`/`pinyin` are
+all untouched — the diner-facing side of doc §8.1's split was already
+correct.
+**Zero migration cost, checked before doing this:** no `state/
+bin_map.json` exists on disk (mock seed derives fresh from
+`catalogue.ids()` every boot — nothing persists a stale item_id across
+this rename) and `datasets/captures/` holds only `.gitkeep` (no captured
+photos yet, so no folder to rename to match). Had either existed, this
+rename would have needed to touch it too.
+`test_pricing.py`'s one integration assertion tied to a real id
+(`cat.item("egg")`) is now `cat.item("chicken_eggs")` — everywhere else
+that mentioned an old id (`test_binmap.py`, `test_classifier_main.py`,
+`test_core_main.py`'s capture `LABELS` list) was using it as an
+arbitrary opaque string, unconnected to the real catalogue file, and
+needed no change. Tests still pass.
 
 M2.2 (2026-08-11) is build item 2: `core/scale.py`, the serial thread.
 Owns the port and nothing else does — parse, median, staleness, settle,

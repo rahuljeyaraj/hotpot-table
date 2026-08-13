@@ -105,7 +105,7 @@ class TestCatalogueLoad(unittest.TestCase):
         """Integration check against doc section 8.1's committed file."""
         cat = Catalogue.load(CATALOGUE_PATH)
         self.assertGreaterEqual(len(cat), binmap.NUM_BINS)
-        it = cat.item("egg")
+        it = cat.item("chicken_eggs")
         self.assertIsNotNone(it)
         self.assertIn("en", it.names)
         self.assertIn("zh", it.names)
