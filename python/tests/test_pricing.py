@@ -101,23 +101,34 @@ class TestCatalogueLoad(unittest.TestCase):
         with self.assertRaises(ValueError):
             Catalogue.load(self.path)
 
-    def test_real_catalogue_file_loads_and_has_eight_items(self):
+    def test_real_catalogue_file_loads(self):
         """Integration check against doc section 8.1's committed file."""
         cat = Catalogue.load(CATALOGUE_PATH)
-        self.assertEqual(len(cat), 8)
+        self.assertGreaterEqual(len(cat), binmap.NUM_BINS)
         it = cat.item("egg")
         self.assertIsNotNone(it)
         self.assertIn("en", it.names)
         self.assertIn("zh", it.names)
         self.assertIsInstance(it.price_per_100g, float)
 
-    def test_real_catalogue_has_exactly_eight_ids_for_the_mock_bin_seed(self):
-        """core/main.py's mock bin seed needs one id per bin — see
+    def test_real_catalogue_has_at_least_one_id_per_bin_and_no_duplicates(self):
+        """core/main.py's mock bin seed (`_seed_binmap`) needs one id per
+        bin, taken off the front of `cat.ids()` — see
         test_core_main.py's TestStateBroadcast for the pairing itself.
+
+        The catalogue is doc section 8.1's "every item that could ever be
+        in a bin", not "one entry per physical bin" — pricing.Catalogue's
+        own docstring says the two are deliberately different questions,
+        BinMap's job is which bin an item is actually in. So this only
+        checks there are enough ids to seed every bin and none repeat; it
+        does NOT check the count is exactly `binmap.NUM_BINS` any more —
+        the real file may legitimately hold more classes than the table
+        has physical bins (2026-08-13: 12 catalogue items, 8 bins).
         """
         cat = Catalogue.load(CATALOGUE_PATH)
-        self.assertEqual(len(cat.ids()), 8)
-        self.assertEqual(len(set(cat.ids())), 8)   # no duplicate ids
+        ids = cat.ids()
+        self.assertGreaterEqual(len(ids), binmap.NUM_BINS)
+        self.assertEqual(len(set(ids)), len(ids))   # no duplicate ids
 
 
 class TestTotal(unittest.TestCase):

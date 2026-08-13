@@ -65,6 +65,38 @@
       "pinyin": "Kǒumó",
       "tags": ["vegetarian", "vegan", "mushroom"],
       "class_name": "button_mushrooms"
+    },
+    {
+      "id": "dried_eel_strips",
+      "pricePer100g": 5.00,
+      "names": {"en": "Dried Eel Strips", "zh": "鳝鱼条"},
+      "pinyin": "Shànyú Tiáo",
+      "tags": ["seafood"],
+      "class_name": "dried_eel_strips"
+    },
+    {
+      "id": "shrimp_cake",
+      "pricePer100g": 3.80,
+      "names": {"en": "Shrimp Cake", "zh": "虾饼"},
+      "pinyin": "Xiābǐng",
+      "tags": ["seafood"],
+      "class_name": "shrimp_cake"
+    },
+    {
+      "id": "potato_slices",
+      "pricePer100g": 1.00,
+      "names": {"en": "Potato Slices", "zh": "土豆片"},
+      "pinyin": "Tǔdòu Piàn",
+      "tags": ["vegetarian", "vegan"],
+      "class_name": "potato_slices"
+    },
+    {
+      "id": "lotus_root_slices",
+      "pricePer100g": 1.40,
+      "names": {"en": "Lotus Root Slices", "zh": "藕片"},
+      "pinyin": "Ǒupiàn",
+      "tags": ["vegetarian", "vegan"],
+      "class_name": "lotus_root_slices"
     }
   ]
 }

@@ -312,6 +312,24 @@ a price on every entry it holds, so a non-food state has no home there by
 construction, not by omission.
 902 tests pass (`python -m unittest discover -s python/tests`).
 
+**Same day, second pass: 4 more real ingredients added — the catalogue is
+now 12 items against 8 physical bins, and that gap is intentional, not a
+bug to close.** `dried_eel_strips`, `shrimp_cake`, `potato_slices`,
+`lotus_root_slices` (same USD-pricing/pinyin shape as the other 8).
+`pricing.Catalogue`'s own docstring already says the catalogue is "every
+item that could ever be in a bin… not which bin it is in" — BinMap's job
+— so nothing forced catalogue size to equal `binmap.NUM_BINS`; only two
+tests in `test_pricing.py` had baked in the coincidence that they were
+equal so far (`test_real_catalogue_file_loads_and_has_eight_items`,
+`test_real_catalogue_has_exactly_eight_ids_for_the_mock_bin_seed`), and
+both are rewritten to check "at least `NUM_BINS`, no duplicates" instead
+of "exactly 8". `core/main.py._seed_binmap` already only ever reads the
+first `NUM_BINS` ids off `catalogue.ids()` (`if i < len(ids)`), so the 4
+new items sit in the catalogue unseeded into any bin at boot — available
+to the Capture tab's label dropdown (`_capture_msg`'s `choices`, which
+unions every catalogue `class_name`) for photographing training data
+before any bin ever carries them for real. 907 tests pass.
+
 M2.2 (2026-08-11) is build item 2: `core/scale.py`, the serial thread.
 Owns the port and nothing else does — parse, median, staleness, settle,
 plus the 2s capture windows M2.1's docstring said would live here.
