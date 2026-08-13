@@ -8,6 +8,11 @@ namespace {
 	// loader until something needs more than one key from it.
 	const float kWhiteFloor = 0.45f;
 
+	// doc §14.6's vocabulary: stage_size / sim_scale = simulation grid.
+	// 4 is the doc's own dev-machine default; no adaptive controller yet
+	// (§14.6 build item, not part of getting hand-driven fluid on screen).
+	const int kFluidSimScale = 4;
+
 	// doc §4.1 default; core/main.py's CONTROL_PORT.
 	const std::string kCoreHost = "127.0.0.1";
 	const int kCorePort = 8765;
@@ -69,6 +74,7 @@ void ofApp::setup(){
 
 	_stage.setup(PROJ_W_PX, PROJ_H_PX, "keystone.json");
 	_ui.setup();
+	_fluid.setup(PROJ_W_PX, PROJ_H_PX, kFluidSimScale);
 
 	// who="of" per doc §4.1's process names (health.py's PROCESSES tuple).
 	// Runs its own thread from here on — see StateLink's class comment for
@@ -89,6 +95,11 @@ void ofApp::update(){
 	// (doc §4) — CursorLink::update() is the only place that rule lives on
 	// this side.
 	_cursor.update();
+	// Driven by the real hand cursor(s), never the mouse (ofApp's mouse
+	// callbacks are all empty, deliberately — v3 §7.1's deleted OSC hand
+	// mock is not coming back as a fluid-testing shortcut). Every hand
+	// injects, pointer and ambient alike (doc §14.4).
+	_fluid.update(dt, _cursor.hands());
 	// RIG_FEEDBACK item 11 diagnostic — same drain-to-latest discipline,
 	// see SkeletonLink::update()'s own comment.
 	_skeleton.update();
@@ -121,6 +132,10 @@ void ofApp::draw(){
 	}
 
 	_stage.beginContent();
+	// doc §13.2's FBO stack, step 1: fluid first, UI drawn on top of it.
+	// I9 is untouched either way — the floor lift and light pass run on
+	// the composite afterward, unconditionally (Stage::compositeAndWarp).
+	_fluid.draw(0, 0, PROJ_W_PX, PROJ_H_PX);
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
 		ofGetFrameRate(), _devOverlayVisible,
 		_cursor.hands(), _cursor.pointer());

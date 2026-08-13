@@ -2,6 +2,7 @@
 
 #include "ofMain.h"
 #include "CursorLink.h"
+#include "FluidLayer.h"
 #include "SkeletonLink.h"
 #include "StateLink.h"
 #include "Stage.h"
@@ -39,6 +40,7 @@ private:
 
 	StateLink _link;
 	CursorLink _cursor;
+	FluidLayer _fluid;
 	// RIG_FEEDBACK item 11 diagnostic (SkeletonLink.h's own docstring) —
 	// the raw, unsmoothed MediaPipe skeleton, drawn on the projected table
 	// alongside the real cursor for a side-by-side comparison. Not part
