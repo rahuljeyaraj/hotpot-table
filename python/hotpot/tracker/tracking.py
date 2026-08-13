@@ -166,7 +166,24 @@ TRACK_SMOOTHING_TAU_S = 0.10
 
 @dataclass
 class Track:
-    """One hand identity, alive across frames."""
+    """One hand identity, alive across frames.
+
+    **RIG_FEEDBACK item 11 (2026-08-13): `raw_x`/`raw_y` are the last
+    REAL detection this track matched — never smoothed — kept separate
+    from `x`/`y` (the EMA output actually sent on the wire).** Confirmed
+    on the rig by two independent reproductions and a synthetic
+    simulation at a plain, sustained 2 m/s: matching a NEW detection
+    against `x`/`y` compares it to a value that is, by construction,
+    lagging the true hand position (that lag is the entire point of an
+    EMA). Under sustained motion the lag itself grows past the match
+    gate — not the hand's real frame-to-frame movement — so the SAME
+    hand's own next detection reads as "too far to be the same track",
+    spawning a new, competing ambient track. Two of those can then trade
+    the pointer role back and forth every time the nearest-match lottery
+    tips the other way, which is what the rig's own logs showed as rapid,
+    erratic id churn. `raw_x`/`raw_y` give matching something that does
+    NOT lag by design, so distance reflects the hand's real movement.
+    """
 
     id: int
     role: str
@@ -174,6 +191,8 @@ class Track:
     y: float
     conf: float
     last_seen: float
+    raw_x: float
+    raw_y: float
     handedness: Optional[str] = None
     seen_frames: int = 1
 
@@ -226,8 +245,12 @@ class HandTracker:
 
     def _match(self, detections: Sequence[Detection], now: float) -> None:
         existing = list(self.tracks)
+        # RIG_FEEDBACK item 11: match against `raw_x/raw_y` (the track's
+        # last REAL detection), never `x/y` (the smoothed, deliberately
+        # lagging display position) — see `Track`'s own docstring for the
+        # confirmed failure mode this replaces.
         paired = geometry.match_nearest(
-            [(t.x, t.y) for t in existing],
+            [(t.raw_x, t.raw_y) for t in existing],
             [(d.x, d.y) for d in detections],
             max_distance_px=[self._match_gate_px(t, now) for t in existing])
 
@@ -238,6 +261,7 @@ class HandTracker:
             det = detections[det_idx]
             claimed.add(det_idx)
             track.x, track.y = self._smoothed(track, det, now)
+            track.raw_x, track.raw_y = det.x, det.y
             track.conf = det.conf
             track.last_seen = now
             track.seen_frames += 1
@@ -311,7 +335,8 @@ class HandTracker:
 
         self.tracks.append(Track(
             id=self._next_id, role=role, x=det.x, y=det.y, conf=det.conf,
-            last_seen=now, handedness=det.handedness))
+            last_seen=now, raw_x=det.x, raw_y=det.y,
+            handedness=det.handedness))
         self._next_id += 1
         if role == cursorbus.ROLE_POINTER:
             self._pointer_released_at = None

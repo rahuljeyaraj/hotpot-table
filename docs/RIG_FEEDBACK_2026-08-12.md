@@ -221,8 +221,9 @@ never checked — see the original note above, still true) remain
 unscoped past that. Not yet built.
 
 ## 11. Pointer lags behind a fast hand move, and sometimes sticks then
-    snaps to the new location — STILL OPEN, two theories tried and ruled
-    out, a diagnostic in place, 2026-08-13
+    snaps to the new location — DONE, root cause confirmed by a rig log
+    plus a matching synthetic reproduction, not yet rig-confirmed fixed,
+    2026-08-13
 
 Developer's report from the same rig session: the MediaPipe overlay
 (Developer tab, item 9/10) tracks a fast hand move with no trouble, but
@@ -369,6 +370,60 @@ reported distance is a genuinely large jump (a real, if surprising, hand
 speed or a `tracking.py` gate bug) or something that looks like a
 coordinate bug (e.g. a small camera-space wobble coming out amplified in
 stage space) — read that number before writing any more code here.**
+
+**2026-08-13, later still: done, and the distance/gate log answered it —
+CONFIRMED, `tracking.py`'s match compares a new detection against a
+track's own SMOOTHED position, which lags the true hand by design (that
+lag is the entire point of item 8's EMA), and under sustained motion the
+LAG ALONE grows past the gate.** The rig log's own numbers show it:
+`outgoing pointer was at (1073,802), nearest staged point at (1081,980),
+178px away, gate was 150px` — a bare few pixels over, not a wild jump.
+**Reproduced synthetically, not just inferred:** a hand moving at a
+steady, plausible 2 m/s (2000px/s at this rig's ~1px=1mm scale) for
+under a fifth of a second, fed through the UNMODIFIED tracker, spawns a
+SECOND competing track by the 5th tick — the smoothed position lags by
+up to ~370px before the widened gate (item 11's own earlier fix)
+eventually recaptures it, and while stuck the pointer id freezes; worse,
+once a second ("ghost") track exists it can itself win the next match if
+it happens to sit closer than the real pointer track that tick, and the
+pointer role starts trading between competing ghost tracks — which is
+exactly the rapid, erratic id churn the rig log showed (12+ ids in 20s).
+This is the same simulation script, kept for reference (not committed —
+scratch only):
+
+    t = tracking.HandTracker()
+    now, x = 0.0, 0.0
+    for _ in range(40):
+        now += 0.033; x += 2000.0 * 0.033
+        hands = t.update([Detection(x=x, y=500.0, conf=0.9,
+                                    handedness=None)], now=now)
+        # unfixed: len(t.tracks) grows past 1 within ~5 ticks
+
+**Fixed (this commit):** `tracking.Track` now keeps `raw_x`/`raw_y` —
+the last REAL detection, never smoothed — separately from `x`/`y` (the
+EMA output still sent on the wire, unchanged, still smooth). `_match`
+matches new detections against `raw_x`/`raw_y`, not `x`/`y`. The same
+synthetic 2 m/s run now stays on ONE track id for the full second-plus
+tested, with a small, constant, non-growing lag instead of a periodic
+freeze-then-snap. This does not replace the earlier time-based gate
+widening (still in place) — the two fix different things: the widened
+gate helps when the CAMERA'S OWN frame rate is genuinely slow; this fix
+stops the gate from being broken by the smoothing filter's own lag
+regardless of frame rate.
+
+2 new tests in `tracking.py` (a sustained-motion run staying on one
+track id and reporting exactly one hand throughout, never a second
+ghost; `raw_x`/`raw_y` provably unsmoothed while `x`/`y` still is), the
+first confirmed to fail under a reverted mutation (matching put back on
+`x`/`y`). 868 tests pass.
+
+**Not yet confirmed on the rig** — the synthetic reproduction matches
+the rig log's own numbers closely enough to trust, but nobody has
+watched the actual cursor stop sticking on the projected table yet. Ask
+the developer to restart `run.py` and try the fast-move case once more;
+if the stuck/reappear symptom is gone, this item is finally done — if
+any of it remains, read `logs/hotpot-<date>.log`'s `pointer track` lines
+again before guessing further, the same discipline that got here.
 
 ---
 

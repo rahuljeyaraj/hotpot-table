@@ -436,6 +436,53 @@ class TestSmoothing(unittest.TestCase):
         self.assertEqual(t.smoothing_tau_s, tracking.TRACK_SMOOTHING_TAU_S)
 
 
+class TestMatchingAgainstTheRawPosition(unittest.TestCase):
+    """RIG_FEEDBACK item 11 (2026-08-13), the confirmed root cause: a new
+    detection used to be matched against a track's SMOOTHED `x`/`y` —
+    which lags the true hand position by design, that being the entire
+    point of an EMA — rather than its last REAL detection. Under
+    sustained motion the lag itself grows past the match gate, which has
+    nothing to do with the hand's actual frame-to-frame movement, and a
+    second track spawns to compete for the same physical hand. Confirmed
+    on the rig (two independent reproductions, `docs/RIG_FEEDBACK_
+    2026-08-12.md`'s item 11) and reproduced here at unit-test scale.
+    """
+
+    def test_sustained_motion_stays_one_track_not_a_spawning_cascade(self):
+        # 2 m/s (2000 px/s at this rig's ~1px=1mm stage scale) for a third
+        # of a second at a realistic 30Hz — a brisk, plausible "I moved my
+        # hand quickly", not an extreme one. Before this fix, matching
+        # against the lagging smoothed position spawned a second,
+        # competing track by the 5th tick of exactly this scenario.
+        t = tracking.HandTracker()
+        now = 0.0
+        x = 0.0
+        first_id = None
+        for _ in range(10):
+            now += 0.033
+            x += 2000.0 * 0.033
+            hands = t.update([det(x, 500.0)], now=now)
+            # The direct regression check: a ghost track would show up
+            # here as a second hand (ambient), not just as a different id.
+            self.assertEqual(len(hands), 1)
+            if first_id is None:
+                first_id = hands[0].id
+            self.assertEqual(hands[0].id, first_id)
+        self.assertEqual(len(t.tracks), 1)
+
+    def test_the_raw_position_is_never_smoothed_even_though_x_y_is(self):
+        t = tracking.HandTracker(smoothing_tau_s=0.1)
+        t.update([det(0, 0)], now=0.0)
+        t.update([det(100, 0)], now=0.033)
+        track = t.tracks[0]
+        self.assertAlmostEqual(track.raw_x, 100.0)
+        self.assertAlmostEqual(track.raw_y, 0.0)
+        # The smoothed display position is still genuinely smoothed —
+        # this fix changes what MATCHING compares against, not the EMA
+        # itself, which item 8 still wants for a jitter-free cursor.
+        self.assertLess(track.x, 100.0)
+
+
 class TestWhatGoesOnTheWire(unittest.TestCase):
 
     def test_hands_come_back_in_stable_id_order(self):
