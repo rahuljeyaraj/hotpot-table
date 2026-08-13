@@ -225,7 +225,6 @@ shown it can be made to hold up with two real hands yet.
 from __future__ import annotations
 
 import logging
-import math
 import os
 import threading
 import time
@@ -721,10 +720,10 @@ class TrackerProcess:
         self._stale = False
         self._last_emit: Optional[float] = None
         self._last_landmarks_send: Optional[float] = None
-        # RIG_FEEDBACK item 11 (2026-08-13): which track id currently holds
-        # the pointer role, logged only on CHANGE — see
+        # RIG_FEEDBACK item 11 (2026-08-13): whether the single pointer was
+        # present last tick, logged only on CHANGE — see
         # `_log_pointer_transition`'s own docstring for why this exists.
-        self._last_pointer_id: Optional[int] = None
+        self._pointer_present: bool = False
         # MediaPipe's VIDEO mode rejects a timestamp that does not
         # increase, and this process owns the clock (backend.py's
         # docstring) so a backend swap mid-probe cannot restart it.
@@ -943,13 +942,8 @@ class TrackerProcess:
             return False
 
         staged = self._to_stage(detections, scale, origin, h, stage)
-        # RIG_FEEDBACK item 11: captured BEFORE `update()` mutates
-        # `self.tracker`'s own state — this is "what the outgoing pointer
-        # looked like going into this tick", exactly what `_match` itself
-        # would have compared `staged` against.
-        prev_pointer = self.tracker.pointer()
         hands = self.tracker.update(staged, now)
-        self._log_pointer_transition(hands, staged, prev_pointer, now)
+        self._log_pointer_transition(hands, staged, now)
         self.sender.send(hands, ts=time.time())
         # RIG_FEEDBACK item 11 diagnostic (skeletonbus.py's module
         # docstring): the raw skeleton, mapped to stage space, sent to oF
@@ -966,58 +960,28 @@ class TrackerProcess:
 
     def _log_pointer_transition(self, hands: Sequence[cursorbus.Hand],
                                 staged: Sequence[Detection],
-                                prev_pointer, now: float) -> None:
-        """RIG_FEEDBACK item 11 (2026-08-13): logs ONLY when the pointer
-        ROLE moves to a different track id (or appears/disappears) — never
+                                now: float) -> None:
+        """Logs only when the single pointer appears or disappears — never
         every tick, so this is cheap enough to leave running.
 
-        **2026-08-13, updated after the first version of this log ruled
-        out both prior theories.** The rig log it produced showed neither
-        a real detection gap (`len(staged)` was 1, not 0, on almost every
-        loss) nor an acquisition-window timeout (no matching
-        `"acquisition window lost"` line for all but the very last of a
-        dozen-plus transitions in one ~20s stretch) — instead a repeating
-        pattern: the pointer track dies, and ~`PROMOTE_DELAY_S` (0.5s)
-        later a BRAND NEW id becomes pointer, over and over, sometimes
-        with no gap at all (a direct id-to-id jump — the "a Right hand
-        arriving demotes the incumbent" rule in `tracking.py._appear`
-        firing on what should be the SAME hand's continuation). That
-        pattern means detections keep arriving, on the SAME committed
-        acquisition window, but each new one is failing to MATCH the
-        existing pointer track and is instead starting a fresh one — a
-        `tracking.py._match` gate question, not a data-availability one.
-        This version logs the actual numbers a real match would have
-        compared: the distance from the outgoing pointer's own last
-        position to the nearest point in `staged` (what this tick
-        actually detected, in stage space — the same space `_match`'s
-        gate operates in), against what that gate would have been. If the
-        distance is huge (hundreds+ px in one tick at a normal camera
-        rate) with a modest gate, that is either a genuinely implausible
-        hand speed or a coordinate-space bug (e.g. stage-space jitter
-        amplified from a small camera-space wobble) — this is the
-        evidence that tells the two apart.
+        RIG_FEEDBACK item 11's whole investigation lived in this method
+        through three fixes to `tracking.py`'s old two-hand matching/role
+        logic, each real, none sufficient — because that machinery was
+        answering "which of two hands is this" on a rig that only ever
+        tracks one. `tracking.py` is now a plain single-hand filter with
+        no id to churn (see its own module docstring), so there is
+        nothing left to log a distance/gate comparison for. What remains
+        useful: how often the one hand drops out at all, and whether a
+        drop lines up with 0 raw detections (a real gap this tick) or a
+        raw detection MediaPipe just failed to smooth into (which would
+        point at `tracking.py` again, not at MediaPipe).
         """
-        current = next((h.id for h in hands
-                        if h.role == cursorbus.ROLE_POINTER), None)
-        if current == self._last_pointer_id:
+        present = bool(hands)
+        if present == self._pointer_present:
             return
-        detail = ""
-        if prev_pointer is not None and staged:
-            dist, nearest = min(
-                ((math.hypot(d.x - prev_pointer.x, d.y - prev_pointer.y), d)
-                 for d in staged), key=lambda pair: pair[0])
-            gate = max(self.tracker.match_gate_px,
-                      self.tracker.match_speed_px_s
-                      * (now - prev_pointer.last_seen))
-            detail = (
-                f" — outgoing pointer was at ({prev_pointer.x:.0f},"
-                f"{prev_pointer.y:.0f}), nearest staged point this tick at "
-                f"({nearest.x:.0f},{nearest.y:.0f}), {dist:.0f}px away, "
-                f"gate was {gate:.0f}px")
-        _log.info("tracker: pointer track %s -> %s at t=%.3f "
-                  "(%d raw detections this tick)%s",
-                  self._last_pointer_id, current, now, len(staged), detail)
-        self._last_pointer_id = current
+        _log.info("tracker: pointer %s at t=%.3f (%d raw detections this tick)",
+                  "appeared" if present else "disappeared", now, len(staged))
+        self._pointer_present = present
 
     # -- acquisition (module docstring, decision 7) -------------------------
 

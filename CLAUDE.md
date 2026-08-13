@@ -11,13 +11,16 @@ It is authoritative. This file is only status + rules.
 **Open feedback queue:** `docs/RIG_FEEDBACK_2026-08-12.md` — eleven items
 from the first real M5 rig run, each scoped for one fresh session. Items
 1, 2, 8, 9 are resolved (2 by a workaround, not code). **Item 11 (pointer
-lags/snaps on a fast hand move) is STILL OPEN on the rig, 2026-08-13,
-despite three separate, individually-confirmed fixes (a time-based match
-gate; matching against a track's real position instead of its smoothed,
-lagging one — both kept, real, rig-log-confirmed mechanisms, neither
-reverted) — read item 11's own section in full before starting, it ends
-with a ruled-out list and concrete leads for the next attempt, and skips
-re-deriving this session's already-confirmed-or-ruled-out mechanisms.**
+lags/snaps on a fast hand move): NOT YET RIG-CONFIRMED, 2026-08-13.**
+`tracker.max_hands` is `1` on this rig (two-hand tracking measured
+unstable, disabled the same day) — `tracking.py`'s old doc-11.3 two-hand
+role/match/hysteresis machinery (three separate fixes to it, each real,
+none sufficient) has been deleted outright, developer's call, because it
+was answering "which of two hands is this" on a rig that only ever has
+one. `tracking.py` is now a ~140-line single-hand smoothing filter, no
+identity matching, no role assignment. **Read item 11's own section in
+full before touching this again — it has the reasoning, what was ruled
+out along the way, and what still needs a rig observation to confirm.**
 Items 3, 4-7, 10 have developer decisions recorded
 (2026-08-13) and are ready to build but not
 started. Check that

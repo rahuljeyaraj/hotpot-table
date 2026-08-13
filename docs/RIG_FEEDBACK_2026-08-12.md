@@ -608,6 +608,70 @@ together rather than read.
 belongs to the developer, not to whoever is coding — ask before adding
 either piece of instrumentation, per the lesson above.
 
+**2026-08-13, same session, developer's decision: delete the two-hand
+machinery outright instead of instrumenting A or B.** `tracker/main.py`
+has run `max_hands=1` since earlier the same day (two-hand tracking
+measured unstable on this rig, see that file's own module docstring) —
+MediaPipe is configured with `num_hands=1`, so `tracking.py`'s
+`detections` structurally never carries more than one hand. Every piece
+of the old design (`_match`'s nearest-neighbour gate, `_appear`'s
+handedness-based takeover, the 500ms+500ms retire/promote cycle) existed
+to answer "which of two hands is this, and which one gets the pointer
+role" — questions that only have a second answer to choose between if a
+second hand actually reaches this module, which on this rig's current
+config it never does. **This reframes the whole investigation above, not
+just the fix: theories A and B were both about why a real, continuous,
+single hand's OWN next detection kept failing to match its OWN existing
+track — but the two-hand role-assignment logic downstream of that match
+(`_appear`'s takeover in particular) was answering a question about a
+SECOND hand that was never being asked, on THIS rig, with THIS config.**
+Whether A or B was the deeper cause of the original match failures is
+now moot for this rig specifically — there is no more matching for it to
+break.
+
+`tracking.py` is now a plain single-hand filter (~140 lines, down from
+~400): a detection either exists this tick or it doesn't; if it does,
+it's the pointer, always, with a constant id; smoothing (item 8's EMA)
+is the only thing still applied. No identity matching, no role
+assignment, no gate, no grace period, no promotion delay. Verified this
+doesn't touch anything downstream before making the change, not assumed:
+`core/hover.py`'s `pick_pointer`/`DwellTracker` both key off role and
+x/y position only, never off a hand's track id — `core/` never even
+imports `hotpot.tracker` (doc's own "core owns all state" boundary) — so
+nothing about dwell, hit-testing, or billing could have depended on the
+id-churn machinery being removed. `tracker/main.py`'s own
+`_log_pointer_transition` (this item's diagnostic instrumentation)
+simplified to match: it logged match-distance-vs-gate arithmetic that no
+longer exists; it now logs only when the single pointer appears or
+disappears.
+
+If two-hand tracking is ever revisited, this file's git history before
+this commit has the full doc-11.3 role/match/hysteresis design to rebuild
+from — deleted outright, not left dormant, this codebase's usual rule
+for a removed mechanism (see CLAUDE.md's M4k/M4n-fix precedent for the
+same call made elsewhere in this project).
+
+864 tests pass (`python -m unittest discover -s python/tests`), down from
+888 mainly because the two-hand test suites (`TestTheGate`,
+`TestRoleAssignment`, `TestTheRoleLock`, `TestReleaseAndPromotion` in the
+old `test_tracking.py`) no longer describe anything this module does and
+were deleted with it, not weakened in place.
+
+**Not yet rig-confirmed — this is the fourth code change on this item,
+and the discipline that got here says say so plainly: watch the actual
+projected table on a fast hand move before calling this item done.** If
+the stuck-then-snap look is gone, this item is resolved as a genuine
+architecture simplification, not a masking mitigation — the diner's
+cursor is now, structurally, the same one-hand-smoothed-only data path
+the skeleton diagnostic already proved reads as smooth. If a glitch
+remains, it did not come from anything this session removed (matching,
+roles, hysteresis are gone, not merely quieter) — the next places to
+look are upstream of `tracking.py` entirely: the acquisition window
+(theory A above, still unconfirmed either way), MediaPipe's own
+per-frame jitter through the smoothing filter, or downstream of this
+process (cursorbus/`CursorLink`/oF's render loop, never directly ruled
+out).
+
 ---
 
 **Order isn't prescribed** — pick whichever item the developer wants

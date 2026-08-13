@@ -721,57 +721,35 @@ class TestAcquisitionScheduling(unittest.TestCase):
 
 
 class TestPointerTransitionLogging(ProcCase):
-    """RIG_FEEDBACK item 11 (2026-08-13): logs only when the pointer role
-    moves to a different track id, cheap enough to leave running on the
-    rig — see `_log_pointer_transition`'s own docstring for why this
-    exists (two previous, reasoned-but-wrong theories for the stuck
-    cursor; this is the one question that actually splits the search
-    space, not a third guess).
+    """RIG_FEEDBACK item 11 (2026-08-13): logs only when the single
+    pointer appears or disappears, cheap enough to leave running on the
+    rig — see `_log_pointer_transition`'s own docstring for what this log
+    used to do (three theories about `tracking.py`'s old two-hand id
+    churn, each real, none sufficient) and why it's simpler now that
+    module has no id to churn.
     """
 
-    def test_a_matched_track_logs_once_on_appear_and_not_again(self):
+    def test_a_present_hand_logs_once_on_appear_and_not_again(self):
         proc, _src, _sender = self.make(
             script=[[det(10, 20)], [det(12, 22)]])
         with self.assertLogs("hotpot.tracker", level="INFO") as cm:
-            proc.tick(now=0.0)      # appear: None -> some id
-            proc.tick(now=0.033)    # still matched, same id: no new line
-        transitions = [m for m in cm.output if "pointer track" in m]
+            proc.tick(now=0.0)      # appear
+            proc.tick(now=0.033)    # still present: no new line
+        transitions = [m for m in cm.output
+                       if "pointer appeared" in m or "pointer disappeared" in m]
         self.assertEqual(len(transitions), 1)
-        self.assertIn("None -> ", transitions[0])
+        self.assertIn("pointer appeared", transitions[0])
 
-    def test_a_lost_track_logs_the_drop_with_the_raw_detection_count(self):
+    def test_a_lost_hand_logs_the_drop_with_the_raw_detection_count(self):
         proc, _src, _sender = self.make(script=[[det(10, 20)], []])
         with self.assertLogs("hotpot.tracker", level="INFO") as cm:
             proc.tick(now=0.0)
-            # Past TRACK_GRACE_S with nothing detected: a real gap, not a
-            # tracking.py bug — this is the case the log line's own
-            # docstring calls "0 raw detections this tick".
-            proc.tick(now=10.0)
-        transitions = [m for m in cm.output if "pointer track" in m]
+            proc.tick(now=0.033)    # no detection this tick: a real gap
+        transitions = [m for m in cm.output
+                       if "pointer appeared" in m or "pointer disappeared" in m]
         self.assertEqual(len(transitions), 2)
-        self.assertIn("-> None", transitions[1])
+        self.assertIn("pointer disappeared", transitions[1])
         self.assertIn("0 raw detections", transitions[1])
-
-    def test_a_role_swap_logs_the_distance_and_gate_that_were_compared(self):
-        # This is the exact shape found on the rig (2026-08-13): a direct
-        # id-to-id jump with no "-> None" in between, via `_appear`'s Right
-        # -hand-takeover rule — det(400,20) is far enough past the match
-        # gate at this dt (H_TEST doubles + offsets, so ~780px stage-space
-        # apart, against a ~150px gate) that it cannot be the SAME hand
-        # continuing by the gate's own arithmetic, only a new one taking
-        # over.
-        proc, _src, _sender = self.make(
-            script=[[det(10, 20)], [det(400, 20, handedness=HAND_RIGHT)]])
-        with self.assertLogs("hotpot.tracker", level="INFO") as cm:
-            proc.tick(now=0.0)
-            proc.tick(now=0.033)
-        transitions = [m for m in cm.output if "pointer track" in m]
-        self.assertEqual(len(transitions), 2)
-        swap = transitions[1]
-        self.assertNotIn("-> None", swap)
-        self.assertIn("outgoing pointer was at", swap)
-        self.assertIn("gate was", swap)
-        self.assertIn("px away", swap)
 
 
 class TestStaleFrames(ProcCase):
@@ -796,16 +774,16 @@ class TestStaleFrames(ProcCase):
         self.assertEqual(len(stale), 1)
         self.assertEqual(stale[0]["t"], "stat")
 
-    def test_going_stale_drops_every_role(self):
-        # A role held across an outage of unknown length means the bowl
-        # hand keeping a pointer role it inherited before the camera died.
+    def test_going_stale_drops_the_pointer(self):
+        # A pointer held across an outage of unknown length would keep
+        # reporting a hand at wherever it was before the camera died.
         proc, source, _sender = self.make(
-            script=[[det(10, 10, HAND_RIGHT), det(40, 10, HAND_LEFT)]])
+            script=[[det(10, 10, HAND_RIGHT)]])
         proc.tick(now=0.0)
         self.assertIsNotNone(proc.tracker.pointer())
         source.queue = [(None, "stale")]
         proc.tick(now=1.0)
-        self.assertEqual(proc.tracker.tracks, [])
+        self.assertIsNone(proc.tracker.pointer())
 
     def test_going_stale_drops_every_committed_acquisition_window(self):
         # Module docstring, decision 7: a window survived across an outage
