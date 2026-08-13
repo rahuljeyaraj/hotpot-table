@@ -221,8 +221,8 @@ never checked — see the original note above, still true) remain
 unscoped past that. Not yet built.
 
 ## 11. Pointer lags behind a fast hand move, and sometimes sticks then
-    snaps to the new location — DONE, commit 7090f15, not yet
-    rig-confirmed, 2026-08-13
+    snaps to the new location — STILL OPEN, two theories tried and ruled
+    out, a diagnostic in place, 2026-08-13
 
 Developer's report from the same rig session: the MediaPipe overlay
 (Developer tab, item 9/10) tracks a fast hand move with no trouble, but
@@ -265,9 +265,69 @@ under a reverted mutation, so they're not passing by construction).
 `common/geometry.match_nearest` gained the ability to take a per-point
 gate list (still accepts a single float, existing callers unchanged) so
 each track's own gate — which depends on that track's own time since
-last seen — can differ within one call. **Not yet confirmed against the
-actual stuck/reappear symptom on the rig, and `MATCH_SPEED_PX_S` is a
-starting point, not a measurement — same caveat item 8's own tau has.**
+last seen — can differ within one call.
+
+**2026-08-13, later: developer restarted `run.py` (twice) and the match
+gate above made no difference — real signal, but not yet ruled OUT**
+(the gate can only help when a detection exists to match against; it
+does nothing for a genuine gap in detections reaching `tracking.py`).
+Left in place — it is still a correct, tested widening for the case it
+targets, just evidently not the (whole) cause here.
+
+**2026-08-13, later still: a second theory (a fast hand outrunning
+`tracker/main.py`'s per-hand acquisition crop, decision 7) was built,
+tested with a diagnostic log first, then a fix (chasing the hand's
+predicted position on a miss instead of leaving the crop frozen) — and
+the developer's own rig test showed NO EFFECT. That fix (commit
+7f33248) has been REVERTED (commits 4fef920, d05c449) rather than left
+in place not working.** The developer's counter-argument is the reason
+to trust the revert, not just the negative test result: the raw
+MediaPipe skeleton on the Developer tab (item 9/10) is fed from the
+EXACT SAME per-tick detections as the cursor (`tracker/main.py`'s
+`tick()` — one `detect()` call serves both `_maybe_send_landmarks` and
+`tracker.update()`), and `_maybe_send_landmarks` sends explicitly even
+on an empty detection (see its own docstring — silence would read as
+the tracker being dead). If the acquisition window were really losing
+the hand for up to a second, the Developer tab's skeleton should blank
+out for that same second — and the developer reports the opposite: the
+skeleton stays smooth, even looking faster than the video itself, with
+the actual hand seeming to trail behind it. **The diagnostic log from
+that theory (three real "lost after 1.03s" events, matching the
+reported stuck duration closely) was real data, but real data pointing
+at a real but probably COINCIDENTAL event, not the trigger** — window
+losses evidently happen on this rig without producing every stuck-cursor
+report, or without being the specific mechanism behind the ones being
+watched for.
+
+**Where this leaves it, 2026-08-13, not yet resolved:** two reasoned,
+tested-in-isolation, rig-tested-and-found-wanting theories is enough
+guessing — the next step is a diagnostic that answers the one question
+that actually splits the search space, rather than a third theory.
+Added (commit — see below): `tracker/main.py` now logs every time the
+POINTER ROLE moves to a different track id (or appears/disappears),
+together with how many raw detections existed that same tick. Read on
+the next rig reproduction:
+- **If the log shows `-> None` with `0 raw detections`** at the moment
+  the cursor sticks, `tracking.py` is genuinely losing the track because
+  no data reached it that tick — a real upstream gap, contradicting the
+  smooth-skeleton observation, and worth checking whether the Developer
+  tab's own 10Hz throttle (`LANDMARKS_HZ`) or a browser-side rendering
+  quirk is masking a gap that real detection does have.
+- **If the log shows no transition at all while the cursor is visibly
+  stuck** (the pointer track id never changes), the freeze is happening
+  AFTER this process entirely — the cursorbus UDP send, `CursorLink` on
+  the oF side (`of/hotpot-table/src/CursorLink.cpp` — drain-to-latest,
+  sequence-gated, `kCursorHoldSeconds=0.35f`), or oF's own render loop —
+  and the fix belongs there, not in the Python tracker.
+- **If the log shows a transition to a DIFFERENT id with detections
+  still present that tick**, that is a distinct bug in `tracking.py`'s
+  own matching (an id swap, which `_match`'s own docstring already
+  treats as the one failure that module exists to prevent) — not a data
+  gap at all.
+
+Ask the developer to restart `run.py` once more, reproduce the fast-move
+stuck cursor, then read `logs/hotpot-<date>.log` for `pointer track`
+lines around that moment.
 
 ---
 

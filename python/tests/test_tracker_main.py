@@ -634,6 +634,39 @@ class TestAcquisitionScheduling(unittest.TestCase):
         self.assertEqual(proc._track_backends, made[1:])
 
 
+class TestPointerTransitionLogging(ProcCase):
+    """RIG_FEEDBACK item 11 (2026-08-13): logs only when the pointer role
+    moves to a different track id, cheap enough to leave running on the
+    rig — see `_log_pointer_transition`'s own docstring for why this
+    exists (two previous, reasoned-but-wrong theories for the stuck
+    cursor; this is the one question that actually splits the search
+    space, not a third guess).
+    """
+
+    def test_a_matched_track_logs_once_on_appear_and_not_again(self):
+        proc, _src, _sender = self.make(
+            script=[[det(10, 20)], [det(12, 22)]])
+        with self.assertLogs("hotpot.tracker", level="INFO") as cm:
+            proc.tick(now=0.0)      # appear: None -> some id
+            proc.tick(now=0.033)    # still matched, same id: no new line
+        transitions = [m for m in cm.output if "pointer track" in m]
+        self.assertEqual(len(transitions), 1)
+        self.assertIn("None -> ", transitions[0])
+
+    def test_a_lost_track_logs_the_drop_with_the_raw_detection_count(self):
+        proc, _src, _sender = self.make(script=[[det(10, 20)], []])
+        with self.assertLogs("hotpot.tracker", level="INFO") as cm:
+            proc.tick(now=0.0)
+            # Past TRACK_GRACE_S with nothing detected: a real gap, not a
+            # tracking.py bug — this is the case the log line's own
+            # docstring calls "0 raw detections this tick".
+            proc.tick(now=10.0)
+        transitions = [m for m in cm.output if "pointer track" in m]
+        self.assertEqual(len(transitions), 2)
+        self.assertIn("-> None", transitions[1])
+        self.assertIn("0 raw detections", transitions[1])
+
+
 class TestStaleFrames(ProcCase):
     """Doc section 6.4: "stop emitting (tracker sends nothing rather than
     sending a frozen cursor), report frames_stale to core, keep polling;

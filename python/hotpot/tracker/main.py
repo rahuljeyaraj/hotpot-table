@@ -714,6 +714,10 @@ class TrackerProcess:
         self._stale = False
         self._last_emit: Optional[float] = None
         self._last_landmarks_send: Optional[float] = None
+        # RIG_FEEDBACK item 11 (2026-08-13): which track id currently holds
+        # the pointer role, logged only on CHANGE — see
+        # `_log_pointer_transition`'s own docstring for why this exists.
+        self._last_pointer_id: Optional[int] = None
         # MediaPipe's VIDEO mode rejects a timestamp that does not
         # increase, and this process owns the clock (backend.py's
         # docstring) so a backend swap mid-probe cannot restart it.
@@ -933,11 +937,48 @@ class TrackerProcess:
 
         staged = self._to_stage(detections, scale, origin, h, stage)
         hands = self.tracker.update(staged, now)
+        self._log_pointer_transition(hands, len(detections), now)
         self.sender.send(hands, ts=time.time())
         self._last_emit = now
         self.emitted += 1
         self._count_probe_frame(now)
         return True
+
+    def _log_pointer_transition(self, hands: Sequence[cursorbus.Hand],
+                                num_raw_detections: int, now: float) -> None:
+        """RIG_FEEDBACK item 11 (2026-08-13): logs ONLY when the pointer
+        ROLE moves to a different track id (or appears/disappears) — never
+        every tick, so this is cheap enough to leave running.
+
+        Two previous theories for the stuck/reappear cursor report (the
+        match-gate widening, commit 7090f15; the acquisition-window chase,
+        reverted after the developer tested it and found no effect) were
+        both reasoned from code and both turned out not to be it — the
+        developer's own counter-argument was sound: `tracker/main.py`'s
+        raw MediaPipe skeleton (Developer tab) and the cursor are built
+        from the exact same per-tick `detections`, and the skeleton does
+        not stick, so guessing about WHERE upstream of the cursor a gap
+        might be is not working. This answers the one question that
+        actually splits the search space in two: **when the pointer
+        disappears, is `tracker.py` genuinely losing the track (a real
+        gap reaching this module), or does the pointer id stay the SAME
+        the whole time and the freeze is happening somewhere AFTER this
+        process** — the cursorbus UDP send, `CursorLink` on the oF side,
+        or oF's own render loop? `num_raw_detections` on the SAME tick a
+        pointer vanishes answers it directly: 0 means a real detection
+        gap (upstream of tracking.py); >0 means tracking.py itself is
+        dropping a track it was actually given data for this tick, which
+        would be a different bug in `tracking.py`'s own matching/retire
+        logic, not a data-availability problem at all.
+        """
+        current = next((h.id for h in hands
+                        if h.role == cursorbus.ROLE_POINTER), None)
+        if current == self._last_pointer_id:
+            return
+        _log.info("tracker: pointer track %s -> %s at t=%.3f "
+                  "(%d raw detections this tick)",
+                  self._last_pointer_id, current, now, num_raw_detections)
+        self._last_pointer_id = current
 
     # -- acquisition (module docstring, decision 7) -------------------------
 
