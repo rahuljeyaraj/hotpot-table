@@ -851,6 +851,36 @@
         </div>
 
         <div class="setup-card">
+          <h2>Classifier</h2>
+          <!-- core/main.py's `_classify_pass`, ~2Hz (config `classifier.
+               live_hz`) for as long as Serving is off (M7 build items 2-3)
+               — the model's raw best guess and confidence per bin, on the
+               new `classify` broadcast, drawn as a box per bin on the SAME
+               rectified table image the classifier itself crops from (the
+               Setup tab's "Bin grid" picture — camera_grid, not the raw
+               feed, and not the projector grid either). Deliberately BEFORE
+               doc §9.3's 65% confidence floor: `_bin_msg`/`_bins_tab_msg`
+               only ever show a label once it clears that floor, so a bin
+               sitting right below it looks identical to one with no
+               classifier running at all — this card exists to answer "what
+               did the model actually see" instead. Needs the table corners
+               confirmed (Setup tab) first; there is no other picture to
+               draw a box on. -->
+          <p>Every bin's raw classify result — label and confidence, BEFORE
+             the 65% confidence floor Bins/Live apply. A box reading "40%"
+             is a real result the rest of the app still treats as
+             unresolved, not a bug.</p>
+          <div class="live-feed-wrap">
+            <img id="clsImg" alt="">
+            <canvas id="clsOverlay"></canvas>
+            <div id="clsPlaceholder" class="live-feed-placeholder">
+              Waiting for the camera…
+            </div>
+          </div>
+          <div class="dev-hands-list" id="clsList">No classify pass yet.</div>
+        </div>
+
+        <div class="setup-card">
           <h2>Active processes</h2>
           <p>Doc §12.2's six process pips (camera·tracker·classifier·
              voice·core·table). An operator cannot act on "tracker is
@@ -1189,6 +1219,111 @@
     scheduleCameraRetry();
   });
 
+  // --- Classifier card (Developer tab) — the raw `classify` broadcast ----
+  // core/main.py's `_classify_pass` sends this every ~0.5s (config
+  // `classifier.live_hz`) for as long as Serving is off, straight from the
+  // classifier's reply — never gated by doc §9.3's confidence floor the
+  // way `_bin_msg`/`_bins_tab_msg` are. Drawn on the RECTIFIED preview
+  // (unlike the hand-skeleton card above): the boxes being drawn are
+  // `core/bin_grid.py`'s camera grid, which is only ever meaningful
+  // against that same warped picture (see the Setup tab's "Bin grid" card
+  // comment) — drawing them on the raw feed would put them nowhere near
+  // the actual bins whenever the camera isn't square to the table.
+  // `gridRects()`/`drawRectifiedPreview()`/`confirmedCorners`/`stageSize`
+  // are the Setup tab's own (declared further down this script, but
+  // `function` declarations are hoisted and these are only ever CALLED
+  // from an event/timer callback, by which point every `var` below has
+  // already run once — same reasoning `applyGeometry` already relies on).
+  var clsImg = document.getElementById("clsImg");
+  var clsOverlay = document.getElementById("clsOverlay");
+  var clsPlaceholder = document.getElementById("clsPlaceholder");
+  var clsOverlayCtx = clsOverlay.getContext("2d");
+  var clsList = document.getElementById("clsList");
+  // Keyed by bin index. A bin absent from one pass (the classifier's own
+  // "one bin's backend failure must not blank the other seven" — see
+  // classifier/main.py's `_classify`) keeps its last-known entry rather
+  // than being cleared, so a single transient failure doesn't blank a box.
+  var latestClassify = {};
+
+  function updateClsList() {
+    var parts = [];
+    for (var i = 0; i < NUM_BINS; i++) {
+      var e = latestClassify[i];
+      parts.push("bin " + i + ": " + (e
+        ? (e.label || "no label") + " " + Math.round((e.conf || 0) * 100) + "%"
+        : "—"));
+    }
+    clsList.textContent = parts.join("    ");
+  }
+
+  function applyClassify(msg) {
+    (msg.bins || []).forEach(function (e) {
+      if (typeof e.i !== "number") return;
+      latestClassify[e.i] = { label: e.label, conf: e.conf };
+    });
+    drawClsOverlay();
+    updateClsList();
+  }
+
+  function drawClsOverlay() {
+    clsOverlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    clsOverlayCtx.clearRect(0, 0, clsOverlay.width, clsOverlay.height);
+    if (!confirmedCorners || !clsImg.naturalWidth) return;
+    drawRectifiedPreview(clsOverlayCtx, clsImg, confirmedCorners,
+                         clsOverlay.width, clsOverlay.height);
+    var rects = gridRects();
+    clsOverlayCtx.lineWidth = Math.max(2, clsOverlay.width / 480);
+    clsOverlayCtx.font = Math.max(13, clsOverlay.width / 70) + "px sans-serif";
+    clsOverlayCtx.textBaseline = "top";
+    rects.forEach(function (r, i) {
+      if (!r) return;
+      clsOverlayCtx.strokeStyle = "#3ecf6e";
+      clsOverlayCtx.strokeRect(r[0], r[1], r[2], r[3]);
+      var e = latestClassify[i];
+      var text = e
+        ? (e.label || "no label") + "  " + Math.round((e.conf || 0) * 100) + "%"
+        : "bin " + i + " — no result yet";
+      var tw = clsOverlayCtx.measureText(text).width;
+      clsOverlayCtx.fillStyle = "rgba(0,0,0,0.65)";
+      clsOverlayCtx.fillRect(r[0], r[1], tw + 10, 20);
+      clsOverlayCtx.fillStyle = "#3ecf6e";
+      clsOverlayCtx.fillText(text, r[0] + 5, r[1] + 3);
+    });
+  }
+
+  // Mirrors `sizeSetupOverlay`'s rectified-only sizing: this card has
+  // nothing meaningful to show before the table corners are confirmed (no
+  // picture for the boxes to sit on), so unlike `sizeDevOverlay` it does
+  // not fall back to the raw feed's own natural size at all.
+  function sizeClsOverlay() {
+    if (!confirmedCorners || !clsImg.naturalWidth) {
+      clsPlaceholder.textContent = confirmedCorners
+        ? "Waiting for the camera…"
+        : "Confirm the table corners on the Setup tab first.";
+      clsPlaceholder.classList.remove("hide");
+      return;
+    }
+    clsPlaceholder.classList.add("hide");
+    if (clsOverlay.width !== stageSize[0]) clsOverlay.width = stageSize[0];
+    if (clsOverlay.height !== stageSize[1]) clsOverlay.height = stageSize[1];
+    clsImg.classList.add("roi-hidden");   // canvas draws the picture; the <img> is a pixel source only
+    drawClsOverlay();
+  }
+
+  clsImg.addEventListener("load", function () { sizeClsOverlay(); });
+  clsImg.addEventListener("error", function () {
+    clsPlaceholder.textContent = "Camera offline — retrying…";
+    clsPlaceholder.classList.remove("hide");
+    scheduleCameraRetry();
+  });
+
+  // Own constant, not the Setup tab's SETUP_FRAME_MS — same forward-
+  // reference trap `LIVE_FRAME_MS`'s own comment below explains.
+  var CLS_FRAME_MS = 100;   // ~10fps, same budget as the other rectified redraw loops
+  setInterval(function () {
+    if (developerPanel.classList.contains("active")) drawClsOverlay();
+  }, CLS_FRAME_MS);
+
   // MJPEG has no per-frame JS hook (same reason the Setup tab's own tick
   // exists) — needed here only while showing the rectified preview, which
   // is drawn fresh from whatever the <img> currently holds; the plain raw
@@ -1225,6 +1360,7 @@
     liveImg.src = cameraUrl + bust;
     setupImg.src = cameraUrl + bust;
     devImg.src = cameraUrl + bust;
+    clsImg.src = cameraUrl + bust;
   }
 
   function scheduleCameraRetry() {
@@ -2615,6 +2751,7 @@
     // operator watching the Live tab during Confirm should see it happen.
     sizeOverlayToImage();
     sizeDevOverlay();
+    sizeClsOverlay();
     geoCalibrated.textContent = msg.calibrated ? "yes" : "no";
     geoRms.textContent = msg.rms_px === null || msg.rms_px === undefined
       ? "—" : msg.rms_px + " px";
@@ -3243,6 +3380,7 @@
       else if (msg.t === "capture_result") applyCaptureResult(msg);
       else if (msg.t === "capture_progress") applyCaptureProgress(msg);
       else if (msg.t === "landmarks") applyLandmarks(msg);
+      else if (msg.t === "classify") applyClassify(msg);
     };
     ws.onclose = function () {
       // A set_mode whose reply will now never arrive. Left true, the

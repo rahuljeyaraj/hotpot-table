@@ -1196,6 +1196,24 @@ class Core:
                     conf=float(entry.get("conf") or 0.0),
                     source="classifier")
 
+        # Broadcast the RAW pass to every tablet, straight from the reply —
+        # never gated by doc section 9.3's confidence floor the way
+        # `_bin_msg`/`_bins_tab_msg`'s `label` fields are. Those two exist
+        # to answer "is this bin billable"; this one exists to answer "what
+        # did the model actually see", which is a different question and
+        # needs a different (ungated) answer — the Developer tab's
+        # Classifier card is the one place that question gets asked. Not
+        # folded into `_bins_tab_msg`'s own broadcast: that one is 10Hz and
+        # reads `self.binmap` at read time regardless of source, so it
+        # would report a mock/manual bin's old classify result forever.
+        self.web.broadcast({
+            "t": "classify",
+            "bins": [{"i": e.get("i"), "label": e.get("label"),
+                      "conf": round(float(e.get("conf") or 0.0), 3)}
+                     for e in bins if isinstance(e.get("i"), int)],
+            "ms": reply.get("ms"),
+        })
+
     # -- hover and dwell (doc section 9.4 — M5 build item 4) ---------------
 
     def _apply_cursor(self, now: float) -> None:

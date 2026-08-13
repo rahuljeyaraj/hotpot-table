@@ -2369,6 +2369,49 @@ class TestClassifyLive(CoreCase):
             self.core._classify_stop.set()
             t.join(2.0)
 
+    def test_a_pass_broadcasts_the_raw_result_to_every_tablet(self):
+        # The Developer tab's Classifier card (added after the developer's
+        # own report: "I switched between two items and don't see any
+        # change") reads this directly — `_bin_msg`/`_bins_tab_msg` only
+        # ever show a label once it clears doc §9.3's 65% confidence
+        # floor, so a low-confidence guess (the ordinary case with this
+        # thin dataset) never reached ANY tablet before this broadcast
+        # existed, indistinguishable from the classifier not running at
+        # all. This checks the raw number reaches the wire ungated.
+        self.fake_classifier(lambda rects: [
+            {"i": r[4], "label": "soya_chunks", "conf": 0.10} for r in rects])
+        self.ws_ = self.ws()
+        for _ in range(6):
+            self.recv_json(self.ws_)
+        self.core._classify_pass()
+        msg = self.drain_until("classify")
+        self.assertEqual(msg["ms"], 5)
+        by_i = {b["i"]: b for b in msg["bins"]}
+        self.assertEqual(by_i[0]["label"], "soya_chunks")
+        self.assertEqual(by_i[0]["conf"], 0.10)
+        # binmap.resolved() would say False at this confidence — confirms
+        # the broadcast is genuinely ungated, not just a low number that
+        # happens to still clear the floor.
+        self.assertFalse(self.core.binmap.resolved(0))
+
+    def test_no_classifier_connected_sends_no_classify_broadcast(self):
+        # A skipped pass (doc's own "nothing to show for it, not a fault
+        # to raise") must not send an empty/misleading `classify` message
+        # either — silence, same as the bin map being left untouched.
+        self.ws_ = self.ws()
+        for _ in range(6):
+            self.recv_json(self.ws_)
+        self.core._classify_pass()
+        seen_types = []
+        deadline = time.monotonic() + 0.3
+        while time.monotonic() < deadline:
+            try:
+                seen_types.append(self.recv_json(
+                    self.ws_, timeout=deadline - time.monotonic()).get("t"))
+            except TimeoutError:
+                break
+        self.assertNotIn("classify", seen_types)
+
     def test_exit_is_blocked_while_a_bin_is_unresolved(self):
         self.core.binmap.set_bin(0, item_id=None, conf=0.0, source="mock")
         self.ws_ = self.ws()
