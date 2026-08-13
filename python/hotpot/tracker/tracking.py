@@ -115,7 +115,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from hotpot.common import cursorbus, geometry
 from hotpot.tracker.backend import HAND_RIGHT, Detection
@@ -162,6 +162,47 @@ PROMOTE_DELAY_S = 0.5    # ...and only this much later may an ambient inherit
 # outright (used by a few tests below whose own job is matching/role
 # logic, not filtering).
 TRACK_SMOOTHING_TAU_S = 0.10
+
+# RIG_FEEDBACK item 11 (2026-08-13, this fix the fourth on this item — see
+# the item's own doc section for why the first three, each real and each
+# kept, were not enough): the POINTER ROLE'S own id keeps changing —
+# confirmed on the rig by a fresh `pointer track` log pulled with all three
+# prior fixes already running, showing the same churn at roughly the same
+# rate, both as a direct id-to-id `_appear` handedness takeover and as a
+# full retire-then-promote cycle. Nobody has yet nailed down WHY a
+# continuous-looking hand's own detections keep failing to match — three
+# reasoned, rig-tested theories for that have each been confirmed real and
+# each shown insufficient alone (see the doc). This constant does not try
+# to be a fourth one. It targets the complaint directly instead: "sticks,
+# then snaps to the new location" is a description of what the OUTPUT
+# looks like, not of the id bookkeeping — whichever track currently holds
+# the pointer role, a diner only ever sees `update()`'s own returned x/y.
+# Whenever that role moves to a DIFFERENT track id, `update()` now glides
+# the reported position from where the outgoing pointer last was to where
+# the new one is over this many seconds, instead of the two being
+# unrelated numbers on consecutive frames. This is deliberately
+# orthogonal to `TRACK_SMOOTHING_TAU_S` above (which smooths ONE track's own
+# jitter) and to matching/role logic (untouched, still exactly what the
+# tests in `TestTheGate`/`TestRoleAssignment`/`TestReleaseAndPromotion`
+# pin down) — it only changes what the LAST stage of `update()` reports
+# for whichever id currently wins the pointer role. 150ms: short enough
+# that a diner moving their hand with intent is not kept waiting on a
+# glide, comfortably longer than one frame at every rate this rig has
+# measured (33-250ms per `tracker/main.py`'s own docstring) so the eye
+# reads it as motion rather than as two disconnected positions. **A
+# starting point, tune on the rig watching it, same as item 8's tau.**
+POINTER_HANDOFF_S = 0.15
+
+# A role change only glides if the table has shown SOME pointer within
+# this long — otherwise there is nothing meaningful to glide FROM, and a
+# diner arriving fresh after another one walked away must see their own
+# hand's true position immediately, not a slide in from across the table
+# where the last diner's hand used to be. Derived, not a second guessed
+# number: `TRACK_GRACE_S + PROMOTE_DELAY_S` is exactly the longest gap
+# the churn's OWN two guards can produce between one pointer track dying
+# and its replacement being promoted (doc section 11.3 step 4) — this
+# bridges precisely that gap and no more.
+POINTER_HANDOFF_MAX_GAP_S = TRACK_GRACE_S + PROMOTE_DELAY_S
 
 
 @dataclass
@@ -220,6 +261,23 @@ class HandTracker:
     # make promotion unreachable.
     _pointer_released_at: Optional[float] = None
 
+    # RIG_FEEDBACK item 11's handoff glide (see `POINTER_HANDOFF_S`'s own
+    # comment). `_handoff_id` is the pointer track id the glide is tracking
+    # continuity for (so a SECOND role change mid-glide is detected rather
+    # than mistaken for the first one continuing); `_handoff_pos` is the
+    # last DISPLAYED (i.e. already-glided, not the raw track) position, so
+    # re-churn mid-glide keeps sliding from wherever the diner's eye
+    # actually is rather than snapping to the true position first; `_seen`
+    # is when a pointer was last displayed at all, what
+    # `POINTER_HANDOFF_MAX_GAP_S` measures against; `_from`/`_started` are
+    # None whenever no glide is in progress (a fresh pointer with nothing
+    # to glide from, or a glide that has already finished).
+    _handoff_id: Optional[int] = None
+    _handoff_pos: Optional[Tuple[float, float]] = None
+    _handoff_seen: Optional[float] = None
+    _handoff_from: Optional[Tuple[float, float]] = None
+    _handoff_started: Optional[float] = None
+
     # -- the one entry point ----------------------------------------------
 
     def update(self, detections: Sequence[Detection], now: float
@@ -237,9 +295,61 @@ class HandTracker:
         self._match(detections, now)
         self._retire(now)
         self._promote(now)
-        return [cursorbus.Hand(id=t.id, role=t.role, x=t.x, y=t.y,
-                               conf=t.conf)
+        display = self._advance_handoff(now)
+        return [cursorbus.Hand(
+                    id=t.id, role=t.role,
+                    x=display[0] if t.id == self._handoff_id else t.x,
+                    y=display[1] if t.id == self._handoff_id else t.y,
+                    conf=t.conf)
                 for t in sorted(self.tracks, key=lambda t: t.id)]
+
+    def _advance_handoff(self, now: float) -> Tuple[float, float]:
+        """RIG_FEEDBACK item 11 — see `POINTER_HANDOFF_S`'s own comment.
+
+        Pure bookkeeping: does not touch `self.tracks`, matching or roles
+        at all, only what `update()` reports for whichever track currently
+        holds the pointer role. Returns a position even when there is no
+        current pointer (the caller's dict-comprehension guard,
+        `t.id == self._handoff_id`, is what makes that harmless — nothing
+        in `self.tracks` can equal `None`).
+        """
+        current = self.pointer()
+        if current is None:
+            self._handoff_id = None
+            # `_handoff_pos`/`_handoff_seen` deliberately kept — a pointer
+            # reappearing shortly still has somewhere to glide from.
+            return (0.0, 0.0)
+
+        if current.id != self._handoff_id:
+            # The role just moved onto this track (or this is the very
+            # first pointer this tracker has ever had).
+            if (self._handoff_pos is not None and self._handoff_seen is not None
+                    and now - self._handoff_seen <= POINTER_HANDOFF_MAX_GAP_S):
+                self._handoff_from = self._handoff_pos
+                self._handoff_started = now
+            else:
+                self._handoff_from = None
+                self._handoff_started = None
+            self._handoff_id = current.id
+
+        if self._handoff_from is not None and self._handoff_started is not None:
+            frac = ((now - self._handoff_started) / POINTER_HANDOFF_S
+                    if POINTER_HANDOFF_S > 0 else 1.0)
+            if frac >= 1.0:
+                self._handoff_from = None
+                self._handoff_started = None
+                display = (current.x, current.y)
+            else:
+                frac = max(0.0, frac)
+                fx, fy = self._handoff_from
+                display = (fx + frac * (current.x - fx),
+                          fy + frac * (current.y - fy))
+        else:
+            display = (current.x, current.y)
+
+        self._handoff_pos = display
+        self._handoff_seen = now
+        return display
 
     # -- step 1: matching --------------------------------------------------
 

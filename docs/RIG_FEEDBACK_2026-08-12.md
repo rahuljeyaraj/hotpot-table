@@ -550,6 +550,93 @@ this skeleton view, so an id churn/role swap can be matched, tick for
 tick, against a moment the skeleton stayed on one smooth path and the
 cursor visibly stuck.
 
+**2026-08-13, fresh session: the log above already existed on disk from
+the live rig (`logs/hotpot-2026-08-13.log`, lines 1141 on — after the
+skeleton diagnostic's own startup line, with all three prior fixes
+running) and had never been read. Read it. Same churn, same rate as
+before — 51 `pointer track` lines in under 3 minutes, so the three prior
+fixes did not reduce the rate, only proved (each independently, on the
+rig) that they were not sufficient alone.** Splitting the lines by shape,
+which the earlier theories had not done explicitly:
+
+- **Every `id -> None` line's own logged "gate" clusters right around
+  1500-1600px** — not because the jump was that large, but because `gate
+  = max(150, 3000·dt)` and `dt` (time since the dying track's own
+  `last_seen`) is right at `TRACK_GRACE_S` (0.5s) on a retirement line by
+  construction. These lines are retirement artifacts: by the time one
+  fires, the hand has had half a second to wander, so the logged distance
+  says nothing about why the ORIGINAL match failed several ticks earlier
+  — that tick is not logged at all, only the eventual timeout is.
+- **The DIRECT id-to-id lines (no `None` in between — `_appear`'s
+  Right-hand-takeover firing on what should be one continuous hand) are
+  the informative ones**, because their `dt` is small (a track that was
+  JUST matched, not one that has been silently dying for half a second).
+  Five of them this session: 293px/189px gate (dt≈0.063s), 656px/375px
+  (dt≈0.125s), 616px/420px (dt≈0.14s), 509px/375px (dt≈0.125s), 328px/150px
+  (dt≤0.05s). Read as a single hand's own speed, these imply
+  **4.1–6.5+ m/s** — above the 4.5 m/s "slap" the fixed 150px gate was
+  originally reasoned against (`tracking.py`'s own `MATCH_GATE_PX`
+  comment), and well above `MATCH_SPEED_PX_S`'s 3 m/s "deliberate reach."
+  Two readings are possible and the log alone cannot separate them: a
+  genuinely implausible one-tick jump for a single hand (points at a
+  detection-quality problem, e.g. motion blur or the per-hand acquisition
+  window's crop having to re-centre by more than the ~60px/tick shift
+  `tracker/main.py`'s own decision-7 docstring says was actually verified
+  safe — larger shifts were never tested, only assumed to keep working),
+  or a second real hand (the bowl-holding one) genuinely at that distance,
+  with MediaPipe's handedness label flickering onto it — which
+  `tracking.py`'s own opening paragraph already names as the reason role
+  is locked to a track id rather than re-read every frame, except here it
+  decides who WINS the id in the first place, upstream of that lock.
+  **Neither has been confirmed** — this needs `conf` and a same-tick
+  handedness readout added to `_log_pointer_transition`, and ideally
+  knowing whether the developer's reproduction that produced this log had
+  one hand on the table or two, which was not recorded. Left as the
+  leading unconfirmed lead for whoever picks up root-causing this next.
+
+**Fixed instead (this session), deliberately not a fourth theory of WHY
+the match fails — a mitigation that makes the VISUAL complaint go away
+regardless of which of the above (or some other, still-unknown cause) is
+responsible.** `tracking.py`'s `HandTracker.update()` now glides the
+reported pointer position from the outgoing pointer's last position to
+the new one over `POINTER_HANDOFF_S` (150ms) whenever the pointer ROLE
+moves to a different track id — covering both failure shapes the log
+shows (the direct `_appear` takeover AND the retire-then-promote cycle).
+`POINTER_HANDOFF_MAX_GAP_S` (`TRACK_GRACE_S + PROMOTE_DELAY_S` = 1.0s)
+means a diner arriving fresh after a real gap sees their own hand's true
+position immediately — nothing to glide from, so no slide-in from across
+the table. Ordinary continuous tracking (the same track holding the
+pointer role tick after tick, which is the overwhelming majority of
+frames) gets **zero** added lag — the glide only ever engages the instant
+the role's track id changes, never otherwise, and rapid re-churn
+mid-glide continues from the currently-displayed (already-glided)
+position rather than resetting to a raw one, so back-to-back churn still
+reads as one continuous motion instead of two disconnected snaps.
+Matching, the gate, role-lock and promotion timing are all untouched —
+every existing test in `TestTheGate`/`TestRoleAssignment`/
+`TestReleaseAndPromotion` still passes unchanged. One pre-existing test
+(`test_a_right_hand_arriving_second_takes_over_and_demotes_the_first`)
+had to be re-keyed from rounded x-position to track id, since the new
+pointer's DISPLAYED x on the takeover's own tick now deliberately still
+reads close to the outgoing pointer's position — position stopped being
+a reliable stand-in for "which physical track is this" the instant a
+takeover happens, which is exactly the point of the fix. 7 new tests
+(`TestPointerHandoff`), 895 total, all passing.
+**Not yet rig-confirmed — this is a mitigation, not a diagnosis, and it
+has never been watched on the projected table.** Ask the developer to
+restart `run.py` and reproduce the fast-move case once more: if the
+"sticks then snaps" *look* is gone (even though the underlying track
+churn this session's log shows is probably still happening at the same
+rate underneath), this item's user-facing complaint is resolved and the
+remaining root-cause question above becomes a lower-priority cleanliness
+item rather than a blocking one. If a visible glitch remains, it means
+either the 150ms window is too short to read as smooth at this rig's
+actual churn rate (tune it, the same "watch it on the rig" discipline
+item 8's tau used) or something is happening outside `tracking.py`
+entirely (the doc's own still-open "downstream of this process" lead,
+never yet directly ruled out: cursorbus, `CursorLink`'s own
+`kCursorHoldSeconds=0.35f`, or oF's render loop).
+
 ---
 
 **Order isn't prescribed** — pick whichever item the developer wants

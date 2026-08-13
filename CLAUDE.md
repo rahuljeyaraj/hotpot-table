@@ -12,12 +12,16 @@ It is authoritative. This file is only status + rules.
 from the first real M5 rig run, each scoped for one fresh session. Items
 1, 2, 8, 9 are resolved (2 by a workaround, not code). **Item 11 (pointer
 lags/snaps on a fast hand move) is STILL OPEN on the rig, 2026-08-13,
-despite three separate, individually-confirmed fixes (a time-based match
+despite four separate fixes, each kept, none reverted: a time-based match
 gate; matching against a track's real position instead of its smoothed,
-lagging one — both kept, real, rig-log-confirmed mechanisms, neither
-reverted) — read item 11's own section in full before starting, it ends
-with a ruled-out list and concrete leads for the next attempt, and skips
-re-deriving this session's already-confirmed-or-ruled-out mechanisms.**
+lagging one (both rig-log-confirmed mechanisms); a raw-skeleton diagnostic
+on the projected table that confirmed the churn is inside `tracking.py`
+itself, not upstream; and a pointer role-handoff glide
+(`POINTER_HANDOFF_S`) that hides the visible snap regardless of root
+cause, NOT YET rig-confirmed — read item 11's own section in full before
+starting, it ends with a ruled-out list and concrete leads for the next
+attempt, and skips re-deriving this session's already-confirmed-or-ruled-
+out mechanisms.**
 Items 3, 4-7, 10 have developer decisions recorded
 (2026-08-13) and are ready to build but not
 started. Check that
