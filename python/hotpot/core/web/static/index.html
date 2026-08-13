@@ -418,6 +418,18 @@
     background: #22252b; color: var(--text); font-size: 15px;
   }
   .capture-bar label { font-size: 14px; color: var(--muted); }
+  .capture-progress {
+    display: flex; align-items: baseline; gap: 14px; margin-top: 12px;
+    font-size: 14px;
+  }
+  .capture-progress.hide { display: none; }
+  .capture-progress .cp-count {
+    font-size: 20px; font-weight: 500; color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .capture-progress .cp-countdown {
+    color: var(--muted); font-variant-numeric: tabular-nums;
+  }
 
   /* --- projector grid card (M4n): select-a-line, nudge with arrow keys,
      no camera and no typing ------------------------------------------- */
@@ -783,12 +795,21 @@
              burst exists so the model sees more than one arrangement.</p>
           <div class="capture-bar">
             <button id="captureAllBtn" class="setup-btn primary">Capture all 8</button>
-            <button id="captureBurstBtn" class="setup-btn">Burst</button>
+            <button id="captureBurstBtn" class="setup-btn">Start burst</button>
             <label for="burstN">frames</label>
             <input id="burstN" type="number" min="1" max="60" value="10">
-            <label for="burstSecs">over</label>
-            <input id="burstSecs" type="number" min="1" max="60" value="5">
+            <label for="burstInterval">every</label>
+            <input id="burstInterval" type="number" min="0" max="30" step="0.5" value="2">
             <label>seconds</label>
+          </div>
+          <!-- Doc §12.7's counter-and-countdown: fed by `capture_progress`
+               messages, one per shot, sent only while a burst is running
+               (see index.html's applyCaptureProgress). Hidden the rest of
+               the time rather than showing a stale "shot 4 of 10" from the
+               last burst. -->
+          <div class="capture-progress hide" id="captureProgress">
+            <span id="cpCount" class="cp-count"></span>
+            <span id="cpCountdown" class="cp-countdown"></span>
           </div>
           <div class="setup-status" id="captureStatus"></div>
         </div>
@@ -2796,8 +2817,11 @@
   var captureAllBtn = document.getElementById("captureAllBtn");
   var captureBurstBtn = document.getElementById("captureBurstBtn");
   var burstN = document.getElementById("burstN");
-  var burstSecs = document.getElementById("burstSecs");
+  var burstInterval = document.getElementById("burstInterval");
   var captureStatus = document.getElementById("captureStatus");
+  var captureProgress = document.getElementById("captureProgress");
+  var cpCount = document.getElementById("cpCount");
+  var cpCountdown = document.getElementById("cpCountdown");
 
   var MIN_PER_CLASS = 150;   // doc §19.2's target, shown not enforced
   var cropCards = [];
@@ -2935,29 +2959,82 @@
     if (document.querySelector) drawCrops();
   }, CROP_REFRESH_MS);
 
-  function sendCapture(burst, seconds) {
+  function sendCapture(burst, interval) {
     setStatus(captureStatus, "Capturing…", "busy");
     sendSetup({
       t: "capture",
       labels: cropCards.map(function (c) { return c.select.value; }),
-      burst: burst, seconds: seconds,
+      burst: burst, interval: interval,
     });
   }
 
   captureAllBtn.addEventListener("click", function () {
     if (captureAllBtn.disabled) return;
+    resetCaptureProgress(1);   // n=1: hides any progress left from a
+                               // burst that was running before this tap.
     sendCapture(1, 0);
   });
   captureBurstBtn.addEventListener("click", function () {
     if (captureBurstBtn.disabled) return;
-    // Doc §12.7's default is 10 over 5s; the fields carry it and the
-    // operator can overtype.
+    // frames + interval, not frames + total period (doc §12.7): the
+    // operator sets how long a gap they get to rearrange the tray, and
+    // adding more frames no longer silently shrinks it.
     var n = Math.max(1, Math.min(60, parseInt(burstN.value, 10) || 10));
-    var secs = Math.max(1, Math.min(60, parseInt(burstSecs.value, 10) || 5));
+    var secs = Math.max(0, Math.min(30, parseFloat(burstInterval.value) || 0));
+    resetCaptureProgress(n);
     sendCapture(n, secs);
   });
 
+  // --- burst counter + countdown (doc §12.7) -----------------------------
+  // Fed by `capture_progress`, one message per shot, sent only for a real
+  // burst (n > 1) — see classifier/main.py's `_capture`. The countdown
+  // itself ticks locally between messages; the server only ever tells us
+  // "shot N landed, the next gap is `interval` seconds," not a running
+  // clock, so there is nothing to keep in sync beyond resetting the local
+  // tick on every message that arrives.
+  var cpTimer = null;
+
+  function clearCpTimer() {
+    if (cpTimer) { clearInterval(cpTimer); cpTimer = null; }
+  }
+
+  function resetCaptureProgress(n) {
+    clearCpTimer();
+    if (n > 1) {
+      captureProgress.classList.remove("hide");
+      cpCount.textContent = "Shot 0 of " + n;
+      cpCountdown.textContent = "starting…";
+    } else {
+      captureProgress.classList.add("hide");
+    }
+  }
+
+  function paintCpCountdown(remaining, isLastShot) {
+    if (isLastShot) { cpCountdown.textContent = "saving…"; return; }
+    cpCountdown.textContent = remaining > 0
+      ? "next photo in " + Math.ceil(remaining) + "s" : "next photo now";
+  }
+
+  function applyCaptureProgress(msg) {
+    captureProgress.classList.remove("hide");
+    cpCount.textContent = "Shot " + msg.shot + " of " + msg.burst;
+    clearCpTimer();
+    var isLastShot = msg.shot >= msg.burst;
+    var remaining = isLastShot ? 0 : msg.interval;
+    paintCpCountdown(remaining, isLastShot);
+    if (!isLastShot && remaining > 0) {
+      var TICK_MS = 250;
+      cpTimer = setInterval(function () {
+        remaining -= TICK_MS / 1000;
+        if (remaining <= 0) { remaining = 0; clearCpTimer(); }
+        paintCpCountdown(remaining, false);
+      }, TICK_MS);
+    }
+  }
+
   function applyCaptureResult(msg) {
+    clearCpTimer();
+    captureProgress.classList.add("hide");
     setStatus(captureStatus, msg.message, msg.ok ? "good" : "bad");
     if (msg.counts) {
       captureCounts = msg.counts;
@@ -3134,6 +3211,7 @@
       else if (msg.t === "grid_projector_result") applyGridProjectorResult(msg);
       else if (msg.t === "capture_info") applyCaptureInfo(msg);
       else if (msg.t === "capture_result") applyCaptureResult(msg);
+      else if (msg.t === "capture_progress") applyCaptureProgress(msg);
       else if (msg.t === "landmarks") applyLandmarks(msg);
     };
     ws.onclose = function () {

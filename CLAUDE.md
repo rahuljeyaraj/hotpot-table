@@ -2740,6 +2740,54 @@ does not arise in normal use and has not been deliberately triggered to
 confirm the warning actually fires); and Edge Impulse training, blocked
 on hardware on order, not a code gap.
 
+## M4o — burst capture: frames+interval instead of frames+total period,
+plus a live counter and countdown (2026-08-13)
+Developer feedback after using the Capture tab for real: the burst was
+"a good idea, but very difficult to use" — the tablet asked for frames
+and a **total period**, so raising the frame count silently shrank every
+gap, backwards from what an operator reaching for more frames usually
+wants (more time per gap to rearrange the tray, not less). And there was
+no feedback at all while a burst ran — no count, no sense of when the
+next photo would land.
+- **Wire:** `capture`'s `seconds` (total period) is now `interval`
+  (seconds BETWEEN shots, no division). `classifier/main.py`'s old
+  `gap = seconds / burst` is gone; `gap = interval` directly.
+  `DEFAULT_INTERVAL_S = 2.0`, `MAX_INTERVAL_S = 30.0`. §4.7/§12.7 updated.
+- **New message, `capture_progress`** (classifier → core → every
+  tablet): one per shot, `{shot, burst, interval}`, sent only for a real
+  burst (`burst > 1` — "Capture all" has nothing to count up to). **Not**
+  the command's reply — `core/main.py`'s `_send_classifier_cmd` waiter
+  only resolves on `captured`; a new `_on_message` branch broadcasts
+  `capture_progress` straight to the web tablets instead, the same
+  pattern `landmarks` already used for a live aside that isn't state.
+- **Interruptible cancel, found while wiring the progress message in:**
+  the gap wait was `time.sleep(gap)`, uninterruptible for up to 30s now
+  that `interval` can be set that high. Changed to `self._cancel.wait(gap)`
+  so a `stop` lands within a tick instead of waiting out the rest of a
+  long gap.
+- **Tablet UI:** the "over N seconds" field is now "every N seconds"
+  (`burstInterval`, replacing `burstSecs`), and a counter+countdown row
+  (`#captureProgress`) appears under the burst controls once a real burst
+  starts — "Shot 4 of 10" plus a locally-ticking "next photo in 2s",
+  reset on every `capture_progress` message rather than trusted to stay
+  in sync with the server on its own. Hidden via this codebase's usual
+  `.hide` class, not the `hidden` attribute — the earlier draft used
+  `hidden` with a `display:flex` class rule already on the same element,
+  which is the exact "no matching CSS rule" class of bug M4l's own
+  `.hide` note was written to avoid, and it would have shown the row
+  permanently regardless of the attribute.
+6 new Python tests (5 in `test_classifier_main.py` — per-shot progress
+content, more-frames-does-not-shrink-the-gap, the interruptible cancel,
+both clamps; 1 in `test_core_main.py` — `capture_progress` relayed live
+without resolving the reply), plus 5 existing ones updated for the
+`seconds`→`interval` rename. 913 tests pass,
+`python -m unittest discover -s python/tests`. `node --check` on the
+extracted `<script>` block, plus a script cross-checking every new
+`getElementById` id against the DOM — clean.
+**Not observed on the rig or in a real browser** — same honest gap every
+Capture-tab change before this one has carried; reasoned from tests and
+the syntax/id checks only.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

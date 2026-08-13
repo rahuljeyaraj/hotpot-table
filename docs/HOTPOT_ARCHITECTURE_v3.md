@@ -301,10 +301,11 @@ One datagram per camera frame, sent to both ports. Compact JSON — at 60Hz and 
 {"t":"cmd","id":17,"op":"classify","rects":[[x,y,w,h], ...8],"mode":"once"}
 {"t":"cmd","id":18,"op":"classify","rects":[...],"mode":"live","hz":2}
 {"t":"cmd","id":19,"op":"stop"}
-{"t":"cmd","id":21,"op":"capture","rects":[...],"labels":["mushroom",...],"burst":5}
+{"t":"cmd","id":21,"op":"capture","rects":[...],"labels":["mushroom",...],"burst":5,"interval":2}
 ```
 ```json
 {"t":"result","id":17,"bins":[{"i":0,"label":"mushroom","conf":0.94},...],"ms":42}
+{"t":"capture_progress","id":21,"shot":2,"burst":5,"interval":2}
 {"t":"captured","id":21,"files":["datasets/captures/mushroom/17548384001.jpg",...]}
 ```
 
@@ -312,6 +313,18 @@ One datagram per camera frame, sent to both ports. Compact JSON — at 60Hz and 
 was removed outright — it needed a dark, room-light-free rig this project
 never achieved (see CLAUDE.md's M4h/M4i/M4j) — in favour of the manual
 4-corner tool in §12.6. `classifier/dots.py` is deleted, not disabled.
+
+**`capture`'s `burst`/`interval` (2026-08-13, was `burst`/`seconds`
+naming a total period).** `interval` is seconds **between** one shot and
+the next, not a total period divided across `burst` — the old shape made
+raising the frame count silently shrink every gap, exactly backwards from
+what an operator wants when they raise it to get more time to rearrange
+the tray. `capture_progress` is new: one broadcast per shot, sent by the
+classifier and relayed by core to every tablet **without** resolving the
+command's own reply — `core/main.py`'s `_send_classifier_cmd` waiter only
+ever completes on `captured`, the same correlate-by-`id` discipline as
+every other classifier reply. §12.7 has the operator-facing half (the
+counter and the countdown).
 
 `rects` are **camera space** (§5) — the classifier never sees stage space.
 
@@ -1057,7 +1070,7 @@ This exists so that training data can be gathered from the real rig under the re
 - Live view of the 8 bin crops, side by side, at the resolution the model will see.
 - Each crop has a label selector defaulting to the current bin-map item.
 - **Capture all** — saves 8 crops with their assigned labels in one tap.
-- **Burst** — N frames over M seconds (default 10 over 5s), so the operator can nudge the tray between frames and get pose variation.
+- **Burst** — N frames, a fixed interval apart (default 10 frames, 2s apart), so the operator can nudge the tray between frames and get pose variation. Frames and interval are two separate fields, not a frame count plus a total period — a total period made raising the frame count silently shrink every gap, backwards from what an operator reaching for more frames usually wants (more time per gap, not less). **A live counter and countdown** — "Shot 4 of 10, next photo in 2s" — run off the classifier's own per-shot `capture_progress` message (§4.7), reset on every shot rather than a client-side timer trying to predict shot timing on its own.
 - Session counter per label, so the operator can see they have 40 mushrooms and 6 prawns and go collect more prawns.
 - Files: `datasets/captures/<label>/<unixms>_bin<i>.jpg`, plus a sidecar `.json` with bin index, rect, timestamp, and the exposure/WB **and `field_level`** values from `state/camera_settings.json`.
 - **Export for Edge Impulse** — runs `tools/export_edgeimpulse.py`, producing a folder-per-label tree ready for `edge-impulse-uploader`.

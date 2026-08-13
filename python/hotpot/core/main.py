@@ -596,6 +596,15 @@ class Core:
         if t in ("dots", "result", "captured"):
             self._resolve_classifier_reply(msg)
             return
+        if t == "capture_progress":
+            # Doc section 12.7's counter-and-countdown. This is NOT the
+            # command's reply — `_send_classifier_cmd`'s waiter stays open,
+            # waiting for the eventual `captured` above — it is a live
+            # aside sent once per shot so every tablet can show "shot 3 of
+            # 10" and count down to the next one while the burst is still
+            # running. Broadcast verbatim, same as `landmarks`.
+            self.web.broadcast(msg)
+            return
         # An unrecognised `t` from a known process is worth a log line,
         # not a dropped link — wire.py's job is framing, not protocol
         # enforcement.
@@ -1605,7 +1614,12 @@ class Core:
                            "label before its photograph is worth keeping."})
             return
         burst = msg.get("burst", 1)
-        seconds = msg.get("seconds", 5.0)
+        # Seconds BETWEEN shots, not a total period divided across the
+        # burst — see classifier/main.py's `_capture` for why that division
+        # used to be the wrong knob. Core does no validation of its own
+        # here; the classifier clamps both fields (`MAX_BURST`,
+        # `MAX_INTERVAL_S`) and this is a straight pass-through.
+        interval = msg.get("interval", 2.0)
 
         # `[x, y, w, h, bin_index]` — the fifth element is what puts the
         # bin number in the filename (doc section 12.7's
@@ -1615,7 +1629,7 @@ class Core:
 
         reply = self._send_classifier_cmd(
             "capture", CLASSIFIER_REPLY_TIMEOUT_S,
-            rects=rects, labels=list(labels), burst=burst, seconds=seconds,
+            rects=rects, labels=list(labels), burst=burst, interval=interval,
             h=self.geometry.h, stage_size=list(self.geometry.stage_size))
         if not reply or reply.get("ok") is False:
             self.web.broadcast({

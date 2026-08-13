@@ -2095,6 +2095,14 @@ class TestCaptureTab(CoreCase):
         def on_message(msg):
             if msg.get("t") == "cmd" and msg.get("op") == "capture":
                 self.sent_cmds.append(msg)
+                # A real burst sends `capture_progress` asides before its
+                # final `captured` reply (classifier/main.py's `_capture`)
+                # — mimicked here, single-file, for a real burst only.
+                burst = msg.get("burst", 1)
+                if burst > 1:
+                    client.send({"t": "capture_progress", "id": msg.get("id"),
+                                 "shot": 1, "burst": burst,
+                                 "interval": msg.get("interval", 2)})
                 client.send({"t": "captured", "id": msg.get("id"),
                              "files": ["a.jpg"] * len(msg.get("rects") or []),
                              "cancelled": False})
@@ -2182,11 +2190,28 @@ class TestCaptureTab(CoreCase):
         self.assertFalse(self.drain_until("capture_result")["ok"])
 
     def test_a_burst_is_passed_through(self):
+        # `interval` is seconds BETWEEN shots, not a total period — core
+        # does no maths on it, just relays it to the classifier verbatim.
         self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS,
-                                  "burst": 10, "seconds": 5}))
+                                  "burst": 10, "interval": 2}))
         self.drain_until("capture_result")
         self.assertEqual(self.sent_cmds[0]["burst"], 10)
-        self.assertEqual(self.sent_cmds[0]["seconds"], 5)
+        self.assertEqual(self.sent_cmds[0]["interval"], 2)
+
+    def test_capture_progress_is_relayed_live_not_treated_as_the_reply(self):
+        # Doc §12.7's counter-and-countdown. This has to be a broadcast
+        # that arrives WHILE the burst is still running and does NOT
+        # resolve `_send_classifier_cmd`'s waiter — if it did,
+        # `_handle_capture` would treat the shot-1 aside as the final
+        # answer and never see the real `captured` reply that follows.
+        self.ws_.send(json.dumps({"t": "capture", "labels": self.LABELS,
+                                  "burst": 10, "interval": 2}))
+        progress = self.drain_until("capture_progress")
+        self.assertEqual(progress["shot"], 1)
+        self.assertEqual(progress["burst"], 10)
+        self.assertEqual(progress["interval"], 2)
+        reply = self.drain_until("capture_result")
+        self.assertTrue(reply["ok"], reply["message"])
 
     def test_a_missing_classifier_is_a_sentence(self):
         for c in self._wire_clients:

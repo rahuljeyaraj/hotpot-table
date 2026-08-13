@@ -26,7 +26,7 @@ come is a hung screen with nothing to look at.
 Why the work runs on a worker thread
 ------------------------------------
 `wire.Client`'s `on_message` runs on the link's own read thread. A capture
-burst is ten frames over five seconds (doc section 12.7) and a dot
+burst is ten frames a couple of seconds apart (doc section 12.7) and a dot
 detection is tens of milliseconds; doing either inline would stall the
 heartbeat the link is also responsible for, and core would mark this
 process dead in three seconds (doc section 4.2) in the middle of a
@@ -69,11 +69,17 @@ CAMERA_SETTINGS_PATH = _ROOT / "state" / "camera_settings.json"
 # from thirty seconds ago and report a confident answer about it.
 STALE_S = 0.5
 
-# Doc section 12.7's burst default: "N frames over M seconds (default 10
-# over 5s), so the operator can nudge the tray between frames".
+# Doc section 12.7's burst default: N frames, a fixed INTERVAL apart —
+# "so the operator can nudge the tray between frames". Originally specified
+# as a total period (N frames over M seconds); changed to frames+interval
+# because a total period forces the operator to do the arithmetic backwards
+# ("if I want 3s to rearrange the tray, what do I even type here") and
+# because a period gives no per-shot signal at all — see `capture_progress`
+# below, which needs a fixed per-shot gap to be worth sending.
 DEFAULT_BURST = 1
-DEFAULT_BURST_SECONDS = 5.0
+DEFAULT_INTERVAL_S = 2.0
 MAX_BURST = 60
+MAX_INTERVAL_S = 30.0
 
 JPEG_QUALITY = 92         # dataset images; visibly lossless at bin-crop size
 
@@ -397,15 +403,22 @@ class Classifier:
         burst = msg.get("burst", DEFAULT_BURST)
         burst = int(burst) if isinstance(burst, (int, float)) else DEFAULT_BURST
         burst = max(1, min(MAX_BURST, burst))
-        seconds = msg.get("seconds", DEFAULT_BURST_SECONDS)
-        seconds = (float(seconds) if isinstance(seconds, (int, float))
-                   else DEFAULT_BURST_SECONDS)
-        gap = (seconds / burst) if burst > 1 else 0.0
+        # `interval` is seconds between one shot and the next, directly —
+        # not a total period divided across the burst. That division used
+        # to live here (`seconds / burst`), which made the tablet's "over
+        # N seconds" field the wrong knob: raising the frame count silently
+        # shortened every gap, right when the operator wanted more time to
+        # rearrange the tray, not less.
+        interval = msg.get("interval", DEFAULT_INTERVAL_S)
+        interval = (float(interval) if isinstance(interval, (int, float))
+                    else DEFAULT_INTERVAL_S)
+        interval = max(0.0, min(MAX_INTERVAL_S, interval))
+        gap = interval if burst > 1 else 0.0
 
         # Read once for the whole burst, not per frame: doc section 12.7's
         # sidecar records "the exposure/WB and `field_level` values from
         # `state/camera_settings.json`", and those cannot change during a
-        # five-second burst without the capture being invalid anyway.
+        # burst without the capture being invalid anyway.
         lighting = atomicio.read_json(self.settings_path, {})
 
         files: List[str] = []
@@ -413,8 +426,10 @@ class Classifier:
             if self._cancel.is_set():
                 break
             if shot:
-                time.sleep(gap)
-                if self._cancel.is_set():
+                # `_cancel.wait` rather than `time.sleep`: a `stop` sent
+                # mid-gap must land within a tick, not wait out the whole
+                # interval the operator was told they had left.
+                if self._cancel.wait(gap):
                     break
             raw_frame = self.source.frame()
             # The table crop: everything from here on works in the same
@@ -448,6 +463,16 @@ class Classifier:
                     "lighting": lighting,
                 })
                 files.append(str(jpg))
+            if burst > 1:
+                # Doc section 12.7's counter-and-countdown: one message per
+                # shot, sent only for a real burst (a single "Capture all"
+                # has nothing to count up to). `_resolve_classifier_reply`
+                # does not consume this — core relays it straight to every
+                # tablet so the operator sees the count and the next-shot
+                # countdown live, not only the final tally.
+                self.send({"t": "capture_progress", "id": msg.get("id"),
+                           "shot": shot + 1, "burst": burst,
+                           "interval": gap})
 
         # Doc section 4.7's reply shape: `{"t":"captured","id":..,
         # "files":[...]}`.

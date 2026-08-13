@@ -152,9 +152,24 @@ class WorkerCase(unittest.TestCase):
         self.got.set()
 
     def wait(self, timeout=5.0):
-        self.assertTrue(self.got.wait(timeout), "the worker never replied")
-        self.got.clear()
-        return self.sent[-1]
+        """The final reply, skipping any `capture_progress` asides a burst
+        sends along the way (one per shot — see classifier/main.py's
+        `_capture`). Those are not the command's answer; `progress()`
+        below is what reads them.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            self.assertTrue(self.got.wait(max(remaining, 0)),
+                            "the worker never replied")
+            self.got.clear()
+            msg = self.sent[-1]
+            if msg.get("t") != "capture_progress":
+                return msg
+
+    def progress(self):
+        """Every `capture_progress` message sent so far, in order."""
+        return [m for m in self.sent if m.get("t") == "capture_progress"]
 
 
 class TestUnknownCommands(WorkerCase):
@@ -310,36 +325,94 @@ class TestCapture(WorkerCase):
 
     def test_a_burst_writes_one_file_per_shot_per_bin(self):
         w = self.build(image=food_field())
-        w.on_message(self.cmd(burst=3, seconds=0.15))
+        w.on_message(self.cmd(burst=3, interval=0.05))
         reply = self.wait(timeout=10)
         self.assertEqual(len(reply["files"]), 6)
 
-    def test_a_burst_is_spread_over_the_seconds_it_was_given(self):
+    def test_a_burst_is_spread_over_its_interval(self):
         # Doc section 12.7's reason for a burst is pose variation — "so
         # the operator can nudge the tray between frames". A burst that
         # fired four identical frames in 3 ms would satisfy the file count
-        # and defeat the purpose.
+        # and defeat the purpose. `interval` is the gap between shots
+        # directly, not a total period divided across the burst.
         w = self.build(image=food_field())
         started = time.monotonic()
-        w.on_message(self.cmd(burst=4, seconds=0.8))
+        w.on_message(self.cmd(burst=4, interval=0.2))
         self.wait(timeout=10)
         self.assertGreater(time.monotonic() - started, 0.5)
 
+    def test_more_frames_does_not_shrink_the_interval(self):
+        # The bug the old "N frames over M seconds" shape had: raising the
+        # frame count silently shortened every gap. `interval` is now the
+        # per-shot gap directly, so doubling the frame count must not
+        # change how long any one gap is — only how many of them there are.
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(burst=6, interval=0.05))
+        self.wait(timeout=10)
+        gaps = self.progress()
+        self.assertTrue(gaps)
+        self.assertTrue(all(g["interval"] == 0.05 for g in gaps))
+
+    def test_a_burst_reports_progress_once_per_shot(self):
+        # Doc section 12.7's counter-and-countdown: the operator sees a
+        # count and a per-shot interval while the burst is still running,
+        # not only the final tally.
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(burst=3, interval=0.02))
+        self.wait(timeout=10)
+        gaps = self.progress()
+        self.assertEqual([g["shot"] for g in gaps], [1, 2, 3])
+        self.assertTrue(all(g["burst"] == 3 for g in gaps))
+
+    def test_capture_all_sends_no_progress(self):
+        # burst=1 ("Capture all") has nothing to count up to — no
+        # `capture_progress` message at all, just the final reply.
+        w = self.build(image=food_field())
+        w.on_message(self.cmd())
+        self.wait()
+        self.assertEqual(self.progress(), [])
+
     def test_stop_cancels_a_burst_in_flight(self):
         w = self.build(image=food_field())
-        w.on_message(self.cmd(burst=20, seconds=6.0))
+        w.on_message(self.cmd(burst=20, interval=0.3))
         time.sleep(0.4)
         w.on_message({"t": "cmd", "op": "stop"})
         reply = self.wait(timeout=10)
         self.assertTrue(reply["cancelled"])
         self.assertLess(len(reply["files"]), 40)
 
+    def test_stop_lands_within_a_tick_not_a_whole_gap(self):
+        # `_cancel.wait(gap)` rather than `time.sleep(gap)`: a `stop` sent
+        # mid-gap must not wait out the rest of a long interval.
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(burst=20, interval=10.0))
+        time.sleep(0.2)
+        stopped_at = time.monotonic()
+        w.on_message({"t": "cmd", "op": "stop"})
+        reply = self.wait(timeout=5)
+        self.assertTrue(reply["cancelled"])
+        self.assertLess(time.monotonic() - stopped_at, 2.0)
+
     def test_an_absurd_burst_is_clamped_rather_than_obeyed(self):
         w = self.build(image=food_field())
-        w.on_message(self.cmd(burst=100000, seconds=0.2,
+        w.on_message(self.cmd(burst=100000, interval=0.01,
                               rects=[[10, 10, 20, 20, 0]], labels=["egg"]))
         reply = self.wait(timeout=20)
         self.assertLessEqual(len(reply["files"]), cmain.MAX_BURST)
+
+    def test_an_absurd_interval_is_clamped(self):
+        # Read the clamp off the shot-1 progress message rather than
+        # waiting out the (would-be enormous) gap for a final reply —
+        # that message lands before the gap is ever waited on.
+        w = self.build(image=food_field())
+        w.on_message(self.cmd(burst=5, interval=999999))
+        self.assertTrue(self.got.wait(5.0), "no progress message arrived")
+        self.got.clear()
+        progress = next(m for m in self.sent if m.get("t") == "capture_progress")
+        self.assertLessEqual(progress["interval"], cmain.MAX_INTERVAL_S)
+        w.on_message({"t": "cmd", "op": "stop"})
+        reply = self.wait(timeout=10)
+        self.assertTrue(reply["cancelled"])
 
     def test_a_capture_with_no_rects_is_refused(self):
         w = self.build(image=food_field())
