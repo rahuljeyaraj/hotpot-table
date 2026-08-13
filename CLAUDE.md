@@ -1222,6 +1222,91 @@ camera elevation angle (I10), for which no measurement tool exists yet
 either (`tools/measure_camera_angle.md` is referenced in the doc but was
 never written).
 
+**2026-08-13, developer-panel camera controls — not a doc build item, added
+because the yellow/green cast came back and the developer needed the same
+manual knobs the OS camera app has, not another guess about auto-lock
+policy.** `state/camera_settings.json` was found holding
+`"locked": true, "white_balance_temperature": 6500` — a genuine lock from a
+past run's convergence (2026-08-12's fixes were never wrong; a lock taken
+under one lighting condition simply stops being correct once the room's
+light changes), with no way to change it short of deleting the file and
+restarting. `capture.py`'s `Capture` protocol gains three runtime methods
+— `list_controls()`/`get_control_states()`/`set_control()` — implemented
+for all three backends: `FakeCapture` (two fixture controls, enough to
+drive `camera/main.py`'s and `mjpeg.py`'s own tests with no hardware),
+`WindowsCapture` (ten controls — white balance/exposure/focus plus
+brightness/contrast/saturation/gain/sharpness/hue/backlight-compensation —
+table-driven off `cv2.CAP_PROP_*`, ranges hardcoded and approximate since
+DirectShow has no min/max query API, `_lock_controls` itself untouched),
+and `V4L2Capture` (the same ten, parsed from real `v4l2-ctl --list-ctrls`
+output — actual device ranges, not a guess, though still unverified
+against the rig like every other V4L2Capture method). `camera/main.py`'s
+`CameraProcess.set_control()` is the one path both a dev-panel POST and
+`start()`'s own replay-on-boot go through: the original three fields keep
+their existing top-level schema in `camera_settings.json` with `"locked"`
+now meaning "are all three still manual right now" (turning even one back
+to Auto drops the aggregate, so a restart re-converges fresh rather than
+re-freezing the other two next to a control just deliberately unlocked —
+no per-field lock exists in the on-disk schema, doc §6.6 predates
+per-control independence); every other knob goes into an additive
+`"controls"` dict. `camera/mjpeg.py` gained `GET /controls.json`/
+`POST /control`, same cross-origin/ownership split `/info.json` already
+established (camera owns this state, core never proxies it).
+`index.html`'s Developer tab gained a "Camera controls" card — an Auto/
+Manual chip plus a slider per control, and a one-click "Auto white
+balance" button for the specific bug in hand. 46 new Python tests (three
+files), 901 total, all passing.
+
+**Run for real on this machine, against the live app already running
+(camera/tracker/classifier/voice/core/oF, all started earlier this
+session) — not just reasoned through:**
+- `GET /controls.json` against the real webcam returned all ten controls
+  with real readbacks — confirmed `white_balance` was in fact
+  `auto: false, value: 6500` at that moment, the diagnosis above made
+  concrete rather than inferred from the file alone. `focus`/`gain`/`hue`/
+  `backlight_compensation` all read back `null` — this driver honestly
+  doesn't expose them over DirectShow, not a bug.
+- **The "Auto white balance" fix is CONFIRMED, measured, not just
+  requested.** A snapshot taken immediately before `POST
+  {"name":"white_balance","auto":true}` and another ~4s after (same
+  R/B-ratio method M4i used) went from R/B 1.128, G/B 1.554 (the green
+  cast the user's own screenshots showed) to R/B 1.028, G/B 1.080 — much
+  closer to neutral. `state/camera_settings.json` correctly flipped to
+  `"locked": false` afterward.
+- **`contrast` genuinely moves the driver** (set 30, read back 30) —
+  confirmed with a real value round-trip, then restored to its original
+  16.
+- **`saturation` does NOT** — requested 40, the driver silently kept 10,
+  and `set_control`'s "always report the real readback, never the
+  requested value" design caught this correctly instead of lying about
+  it, exactly the failure mode `WindowsCapture`'s own docstring already
+  warned every control could hit.
+- **Exposure's auto-restore (the `CAP_PROP_AUTO_EXPOSURE=0.75` guess) is
+  UNVERIFIED, not confirmed.** The call succeeds and the readback reports
+  `auto: true`, but nothing here changed the room's light to watch the
+  picture actually adapt — the one way to tell "the trigger worked" from
+  "the driver silently ignored it and the readback is just echoing the
+  bookkeeping back," the same gap `saturation` above fell into. Treat this
+  control's Auto position as unconfirmed until someone watches the
+  picture react to a real light change.
+- **Operational lesson, not a code bug, worth recording so it isn't
+  rediscovered:** killing only the camera process (to load this new code)
+  left tracker/classifier/oF still holding open handles to the old
+  `hotpot_frames` Windows shared-memory segment, so every restart attempt
+  hit `FileExistsError` and `run.py`'s supervisor gave up after 5 failures
+  in 60s (doc §20.2, working exactly as designed). Windows does not
+  release named shared memory until every handle closes, unlike POSIX
+  `shm_unlink`. Restarting the *whole* stack (`python run.py --replace`)
+  is what actually clears it — restarting camera alone during development
+  does not.
+- **Not observed: the Developer tab's new card in an actual browser
+  click-through.** Verified short of that — `node --check` on the
+  extracted script, every new `getElementById` target cross-checked
+  against the DOM by hand, and the full `/controls.json`/`/control` round
+  trip confirmed directly over HTTP above — but nobody has looked at the
+  sliders on screen yet. The app is live on this machine right now; that
+  observation is a browser tab away, not a rebuild.
+
 ## M4 — CALIBRATION AND DATASET CAPTURE (in progress)
 
 M4.1 (2026-08-12) is build item 1: `common/geometry.py` and

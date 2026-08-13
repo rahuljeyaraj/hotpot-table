@@ -31,8 +31,10 @@ import logging
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
+
+from hotpot.camera.capture import CameraError
 
 log = logging.getLogger("hotpot.camera.mjpeg")
 
@@ -91,16 +93,22 @@ class MjpegServer:
     more thing to start and stop alongside the control link."""
 
     def __init__(self, host: str, port: int, frame: LatestFrame,
-                 get_info: Callable[[], Dict[str, Any]]) -> None:
+                 get_info: Callable[[], Dict[str, Any]],
+                 get_controls: Callable[[], List[Dict[str, Any]]],
+                 set_control: Callable[[str, Optional[bool], Optional[int]],
+                                       Dict[str, Any]]) -> None:
         self.host = host
         self.port = port
         self._frame = frame
         self._get_info = get_info
+        self._get_controls = get_controls
+        self._set_control = set_control
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> int:
-        handler = _make_handler(self._frame, self._get_info)
+        handler = _make_handler(self._frame, self._get_info,
+                                self._get_controls, self._set_control)
         httpd = ThreadingHTTPServer((self.host, self.port), handler)
         httpd.daemon_threads = True
         self._httpd = httpd
@@ -121,7 +129,10 @@ class MjpegServer:
         self._thread = None
 
 
-def _make_handler(frame: LatestFrame, get_info: Callable[[], Dict[str, Any]]):
+def _make_handler(frame: LatestFrame, get_info: Callable[[], Dict[str, Any]],
+                  get_controls: Callable[[], List[Dict[str, Any]]],
+                  set_control: Callable[[str, Optional[bool], Optional[int]],
+                                        Dict[str, Any]]):
     class Handler(BaseHTTPRequestHandler):
         # BaseHTTPRequestHandler logs every request to stderr by default,
         # bypassing common/log.py entirely and defeating the point of its
@@ -151,6 +162,15 @@ def _make_handler(frame: LatestFrame, get_info: Callable[[], Dict[str, Any]]):
                 self._snapshot()
             elif path == "/info.json":
                 self._info()
+            elif path == "/controls.json":
+                self._controls()
+            else:
+                self.send_error(404)
+
+        def do_POST(self) -> None:
+            path = urlsplit(self.path).path
+            if path == "/control":
+                self._control()
             else:
                 self.send_error(404)
 
@@ -207,6 +227,61 @@ def _make_handler(frame: LatestFrame, get_info: Callable[[], Dict[str, Any]]):
             # cross-origin request a browser blocks without this header,
             # where an <img> load is exempt. No credentials flow here, so
             # a wildcard origin costs nothing.
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+
+        def _controls(self) -> None:
+            """`/controls.json` — doc §12.8's new dev-panel card: every
+            control the open backend exposes, spec and live state already
+            merged into plain dicts by `CameraProcess.controls_snapshot()`
+            (this module has no reason to know `capture.py`'s dataclass
+            shapes). Same cross-origin reasoning as `/info.json` above."""
+            self._send_json(200, {"controls": get_controls()})
+
+        def _control(self) -> None:
+            """`POST /control` — `{"name", "auto", "value"}`, either or
+            both of the last two omitted/`null`. A bad body or an
+            unsupported/unknown control name is a 400 with a reason, not a
+            500 — this is a developer clicking a slider, not a wire
+            protocol that has to survive malformed input from anywhere
+            else."""
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "invalid JSON body"})
+                return
+            name = body.get("name")
+            if not isinstance(name, str) or not name:
+                self._send_json(400, {"error": "\"name\" is required"})
+                return
+            auto = body.get("auto")
+            if auto is not None and not isinstance(auto, bool):
+                self._send_json(
+                    400, {"error": "\"auto\" must be a boolean or omitted"})
+                return
+            value = body.get("value")
+            if value is not None and not isinstance(value, (int, float)):
+                self._send_json(
+                    400, {"error": "\"value\" must be a number or omitted"})
+                return
+            try:
+                result = set_control(name, auto,
+                                     int(value) if value is not None else None)
+            except CameraError as e:
+                self._send_json(400, {"error": str(e)})
+                return
+            self._send_json(200, result)
+
+        def _send_json(self, code: int, obj: Dict[str, Any]) -> None:
+            body = json.dumps(obj).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             try:

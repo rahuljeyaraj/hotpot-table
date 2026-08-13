@@ -548,6 +548,24 @@
     font-size: 13px; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   }
   .cam-stats .k { color: var(--muted); }
+  /* Camera controls (doc §12.8's new dev-panel card) — one row per knob
+     `/controls.json` returns, `.mock-row`'s dark inset-row look reused
+     rather than inventing a third one. */
+  .cam-ctrl-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .cam-ctrl-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 10px;
+    background: #16171a; border: 1px solid #2a2c31; border-radius: 6px;
+  }
+  .cam-ctrl-label { font-size: 13px; width: 160px; flex: none; }
+  .cam-ctrl-row input[type="range"] { flex: 1; min-width: 140px; }
+  .cam-ctrl-row input[type="range"]:disabled { opacity: 0.35; }
+  .cam-ctrl-value {
+    font-size: 13px; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    width: 90px; text-align: right; flex: none; color: var(--muted);
+  }
+  .cam-ctrl-chip { flex: none; }
+  #camCtrlStatus.hide { display: none; }
 </style>
 </head>
 <body>
@@ -831,6 +849,27 @@
             <div><span class="k">shm slot</span> <span id="camShmSlot">—</span></div>
             <div><span class="k">dropped</span> <span id="camDropped">—</span></div>
           </div>
+        </div>
+
+        <div class="setup-card">
+          <h2>Camera controls</h2>
+          <p>The live feed drifts yellow/green because exposure/white
+             balance/focus get locked at whatever they converge to on open
+             (doc §6.6) and reapplied verbatim on every restart — the OS
+             camera app looks correct only because it keeps its own
+             auto-white-balance running continuously. <code>Auto</code>
+             lets the driver's own auto-adjust run; <code>Manual</code>
+             unlocks the slider and pins a value, which is written to
+             <code>state/camera_settings.json</code> and survives a
+             restart. Ranges below are approximate on this dev machine's
+             DirectShow backend (no min/max query exists); the number
+             beside each slider is always a real readback, never a
+             requested value.</p>
+          <div class="setup-actions">
+            <button class="setup-btn primary" id="camAutoWbBtn">Auto white balance</button>
+          </div>
+          <p class="setup-status" id="camCtrlStatus">Waiting for the camera…</p>
+          <div class="cam-ctrl-list" id="camCtrlList"></div>
         </div>
 
         <div class="setup-card">
@@ -1198,6 +1237,8 @@
   });
 
   var cameraInfoUrl = null;      // "http://host:port/info.json", set alongside cameraUrl
+  var cameraControlsUrl = null;  // "http://host:port/controls.json"
+  var cameraControlUrl = null;   // "http://host:port/control" (POST)
 
   function applyCamera(msg) {
     // Sent once, on join (core/main.py's _camera_msg docstring: "nothing
@@ -1206,8 +1247,11 @@
     // reapply.
     cameraUrl = "http://" + msg.host + ":" + msg.port + "/stream.mjpg";
     cameraInfoUrl = "http://" + msg.host + ":" + msg.port + "/info.json";
+    cameraControlsUrl = "http://" + msg.host + ":" + msg.port + "/controls.json";
+    cameraControlUrl = "http://" + msg.host + ":" + msg.port + "/control";
     loadLiveImg();
     pollCamInfo();
+    pollCamControls();
   }
 
   // --- Developer tab: camera stats (doc §12.8, M3 build item 4) ---------
@@ -1253,6 +1297,141 @@
     });
   }
   setInterval(pollCamInfo, CAM_POLL_MS);
+
+  // --- Developer tab: camera controls (doc §12.8's new dev-panel card) --
+  // Same "hit the camera process's own HTTP server directly, core never
+  // proxies numbers/actions it doesn't own" split `applyCamInfo`/
+  // `pollCamInfo` above already use for `/info.json`. Polled slower than
+  // `CAM_POLL_MS` — these are a human turning a knob, not a per-frame
+  // stat, and there is no reason to hit the camera process eight times as
+  // often as this needs.
+  var CAM_CTRL_POLL_MS = 2000;
+  var camCtrlList = document.getElementById("camCtrlList");
+  var camCtrlStatus = document.getElementById("camCtrlStatus");
+  var camAutoWbBtn = document.getElementById("camAutoWbBtn");
+  var camCtrlRows = {};   // control name -> {row, slider, valueEl, chip, spec}
+
+  function camCtrlStatusText(text) {
+    if (!text) { camCtrlStatus.classList.add("hide"); return; }
+    camCtrlStatus.textContent = text;
+    camCtrlStatus.classList.remove("hide");
+  }
+
+  function buildCamCtrlRow(spec) {
+    var row = document.createElement("div");
+    row.className = "cam-ctrl-row";
+
+    var label = document.createElement("span");
+    label.className = "cam-ctrl-label";
+    label.textContent = spec.label;
+    row.appendChild(label);
+
+    var chip = null;
+    if (spec.auto_capable) {
+      chip = document.createElement("button");
+      chip.className = "chip cam-ctrl-chip";
+      chip.type = "button";
+      row.appendChild(chip);
+    }
+
+    var slider = document.createElement("input");
+    slider.type = "range";
+    if (spec.min != null) slider.min = spec.min;
+    if (spec.max != null) slider.max = spec.max;
+    slider.step = spec.step || 1;
+    row.appendChild(slider);
+
+    var valueEl = document.createElement("span");
+    valueEl.className = "cam-ctrl-value";
+    row.appendChild(valueEl);
+
+    camCtrlList.appendChild(row);
+    var entry = { row: row, slider: slider, valueEl: valueEl, chip: chip, spec: spec };
+    camCtrlRows[spec.name] = entry;
+
+    // The number updates live while dragging (cheap, local); the network
+    // call fires on release, not per tick — a POST per pixel of drag
+    // would flood the camera process's single-threaded-per-connection
+    // HTTP server for no benefit nobody can see mid-drag anyway.
+    slider.addEventListener("input", function () {
+      valueEl.textContent = slider.value + (spec.unit || "");
+    });
+    slider.addEventListener("change", function () {
+      postControl(spec.name, { value: Number(slider.value) });
+    });
+    if (chip) {
+      chip.addEventListener("click", function () {
+        if (chip.classList.contains("on")) {
+          postControl(spec.name, { auto: true });
+        } else {
+          postControl(spec.name, { auto: false, value: Number(slider.value) });
+        }
+      });
+    }
+    return entry;
+  }
+
+  function applyControlState(state) {
+    var entry = camCtrlRows[state.name];
+    if (!entry) return;
+    if (entry.chip) {
+      // `.on` means "in manual mode" here, same on/off shape every other
+      // chip in this file already has — just naming a different fact.
+      entry.chip.classList.toggle("on", state.auto === false);
+      entry.chip.textContent = state.auto ? "Auto" : "Manual";
+    }
+    entry.slider.disabled = state.auto === true;
+    // Never fight an in-progress drag — every other slider poll in this
+    // file has nothing user-editable to protect, this one does.
+    if (document.activeElement !== entry.slider && state.value != null) {
+      entry.slider.value = state.value;
+      entry.valueEl.textContent = state.value + (entry.spec.unit || "");
+    }
+  }
+
+  function renderCamControls(controls) {
+    camCtrlStatusText(controls.length ? null : "No camera controls exposed by this backend.");
+    controls.forEach(function (c) {
+      if (!camCtrlRows[c.name]) buildCamCtrlRow(c);
+      applyControlState(c);
+    });
+  }
+
+  function postControl(name, patch) {
+    if (!cameraControlUrl) return;
+    var body = Object.assign({ name: name }, patch);
+    fetch(cameraControlUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || r.status); });
+      return r.json();
+    }).then(applyControlState).catch(function (err) {
+      camCtrlStatusText("Could not change " + name + ": " + err.message);
+    });
+  }
+
+  function pollCamControls() {
+    if (!cameraControlsUrl || !developerPanel.classList.contains("active")) return;
+    fetch(cameraControlsUrl).then(function (r) {
+      if (!r.ok) throw new Error("bad status " + r.status);
+      return r.json();
+    }).then(function (data) {
+      renderCamControls(data.controls || []);
+    }).catch(function () {
+      camCtrlStatusText("camera unreachable");
+    });
+  }
+  setInterval(pollCamControls, CAM_CTRL_POLL_MS);
+
+  // The actual bug in hand: white balance is stuck manually locked
+  // (state/camera_settings.json's own current "locked": true), so the one
+  // control worth a dedicated one-tap fix, rather than making a developer
+  // find it in the list first, is this one.
+  camAutoWbBtn.addEventListener("click", function () {
+    postControl("white_balance", { auto: true });
+  });
 
   // --- mock pick/put-back controls (doc section 12.8, build item 5) -----
   // "the keyboard mock from Stage 2, reborn... with the {45,6,120,3,25,80}

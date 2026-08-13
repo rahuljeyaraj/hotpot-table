@@ -210,6 +210,96 @@ class TestDeviceDeathCrashesTheLoop(CameraProcessCase):
             self.proc.run_forever()
 
 
+class TestControls(CameraProcessCase):
+    """The doc §12.8 dev-panel control API — `CameraProcess.list_controls`/
+    `control_states`/`set_control`, and the persistence rules
+    `set_control`'s own docstring lays out: a tracked control (exposure/
+    white_balance/focus) updates `self.info` and the on-disk `locked`
+    aggregate; anything else goes into the additive `controls` dict."""
+
+    def test_list_controls_and_control_states_delegate_to_the_backend(self):
+        self.proc.start()
+        names = {c.name for c in self.proc.list_controls()}
+        self.assertEqual(names, {"white_balance", "brightness"})
+        states = self.proc.control_states()
+        self.assertEqual(states["white_balance"].value, 4600)
+
+    def test_set_control_on_a_tracked_field_updates_info_and_persists_locked(self):
+        self.proc.start()
+        state = self.proc.set_control("white_balance", auto=False, value=5200)
+        self.assertEqual(state.value, 5200)
+        self.assertEqual(self.proc.info.white_balance_temperature, 5200)
+        self.assertTrue(self.proc.info.controls_locked)
+        written = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        self.assertEqual(written["white_balance_temperature"], 5200)
+        self.assertTrue(written["locked"])
+
+    def test_turning_a_tracked_control_back_to_auto_drops_the_aggregate_lock(self):
+        # No per-field lock in the on-disk schema (set_control's own
+        # docstring) — putting even one of the three back into Auto has to
+        # drop the whole aggregate, or a restart would silently re-freeze
+        # the other two next to a control the developer just unlocked.
+        self.proc.start()
+        self.proc.set_control("white_balance", auto=True)
+        self.assertFalse(self.proc.info.controls_locked)
+        written = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        self.assertFalse(written["locked"])
+
+    def test_set_control_on_an_untracked_control_is_persisted_under_controls(self):
+        self.proc.start()
+        self.proc.set_control("brightness", value=20)
+        written = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        self.assertEqual(written["controls"],
+                         {"brightness": {"auto": None, "value": 20}})
+        # An untracked control's change must not disturb the original three.
+        self.assertIn("white_balance_temperature", written)
+
+    def test_set_control_on_an_unknown_name_raises_and_writes_nothing_new(self):
+        self.proc.start()
+        before = self.settings_path.read_text(encoding="utf-8")
+        with self.assertRaises(capture.CameraError):
+            self.proc.set_control("nope", value=1)
+        after = self.settings_path.read_text(encoding="utf-8")
+        self.assertEqual(before, after)
+
+
+class TestRestoreExtraControls(CameraProcessCase):
+    """`start()`'s replay of `state/camera_settings.json`'s `controls` dict
+    — the mechanism that makes a developer's dev-panel tuning survive a
+    restart for controls doc §6.6 never tracked (see `capture.CaptureInfo`
+    docstring for why exposure/WB/focus's own replay lives in `capture.py`
+    instead, untouched by any of this)."""
+
+    def test_a_saved_extra_control_is_reapplied_on_the_next_start(self):
+        self.proc.start()
+        self.proc.set_control("brightness", value=33)
+        self.proc.stop()
+
+        prior = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        cap2 = capture.FakeCapture(width=8, height=4)
+        proc2 = CameraProcess(
+            self.cfg, cap2, settings_path=self.settings_path,
+            encode_jpeg=fake_encode, core_host="127.0.0.1",
+            core_port=self.core_port, bind_host="127.0.0.1",
+            shm_name=unique_shm_name(), mjpeg_port=free_port(),
+            prior_settings=prior)
+        self.addCleanup(proc2.stop)
+        proc2.start()
+        self.assertEqual(proc2.control_states()["brightness"].value, 33)
+
+    def test_a_control_the_backend_does_not_support_is_skipped_not_fatal(self):
+        prior = {"controls": {"not_a_real_control": {"auto": None, "value": 1}}}
+        cap2 = capture.FakeCapture(width=8, height=4)
+        proc2 = CameraProcess(
+            self.cfg, cap2, settings_path=self.settings_path,
+            encode_jpeg=fake_encode, core_host="127.0.0.1",
+            core_port=self.core_port, bind_host="127.0.0.1",
+            shm_name=unique_shm_name(), mjpeg_port=free_port(),
+            prior_settings=prior)
+        self.addCleanup(proc2.stop)
+        proc2.start()   # must not raise
+
+
 class TestBuildCapture(unittest.TestCase):
     """`_build_capture`'s platform branch — not a doc build item, see
     capture.py's WindowsCapture docstring. `sys.platform` is patched

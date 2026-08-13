@@ -24,6 +24,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from hotpot.camera import mjpeg  # noqa: E402
+from hotpot.camera.capture import CameraError  # noqa: E402
 
 DEADLINE = 5.0
 
@@ -94,14 +95,32 @@ class ServerCase(unittest.TestCase):
     def setUp(self):
         self.frame = mjpeg.LatestFrame()
         self.info = {"width": 640, "height": 480, "frame_id": -1}
-        self.server = mjpeg.MjpegServer("127.0.0.1", 0, self.frame,
-                                        lambda: self.info)
+        self.controls = [{"name": "white_balance", "auto": True, "value": 4600}]
+        self.set_control_calls = []
+        self._raise = None   # a test sets this to make _set_control fail
+        self.server = mjpeg.MjpegServer(
+            "127.0.0.1", 0, self.frame, lambda: self.info,
+            lambda: self.controls, self._set_control)
         self.port = self.server.start()
         self.addCleanup(self.server.stop)
+
+    def _set_control(self, name, auto, value):
+        self.set_control_calls.append((name, auto, value))
+        if self._raise is not None:
+            raise self._raise
+        return {"name": name, "auto": auto if auto is not None else True,
+                "value": value if value is not None else 4600}
 
     def get(self, path):
         return urllib.request.urlopen(
             f"http://127.0.0.1:{self.port}{path}", timeout=DEADLINE)
+
+    def post(self, path, body):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}{path}", method="POST",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"})
+        return urllib.request.urlopen(req, timeout=DEADLINE)
 
     def raw_get(self, path, per_read_timeout=1.0, max_bytes=4096):
         """For `/stream.mjpg`: an open-ended response with no overall
@@ -171,6 +190,79 @@ class TestInfo(ServerCase):
         # the response before JS ever sees it.
         resp = self.get("/info.json")
         self.assertEqual(resp.headers["Access-Control-Allow-Origin"], "*")
+
+
+class TestControlsRoute(ServerCase):
+    """`GET /controls.json` — doc §12.8's new dev-panel card. `mjpeg.py`
+    only serialises whatever the `get_controls` callback returns; the
+    actual spec/state shape is `CameraProcess.controls_snapshot()`'s job
+    (test_camera_main.py), not this module's."""
+
+    def test_returns_the_controls_callback_as_json(self):
+        resp = self.get("/controls.json")
+        self.assertEqual(resp.headers["Content-Type"], "application/json")
+        self.assertEqual(json.loads(resp.read()), {"controls": self.controls})
+
+    def test_allows_cross_origin_fetch(self):
+        # Same reasoning as /info.json's own test: the staff view fetches
+        # this from core's origin, a different one than camera's.
+        resp = self.get("/controls.json")
+        self.assertEqual(resp.headers["Access-Control-Allow-Origin"], "*")
+
+
+class TestControlRoute(ServerCase):
+    """`POST /control` — a developer moving a slider or flipping a chip,
+    not a wire protocol every other process depends on, so a malformed
+    request is a 400 with a reason, never a 500."""
+
+    def test_valid_request_calls_set_control_and_returns_its_result(self):
+        resp = self.post("/control",
+                         {"name": "white_balance", "auto": False, "value": 5000})
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(self.set_control_calls, [("white_balance", False, 5000)])
+        self.assertEqual(json.loads(resp.read()),
+                         {"name": "white_balance", "auto": False, "value": 5000})
+
+    def test_omitted_auto_and_value_are_passed_through_as_none(self):
+        self.post("/control", {"name": "white_balance"})
+        self.assertEqual(self.set_control_calls, [("white_balance", None, None)])
+
+    def test_missing_name_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/control", {"value": 1})
+        self.assertEqual(ctx.exception.code, 400)
+        self.assertEqual(self.set_control_calls, [])
+
+    def test_non_boolean_auto_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/control", {"name": "white_balance", "auto": "yes"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_non_numeric_value_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/control", {"name": "white_balance", "value": "bright"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_invalid_json_body_is_400(self):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/control", method="POST",
+            data=b"not json")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=DEADLINE)
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_a_camera_error_from_the_backend_surfaces_as_400_with_its_reason(self):
+        self._raise = CameraError("unknown camera control 'nope'")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/control", {"name": "nope", "value": 1})
+        self.assertEqual(ctx.exception.code, 400)
+        self.assertIn("unknown camera control",
+                      json.loads(ctx.exception.read())["error"])
+
+    def test_post_to_an_unknown_path_is_404(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/nope", {})
+        self.assertEqual(ctx.exception.code, 404)
 
 
 class TestUnknownPath(ServerCase):

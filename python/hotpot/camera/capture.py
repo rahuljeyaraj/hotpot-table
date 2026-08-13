@@ -49,10 +49,11 @@ reliable choice, not a second one to keep in sync with the first.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Dict, Optional, Protocol
+from typing import Dict, List, Optional, Protocol
 
 log = logging.getLogger("hotpot.camera.capture")
 
@@ -115,6 +116,44 @@ class CaptureInfo:
     controls_locked: bool = False
 
 
+@dataclass(frozen=True)
+class ControlSpec:
+    """What the Developer tab needs to *draw* a control, independent of its
+    current value — doc §12.8's new "Camera controls" card, one row per
+    entry `list_controls()` returns.
+
+    `min`/`max`/`step` describe the slider shown when the control is (or
+    could be put into) manual mode; `None` for a control this backend
+    cannot report a range for. On Windows these are typical-UVC values, not
+    device-queried — OpenCV/DirectShow has no min/max query API, the same
+    honest limitation `WindowsCapture`'s own docstring already states for
+    exposure/WB/focus, now extended to every other knob it exposes. On
+    V4L2 they come straight from `v4l2-ctl --list-ctrls`, the real device
+    range. Either way, `ControlState.value` — never this spec — is what a
+    caller should trust as the picture actually in force.
+    """
+
+    name: str
+    label: str
+    auto_capable: bool
+    min: Optional[int]
+    max: Optional[int]
+    step: int
+    unit: str = ""
+
+
+@dataclass(frozen=True)
+class ControlState:
+    """The live half of a control: is it in auto mode right now (`None` if
+    this backend cannot report auto/manual for it at all — e.g. every
+    value-only knob below), and its current value, always a real readback
+    where the backend can provide one, never a value merely requested."""
+
+    name: str
+    auto: Optional[bool]
+    value: Optional[int]
+
+
 class Capture(Protocol):
     """What `camera/main.py` needs from a capture backend. Both
     `V4L2Capture` and `FakeCapture` satisfy this with no shared base class —
@@ -138,11 +177,53 @@ class Capture(Protocol):
     def close(self) -> None:
         ...
 
+    # -- live controls, doc §12.8's "Camera controls" dev-panel card --------
+    # Everything below is a *runtime* action, callable any time after
+    # `open()` — unlike `open()`'s own once-only exposure/WB/focus lock
+    # policy, which these do not replace or bypass (see `WindowsCapture`'s
+    # `_lock_controls`, still the thing that runs first, on every open).
+
+    def list_controls(self) -> List[ControlSpec]:
+        """Every control this backend can currently expose. `[]` for a
+        backend with no device open, or no controls of its own
+        (`FakeCapture` still returns a small realistic set — see below)."""
+        ...
+
+    def get_control_states(self) -> Dict[str, ControlState]:
+        """Current auto/value for every `list_controls()` entry, keyed by
+        `ControlSpec.name`. A real readback each call, not a cache."""
+        ...
+
+    def set_control(self, name: str, *, auto: Optional[bool] = None,
+                    value: Optional[int] = None) -> ControlState:
+        """Change one control. `auto=True/False` toggles auto/manual on a
+        control that has one; `value=N` pins a manual value (and, for a
+        control with an auto mode, switching it — matches the exposure
+        behaviour `WindowsCapture._lock_controls` already relies on: the
+        raw value forces manual by itself, no separate trigger needed).
+        Raises `CameraError` for an unknown control name or an operation
+        this backend cannot perform (e.g. re-enabling an auto mode with no
+        verified trigger)."""
+        ...
+
 
 # ---------------------------------------------------------------------------
 # FakeCapture — what this module's own tests, and camera/main.py's tests,
 # drive. No device, no subprocess, deterministic frames.
 # ---------------------------------------------------------------------------
+
+# Deliberately a small, realistic subset, not the full backend-specific
+# list `WindowsCapture`/`V4L2Capture` expose — one auto-capable control and
+# one manual-only one is enough for `camera/main.py` and `mjpeg.py`'s own
+# tests to drive the full control-plane end to end without touching `cv2`
+# or `v4l2-ctl` at all.
+_FAKE_CONTROL_SPECS = [
+    ControlSpec(name="white_balance", label="White balance",
+               auto_capable=True, min=2000, max=10000, step=100, unit="K"),
+    ControlSpec(name="brightness", label="Brightness",
+               auto_capable=False, min=-64, max=64, step=1, unit=""),
+]
+
 
 class FakeCapture:
     """Synthetic frames, no hardware. `frames` is an optional queue of
@@ -160,6 +241,10 @@ class FakeCapture:
         self._opened = False
         self.closed = False
         self.reads = 0
+        self._controls: Dict[str, ControlState] = {
+            "white_balance": ControlState("white_balance", True, 4600),
+            "brightness": ControlState("brightness", None, 0),
+        }
 
     def open(self) -> CaptureInfo:
         self._opened = True
@@ -177,6 +262,30 @@ class FakeCapture:
         if self._frames:
             return self._frames.pop(0)
         return bytes([128]) * (self.width * self.height * CHANNELS)
+
+    def list_controls(self) -> List[ControlSpec]:
+        return list(_FAKE_CONTROL_SPECS)
+
+    def get_control_states(self) -> Dict[str, ControlState]:
+        return dict(self._controls)
+
+    def set_control(self, name: str, *, auto: Optional[bool] = None,
+                    value: Optional[int] = None) -> ControlState:
+        spec = next((s for s in _FAKE_CONTROL_SPECS if s.name == name), None)
+        if spec is None:
+            raise CameraError(f"unknown camera control {name!r}")
+        cur = self._controls[name]
+        new_auto, new_value = cur.auto, cur.value
+        if auto is not None:
+            if not spec.auto_capable:
+                raise CameraError(f"{name} has no auto mode")
+            new_auto = auto
+        if value is not None:
+            new_value = max(spec.min, min(spec.max, value))
+            if spec.auto_capable:
+                new_auto = False
+        self._controls[name] = ControlState(name, new_auto, new_value)
+        return self._controls[name]
 
     def close(self) -> None:
         self.closed = True
@@ -251,6 +360,110 @@ class V4L2Capture:
         if self._cap is not None:
             self._cap.release()
             self._cap = None
+
+    # -- live controls, doc §12.8's dev-panel card ---------------------------
+    # Separate from `_lock_controls` below, which only ever runs once, at
+    # `open()`, and is untouched by any of this — these are runtime actions
+    # the Developer tab calls any time after. `short name -> (v4l2 control,
+    # v4l2 auto control or None, auto-on value, auto-off value)`, reusing
+    # exactly the auto/manual semantics `_lock_controls` already codes
+    # (exposure_auto: 1=manual/3=aperture-priority-auto; the other two:
+    # 0=manual/1=auto) rather than inventing a second convention.
+    _AUTO_CAPABLE = {
+        "white_balance": ("white_balance_temperature",
+                          "white_balance_temperature_auto", 1, 0),
+        "exposure": ("exposure_absolute", "exposure_auto", 3, 1),
+        "focus": ("focus_absolute", "focus_auto", 1, 0),
+    }
+    # Manual-only knobs with no auto/manual concept in the UVC control set —
+    # exposed as-is under their own v4l2-ctl name.
+    _EXTRA_CONTROLS = ("brightness", "contrast", "saturation", "gain",
+                       "sharpness", "hue", "backlight_compensation")
+
+    def _list_ctrls_raw(self) -> Dict[str, Dict[str, int]]:
+        """Parses `v4l2-ctl --list-ctrls`, e.g. one line:
+        `  brightness 0x00980900 (int)  : min=-64 max=64 step=1 default=0
+        value=0` — keyed by control name, values are the `key=int` pairs on
+        the line. The one place ranges for this backend come from the real
+        device rather than a guess, unlike `WindowsCapture`'s hardcoded
+        ones (no equivalent query exists on Windows)."""
+        out = self._run_v4l2ctl(["-d", self.device, "--list-ctrls"],
+                                required=False)
+        if out is None:
+            return {}
+        ctrls: Dict[str, Dict[str, int]] = {}
+        for line in out.splitlines():
+            m = re.match(r"\s*(\w+)\s+0x[0-9a-fA-F]+\s+\(\w+\)\s*:\s*(.*)",
+                        line)
+            if not m:
+                continue
+            name, rest = m.groups()
+            ctrls[name] = {k: int(v) for k, v in
+                           re.findall(r"(\w+)=(-?\d+)", rest)}
+        return ctrls
+
+    def list_controls(self) -> List[ControlSpec]:
+        raw = self._list_ctrls_raw()
+        specs: List[ControlSpec] = []
+        for short, (vname, aname, _on, _off) in self._AUTO_CAPABLE.items():
+            f = raw.get(vname)
+            if f is None:
+                continue
+            specs.append(ControlSpec(
+                name=short, label=short.replace("_", " ").title(),
+                auto_capable=aname in raw, min=f.get("min"), max=f.get("max"),
+                step=f.get("step", 1), unit="K" if short == "white_balance" else ""))
+        for name in self._EXTRA_CONTROLS:
+            f = raw.get(name)
+            if f is None:
+                continue
+            specs.append(ControlSpec(
+                name=name, label=name.replace("_", " ").title(),
+                auto_capable=False, min=f.get("min"), max=f.get("max"),
+                step=f.get("step", 1)))
+        return specs
+
+    def get_control_states(self) -> Dict[str, ControlState]:
+        raw = self._list_ctrls_raw()
+        states: Dict[str, ControlState] = {}
+        for short, (vname, aname, on_val, _off) in self._AUTO_CAPABLE.items():
+            if vname not in raw:
+                continue
+            # exposure_auto's "auto" value is 3, not 1 — comparing to the
+            # known auto-on value (rather than assuming truthy/0) is what
+            # makes this correct for that control too, not just the two
+            # 0/1 ones.
+            auto = raw[aname].get("value") == on_val if aname in raw else None
+            states[short] = ControlState(short, auto, raw[vname].get("value"))
+        for name in self._EXTRA_CONTROLS:
+            if name in raw:
+                states[name] = ControlState(name, None, raw[name].get("value"))
+        return states
+
+    def set_control(self, name: str, *, auto: Optional[bool] = None,
+                    value: Optional[int] = None) -> ControlState:
+        if name in self._AUTO_CAPABLE:
+            vname, aname, on_val, off_val = self._AUTO_CAPABLE[name]
+        elif name in self._EXTRA_CONTROLS:
+            vname, aname, off_val = name, None, None
+        else:
+            raise CameraError(f"unknown camera control {name!r}")
+        if auto is not None:
+            if aname is None:
+                raise CameraError(f"{name} has no auto mode on this backend")
+            self._set_ctrl(**{aname: self._AUTO_CAPABLE[name][2] if auto else off_val})
+        if value is not None:
+            self._set_ctrl(**{vname: int(value)})
+            if aname is not None and auto is None:
+                # Pinning a raw value is itself a switch to manual — same
+                # rule `_lock_controls` already applies when it writes
+                # `exposure_absolute` right after `exposure_auto=1`.
+                self._set_ctrl(**{aname: off_val})
+        states = self.get_control_states()
+        if name not in states:
+            raise CameraError(
+                f"{name} not reported by {self._v4l2ctl} after set")
+        return states[name]
 
     # -- controls, via v4l2-ctl (see module docstring) ----------------------
 
@@ -371,6 +584,26 @@ class V4L2Capture:
 # ring/mjpeg/dev-panel path before the rig is available. See CLAUDE.md.
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class _WinControlDef:
+    """One row of `WindowsCapture`'s control table — the `cv2.CAP_PROP_*`
+    ints it maps a short control name onto, built lazily inside `open()`
+    (see `_build_controls_table`) since `cv2` cannot be imported at module
+    scope here (module docstring)."""
+
+    value_prop: int
+    auto_prop: Optional[int]
+    # Best-effort trigger values for `cv2.set(auto_prop, ...)`. `auto_on`
+    # `None` means this backend has no verified way to re-enable auto for
+    # this control (`set_control(auto=True)` refuses rather than guessing
+    # silently); `auto_off` `None` means no separate trigger is needed —
+    # pinning a value with `.set(value_prop, ...)` already forces manual
+    # (true for exposure, confirmed 2026-08-12 — see `_lock_controls`).
+    auto_on: Optional[float]
+    auto_off: Optional[float]
+    spec: ControlSpec
+
+
 class WindowsCapture:
     """OpenCV's DirectShow backend, addressed by device *index* (0, 1, ...)
     rather than V4L2Capture's `/dev/videoN` path — Windows has no such path.
@@ -402,9 +635,16 @@ class WindowsCapture:
         # same role `subprocess.run` faking plays for V4L2Capture's tests.
         self._video_capture_factory = video_capture_factory
         self._cap = None
+        # Both populated in open() — see `_build_controls_table` and the
+        # "live controls" section below. `None`/`{}` before that mirrors
+        # every other "before open()" guard in this file.
+        self._controls_table: Optional[Dict[str, "_WinControlDef"]] = None
+        self._auto_state: Dict[str, bool] = {}
 
     def open(self) -> CaptureInfo:
         import cv2  # local import — see V4L2Capture's docstring for why
+
+        self._controls_table = self._build_controls_table(cv2)
 
         factory = self._video_capture_factory
         if factory is None:
@@ -458,6 +698,14 @@ class WindowsCapture:
                  self.device, actual_w, actual_h, actual_fps, fourcc)
 
         exposure, wb, focus, locked = self._lock_controls(cap, cv2)
+        if locked:
+            # `_lock_controls` above is untouched by this feature and is
+            # the only thing that decides real auto/manual state at open —
+            # this just records its outcome so `get_control_states()` can
+            # report it without re-deriving it (DirectShow's own auto-mode
+            # readback is unreliable; see `_lock_controls`'s docstring).
+            self._auto_state.update(
+                white_balance=False, exposure=False, focus=False)
         return CaptureInfo(
             width=actual_w, height=actual_h, fps=actual_fps, fourcc=fourcc,
             exposure_absolute=exposure, white_balance_temperature=wb,
@@ -475,6 +723,108 @@ class WindowsCapture:
         if self._cap is not None:
             self._cap.release()
             self._cap = None
+
+    # -- live controls, doc §12.8's dev-panel card ---------------------------
+    # Separate from `_lock_controls` below, which only ever runs once, at
+    # `open()`, and is untouched by any of this.
+
+    @staticmethod
+    def _build_controls_table(cv2) -> Dict[str, _WinControlDef]:
+        """Ranges are typical-UVC values, not device-queried — OpenCV's
+        DirectShow backend has no min/max query API, the same limitation
+        this class's own docstring already states for exposure/WB/focus.
+        The Developer tab always shows the real readback alongside the
+        slider, so a wrong nominal range costs a badly-scaled slider, never
+        a wrong displayed value."""
+        return {
+            "white_balance": _WinControlDef(
+                cv2.CAP_PROP_WB_TEMPERATURE, cv2.CAP_PROP_AUTO_WB, 1, 0,
+                ControlSpec("white_balance", "White balance", True,
+                           2000, 10000, 100, "K")),
+            "exposure": _WinControlDef(
+                cv2.CAP_PROP_EXPOSURE, cv2.CAP_PROP_AUTO_EXPOSURE,
+                # 0.75/0.25 is the commonly-reported DirectShow auto/manual
+                # trigger pair for this OpenCV property — the class
+                # docstring already names 0.25 for manual as unverified;
+                # 0.75 for auto is the same guess, extended, and gets an
+                # actual run against this machine's webcam before being
+                # trusted (see CLAUDE.md).
+                0.75, None,
+                ControlSpec("exposure", "Exposure", True, -13, -1, 1, "")),
+            "focus": _WinControlDef(
+                cv2.CAP_PROP_FOCUS, cv2.CAP_PROP_AUTOFOCUS, 1, 0,
+                ControlSpec("focus", "Focus", True, 0, 255, 5, "")),
+            "brightness": _WinControlDef(
+                cv2.CAP_PROP_BRIGHTNESS, None, None, None,
+                ControlSpec("brightness", "Brightness", False, -64, 64, 1)),
+            "contrast": _WinControlDef(
+                cv2.CAP_PROP_CONTRAST, None, None, None,
+                ControlSpec("contrast", "Contrast", False, 0, 95, 1)),
+            "saturation": _WinControlDef(
+                cv2.CAP_PROP_SATURATION, None, None, None,
+                ControlSpec("saturation", "Saturation", False, 0, 100, 1)),
+            "gain": _WinControlDef(
+                cv2.CAP_PROP_GAIN, None, None, None,
+                ControlSpec("gain", "Gain", False, 0, 255, 1)),
+            "sharpness": _WinControlDef(
+                cv2.CAP_PROP_SHARPNESS, None, None, None,
+                ControlSpec("sharpness", "Sharpness", False, 0, 7, 1)),
+            "hue": _WinControlDef(
+                cv2.CAP_PROP_HUE, None, None, None,
+                ControlSpec("hue", "Hue", False, -180, 180, 1, "°")),
+            "backlight_compensation": _WinControlDef(
+                cv2.CAP_PROP_BACKLIGHT, None, None, None,
+                ControlSpec("backlight_compensation", "Backlight compensation",
+                           False, 0, 4, 1)),
+        }
+
+    def list_controls(self) -> List[ControlSpec]:
+        if self._controls_table is None:
+            raise CameraError("list_controls() before open()")
+        return [d.spec for d in self._controls_table.values()]
+
+    def get_control_states(self) -> Dict[str, ControlState]:
+        if self._cap is None or self._controls_table is None:
+            raise CameraError("get_control_states() before open()")
+        states = {}
+        for name, d in self._controls_table.items():
+            value = self._readback(self._cap, d.value_prop)
+            auto = self._auto_state.get(name) if d.auto_prop is not None else None
+            states[name] = ControlState(name, auto, value)
+        return states
+
+    def set_control(self, name: str, *, auto: Optional[bool] = None,
+                    value: Optional[int] = None) -> ControlState:
+        if self._cap is None or self._controls_table is None:
+            raise CameraError("set_control() before open()")
+        d = self._controls_table.get(name)
+        if d is None:
+            raise CameraError(f"unknown camera control {name!r}")
+        if auto is not None:
+            if d.auto_prop is None:
+                raise CameraError(f"{name} has no auto mode on this backend")
+            if auto:
+                if d.auto_on is None:
+                    raise CameraError(
+                        f"{name}: re-enabling auto is not supported on "
+                        "this backend (no verified DirectShow trigger)")
+                self._cap.set(d.auto_prop, d.auto_on)
+                self._auto_state[name] = True
+            else:
+                if d.auto_off is not None:
+                    self._cap.set(d.auto_prop, d.auto_off)
+                self._auto_state[name] = False
+        if value is not None:
+            if d.spec.min is not None and d.spec.max is not None:
+                value = max(d.spec.min, min(d.spec.max, value))
+            self._cap.set(d.value_prop, value)
+            if d.auto_prop is not None:
+                # Matches exposure's own proven behaviour (2026-08-12): the
+                # raw value forces manual by itself, no separate trigger.
+                self._auto_state[name] = False
+        read_value = self._readback(self._cap, d.value_prop)
+        auto_state = self._auto_state.get(name) if d.auto_prop is not None else None
+        return ControlState(name, auto_state, read_value)
 
     def _lock_controls(self, cap, cv2):
         """Two cases, the same two `V4L2Capture` has: a prior LOCKED
