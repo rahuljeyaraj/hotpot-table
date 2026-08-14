@@ -46,6 +46,22 @@ public:
 	// is what stops a plate's ink from ever landing inside its own cutout.
 	std::vector<ofRectangle> cutoutRectsPx() const;
 
+	// VISUAL_LAYER.md §9 build item 6: one entry per bin currently
+	// crossfading toward "active" (StateLink::Bin::hl == "hover"), for
+	// ofApp to hand to FluidLayer::update() so the sim emits into the same
+	// annulus this bin's halo is fading out of (drawHalo reads the same
+	// spring). `bin` is binRectPx(i) — the same rect drawHalo/drawBin use —
+	// so the fluid, the halo and the light-pass cutout can never disagree
+	// about where a bin actually is. Empty when no bin is active.
+	struct FireEmitter {
+		ofRectangle bin;
+		float cornerRadiusPx = 0.0f;
+		float innerOffsetPx = 0.0f;
+		float outerOffsetPx = 0.0f;
+		float intensity = 0.0f;
+	};
+	std::vector<FireEmitter> fireEmitters() const;
+
 	// 2026-08-12: draws ONLY the pointer cursor + dwell ring, with no
 	// cutout it cannot reach. This is the ONE place the cursor is drawn
 	// while serving — `draw()` itself skips its own cursor block in that
@@ -73,38 +89,14 @@ private:
 	struct BinTween {
 		Spring picked{0.15f};
 		Spring price{0.15f};
-		// VISUAL_LAYER.md §6 Active: "Gold halo crossfades OUT as the
-		// selected-bin highlight crossfades IN." Slower than picked/price's
-		// 150ms — those track a fact (weight, cost) that should read as
-		// near-instant; this is a deliberate cross-dissolve, and 150ms
-		// reads as a flicker at the alpha ranges drawHalo/drawSparks use.
-		// 350ms is an unmeasured starting guess, tunable once seen
-		// projected, same as every other new VISUAL_LAYER constant this
-		// session. Named `spark`, not `fire`, since 2026-08-14: the
-		// highlight this drives is no longer a fluid-sim fire ring (see
-		// FluidLayer.h's own note on why that was dropped) — it is the
-		// spark shower drawSparks() draws, a plain UiLayer particle system.
-		Spring spark{0.35f};
-	};
-
-	// 2026-08-14, replaces the fire ring: developer's own direction after
-	// two rig problems with the fire-ring highlight — a false-positive
-	// hover trigger (traced to core/bin_grid.py's own documented TRAP: the
-	// CAMERA grid hover hit-tests against and the PROJECTOR grid this class
-	// draws are independently authored and can drift, not an oF bug — see
-	// CLAUDE.md) and, separately, the ring fire itself being judged too
-	// strong even where it stayed put ("blows downward" once the hand
-	// left, residual buoyancy). "Selected" is now a shower of sparks with
-	// plain ballistic physics — NOT ftFluidFlow, unlike the fire ring:
-	// nothing here reads density/temperature/buoyancy, so a spark can fall
-	// with real gravity instead of a fluid sim's own upward-biased drift,
-	// and there is no shared field for one bin's motion to bleed into
-	// another's. `pos`/`vel` are stage px / stage px per second.
-	struct Spark {
-		glm::vec2 pos;
-		glm::vec2 vel;
-		float age = 0.0f;
-		float lifespanS = 0.3f;
+		// VISUAL_LAYER.md §6 Active: "Gold halo crossfades OUT as the fire
+		// ring crossfades IN." Slower than picked/price's 150ms — those
+		// track a fact (weight, cost) that should read as near-instant;
+		// this is a deliberate cross-dissolve, and 150ms reads as a flicker
+		// at the alpha ranges drawHalo/fireEmitters() use. 350ms is an
+		// unmeasured starting guess, tunable once seen projected, same as
+		// every other new VISUAL_LAYER constant this session.
+		Spring fire{0.35f};
 	};
 
 	// Not static any more (M4 build item 4): the bin rects come from core
@@ -137,13 +129,6 @@ private:
 	static void drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
 		float outerOffsetPx, const ofColor & colour, float baseCornerRadiusPx);
 	void drawHalo(int i) const;
-	// Spawns/advances/culls bin i's spark shower — called from update(),
-	// once per frame, with `intensity` the same 0..1 crossfade spring
-	// drawHalo fades OUT by (BinTween::spark) so the two can never
-	// disagree about how "selected" a bin currently reads. Not const: it
-	// mutates _sparks[i]/_sparkSpawnAccum[i], the particle state itself.
-	void updateSparks(int i, float dt, float intensity);
-	void drawSparks(int i) const;
 	void drawWidgets(const StateLink::State & state) const;
 	void drawWidget(const StateLink::Widget & w) const;
 	void drawCursor(const CursorLink::Hand & pointer, float dwell) const;
@@ -207,14 +192,6 @@ private:
 	// once in setup(), not per frame — a phase that itself moved would
 	// defeat the point of a fixed per-bin offset.
 	std::array<float, 8> _haloPhase{};
-
-	// Live spark particles per bin, and each bin's fractional-spawn
-	// accumulator (spawn rate is sparks/second, dt is a fraction of a
-	// second, so most frames owe less than one whole spark — this carries
-	// the remainder rather than truncating it to zero every time, the same
-	// "don't lose the fraction" reasoning a dwell-ring timer needs).
-	std::array<std::vector<Spark>, 8> _sparks;
-	std::array<float, 8> _sparkSpawnAccum{};
 
 	// The stage-space rects core last sent, and whether it sent any. An
 	// absence is NOT "a rect at the origin" — see StateLink::Bin::hasRect.
