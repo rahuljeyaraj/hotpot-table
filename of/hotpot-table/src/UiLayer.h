@@ -98,6 +98,16 @@ private:
 	// no background colour to punch with."
 	static void drawAnnulus(float cx, float cy, float rOuter, float rInner,
 		const ofColor & colour, float startDeg = 0.0f, float endDeg = 360.0f);
+	// VISUAL_LAYER.md §6 idle state, build item 4: the ~16 nested "strokes"
+	// around a bin, breathing, phase-offset by _haloPhase[i]. A generalised
+	// drawRing — same filled-band, ODD-winding technique (drawRing's own
+	// comment on why an actual ofPath stroke is unusable here), but with a
+	// nonzero INNER offset too, so many bands can nest around one rect
+	// without each one redrawing the disc drawRing itself always starts
+	// from.
+	static void drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
+		float outerOffsetPx, const ofColor & colour, float baseCornerRadiusPx);
+	void drawHalo(int i) const;
 	void drawWidgets(const StateLink::State & state) const;
 	void drawWidget(const StateLink::Widget & w) const;
 	void drawCursor(const CursorLink::Hand & pointer, float dwell) const;
@@ -155,6 +165,11 @@ private:
 
 	std::array<BinTween, 8> _bins;
 	Spring _totalAmount{0.15f};
+	// VISUAL_LAYER.md §6: "each bin phase-offset by a per-bin random seed
+	// so the 8 do not pulse in sync." Rolled once in setup(), not per
+	// frame — a phase that itself moved would defeat the point of a fixed
+	// per-bin offset.
+	std::array<float, 8> _haloPhase{};
 
 	// The stage-space rects core last sent, and whether it sent any. An
 	// absence is NOT "a rect at the origin" — see StateLink::Bin::hasRect.

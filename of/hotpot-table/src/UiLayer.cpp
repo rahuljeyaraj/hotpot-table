@@ -100,6 +100,41 @@ namespace {
 	// this number blindly either.
 	const float kPlateHPx = 140.0f;
 
+	// --- VISUAL_LAYER.md §4/§6, build item 4: the idle halo -----------------
+	// "haloRect = binRect inflated by HALO_MARGIN (start at 20px)."
+	const float kHaloMarginPx = 20.0f;
+	// "~16 nested ofPath rounded-rect strokes, each 2-3px further out."
+	// 2.5px, the midpoint of that range — the doc gives a range, not one
+	// number, and nothing yet needs finer control than a constant. Each
+	// "stroke" is drawn kHaloRingThicknessPx wide with a gap to the next
+	// one, so 16 of them read as nested rings, not one solid wash.
+	const int kHaloRingCount = 16;
+	const float kHaloRingPitchPx = 2.5f;
+	const float kHaloRingThicknessPx = 1.5f;
+	// §3's palette: "Halo — idle #B8781A." Unverified on the rig — the
+	// halo was unbuilt through the 2026-08-14 rig photos that corrected
+	// the plate rate's own colour off this same hex (it read as RED
+	// projected, not amber — see kPlateRateColor above and CLAUDE.md's M8
+	// step 2 fix note). This row was deliberately left alone at the time
+	// for exactly that reason: no halo existed yet to have its own
+	// evidence. Expect this may need the same correction once photographed.
+	const ofColor kHaloIdleColor(0xB8, 0x78, 0x1A);
+	// "Slow breathing sine on alpha." No period is given in the doc; 3s is
+	// a reasoned starting guess (slow enough to read as breathing, not a
+	// strobe), unmeasured, tunable once seen projected.
+	const float kHaloBreathPeriodS = 3.0f;
+	// Geometric note, not yet checked against a photograph: the halo's own
+	// outward reach (20px to 20+16*2.5=60px from the bin edge) is not
+	// small next to how close the plate's rate line sits to the bin on
+	// this same axis (drawBin's ringTop/ringBottom, roughly 19px out
+	// before the rate line's own clearance/ascender stack further beyond
+	// it) — the two were tuned independently and may turn out to overlap
+	// on the near/far axis once both are on the projected table at once.
+	// Doc §4 says "Halo wraps the BIN ONLY, never the plate"; if a photo
+	// shows the halo reaching into the plate's own text, the fix is here
+	// (kHaloMarginPx or the ring span), not in drawBin's clearance, which
+	// several rig photos have already tuned for other reasons.
+
 	// doc's old kBinOutlineMM/kLabelClearanceMM/kLabelLineGapMM (ofApp.cpp,
 	// now deleted). Redefined here rather than resurrected in
 	// TableGeometry.h, which v3 §7.1 keeps for CAD geometry only.
@@ -402,6 +437,13 @@ void UiLayer::setup(){
 		ofLogError(kTag) << "could not load img/hotpottery-light-cropped.png"
 			<< " — no brand mark will draw";
 	}
+
+	// VISUAL_LAYER.md §6: "each bin phase-offset by a per-bin random seed
+	// so the 8 do not pulse in sync." Rolled once, here, not re-rolled
+	// per frame in drawHalo — a moving phase would defeat its own point.
+	for(int i = 0; i < 8; i++){
+		_haloPhase[i] = ofRandom(TWO_PI);
+	}
 }
 
 ofRectangle UiLayer::cadBinRectPx(int i){
@@ -547,6 +589,60 @@ void UiLayer::drawAnnulus(float cx, float cy, float rOuter, float rInner,
 	path.arcNegative(cx, cy, rInner, rInner, endDeg, startDeg);
 	path.close();
 	path.draw();
+}
+
+void UiLayer::drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
+	float outerOffsetPx, const ofColor & colour, float baseCornerRadiusPx){
+	// drawRing's rounded-corner branch, generalised: that one always starts
+	// its inner contour at `base` itself (offset 0). This lets the inner
+	// contour sit further out too, so drawHalo can nest many nested bands
+	// around one bin without every band re-covering the ground the last one
+	// already did. Same ODD-winding, filled-only technique, same reason
+	// (drawAnnulus's comment above: an unfilled ofPath's "stroke" is
+	// glLineWidth in disguise, capped or ignored depending on the renderer).
+	const ofRectangle outer(base.x - outerOffsetPx, base.y - outerOffsetPx,
+		base.width + 2.0f * outerOffsetPx, base.height + 2.0f * outerOffsetPx);
+	const ofRectangle inner(base.x - innerOffsetPx, base.y - innerOffsetPx,
+		base.width + 2.0f * innerOffsetPx, base.height + 2.0f * innerOffsetPx);
+	const float rOuter = std::min(baseCornerRadiusPx + outerOffsetPx,
+		std::min(outer.width, outer.height) * 0.5f);
+	const float rInner = std::min(baseCornerRadiusPx + innerOffsetPx,
+		std::min(inner.width, inner.height) * 0.5f);
+	ofPath path;
+	path.setFilled(true);
+	path.setFillColor(colour);
+	path.setCircleResolution(24);
+	path.setPolyWindingMode(OF_POLY_WINDING_ODD);
+	path.rectRounded(outer, rOuter);
+	path.rectRounded(inner, rInner);
+	path.draw();
+}
+
+void UiLayer::drawHalo(int i) const {
+	// VISUAL_LAYER.md §6, Idle: "Halo only, no simulation... Alpha falls
+	// off quadratically from the bin edge outward (brightest at edge)...
+	// Slow breathing sine on alpha, each bin phase-offset by a per-bin
+	// random seed so the 8 do not pulse in sync." All 8 bins draw this,
+	// unconditionally — build item 4 has no "active bin" concept yet
+	// (that needs the fire ring, build item 6, and hand hover, M5); every
+	// bin is "idle" until something says otherwise.
+	const ofRectangle bin = binRectPx(i);
+	const float baseCornerRadiusPx = mmToPxX(CUTOUT_CORNER_RADIUS_MM);
+	const float breathe = 0.55f + 0.45f
+		* sinf(TWO_PI * ofGetElapsedTimef() / kHaloBreathPeriodS + _haloPhase[i]);
+	for(int k = 0; k < kHaloRingCount; k++){
+		const float innerPx = kHaloMarginPx + (float)k * kHaloRingPitchPx;
+		const float outerPx = innerPx + kHaloRingThicknessPx;
+		// k=0 (closest to the bin edge) is brightest; quadratic falloff
+		// outward, same shape doc §6 asks for on the fire ring's own fumes.
+		const float edgeFrac = (float)k / (float)(kHaloRingCount - 1);
+		const float alpha = 255.0f * breathe * (1.0f - edgeFrac) * (1.0f - edgeFrac);
+		if(alpha < 1.0f){
+			continue;   // skip a band nobody would see rather than draw it at 0 alpha
+		}
+		drawRoundedBand(bin, innerPx, outerPx,
+			ofColor(kHaloIdleColor, alpha), baseCornerRadiusPx);
+	}
 }
 
 ofColor UiLayer::highlightColour(const std::string & hl){
@@ -1093,6 +1189,16 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		// pair, pulled from the one locale-resolved string the wire gives
 		// oF (state.total.text) — see splitCurrencyText's comment.
 		splitCurrencyText(state.total.text, _currencyPrefix, _currencyDecimals);
+		// Halo first, THEN the bin: VISUAL_LAYER.md §6's "Draw halo BEFORE
+		// the white bin rect so the rect cuts the inner edge cleanly" is
+		// actually enforced by Stage's light pass (it stamps every cutout
+		// opaque white LAST, after this whole content pass ends) — drawing
+		// it here, ahead of drawBin's own ring/plate, additionally keeps
+		// the plate ink and the picked ring on top of the halo if their
+		// spans ever turn out to overlap (see kHaloMarginPx's own comment).
+		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
+			drawHalo(i);
+		}
 		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
 			drawBin(i, state.bins[i], _bins[i]);
 		}

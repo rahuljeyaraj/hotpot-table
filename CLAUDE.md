@@ -3251,6 +3251,72 @@ lists it first: **use `OF_BLENDMODE_MULTIPLY`** for the fire ring
 flipped back to `false`, exe stopped, rebuilt clean again. **Doc §9 is
 now unblocked — build item 4 (idle halo) is next.**
 
+### Step 4 (2026-08-14): idle halo — built, not yet run on the rig
+Doc §6 Idle / §4: "~16 nested `ofPath` rounded-rect strokes, each 2-3px
+further out... Alpha falls off quadratically from the bin edge outward
+(brightest at edge)... Slow breathing sine on alpha, each bin
+phase-offset by a per-bin random seed so the 8 do not pulse in sync."
+
+**A "nested stroke" cannot literally be a stroke — this was already
+found and recorded once, for the M1-era plate ring and the M5 dwell
+ring, and applies unchanged here.** `drawRing`'s and `drawAnnulus`'s own
+comments in `UiLayer.cpp` (verified against the installed
+`ofGLRenderer.cpp`, not assumed): an unfilled `ofPath`'s outline draws
+through `setLineWidth(shape.getStrokeWidth()) -> glLineWidth()`, so
+`ofPath::setStrokeWidth()` **is** `ofSetLineWidth()` — driver-capped at
+1px on this machine's stack and ignored outright on a programmable
+renderer. VISUAL_LAYER.md §6's own "Use `setStrokeWidth()`, NOT
+`ofSetLineWidth()`" line repeats the mistake this codebase already
+corrected once (the old doc §13.4, before this doc existed) — not
+followed literally here for that reason. Built as 16 FILLED bands
+instead, the same ODD-winding two-rounded-rect-contour technique
+`drawRing` already uses for the plate ring, generalised
+(`UiLayer::drawRoundedBand`, new) to take a nonzero inner offset so many
+bands can nest around one bin. `UiLayer::drawHalo(i)` loops 16 of them
+per bin, alpha falling off quadratically from `kHaloMarginPx` (20px, per
+§4) outward, multiplied by a per-bin breathing sine
+(`_haloPhase[i]`, rolled once via `ofRandom` in `setup()`, not re-rolled
+per frame). Drawn for all 8 bins unconditionally — no "active bin"
+concept exists yet (needs the fire ring, build item 6, and M5's hover),
+so every bin is "idle." Drawn ahead of `drawBin`'s own ring/plate in the
+per-frame loop, so if the two ever turn out to overlap on screen the
+plate/ring still wins the pixel, though "draw halo before the white bin
+rect" is actually enforced by Stage's light pass (unconditional, last,
+regardless of draw order inside this content pass).
+
+**Colour is doc §3's unverified `#B8781A`, left alone on purpose.** This
+exact hex already had to be corrected once this session (the plate
+rate — read as RED projected, not amber, see the step-2 fix entries
+above) precisely because nothing had photographed it yet; the halo is
+now that same untested row's first real evidence opportunity, and
+guessing a replacement ahead of a photo would just be re-guessing the
+same way the plate rate did twice already before it got one right.
+
+**A real, not-yet-checked geometry risk, flagged in the constant's own
+comment (`kHaloMarginPx` in `UiLayer.cpp`):** the halo's own outward
+reach (20 to 20+16×2.5=60px from the bin edge) was tuned independently
+of `drawBin`'s existing clearance numbers, and back-of-envelope
+arithmetic against those numbers suggests they may overlap on the
+near/far axis, where the plate's rate line sits — which would violate
+§4's "Halo wraps the BIN ONLY, never the plate" if a photo confirms it.
+Not fixed speculatively; watch for it in the first halo photo.
+
+**Full rebuild, msbuild Debug x64, 0 errors** (1 warning,
+pre-existing `LNK4075` noise, not from this session's files).
+**Run, not just built:** the standalone bench-test exe from step 3 was
+still running from that step and had to be stopped, then a second,
+separate orphan `hotpot-table_debug.exe` was found running under a live
+`run.py` supervisor tree (six python processes) that this session did
+not start — `python run.py --stop` cleared it (the M4n-fix lesson:
+check `Get-CimInstance`/`Get-Process` for a live tree before assuming a
+locked `.exe` is just an editor-open handle), then rebuilt clean, then
+`python run.py` again to bring the real stack back up so the halo is
+live against a real core connection (`core`'s staff-view HTTP answered
+200 on :8090 afterward). **Still owed: a human looking at the projected
+table.** Doc §6's own verify line is "projected halos are visible and
+do not look synchronised" — nothing above substitutes for that, and the
+colour/overlap risks named above are exactly what a photo would settle.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
