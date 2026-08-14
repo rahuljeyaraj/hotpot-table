@@ -303,22 +303,20 @@ class TestStateBroadcast(CoreCase):
 
         It used to read `item.names.get(self.locale, item.id)`, so the
         first locale missing one translation projected the hidden training
-        label onto a plate. `_bin_msg`'s `label` is now `short_display_name()`
-        (VISUAL_LAYER.md's `shortLabel`, not localised at all), so switching
-        the locale can no longer be what triggers the leak — the check that
-        still matters is that the plate string is never the hidden id or
-        class_name, whatever produced it.
+        label onto a plate. Switching Core to a locale nothing in the
+        catalogue names must degrade to English, never to `soya_chunks`.
 
         Driven through _bin_msg rather than the wire because the locale is
         fixed to English at construction (build item 4) and the broadcast
-        would never carry another one today.
+        would never carry another one today — the point is that the
+        *lookup* is safe when M6 makes the locale switchable.
         """
         self.core.locale = "ja"          # no ja.json, no ja names anywhere
         ids = self.core.catalogue.ids()
         for i in range(8):
             item = self.core.catalogue.item(ids[i])
             label = self.core._bin_msg(i)["label"]
-            self.assertEqual(label, item.short_label)
+            self.assertEqual(label, item.names["en"])
             self.assertNotEqual(label, item.id)
             self.assertNotEqual(label, item.class_name)
 
@@ -331,7 +329,7 @@ class TestStateBroadcast(CoreCase):
         for i, b in enumerate(msg["bins"]):
             self.assertTrue(b["resolved"], f"bin {i} not resolved")
             item = self.core.catalogue.item(ids[i])
-            self.assertEqual(b["label"], item.short_label)
+            self.assertEqual(b["label"], item.names["en"])
             self.assertEqual(b["grams"], 500)   # MOCK_SEED_GRAMS, nothing picked yet
             self.assertEqual(b["picked"], 0)
             self.assertEqual(b["hl"], "none")

@@ -131,14 +131,20 @@ private:
 	// font objects from _nameFont/_detailFont above so retyping the plate
 	// (this step) cannot also resize the banner or a widget label as a
 	// side effect — nothing in the doc's step 2 asks for that.
-	// 2026-08-14: 40px overflowed a bin at the doc's original size (rig
-	// photo — see kPlateNamePx in UiLayer.cpp) and is now 28px, measured
-	// against the real catalogue rather than guessed. Rate line is
-	// DejaVuSansMono (kMonoFontFile), not the bold face — regular weight
-	// per the doc, plus monospace so a picked price's width doesn't shift
-	// digit to digit.
+	// 2026-08-14, two rig photos, same day: 40px overflowed a bin (rig
+	// photo — see kPlateNamePx in UiLayer.cpp) and is now 28px, with
+	// core's `label` wrapped to at most 2 lines (drawBin's own
+	// wrapNameToTwoLines) rather than pre-shortened — a same-day
+	// `shortLabel` catalogue field was tried and deleted on developer
+	// instruction. Rate line is DejaVuSansMono (kMonoFontFile), not the
+	// bold face — regular weight per the doc, plus monospace so a picked
+	// price's width doesn't shift digit to digit — but at a smaller size
+	// than the doc's 26px (see kPlateRatePx): a second rig photo showed it
+	// reading visually BIGGER than the name despite the smaller nominal
+	// size, because DejaVuSansMono's cap-height runs larger relative to
+	// its point size than the proportional bold face's does.
 	ofTrueTypeFont _plateNameFont;  // 28px bold DejaVuSans, ink #2B2118
-	ofTrueTypeFont _plateRateFont;  // 26px regular DejaVuSansMono, ink #B8781A
+	ofTrueTypeFont _plateRateFont;  // 18px regular DejaVuSansMono, ink #6AA84F
 	ofTrueTypeFont _totalNumFont;  // 80px, "Running total, numeral"
 	ofTrueTypeFont _totalLabelFont;// 28px, "Total label"
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"

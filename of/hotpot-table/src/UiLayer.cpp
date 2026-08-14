@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <sstream>
 
 namespace {
 	const char * kTag = "UiLayer";
@@ -42,32 +43,44 @@ namespace {
 
 	// VISUAL_LAYER.md section 3's palette named 40px for the plate name.
 	// **2026-08-14, corrected the same day from a real rig photo**: at
-	// 40px DejaVuSans-Bold, catalogue shortLabels overflowed a 200mm bin
-	// (252px) and ran into the paired bin's own name — "Noodles" and
-	// "Wheat Noodles" merged into one unreadable run. Measured against the
-	// real font and the real catalogue (PIL/FreeType, not eyeballed):
-	// every one of the 12 shortLabels fits inside 252px at 28px bold
-	// (worst case "Wheat Noodles" at 239px, 13px to spare) and none does
-	// at 30px or above. 28px also happens to be the exact size §13.4 was
-	// already corrected to once before (2026-08-11, for the OLD two-line
-	// full-name layout) — a coincidence worth noting, not a rule: this
-	// time the number comes from shortLabel's real measured widths, not
-	// from that earlier decision. **§3's palette table is corrected to
-	// match.** See drawBin: there is still no wrap call for the plate
-	// name — the doc's own step 2 check is "does not wrap or clip", and
-	// with real measured margin behind every real label, clipping is not
-	// expected; a name that overflows after a future catalogue edit is a
-	// content problem for that edit to catch (re-run the same PIL
-	// measurement), not something to paper over with a wrap pass here.
+	// 40px DejaVuSans-Bold, catalogue names overflowed a 200mm bin (252px)
+	// and ran into the paired bin's own name — "Noodles" and "Wheat
+	// Noodles" merged into one unreadable run. 28px is where every one of
+	// the catalogue's real display names either fits on one line or wraps
+	// cleanly to two (measured against the real font and the real
+	// catalogue, PIL/FreeType, not eyeballed) — see drawBin's wrap call
+	// below. **§3's palette table is corrected to match.**
+	//
+	// A same-day `shortLabel` catalogue field (core/pricing.py,
+	// data/catalogue.json) briefly existed so this could stay one line
+	// with no wrap at all — **deleted the same day, developer instruction:
+	// "remove the short label idea... show the original label, max 2
+	// lines."** The catalogue's `names` field is the single source again;
+	// core/main.py's `_bin_msg` sends the full display name and oF wraps
+	// it here.
 	const int kPlateNamePx = 28;
-	// Rate line width is comfortably inside budget at the doc's original
-	// 26px even with the switch to monospace digits (measured: worst case
-	// "999g  $999.99" at 208px against the 252px bin) — see kMonoFontFile
-	// above for why the face changed; the size did not need to.
-	const int kPlateRatePx = 26;
-	// #2B2118 / #B8781A, VISUAL_LAYER.md section 3's palette table exactly.
+	// 2026-08-14, second rig photo: at the doc's 26px, DejaVuSansMono's
+	// ink height (25px, measured) was actually TALLER than the 28px bold
+	// name's (21px) — a mono font's cap-height runs bigger relative to its
+	// nominal size than a proportional face's, so the "smaller" number was
+	// the visually bigger line. Developer: "make it smaller." Dropped to
+	// 18px (measured ink height 18px, 86% of the name's — clearly
+	// secondary now, still legible up close where a diner reads this
+	// line). Re-run the same PIL/FreeType measurement rather than
+	// re-guessing if either face or size changes again.
+	const int kPlateRatePx = 18;
+	// #2B2118, VISUAL_LAYER.md section 3's palette table exactly.
 	const ofColor kPlateNameColor(43, 33, 24);
-	const ofColor kPlateRateColor(184, 120, 26);
+	// 2026-08-14, second rig photo: the doc's #B8781A amber read as RED on
+	// the projector, not yellow/gold — high enough red-channel share
+	// (184:120:26) that a warm projector white balance pushed it further
+	// that way (this exact rig's camera has needed repeated yellow-cast
+	// fixes — see CLAUDE.md's M4h/M4p). Developer's own replacement:
+	// #6AA84F, a mid green. Deliberately NOT tied to the doc's Halo-idle
+	// entry, which still lists the old amber — halo is unbuilt (build item
+	// 4) and has no rig evidence of its own yet; only the plate rate is
+	// corrected by this session's photo.
+	const ofColor kPlateRateColor(106, 168, 79);
 
 	// VISUAL_LAYER.md section 4: "plateRect = fixed height PLATE_H (start
 	// at 130px)... Halo wraps the BIN ONLY, never the plate" — this app has
@@ -76,7 +89,14 @@ namespace {
 	// pins the font sizes it has to fit, and checked once at setup() below
 	// against the actual loaded metrics rather than left as an unverified
 	// guess for whichever later step is the first to consume it.
-	const float kPlateHPx = 130.0f;
+	// 2026-08-14: the doc's starting 130px genuinely doesn't hold once the
+	// name is allowed to wrap to 2 lines (max 2 lines, developer
+	// instruction) — setup()'s own check measured the real worst case at
+	// ~133px. Bumped to 140px for headroom rather than left to warn on
+	// every boot; whoever picks up build item 4/6 should re-measure
+	// against the actual halo/fire geometry once it exists, not trust
+	// this number blindly either.
+	const float kPlateHPx = 140.0f;
 
 	// doc's old kBinOutlineMM/kLabelClearanceMM/kLabelLineGapMM (ofApp.cpp,
 	// now deleted). Redefined here rather than resurrected in
@@ -245,6 +265,53 @@ namespace {
 		font.drawString(text, cx - bb.width * 0.5f - bb.x, baselineY);
 	}
 
+	// Bin item names (e.g. "Button Mushrooms", "Lotus Root Slices") can
+	// render wider than a 200mm bin (252px) at kPlateNamePx — that
+	// overflowed into the neighbour's label before this existed (a
+	// 2026-08-14 rig photo). 2026-08-14, reinstated the same day after a
+	// same-day `shortLabel` detour was deleted on developer instruction
+	// ("show the original label, max 2 lines") — this is the mechanism
+	// that makes "max 2 lines" true. Greedy word-wrap to at most 2 lines
+	// instead of shrinking the font, which would abandon the measured
+	// kPlateNamePx. A single word wider than maxWidthPx on its own is
+	// still returned whole — this never breaks mid-word, matching how
+	// nothing else in this file does character-level layout.
+	std::vector<std::string> wrapNameToTwoLines(const ofTrueTypeFont & font,
+		const std::string & text, float maxWidthPx){
+		if(!font.isLoaded() || font.getStringBoundingBox(text, 0, 0).width <= maxWidthPx){
+			return {text};
+		}
+		std::vector<std::string> words;
+		std::istringstream iss(text);
+		std::string w;
+		while(iss >> w){
+			words.push_back(w);
+		}
+		if(words.empty()){
+			return {text};
+		}
+		std::string line1;
+		size_t i = 0;
+		for(; i < words.size(); i++){
+			std::string candidate = line1.empty() ? words[i] : line1 + " " + words[i];
+			if(!line1.empty() && font.getStringBoundingBox(candidate, 0, 0).width > maxWidthPx){
+				break;
+			}
+			line1 = candidate;
+		}
+		if(line1.empty()){
+			line1 = words[i++];   // one overlong word — take it anyway, never emit an empty line
+		}
+		std::string line2;
+		for(; i < words.size(); i++){
+			line2 = line2.empty() ? words[i] : line2 + " " + words[i];
+		}
+		if(line2.empty()){
+			return {line1};
+		}
+		return {line1, line2};
+	}
+
 	// Pulls the currency symbol and decimal count out of core's already-
 	// resolved `total.text` (e.g. "\xE2\x82\xB9""41.20") instead of oF
 	// hardcoding either. Doc I2: "oF does no lookup" — this is not a
@@ -299,20 +366,27 @@ void UiLayer::setup(){
 	}
 
 	// VISUAL_LAYER.md §4's PLATE_H budget, checked once against what the
-	// two fonts above actually measure — a single-line rate row, a
-	// single-line name row, the same clearance/gap the far/near rows use
-	// in drawBin. Not a hard clip (nothing here can shrink a font that
-	// already loaded); a warning is the honest amount of enforcement a
-	// startup check can do for a per-frame draw call.
+	// two fonts above actually measure — the WORST case (name wrapped to
+	// its full 2 lines, drawBin's own cap), the rate row, the same
+	// clearance/gap the far/near rows use in drawBin. Approximates the
+	// 2-line name block as 2x line height rather than doing drawBin's
+	// exact ascender/descender walk — slightly conservative (safe
+	// direction for a warn-if-over check), and simpler than duplicating
+	// that per-line math here. Not a hard clip (nothing here can shrink a
+	// font that already loaded, or pre-wrap a string with no state to
+	// wrap); a warning is the honest amount of enforcement a startup
+	// check can do for a per-frame draw call.
 	if(_fontsLoaded){
+		const float nameLineGap = 2.0f;   // matches drawBin's own constant
+		const float worstCaseNameBlock = _plateNameFont.getLineHeight() * 2.0f + nameLineGap;
 		const float measured =
-			_plateNameFont.getAscenderHeight() + fabsf(_plateNameFont.getDescenderHeight())
+			worstCaseNameBlock
 			+ mmToPxY(kLabelLineGapMM)
 			+ _plateRateFont.getAscenderHeight() + fabsf(_plateRateFont.getDescenderHeight())
 			+ mmToPxY(kLabelClearanceMM);
 		if(measured > kPlateHPx){
-			ofLogWarning(kTag) << "plate label block measures " << measured
-				<< "px, over VISUAL_LAYER.md's " << kPlateHPx << "px PLATE_H budget";
+			ofLogWarning(kTag) << "plate label block (worst case, 2-line name) measures "
+				<< measured << "px, over VISUAL_LAYER.md's " << kPlateHPx << "px PLATE_H budget";
 		}
 	}
 
@@ -595,12 +669,17 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		detail = std::string(g) + "  " + _priceText(tw.price.get());
 	}
 
-	// b.label is now core's shortLabel (core/main.py's `_bin_msg`,
-	// data/catalogue.json), chosen to fit one line at kPlateNamePx — no
-	// wrap pass here any more. VISUAL_LAYER.md's own step 2 acceptance
-	// check is "the longest name does not wrap or clip"; a wrap fallback
-	// would have quietly hidden a shortLabel that was still too long
-	// instead of surfacing it for a catalogue edit.
+	// b.label is core's display_name() again (core/main.py's `_bin_msg`) —
+	// 2026-08-14, reverted the same day from a `shortLabel`-only, no-wrap
+	// design (see kPlateNamePx's comment above) on developer instruction:
+	// "remove the short label idea... show the original label, max 2
+	// lines." Wrapped to the bin's own footprint, not the gap to its
+	// neighbour — the neighbour gap (250mm) is wider, but wrapping to the
+	// box the label sits over keeps every name visually inside its own
+	// plate.
+	std::vector<std::string> nameLines = wrapNameToTwoLines(_plateNameFont, b.label, mmToPxX(BIN_W_MM));
+	const float nameLineGap = 2.0f;   // px between a name's own wrapped lines, tighter than kLabelLineGapMM's block-to-block gap
+
 	if(i < 4){
 		// far row: rate strip sits just above the ring, name strip above
 		// that — ring → price/grams → name, reading outward from the pot.
@@ -608,20 +687,26 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		ofSetColor(kPlateRateColor);
 		drawCentered(_plateRateFont, detail, cx, rateBaseline);
 
-		// The visual gap between the two lines has to be measured from
-		// the RATE line's ascender (its actual top edge), not its
-		// getLineHeight() — line height includes internal leading on top
-		// of the ascender, so using it here was quietly inflating this
-		// gap. See the mirrored near-row branch below: it made the same
-		// mistake in the other direction with a much bigger error (an
-		// ascender is far taller than a descender in this font), which is
-		// why a 2026-08-14 rig photo showed the near row's label-to-price
-		// gap visibly larger than the far row's for the identical `gap`
-		// constant — this fixes both to the same real gap.
-		float nameBaseline = rateBaseline - _plateRateFont.getAscenderHeight() - gap
+		// The visual gap between the rate line and the name block has to
+		// be measured from the RATE line's ascender (its actual top
+		// edge), not its getLineHeight() — line height includes internal
+		// leading on top of the ascender, so using it here was quietly
+		// inflating this gap. See the mirrored near-row branch below: it
+		// made the same mistake in the other direction with a much bigger
+		// error (an ascender is far taller than a descender in this
+		// font), which is why a 2026-08-14 rig photo showed the near
+		// row's label-to-price gap visibly larger than the far row's for
+		// the identical `gap` constant — this fixes both to the same real
+		// gap. nameLines.back() sits closest to the rate line; earlier
+		// lines stack upward, spaced by this font's own line height since
+		// both lines share one font/size.
+		float lastLineBaseline = rateBaseline - _plateRateFont.getAscenderHeight() - gap
 			- fabsf(_plateNameFont.getDescenderHeight());
 		ofSetColor(kPlateNameColor);
-		drawCentered(_plateNameFont, b.label, cx, nameBaseline);
+		for(int li = (int)nameLines.size() - 1; li >= 0; li--){
+			float y = lastLineBaseline - (float)(nameLines.size() - 1 - li) * (_plateNameFont.getLineHeight() + nameLineGap);
+			drawCentered(_plateNameFont, nameLines[li], cx, y);
+		}
 	}
 	else {
 		// near row: label strip is BELOW the ring, into the 177.4mm near
@@ -641,11 +726,15 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 
 		// Mirrors the far row's fix above: measured from the rate line's
 		// DESCENDER (its real bottom edge), not getLineHeight() — see that
-		// branch's comment for the bug this replaces.
-		float nameBaseline = rateBaseline + rateDescend + gap
+		// branch's comment for the bug this replaces. nameLines.front()
+		// sits closest to the rate line; later lines stack downward.
+		float firstLineBaseline = rateBaseline + rateDescend + gap
 			+ _plateNameFont.getAscenderHeight();
 		ofSetColor(kPlateNameColor);
-		drawCentered(_plateNameFont, b.label, cx, nameBaseline);
+		for(size_t li = 0; li < nameLines.size(); li++){
+			drawCentered(_plateNameFont, nameLines[li], cx,
+				firstLineBaseline + (float)li * (_plateNameFont.getLineHeight() + nameLineGap));
+		}
 	}
 	ofSetColor(255);
 }

@@ -88,10 +88,9 @@ class TestCatalogueLoad(unittest.TestCase):
             f.write(text)
 
     def test_loads_a_well_formed_file(self):
-        self.write('{"schema":5,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,'
                    '"names":{"en":"Tofu","zh":"豆腐"},'
-                   '"shortLabel":"Tofu",'
                    '"tags":["vegetarian"],"class_name":"tofu"}]}')
         cat = Catalogue.load(self.path)
         self.assertEqual(len(cat), 1)
@@ -350,31 +349,6 @@ class TestDisplayName(unittest.TestCase):
                     f"{item_id}'s {loc} name is its hidden class_name")
 
 
-class TestShortDisplayName(unittest.TestCase):
-    """VISUAL_LAYER.md's `shortLabel` — what the projected plate prints,
-    section 3's 40px bold name. Not localised, unlike display_name().
-    """
-
-    def test_returns_the_short_label_verbatim(self):
-        it = Item(id="loose_straight_noodles", price_per_100g=1.8,
-                  names={"en": "Hand-Pulled Wheat Noodles"},
-                  tags=["noodle"], class_name="loose_straight_noodles",
-                  short_label="Wheat Noodles")
-        self.assertEqual(it.short_display_name(), "Wheat Noodles")
-
-    def test_every_real_catalogue_item_has_a_short_label(self):
-        """Integration check against the committed file — Catalogue.load()
-        already refuses to start without one; this checks the string that
-        made it through is non-empty and reachable via the same method
-        core/main.py's `_bin_msg` calls.
-        """
-        cat = Catalogue.load(CATALOGUE_PATH)
-        for item_id in cat.ids():
-            it = cat.item(item_id)
-            self.assertTrue(it.short_display_name(),
-                            f"{item_id} has no shortLabel")
-
-
 class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
     """Catalogue.load()'s guarantee: no item survives loading unless it
     can be named without reaching for the hidden label.
@@ -390,7 +364,7 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
             f.write(text)
 
     def test_item_with_no_english_name_is_refused_at_load(self):
-        self.write('{"schema":5,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"soya_chunks","pricePer100g":10.0,'
                    '"names":{"zh":"鱼丸"},'
                    '"tags":[],"class_name":"soya_chunks"}]}')
@@ -399,7 +373,7 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
         self.assertIn("soya_chunks", str(ctx.exception))
 
     def test_item_with_empty_names_is_refused_at_load(self):
-        self.write('{"schema":5,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,"names":{},'
                    '"tags":[],"class_name":"tofu"}]}')
         with self.assertRaises(ValueError):
@@ -409,7 +383,7 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
         """An empty string is not a name. It would render a blank plate
         that still bills — worse than refusing to start.
         """
-        self.write('{"schema":5,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,'
                    '"names":{"en":"","zh":"豆腐"},'
                    '"tags":[],"class_name":"tofu"}]}')
@@ -420,26 +394,13 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
         """Missing translations are tolerated — they fall back to English.
         Missing *English* is not, because nothing is below it.
         """
-        self.write('{"schema":5,"base_currency":"INR","items":['
+        self.write('{"schema":4,"base_currency":"INR","items":['
                    '{"id":"soya_chunks","pricePer100g":10.0,'
                    '"names":{"en":"Fish Ball"},'
-                   '"shortLabel":"Fish Ball",'
                    '"tags":[],"class_name":"soya_chunks"}]}')
         cat = Catalogue.load(self.path)
         self.assertEqual(cat.item("soya_chunks").display_name("zh"),
                          "Fish Ball")
-
-    def test_item_with_no_short_label_is_refused_at_load(self):
-        """VISUAL_LAYER.md's plate text needs shortLabel on every item —
-        same discipline as the missing-English-name guard above.
-        """
-        self.write('{"schema":5,"base_currency":"INR","items":['
-                   '{"id":"tofu","pricePer100g":18.0,'
-                   '"names":{"en":"Tofu","zh":"豆腐"},'
-                   '"tags":[],"class_name":"tofu"}]}')
-        with self.assertRaises(ValueError) as ctx:
-            Catalogue.load(self.path)
-        self.assertIn("tofu", str(ctx.exception))
 
 
 if __name__ == "__main__":

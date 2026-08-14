@@ -47,8 +47,8 @@ with fully opaque colour. Report which works.
 |---|---|---|
 | Table background | `#E8E6E1` | — |
 | Bin interior | `#FFFFFF` | — |
-| Plate name | `#2B2118` | 28px bold |
-| Plate rate | `#B8781A` | 26px regular, monospace |
+| Plate name | `#2B2118` | 28px bold, wraps to max 2 lines |
+| Plate rate | `#6AA84F` | 18px regular, monospace |
 | Halo — idle | `#B8781A` | — |
 | Fire ring — active | `#C74A34` core, `#D9822B` tips | — |
 | Fumes | `#A8A49C` | — |
@@ -67,12 +67,21 @@ All fonts loaded via `ofTrueTypeFont` at final display size. Never scale up.
 
 **Plate name corrected from 40px to 28px, 2026-08-14, from a real rig
 photo (step 2, below): 40px overflowed a 200mm bin and ran into the
-paired bin's own name.** Re-measured against the real catalogue's
-`shortLabel`s and the real font (PIL/FreeType) rather than re-guessed —
-28px is the largest size at which all of them fit inside one bin's
-width. Plate rate is monospace (developer request, same session) so a
-picked price's width doesn't shift digit to digit; see CLAUDE.md's M8
-section for the font file and the measurement.
+paired bin's own name.** A same-day `shortLabel` catalogue field (one
+line, no wrap) was tried and then deleted the same day on developer
+instruction: show the catalogue's own `names` field, wrapped to at most
+2 lines, not a separately-curated short string. 28px is where every real
+display name fits in 1-2 lines (measured, PIL/FreeType, against the real
+font and the real catalogue).
+
+**Plate rate corrected twice more, same day, from a second rig photo:**
+size 26px → 18px (at 26px the monospace face's ink was measurably taller
+than the 28px bold name's — a "smaller" nominal size that read as
+visually bigger), and colour `#B8781A` → `#6AA84F` (the amber read as
+red on the projector; developer's own replacement, a mid green — not
+tied to the Halo — idle row above, which still lists the untested
+amber). See CLAUDE.md's M8 section for the measurements and the font
+file.
 
 ---
 

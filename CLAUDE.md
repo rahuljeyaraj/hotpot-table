@@ -3019,6 +3019,11 @@ bins are both still owed on the rig.
 **Step 2 (2026-08-14): retype the plates.** New sizes/colours (doc §3:
 40px bold `#2B2118` name, 26px `#B8781A` rate) and a `shortLabel` added to
 the ingredient catalogue, per the doc's own build item text.
+**The `shortLabel` mechanism this whole entry describes is DELETED
+outright, later the same day — see "Step 2 fix, part 2" below.** Kept
+here as a record of what was built and why, same as this file's usual
+rule for a superseded approach — every `shortLabel`/`short_display_name`
+reference below is stale.
 
 - **`shortLabel` is a new required field**, `core/pricing.py`'s `Item` and
   `Catalogue.load()` (schema bumped 4 → 5, matching this codebase's
@@ -3140,6 +3145,76 @@ incremental recompile, both pre-existing `ftVorticityForceShader.h`/
 reasoned from real measurements against the real assets, which is a
 stronger basis than step 2's original "not yet observed" but is still
 not the same as a human looking at the projected table again.
+
+### Step 2 fix, part 2 (2026-08-14, same day): the second rig photo, and
+`shortLabel` deleted outright on developer instruction
+The "still owed" photo above landed the same day. Three things came back
+from it, and the first is a full reversal, not a tweak:
+
+1. **`shortLabel` is deleted outright — developer instruction: "remove
+   the short label idea. i have removed it from the catalog. show the
+   original label, max 2 lines."** Everything the earlier fix entries in
+   this section built around `shortLabel` is gone: `core/pricing.py`'s
+   `Item.short_label`/`short_display_name()`, `Catalogue.load()`'s
+   required-`shortLabel` check, `core/main.py`'s `_bin_msg` call to it
+   (back to `item.display_name(self.locale)`), and every `shortLabel` key
+   in `data/catalogue.json` (the developer's own edit — CATALOGUE_SCHEMA
+   reverted 5→4 to match, since the file's shape is genuinely back to what
+   4 described, not left at a stale "5" with nothing to justify it). oF's
+   `wrapNameToTwoLines` — deleted in the shortLabel step — is reinstated
+   verbatim (byte-for-byte the same greedy word-wrap it always was),
+   `<sstream>` back with it, and `drawBin`'s far/near branches loop over
+   up to 2 wrapped lines again instead of drawing `b.label` as one line.
+   The 28px name size survives the reversal unchanged: measured against
+   the real catalogue's actual `names` (not `shortLabel`), 28px is where
+   every one of the 12 either fits on one line or wraps cleanly to
+   two — only "Button Mushrooms" and "Lotus Root Slices" wrap at all.
+   955 Python tests pass (back to the pre-shortLabel count exactly),
+   2 test assertions reverted from `item.short_label` to
+   `item.names["en"]`, the shortLabel-specific test classes/cases deleted
+   outright rather than left skipped.
+2. **Rate line, second bug: "the price per weight is much bigger than
+   the label itself... make it smaller."** Real cause, measured (PIL/
+   FreeType against the actual `.ttf` files, not eyeballed): at the
+   previous fix's 26px, `DejaVuSansMono`'s ink height was 25px against the
+   28px bold name's 21px — the mono face's cap-height runs bigger
+   relative to its nominal point size than the proportional bold face's
+   does, so a numerically smaller size was rendering as the visually
+   BIGGER line. Dropped `kPlateRatePx` to 18px (measured ink height 18px,
+   86% of the name's) — comfortably smaller now, and still easily legible
+   at the reading distance that matters for this line (arm's reach at the
+   bin, not the 3m banner distance).
+3. **Rate colour: "yellow is coming as red, any other better options?"**
+   Asked the developer directly rather than guessing a replacement blind
+   (three candidate hexes offered, one of them the amber already
+   confirmed on this rig for the setting-mode banner) — **developer chose
+   their own: `#6AA84F`, a mid green**, not any of the three offered.
+   `kPlateRateColor` is now that green. Deliberately NOT applied to
+   VISUAL_LAYER.md §3's `Halo — idle` row, which still lists the old
+   amber `#B8781A`: halo is unbuilt (build item 4) and has no rig
+   evidence of its own — this fix is scoped to what the photo actually
+   showed, the plate rate, not extended to a row nothing has tested yet.
+   Worth flagging, not blocking: `#6AA84F` sits fairly close in hue to
+   `kWidgetPrimary` (0,115,0), the "picked" green reserved for M5's
+   Done/Cancel buttons (currently unbuilt — `hover.widgets_for()` returns
+   none). Not a conflict today; worth a second look once those widgets
+   actually render alongside a green rate line.
+`kPlateHPx` (VISUAL_LAYER.md §4's PLATE_H, recorded but not yet consumed
+by any real layout) needed its own bump: the startup sanity check added
+in step 2's first fix now assumes a 2-line name (the reinstated wrap's
+own worst case), and the doc's original 130px starting guess measured
+~133px against that — bumped to 140px for headroom, flagged in the
+constant's own comment for whoever picks up build item 4/6 to re-measure
+against real halo geometry rather than trust this number either.
+**Full rebuild, msbuild Debug x64, 0 errors** (1-3 warnings across two
+incremental recompiles, all pre-existing `LNK4075`/`ftVorticityForceShader.h`
+noise, none from `UiLayer.cpp`/`.h`). `run.py --stop` / rebuild / `run.py`
+again after each of the two rebuilds this fix needed (the `kPlateHPx`
+bump was a second, smaller pass after the first one's own startup log
+caught the 133px overage). **Still owed: a THIRD rig photo** — this
+entry, like the "still owed" note right above it, is reasoned from real
+measurements against the real assets, not from having looked at the
+table again.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
