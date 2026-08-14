@@ -161,10 +161,12 @@ private:
 
 	std::array<BinTween, 8> _bins;
 	Spring _totalAmount{0.15f};
-	// VISUAL_LAYER.md §6: "each bin phase-offset by a per-bin random seed
-	// so the 8 do not pulse in sync." Rolled once in setup(), not per
-	// frame — a phase that itself moved would defeat the point of a fixed
-	// per-bin offset.
+	// VISUAL_LAYER.md §6's "phase-offset by a per-bin random seed" started
+	// as literal per-bin randomness, then a deterministic even spacing
+	// (both superseded — see setup()'s own comment on why). 2026-08-14,
+	// developer's own design: a fixed rotation around each 2x2 island, set
+	// once in setup(), not per frame — a phase that itself moved would
+	// defeat the point of a fixed per-bin offset.
 	std::array<float, 8> _haloPhase{};
 
 	// The stage-space rects core last sent, and whether it sent any. An

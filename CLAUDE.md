@@ -3406,6 +3406,51 @@ steady rather than drifting.
 rebuild / `run.py` again. **Neither fix has been re-confirmed by a third
 look yet.**
 
+### Step 4 fix 3 (2026-08-14, same day): third screenshot — colour
+pushed further toward yellow, breathing redesigned as a rotation
+Two more developer notes off fix 2's result: "colour improved, but make
+it more yellow. now it is orange shade" — and a specific, fully-formed
+design ask replacing the breathing model outright, not a bug report:
+each island's halo should read as one highlight ROTATING around its 4
+bins — "bin 0 starts, then 90 degree bin 1, then 90 degree bin 5, then
+finally bin 4 after 90 degree so 360" — plus an open question on the
+second island's direction.
+
+1. **Colour**: `kHaloIdleColor` pushed from `#FFC800` to `#FFEB00` —
+   green raised again, closer to red, right at the edge of still reading
+   as amber/gold rather than a flat CSS yellow. Every step this session
+   has needed to go brighter/greener than felt necessary off-projector;
+   §3 still isn't updated to match, same "flag it, confirm on a photo
+   first" rule as before.
+2. **Breathing redesigned as a rotation, not independent staggered
+   pulsing.** `TableGeometry.h`'s `BINS` table gives the physical layout:
+   the LEFT island is 0=TL, 1=TR, 5=BR, 4=BL (0/1 are the far row's two
+   leftmost bins, 4/5 the near row's, same x columns) — the developer's
+   own sequence is exactly TL->TR->BR->BL, clockwise around that
+   island's perimeter, each step 90 degrees (a quarter of the breathing
+   period) after the last. `_haloPhase` is now four fixed values per
+   island (`0, HALF_PI, PI, 3*HALF_PI`) assigned directly by bin index,
+   not a formula loop — both the earlier `ofRandom` version and the
+   evenly-spaced-plus-jitter version (fix 2, same day) are fully replaced,
+   not layered under this one.
+3. **The open question, answered as a design call, not left pending:**
+   the RIGHT island (2=TL, 3=TR, 7=BR, 6=BL) is the left island's mirror
+   image across the table's vertical centreline. This codebase already
+   has a standing convention for that exact axis — bilateral mirror
+   symmetry about the pot gap, not identical absolute motion (M2.6g's
+   plate-label precedent: both rows read "ring -> price/grams -> name"
+   OUTWARD FROM THE POT, mirrored left-to-right, never a copy). Applied
+   here: the right island rotates counter-clockwise (2 -> 6 -> 7 -> 3),
+   the mirror of the left island's clockwise sweep, rather than matching
+   it. Documented in `UiLayer.cpp` as a call, not a certainty — swapping
+   phases 6 and 7 is the one-line undo if mirrored motion reads wrong
+   projected and both should spin the same way instead.
+
+**Full rebuild, msbuild Debug x64, 0 errors.** `run.py --stop` /
+rebuild / `run.py` again. **Not yet re-confirmed — in particular the
+mirror-vs-matched rotation direction call has no rig evidence at all
+yet, only the reasoning above.**
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
