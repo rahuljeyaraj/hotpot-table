@@ -131,12 +131,14 @@ private:
 	// font objects from _nameFont/_detailFont above so retyping the plate
 	// (this step) cannot also resize the banner or a widget label as a
 	// side effect — nothing in the doc's step 2 asks for that.
-	ofTrueTypeFont _plateNameFont;  // 40px bold, ink #2B2118
-	ofTrueTypeFont _plateRateFont;  // 26px, ink #B8781A — "regular" per the
-	                                // doc, but DejaVuSans-Bold is the only
-	                                // face file in this repo (see kFontFile
-	                                // in UiLayer.cpp) — swap when a regular
-	                                // weight ships.
+	// 2026-08-14: 40px overflowed a bin at the doc's original size (rig
+	// photo — see kPlateNamePx in UiLayer.cpp) and is now 28px, measured
+	// against the real catalogue rather than guessed. Rate line is
+	// DejaVuSansMono (kMonoFontFile), not the bold face — regular weight
+	// per the doc, plus monospace so a picked price's width doesn't shift
+	// digit to digit.
+	ofTrueTypeFont _plateNameFont;  // 28px bold DejaVuSans, ink #2B2118
+	ofTrueTypeFont _plateRateFont;  // 26px regular DejaVuSansMono, ink #B8781A
 	ofTrueTypeFont _totalNumFont;  // 80px, "Running total, numeral"
 	ofTrueTypeFont _totalLabelFont;// 28px, "Total label"
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"

@@ -19,6 +19,19 @@ namespace {
 	// Swap this one line once the real font file exists.
 	const std::string kFontFile = "fonts/DejaVuSans-Bold.ttf";
 
+	// 2026-08-14, rig photo: the plate rate line was VISUAL_LAYER.md's
+	// "regular" weight, but this repo only ever had DejaVuSans-Bold, so it
+	// drew bold-on-bold and the doc's own weight distinction never showed
+	// up. DejaVuSansMono is the same font family (Bitstream Vera/DejaVu
+	// license, permissive — the same terms as kFontFile above, already
+	// vendored in this repo) and gives two things at once: a genuine
+	// regular weight, and monospace digits so a price line's width doesn't
+	// twitch as the digits change on a pick (developer request, same
+	// session). Copied from this machine's matplotlib install
+	// (mpl-data/fonts/ttf/DejaVuSansMono.ttf) into bin/data/fonts/ — same
+	// vendoring precedent as kFontFile itself.
+	const std::string kMonoFontFile = "fonts/DejaVuSansMono.ttf";
+
 	// Doc §13.4 fixed these at 36px and 26px, corrected once already
 	// (2026-08-11) to 28px/22px after the catalogue names of the day
 	// mostly didn't fit at 36px. Still used for the banner headline/
@@ -27,19 +40,30 @@ namespace {
 	const int kNamePx = 28;
 	const int kDetailPx = 22;
 
-	// VISUAL_LAYER.md section 3's palette and section 9 build item 2
-	// ("Retype the plates"): the bin plate's name/rate, distinct from the
-	// banner sizes above. Bigger than the old plate text (40 vs 28, 26 vs
-	// 22), which is exactly why `shortLabel` (data/catalogue.json,
-	// core/pricing.py) exists — core now sends the SHORT name for this
-	// field (core/main.py's `_bin_msg`), chosen by a human to fit one line
-	// at this size, rather than the full display name §13.4's old text
-	// used to wrap to two lines. See drawBin: there is no wrap call left
-	// for the plate name any more, on purpose — the doc's own step 2
-	// acceptance check is "the longest name does not wrap or clip", and a
-	// wrap fallback would have hidden a shortLabel that was still too long
-	// instead of surfacing it on the rig.
-	const int kPlateNamePx = 40;
+	// VISUAL_LAYER.md section 3's palette named 40px for the plate name.
+	// **2026-08-14, corrected the same day from a real rig photo**: at
+	// 40px DejaVuSans-Bold, catalogue shortLabels overflowed a 200mm bin
+	// (252px) and ran into the paired bin's own name — "Noodles" and
+	// "Wheat Noodles" merged into one unreadable run. Measured against the
+	// real font and the real catalogue (PIL/FreeType, not eyeballed):
+	// every one of the 12 shortLabels fits inside 252px at 28px bold
+	// (worst case "Wheat Noodles" at 239px, 13px to spare) and none does
+	// at 30px or above. 28px also happens to be the exact size §13.4 was
+	// already corrected to once before (2026-08-11, for the OLD two-line
+	// full-name layout) — a coincidence worth noting, not a rule: this
+	// time the number comes from shortLabel's real measured widths, not
+	// from that earlier decision. **§3's palette table is corrected to
+	// match.** See drawBin: there is still no wrap call for the plate
+	// name — the doc's own step 2 check is "does not wrap or clip", and
+	// with real measured margin behind every real label, clipping is not
+	// expected; a name that overflows after a future catalogue edit is a
+	// content problem for that edit to catch (re-run the same PIL
+	// measurement), not something to paper over with a wrap pass here.
+	const int kPlateNamePx = 28;
+	// Rate line width is comfortably inside budget at the doc's original
+	// 26px even with the switch to monospace digits (measured: worst case
+	// "999g  $999.99" at 208px against the 252px bin) — see kMonoFontFile
+	// above for why the face changed; the size did not need to.
 	const int kPlateRatePx = 26;
 	// #2B2118 / #B8781A, VISUAL_LAYER.md section 3's palette table exactly.
 	const ofColor kPlateNameColor(43, 33, 24);
@@ -264,14 +288,14 @@ void UiLayer::setup(){
 	ok = loadUiFont(_nameFont, kFontFile, kNamePx) && ok;
 	ok = loadUiFont(_detailFont, kFontFile, kDetailPx) && ok;
 	ok = loadUiFont(_plateNameFont, kFontFile, kPlateNamePx) && ok;
-	ok = loadUiFont(_plateRateFont, kFontFile, kPlateRatePx) && ok;
+	ok = loadUiFont(_plateRateFont, kMonoFontFile, kPlateRatePx) && ok;
 	ok = loadUiFont(_totalNumFont, kFontFile, 80) && ok;
 	ok = loadUiFont(_totalLabelFont, kFontFile, 28) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
 	_fontsLoaded = ok;
 	if(!_fontsLoaded){
-		ofLogError(kTag) << "could not load " << kFontFile << " at one or more sizes"
-			<< " — labels will not draw";
+		ofLogError(kTag) << "could not load " << kFontFile << " or " << kMonoFontFile
+			<< " at one or more sizes — labels will not draw";
 	}
 
 	// VISUAL_LAYER.md §4's PLATE_H budget, checked once against what the
@@ -584,7 +608,17 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		ofSetColor(kPlateRateColor);
 		drawCentered(_plateRateFont, detail, cx, rateBaseline);
 
-		float nameBaseline = rateBaseline - _plateRateFont.getLineHeight() - gap
+		// The visual gap between the two lines has to be measured from
+		// the RATE line's ascender (its actual top edge), not its
+		// getLineHeight() — line height includes internal leading on top
+		// of the ascender, so using it here was quietly inflating this
+		// gap. See the mirrored near-row branch below: it made the same
+		// mistake in the other direction with a much bigger error (an
+		// ascender is far taller than a descender in this font), which is
+		// why a 2026-08-14 rig photo showed the near row's label-to-price
+		// gap visibly larger than the far row's for the identical `gap`
+		// constant — this fixes both to the same real gap.
+		float nameBaseline = rateBaseline - _plateRateFont.getAscenderHeight() - gap
 			- fabsf(_plateNameFont.getDescenderHeight());
 		ofSetColor(kPlateNameColor);
 		drawCentered(_plateNameFont, b.label, cx, nameBaseline);
@@ -605,7 +639,10 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		ofSetColor(kPlateRateColor);
 		drawCentered(_plateRateFont, detail, cx, rateBaseline);
 
-		float nameBaseline = rateBaseline + _plateRateFont.getLineHeight() + gap
+		// Mirrors the far row's fix above: measured from the rate line's
+		// DESCENDER (its real bottom edge), not getLineHeight() — see that
+		// branch's comment for the bug this replaces.
+		float nameBaseline = rateBaseline + rateDescend + gap
 			+ _plateNameFont.getAscenderHeight();
 		ofSetColor(kPlateNameColor);
 		drawCentered(_plateNameFont, b.label, cx, nameBaseline);

@@ -3042,8 +3042,10 @@ the ingredient catalogue, per the doc's own build item text.
   so the name is always one line, and VISUAL_LAYER.md's own step 2
   acceptance check is "does not wrap or clip"; a wrap fallback would have
   hidden a `shortLabel` that was still too long instead of surfacing it.
-  Two new font objects, `_plateNameFont`/`_plateRateFont` (40px/26px,
-  `#2B2118`/`#B8781A`), kept **separate** from `_nameFont`/`_detailFont`
+  Two new font objects, `_plateNameFont`/`_plateRateFont` (originally
+  40px/26px, `#2B2118`/`#B8781A` — 40px corrected to 28px the same day,
+  see the fix note right below this entry), kept **separate** from
+  `_nameFont`/`_detailFont`
   (still 28px/22px) — those two are shared by the banner headline/subline
   and the M5 widget label, and neither is in VISUAL_LAYER.md's scope for
   this step, so retyping the plate must not resize them as a side effect.
@@ -3073,6 +3075,71 @@ HOTPOT-READY.
 **Not physically verified on the projected surface** — the doc's own step
 2 check ("all 8 plates same height, longest name does not wrap or clip")
 needs a human looking at the real table, same gap step 1 above still has.
+
+### Step 2 fix (2026-08-14, same day): two real bugs from the developer's
+own rig photo — the first physical evidence anywhere in M8
+The photo showed exactly what "not physically verified" above was hiding:
+"Noodles" and "Wheat Noodles" (bins 0/1, the near-paired-bin 50mm gap)
+merged into one unreadable run, same for "Dried Shrimp"/"Beef Balls"
+(bins 4/5) — and the gap between a bin's name and its rate line was
+visibly bigger on the near row than the far row. Two independent causes,
+both found and fixed the same session, neither reachable from a
+framebuffer or a unit test — this is exactly why the doc's own
+implementation order insists on a projected-surface check before the
+next step, not a rebuild-and-trust one.
+
+1. **Horizontal overflow, root cause: 40px was never checked against the
+   real `shortLabel`s, only reasoned about.** Measured for real (PIL/
+   FreeType against the actual `DejaVuSans-Bold.ttf` and the actual 12
+   `shortLabel`s, not eyeballed): at 40px the worst case ("Wheat
+   Noodles") is 340px against a 252px bin — 88px over — and only 8 of 12
+   labels fit at all. **28px is the largest size where all 12 fit**
+   (worst case 239px, 13px to spare); 30px already fails one label by
+   2px. `kPlateNamePx` is now 28, and `VISUAL_LAYER.md` §3's palette
+   table is corrected to match (same discipline as §13.4's own 36→28px
+   correction on 2026-08-11, for a different, now-deleted layout). Each
+   name capped inside its own bin's width is what prevents the
+   cross-bin merge — two boxes that don't touch (63px physical gap
+   between paired bins) can't have their contents touch either, which
+   was the original design intent the deleted `wrapNameToTwoLines`
+   comment already named ("keep every name visually inside its own
+   plate") and step 2 lost sight of when it assumed `shortLabel` alone
+   would be enough without checking against the real font.
+2. **The top/bottom gap asymmetry, root cause: `drawBin`'s name-baseline
+   maths used `_plateRateFont.getLineHeight()` as the spacing term in
+   BOTH directions**, where the geometrically correct term differs by
+   direction — the far row (name above rate) needs the rate's ASCENDER,
+   the near row (rate above name) needs the rate's DESCENDER. Line
+   height is bigger than either (it includes internal leading on top of
+   ascender+descender), so both rows were over-spaced, but by different
+   amounts: the far row's error was `lineHeight - ascender` (roughly a
+   descender's worth), the near row's was `lineHeight - descender`
+   (roughly an ascender's worth) — and an ascender is several times a
+   descender in this font, so the near row's extra gap was visibly much
+   bigger. Fixed to use the correct metric in each direction; both rows
+   now compute the same real gap for the same `gap` constant.
+3. **Rate line switched to monospace** (developer request, not a bug
+   fix): `DejaVuSansMono.ttf`, copied from this machine's matplotlib
+   install (`mpl-data/fonts/ttf/`) into `bin/data/fonts/` — same DejaVu
+   family and license terms as the `DejaVuSans-Bold.ttf` already
+   vendored there, so this adds no new licensing surface. Two things at
+   once: it is finally a genuine REGULAR weight (VISUAL_LAYER.md §3
+   always said "regular" for the rate; every session until now only had
+   the one bold face to draw it in), and monospace digits mean a picked
+   price's width no longer shifts as the digits change. Measured
+   (worst case "999g  $999.99" at 26px): 208px, comfortably inside the
+   252px bin — the size did not need to change, only the face.
+Measured, not guessed, in every case above — the same PIL/FreeType script
+that produced the 28px number also confirmed the mono rate line's worst
+case, and both are reproducible against the real files in this repo.
+**Full rebuild, msbuild Debug x64, 0 errors** (3 warnings on the
+incremental recompile, both pre-existing `ftVorticityForceShader.h`/
+`LNK4075` noise, neither touching this session's files). `run.py --stop`
+/ rebuild / `run.py` again, all six processes reached HOTPOT-READY.
+**Still owed: a second rig photo confirming both fixes** — this entry is
+reasoned from real measurements against the real assets, which is a
+stronger basis than step 2's original "not yet observed" but is still
+not the same as a human looking at the projected table again.
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

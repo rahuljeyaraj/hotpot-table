@@ -47,8 +47,8 @@ with fully opaque colour. Report which works.
 |---|---|---|
 | Table background | `#E8E6E1` | — |
 | Bin interior | `#FFFFFF` | — |
-| Plate name | `#2B2118` | 40px bold |
-| Plate rate | `#B8781A` | 26px regular |
+| Plate name | `#2B2118` | 28px bold |
+| Plate rate | `#B8781A` | 26px regular, monospace |
 | Halo — idle | `#B8781A` | — |
 | Fire ring — active | `#C74A34` core, `#D9822B` tips | — |
 | Fumes | `#A8A49C` | — |
@@ -64,6 +64,15 @@ with fully opaque colour. Report which works.
 | Info box text | `#8A3524` | 24px |
 
 All fonts loaded via `ofTrueTypeFont` at final display size. Never scale up.
+
+**Plate name corrected from 40px to 28px, 2026-08-14, from a real rig
+photo (step 2, below): 40px overflowed a 200mm bin and ran into the
+paired bin's own name.** Re-measured against the real catalogue's
+`shortLabel`s and the real font (PIL/FreeType) rather than re-guessed —
+28px is the largest size at which all of them fit inside one bin's
+width. Plate rate is monospace (developer request, same session) so a
+picked price's width doesn't shift digit to digit; see CLAUDE.md's M8
+section for the font file and the measurement.
 
 ---
 
