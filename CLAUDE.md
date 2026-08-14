@@ -3863,6 +3863,61 @@ Full rebuild, msbuild Debug x64, 0 errors, same pre-existing warnings.
 `run.py --stop` / rebuild / `run.py` again — clean boot, `of`'s
 StateLink reconnected. **Not yet seen on the rig.**
 
+### Cursor back, per-bin colours, and less white in the ring (2026-08-14)
+Three things off one message. First: **"now hand fire ball is missing"**
+— expected, but a real regression, not just an artifact of the last fix.
+`FluidLayer.h`'s own class comment says it plainly: this fluid IS the
+hand pointer now, not a decoration next to one — `kAmbientHandFireEnabled
+= false` had switched off the ONLY on-table sign of where a hand is, not
+just the wind-causing part of it. Split into two switches:
+`kHandFlameDensityEnabled = true` (the visible blob, back on — density
+only ever paints at the hand's OWN position, no reach beyond that) and
+`kHandFlameVelocityEnabled = false` (the wind suspect stays off — one
+shared `velocityFbo` across the whole canvas is what let a swipe anywhere
+inject a gust that reaches a ring far away). Net effect: the cursor is
+back, but reads as a blob following the hand rather than a flowing
+trail, since nothing is pushing it around any more — a real tradeoff,
+not free, and the first thing to revisit if that reads as broken too.
+
+Second: **"set various colour flame for each bin."** `FluidLayer::
+FireRing` gained `colourIndex` (an ordinal into a fixed palette, not a
+bin id — this class still knows nothing about bins, same I2/I3 reasoning
+its own header comment already gives for why it's a separate type from
+`UiLayer::FireEmitter`); `UiLayer::FireEmitter` gained `binIndex`, set
+from `fireEmitters()`'s own loop index and threaded through unchanged by
+`ofApp.cpp`. Eight hand-picked hues in `FluidLayer.cpp`'s new
+`kFireRingColours[8]` — red, orange, green, teal, blue (the earlier
+single ring colour, now bin 4's), purple, magenta, a green-leaning lime
+in place of true yellow (this rig's own history with pale/yellow hues
+washing out, `kHaloIdleColor`'s three revisions, made yellow the one hue
+skipped on purpose). `% 8` wraps `colourIndex` at the read site rather
+than trusting the caller.
+
+Third: **"is there a way to reduce the white part of the flame... when
+the bin is on fire?"** Worked out the actual mechanism rather than
+guessing a knob: `ftFluidFlow::addDensity` ADDS the injected texture into
+a persistent buffer every frame, and at `dissipation.density = 1.0`
+(retained fraction `1 - dt*1.0`, ≈0.967/frame at 30fps) a steady hover's
+geometric-series steady state lands around **30x** the one-frame injected
+value — easily enough to pin every channel at 255. Once every channel is
+saturated, MULTIPLY blend against the background is the identity
+(`colour*255/255 = colour`), so the densest part of the ring shows the
+bare `#E8E6E1` background — pale, reads as "white" — while only the
+thinner not-yet-saturated edge still shows the injected hue. Capped
+injected alpha at `kFireRingMaxAlpha = 190` (was 255) rather than pushing
+`dissipation.density` any higher (already at fireTest's own max-sane
+value; raising it further risks the "diffuses to fully invisible" failure
+`FluidLayer.h`'s 2026-08-14 rewrite note already found once) — even
+`kFireRingMaxAlpha`'s own ~30x amplified steady state now lands under
+full saturation, so the ring's densest point should keep showing its own
+colour instead of washing out. 190 is an unmeasured starting guess, same
+as every colour this session — tune down for more colour/less brightness,
+up for the opposite, once seen projected.
+
+Full rebuild, msbuild Debug x64, 0 errors, same pre-existing warnings.
+`run.py --stop` / rebuild / `run.py` again — clean boot, `of`'s
+StateLink reconnected. **Not yet seen on the rig.**
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

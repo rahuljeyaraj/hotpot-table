@@ -59,6 +59,12 @@ public:
 		float innerOffsetPx = 0.0f;
 		float outerOffsetPx = 0.0f;
 		float intensity = 0.0f;
+		// 2026-08-14: which bin this is, 0-7 — so ofApp can pick this
+		// bin's own colour out of FluidLayer's palette (developer request,
+		// "various colour flame for each bin"). Not read by FluidLayer
+		// itself as a bin id, only forwarded as FireRing::colourIndex —
+		// see that struct's own comment.
+		int binIndex = 0;
 	};
 	std::vector<FireEmitter> fireEmitters() const;
 

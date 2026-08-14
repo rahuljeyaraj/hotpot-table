@@ -712,7 +712,7 @@ std::vector<UiLayer::FireEmitter> UiLayer::fireEmitters() const {
 			continue;   // skip an emitter nobody would see rather than inject at ~0 alpha
 		}
 		out.push_back({binRectPx(i), mmToPxX(CUTOUT_CORNER_RADIUS_MM),
-			kFireRingInnerPx, kFireRingOuterPx, intensity});
+			kFireRingInnerPx, kFireRingOuterPx, intensity, i});
 	}
 	return out;
 }

@@ -202,7 +202,7 @@ void ofApp::update(){
 	if(kFluidEnabled){
 		std::vector<FluidLayer::FireRing> fireRings;
 		for(const auto & e : _ui.fireEmitters()){
-			fireRings.push_back({e.bin, e.cornerRadiusPx, e.innerOffsetPx, e.outerOffsetPx, e.intensity});
+			fireRings.push_back({e.bin, e.cornerRadiusPx, e.innerOffsetPx, e.outerOffsetPx, e.intensity, e.binIndex});
 		}
 		_fluid.update(fluidDt, _cursor.hands(), fireRings);
 	}

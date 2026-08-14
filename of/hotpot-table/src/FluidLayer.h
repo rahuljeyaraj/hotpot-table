@@ -60,6 +60,14 @@ public:
 		float innerOffsetPx = 0.0f;
 		float outerOffsetPx = 0.0f;
 		float intensity = 0.0f;   // 0..1 crossfade — scales injected alpha only
+		// 2026-08-14, developer request: "various colour flame for each
+		// bin." Just an ordinal slot into this file's own fixed palette
+		// (FluidLayer.cpp's kFireRingColours) — NOT a bin id: this class
+		// still knows nothing about bins/`hl` (I2/I3, this struct's own
+		// comment above), only "which of my colours to use for this ring."
+		// Callers pass the bin index, but that is the caller's choice of
+		// numbering, not something this class interprets.
+		int colourIndex = 0;
 	};
 
 	// hands are in STAGE space (CursorLink::Hand::x/y), same space as

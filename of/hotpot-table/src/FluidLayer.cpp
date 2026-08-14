@@ -11,20 +11,77 @@ namespace {
 	const float kInjectRadiusVelocityPx = 20.0f;
 	const float kVelocityScale = 4.0f;
 
-	// Kill switch, same pattern ofApp.cpp's own kFluidEnabled/kDrawSkeleton
-	// use. 2026-08-14, developer report: "in the center area the flame is
-	// going down as if there is strong wind from top to bottom... we need
-	// to go back [to only the ring]." The ambient hand trail's velocity
-	// impulse (below) is added into ONE shared velocity field for the
-	// whole canvas — any hand's movement anywhere on the table can inject
-	// a gust that then blows a bin's ring flame around, which is a
-	// plausible match for "wind" appearing far from any hand. False when
-	// only the fire ring should run; the ring itself needs nothing from
-	// this switch, since it never injected velocity of its own (buoyancy
-	// off its own temperature is what makes it rise). Flip true to bring
-	// the ambient hand-following flame back once the ring alone is
-	// confirmed clean.
-	const bool kAmbientHandFireEnabled = false;
+	// Kill switches, same pattern ofApp.cpp's own kFluidEnabled/
+	// kDrawSkeleton use. 2026-08-14: split in two after "hand fireball is
+	// missing" — the single kAmbientHandFireEnabled this replaced disabled
+	// BOTH the visible hand blob and its velocity push at once, which was
+	// more than the wind bug needed disabled. The wind theory was
+	// specifically about velocity: every hand shares ONE velocity field
+	// across the whole canvas (ftFluidFlow's own single velocityFbo), so a
+	// swipe anywhere — including the empty centre gap, nowhere near a bin —
+	// can inject a gust the sim propagates everywhere, a ring included.
+	// Density has no such reach: it only ever paints a blob at the hand's
+	// OWN position, so putting it back gives the table its cursor again
+	// without reintroducing anything that could blow a ring around from a
+	// distance. Velocity stays off until the ring is confirmed clean with
+	// density alone back on; if it's still clean, try flipping this one
+	// too — a static-looking blob rather than a flowing trail is the
+	// tradeoff of leaving it off.
+	const bool kHandFlameDensityEnabled = true;
+	const bool kHandFlameVelocityEnabled = false;
+
+	// 2026-08-14, developer request: "various colour flame for each bin."
+	// One entry per bin index (FluidLayer::FireRing::colourIndex), `% 8`
+	// guarded at the call site below rather than assumed in range. Chosen
+	// the same way the earlier blue ring colour was — a low-to-moderate
+	// peak channel value under MULTIPLY blend reads as itself rather than
+	// washing toward the light #E8E6E1 background — spread across 8
+	// distinct hues rather than 8 shades of one. Yellow/pale hues skipped
+	// on purpose: this rig's own history (halo's gold, three revisions;
+	// the plate rate line's amber reading red) is about ADDITIVE blend,
+	// not this MULTIPLY path, but a near-white hue is risky under multiply
+	// for the same reason kSparkColourHot would have been if that had
+	// shipped — nothing to darken the background with. All unmeasured
+	// against the projected table, same as every other colour this
+	// session picked; the one thing checked is that they are 8 genuinely
+	// different hues, not 8 numbers that happen to differ.
+	const ofColor kFireRingColours[8] = {
+		ofColor(214, 67, 44),    // 0: red
+		ofColor(224, 121, 30),   // 1: orange
+		ofColor(46, 163, 68),    // 2: green
+		ofColor(30, 166, 160),   // 3: teal
+		ofColor(30, 110, 220),   // 4: blue (the earlier single ring colour)
+		ofColor(122, 46, 224),   // 5: purple
+		ofColor(208, 30, 140),   // 6: magenta
+		ofColor(110, 190, 30),   // 7: lime — greener than yellow on purpose
+	};
+
+	// 2026-08-14, developer question: "is there a way to reduce the white
+	// part of the flame and show more colour... when the bin is on fire?"
+	// Mechanism, worked out from ftFluidFlow's own add/dissipate shaders
+	// rather than guessed: `addDensity` ADDS the injected texture into a
+	// PERSISTENT buffer every single frame, and at density dissipation 1.0
+	// (retained fraction `1 - dt*1.0`, ~0.967/frame at 30fps) a steady
+	// hover's geometric-series steady state is roughly the per-frame
+	// injected value divided by (1 - retained) — around 30x the one-frame
+	// value. A channel that starts anywhere close to 255 saturates well
+	// before that steady state and STAYS saturated; once every channel is
+	// pinned at 255, MULTIPLY blend against the background is the
+	// identity (colour*255/255 = colour), so the densest part of the ring
+	// shows the bare background colour — pale, reads as "white" — while
+	// only the thinner, not-yet-saturated edge still shows the injected
+	// hue. Capped below 255 rather than raising dissipation further
+	// (density is already at fireTest's own max-sane value, and pushing
+	// it higher risks the same "diffuses to invisible" failure
+	// FluidLayer.h's own 2026-08-14 rewrite note describes): the injected
+	// ring alpha now tops out at kFireRingMaxAlpha, so even a long steady
+	// hover's ~30x amplification lands under full saturation and the
+	// densest part of the ring keeps showing its own colour instead of
+	// washing to the background. Unmeasured — unlike a hue, "how white is
+	// too white" can only be judged on the projected table; 190 is a
+	// starting guess, tunable down further (more colour, less brightness)
+	// or up (brighter, more washed) once seen.
+	const float kFireRingMaxAlpha = 190.0f;
 
 	// VISUAL_LAYER.md §9 build item 6: the fire ring's own injection shape —
 	// same filled, ODD-winding rounded-rect-band technique UiLayer's own
@@ -152,7 +209,7 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	ofClear(0, 0, 0, 0);
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(199, 74, 52, 255);
-	if(kAmbientHandFireEnabled){
+	if(kHandFlameDensityEnabled){
 		for(const auto & p : positions){
 			ofDrawCircle(p.pos.x, p.pos.y, kInjectRadiusDensityPx);
 		}
@@ -163,12 +220,18 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	// crossfade spring — the same one the halo fades out by — scaling
 	// alpha only, never the geometry, so the ring fills in smoothly rather
 	// than popping to full strength the instant `hl` flips to "hover".
+	// Alpha capped at kFireRingMaxAlpha, not 255 — see that constant's own
+	// comment on why a full-alpha ring saturates to a white-looking core
+	// under a long hover. Colour picked per bin from kFireRingColours,
+	// `colourIndex` wrapped with `% 8` here rather than trusted, since
+	// this class has no way to know the caller's own bin count.
 	for(const auto & ring : fireRings){
 		const float scale = 0.5f * (_toDensityX + _toDensityY);
 		const ofRectangle b(ring.bin.x * _toDensityX, ring.bin.y * _toDensityY,
 			ring.bin.width * _toDensityX, ring.bin.height * _toDensityY);
-		const ofColor colour(199, 74, 52,
-			(unsigned char)(255.0f * ofClamp(ring.intensity, 0.0f, 1.0f)));
+		const int idx = ((ring.colourIndex % 8) + 8) % 8;
+		const ofColor colour(kFireRingColours[idx],
+			(unsigned char)(kFireRingMaxAlpha * ofClamp(ring.intensity, 0.0f, 1.0f)));
 		drawRoundedBand(b, ring.innerOffsetPx * scale, ring.outerOffsetPx * scale,
 			ring.cornerRadiusPx * scale, colour);
 	}
@@ -181,7 +244,7 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	_velocityInject.begin();
 	ofClear(0, 0, 0, 0);
 	ofEnableBlendMode(OF_BLENDMODE_DISABLED);
-	if(kAmbientHandFireEnabled){
+	if(kHandFlameVelocityEnabled){
 		for(const auto & p : positions){
 			glm::vec2 last = p.pos;
 			auto it = _lastDensityPos.find(p.id);
