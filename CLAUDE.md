@@ -3216,6 +3216,34 @@ entry, like the "still owed" note right above it, is reasoned from real
 measurements against the real assets, not from having looked at the
 table again.
 
+### Step 3 (2026-08-14): blending bench test — built, not yet run on the rig
+Doc §9's own words: "Bench-test this before building the rest... Do not
+proceed until one is chosen." `ofApp.cpp` gained a debug isolation switch,
+`kBlendBenchTest` (same shape as `kFluidDebugMouseOnly` right above it in
+the file — skips Stage/UiLayer/StateLink entirely and draws straight to
+the window, because this step answers one question in isolation, not
+keystone alignment or anything else): a static `#C74A34` rect (§2/§3's
+fire-core colour) on the left half of the screen under
+`OF_BLENDMODE_MULTIPLY`, an identical rect on the right half under
+`OF_BLENDMODE_ALPHA` with a fully opaque colour, both drawn over §1's
+table background `#E8E6E1`. Each half explicitly enables
+`OF_BLENDMODE_ADD` immediately before switching to the mode under test —
+§2's own warning is that ofxFlowTools leaves ADD set after its draw call,
+so the bench has to prove the mode switch itself clears that state, not
+merely that nothing had set ADD first. Labelled on screen (`MULTIPLY` /
+`ALPHA (opaque)`, `ofDrawBitmapStringHighlight`) so the two halves are
+identifiable from the projected image alone. `p` still saves a screenshot
+of whichever bench frame is up. `kBlendBenchTest` defaults to `false` —
+flip to `true`, rebuild, run, look at the projected table, report which
+side reads correctly, flip back before building layer 2 (fire) itself.
+**Full rebuild, msbuild Debug x64, 0 errors** (2 warnings, both
+pre-existing `LNK4075`/`ftVorticityForceShader.h` noise, neither from
+`ofApp.cpp`).
+**Still owed, and blocking per doc §9: the actual rig run.** Nothing here
+has been seen projected — this entry only records that the bench exists
+and how to run it. Do not build layer 3 (fire ring) until a human has
+flipped the switch, looked at the table, and the answer is recorded here.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

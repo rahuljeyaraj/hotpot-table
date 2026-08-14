@@ -62,6 +62,25 @@ namespace {
 	// was originally trying to avoid — set false to return to the normal
 	// hand-driven table.
 	const bool kFluidDebugMouseOnly = false;
+
+	// VISUAL_LAYER.md §9 step 3 / §2: "Bench-test this before building the
+	// rest... Do not proceed until one is chosen." Same debug-isolation
+	// shape as kFluidDebugMouseOnly above — skips Stage/UiLayer/StateLink
+	// entirely and draws straight to the window, because this step is
+	// answering one question (which blend mode reads correctly on the
+	// light background) in isolation, not testing keystone alignment or
+	// anything else. False by default; flip to true, rebuild, look at the
+	// PROJECTED SURFACE, then flip back before building layer 3 onward.
+	const bool kBlendBenchTest = false;
+
+	// §1/§3's table background — duplicated from Stage.cpp's
+	// kTableBackground rather than exposed from Stage, since this bench
+	// deliberately bypasses Stage altogether.
+	const ofColor kBenchTableBackground(0xE8, 0xE6, 0xE1);
+
+	// §2/§3's fire-core colour — the one colour both bench halves render,
+	// so the comparison is about the blend mode, not a colour difference.
+	const ofColor kBenchCoral(0xC7, 0x4A, 0x34);
 }
 
 //--------------------------------------------------------------
@@ -190,6 +209,51 @@ void ofApp::draw(){
 		// the window is only shown just before the first draw, so read back
 		// the real geometry here rather than inferring it from setup()
 		logWindowState("frame " + ofToString(frame));
+	}
+
+	if(kBlendBenchTest){
+		ofBackground(kBenchTableBackground);
+
+		const float halfW = (float)ofGetWidth() / 2.0f;
+		const float h = (float)ofGetHeight();
+		const float rectSize = std::min(halfW, h) * 0.5f;
+		const float rectY = h / 2.0f - rectSize / 2.0f;
+
+		// Left half: MULTIPLY. Enabling ADD immediately before it, rather
+		// than leaving whatever mode the previous frame ended in, is the
+		// point — §2 warns ofxFlowTools' own draw call leaves ADD set, so
+		// this proves the MULTIPLY call below actually clears that state
+		// rather than happening to look right only because nothing had set
+		// ADD first.
+		ofEnableBlendMode(OF_BLENDMODE_ADD);
+		ofEnableBlendMode(OF_BLENDMODE_MULTIPLY);
+		ofSetColor(kBenchCoral);
+		ofDrawRectangle(halfW / 2.0f - rectSize / 2.0f, rectY, rectSize, rectSize);
+
+		// Right half: ALPHA, fully opaque colour — §2's own fallback if
+		// multiply looks wrong on the projected surface.
+		ofEnableBlendMode(OF_BLENDMODE_ADD);
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		ofSetColor(kBenchCoral, 255);
+		ofDrawRectangle(halfW + halfW / 2.0f - rectSize / 2.0f, rectY, rectSize, rectSize);
+
+		ofEnableAlphaBlending();
+		ofSetColor(255);
+		ofDrawBitmapStringHighlight("MULTIPLY", halfW / 2.0f - 40, rectY + rectSize + 30);
+		ofDrawBitmapStringHighlight("ALPHA (opaque)", halfW + halfW / 2.0f - 60, rectY + rectSize + 30);
+
+		if(_screenshotPending){
+			_screenshotPending = false;
+			const std::string dir = ofToDataPath(kScreenshotDir);
+			if(!ofDirectory::doesDirectoryExist(dir)){
+				ofDirectory::createDirectory(dir, true, true);
+			}
+			const std::string name = std::string(kScreenshotDir) + "/hotpot-"
+				+ ofGetTimestampString("%Y%m%d-%H%M%S") + ".png";
+			ofSaveScreen(name);
+			ofLogNotice("ofApp") << "screenshot saved to " << ofToDataPath(name);
+		}
+		return;
 	}
 
 	if(kFluidDebugMouseOnly){
