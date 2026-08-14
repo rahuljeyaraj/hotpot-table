@@ -67,7 +67,7 @@ namespace {
 	// reversed, on the developer's own call, for this same purpose the doc
 	// was originally trying to avoid — set false to return to the normal
 	// hand-driven table.
-	const bool kFluidDebugMouseOnly = true;
+	const bool kFluidDebugMouseOnly = false;
 }
 
 //--------------------------------------------------------------
