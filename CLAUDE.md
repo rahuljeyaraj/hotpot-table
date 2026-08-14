@@ -3317,6 +3317,55 @@ table.** Doc §6's own verify line is "projected halos are visible and
 do not look synchronised" — nothing above substitutes for that, and the
 colour/overlap risks named above are exactly what a photo would settle.
 
+### Step 4 fix (2026-08-14, same day): first screenshot — plate ring
+removed outright, halo retuned, neither yet re-confirmed
+The first screenshot (a browser/desktop capture, not the projected
+surface — still owed) showed two problems, one flagged by the developer
+directly and one their own words ("that look terible").
+
+1. **The M1-era plate ring — the solid grey/green frame around every
+   cutout, carrying doc §4.3's `hl` state — is deleted outright, per the
+   developer's explicit call: "if we have halo, why do we need the
+   border."** It never appeared in VISUAL_LAYER.md's own palette (§3),
+   which only ever specified the halo/fire pair — this really was the
+   pre-M8 mechanism the new one supersedes, not a second channel meant to
+   coexist with it. Gone with it: `UiLayer::highlightColour()` (only
+   caller), and `BinTween`'s `scale`/`colR`/`colG`/`colB` springs plus
+   `lastPicked` (only consumer was the ring's colour/pop animation) —
+   this codebase's usual "delete outright, don't leave it dormant" rule.
+   `drawRing()` itself stays; widgets still call it. **Real, currently
+   unanswered consequence, named in `drawBin`'s own comment: a picked bin
+   has no visual distinction from an idle one right now** — doc's plan is
+   for the fire ring (build item 6/7) to be that signal, not this ring,
+   but until fire exists there is a genuine gap, not a silent one.
+   `kRingMM` itself survives as a plain spacing constant — drawBin's plate
+   labels still measure their clearance from where the ring's outer edge
+   used to sit, and deleting the constant too would have pulled every
+   label closer to the cutout as an unrequested side effect.
+2. **The halo itself read as a faint, noisy smudge, not a halo** — likely
+   the gapped 1.5px bands adding visible noise, plus the heavy dark ring
+   right next to it (before its own removal above) making the whole thing
+   look muddy by comparison. Retuned, all in `UiLayer.cpp`'s halo constant
+   block: bands are now CONTIGUOUS (thickness == pitch, no gaps — a smooth
+   gradient instead of 16 separate slivers), margin brought in from 20px
+   to 14px (nothing to clear past any more, with the ring gone), ring
+   count 16→24 at a tighter 1.5px pitch (~36px total span, close to the
+   original's), and the breathing floor raised from 0.55±0.45 (dipping
+   near-invisible) to 0.65±0.35 (never dims out completely) — a single
+   photo catching several bins near their low point at once was suspected
+   to be part of why the first attempt looked weak. Colour left alone
+   (still the doc's unverified `#B8781A`) — this is a shape/brightness
+   retune, not a colour guess, and the colour question stays open for
+   its own photo.
+**Full rebuild, msbuild Debug x64, 0 errors.** `run.py --stop` /
+rebuild / `run.py` again. **Neither change has been re-confirmed by a
+second look** — both are one considered iteration from the first
+screenshot's feedback, the same guess-then-look rhythm this session
+already used three times for the plate rate's size/colour. Next: look
+again, specifically at whether the halo now reads as a clean glow
+(not noise), whether the amber still needs correcting, and whether
+removing the ring changed the overall impression for the better.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

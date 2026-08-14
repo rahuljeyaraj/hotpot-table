@@ -101,15 +101,23 @@ namespace {
 	const float kPlateHPx = 140.0f;
 
 	// --- VISUAL_LAYER.md §4/§6, build item 4: the idle halo -----------------
-	// "haloRect = binRect inflated by HALO_MARGIN (start at 20px)."
-	const float kHaloMarginPx = 20.0f;
-	// "~16 nested ofPath rounded-rect strokes, each 2-3px further out."
-	// 2.5px, the midpoint of that range — the doc gives a range, not one
-	// number, and nothing yet needs finer control than a constant. Each
-	// "stroke" is drawn kHaloRingThicknessPx wide with a gap to the next
-	// one, so 16 of them read as nested rings, not one solid wash.
-	const int kHaloRingCount = 16;
-	const float kHaloRingPitchPx = 2.5f;
+	// 2026-08-14, first rig photo: the original 16-ring, 2.5px-pitch,
+	// 1.5px-thick version (gapped bands, margin starting at the doc's own
+	// 20px) read as a faint, noisy smudge rather than a halo — the old
+	// plate ring (now removed, see drawBin) was also up in the same photo
+	// and visually dominated it, and the gaps between bands likely added
+	// noise of their own on top. Retuned, still unconfirmed by a second
+	// photo: CONTIGUOUS bands (thickness == pitch, no gap — a smooth
+	// gradient instead of 16 separate slivers) starting closer to the bin
+	// (14px, now that there is no ring to clear first) and a brighter
+	// floor on the breathing sine so it never dims toward invisible.
+	// "haloRect = binRect inflated by HALO_MARGIN" — 14px now, was 20.
+	const float kHaloMarginPx = 14.0f;
+	// "~16 nested ofPath rounded-rect strokes, each 2-3px further out" —
+	// 24 rings at 1.5px pitch (== thickness, contiguous) instead, for a
+	// smoother gradient over roughly the same total span (36px vs. 40px).
+	const int kHaloRingCount = 24;
+	const float kHaloRingPitchPx = 1.5f;
 	const float kHaloRingThicknessPx = 1.5f;
 	// §3's palette: "Halo — idle #B8781A." Unverified on the rig — the
 	// halo was unbuilt through the 2026-08-14 rig photos that corrected
@@ -121,10 +129,14 @@ namespace {
 	const ofColor kHaloIdleColor(0xB8, 0x78, 0x1A);
 	// "Slow breathing sine on alpha." No period is given in the doc; 3s is
 	// a reasoned starting guess (slow enough to read as breathing, not a
-	// strobe), unmeasured, tunable once seen projected.
+	// strobe), unmeasured, tunable once seen projected. The floor was
+	// raised from the first attempt's 0.1 to 0.35 (drawHalo's own formula)
+	// so a bin never reads as fully faded out mid-breath — the first photo
+	// looked weak partly because it likely caught several bins near their
+	// low point at once.
 	const float kHaloBreathPeriodS = 3.0f;
 	// Geometric note, not yet checked against a photograph: the halo's own
-	// outward reach (20px to 20+16*2.5=60px from the bin edge) is not
+	// outward reach (14px to 14+24*1.5=50px from the bin edge) is not
 	// small next to how close the plate's rate line sits to the bin on
 	// this same axis (drawBin's ringTop/ringBottom, roughly 19px out
 	// before the rate line's own clearance/ascender stack further beyond
@@ -141,24 +153,16 @@ namespace {
 	const float kLabelClearanceMM = 10.0f;
 	const float kLabelLineGapMM = 4.0f;
 
-	// The plate ring: the band of colour that frames a bin's cutout and is
-	// the ONLY thing on the table carrying doc §4.3's `hl` state (I8 —
-	// "distinguish states by hue"). It replaces a 3mm outline stroked on
-	// the bin edge, which could never be seen: the light pass (§13.2)
-	// stamps opaque white over the cutout — the bin grown by
-	// CUTOUT_MARGIN_MM — last, and that patch reached 10mm past the bin
-	// edge while the stroke reached 1.5mm, so every frame drew the
-	// highlight and then buried it. The ring now sits OUTSIDE the cutout,
-	// which is also the treatment doc §14.4 already specifies for the one
-	// other per-bin decoration it describes ("an annulus outside the
-	// cutout, never over it (I9)").
-	//
-	// 6mm rather than the old 3mm because the ring's job changed. A stroke
-	// on a bin edge was an outline; this is the state channel, and it has
-	// to read at the distance its own label reads at while sitting on a
-	// light field. 6mm is roughly the stem weight of the 36px bold bin
-	// name above it, which is §13.4's own answer to the same problem
-	// ("contrast has to come from stroke width"). One constant to change.
+	// Formerly the plate ring's own width — the band of colour that framed
+	// a bin's cutout and carried doc §4.3's `hl` state (I8 — "distinguish
+	// states by hue"). **2026-08-14: that ring is deleted outright**, now
+	// that the idle halo occupies the same visual role (see drawBin's own
+	// comment) — VISUAL_LAYER.md's palette (§3) never listed this grey/
+	// green ring at all, only the halo/fire pair. Kept as a named constant
+	// purely because drawBin's label positions still measure their
+	// clearance from where the ring's outer edge used to sit (see
+	// ringRestY there) — removing the ring shouldn't also pull every label
+	// closer to the cutout as a side effect nobody asked for.
 	const float kRingMM = 6.0f;
 
 	// doc §13.4: "Dark ink on a light field, and set bold" — the field is
@@ -628,7 +632,10 @@ void UiLayer::drawHalo(int i) const {
 	// bin is "idle" until something says otherwise.
 	const ofRectangle bin = binRectPx(i);
 	const float baseCornerRadiusPx = mmToPxX(CUTOUT_CORNER_RADIUS_MM);
-	const float breathe = 0.55f + 0.45f
+	// 0.35 floor, not the first attempt's 0.1 — see kHaloBreathPeriodS's
+	// own comment: a bin dimmed almost to nothing read as broken, not as
+	// breathing, in the first photo.
+	const float breathe = 0.65f + 0.35f
 		* sinf(TWO_PI * ofGetElapsedTimef() / kHaloBreathPeriodS + _haloPhase[i]);
 	for(int k = 0; k < kHaloRingCount; k++){
 		const float innerPx = kHaloMarginPx + (float)k * kHaloRingPitchPx;
@@ -643,22 +650,6 @@ void UiLayer::drawHalo(int i) const {
 		drawRoundedBand(bin, innerPx, outerPx,
 			ofColor(kHaloIdleColor, alpha), baseCornerRadiusPx);
 	}
-}
-
-ofColor UiLayer::highlightColour(const std::string & hl){
-	// Only "none" and "picked" are reachable from core in M1 — its
-	// _bin_msg (verified against the actual code, not the doc's example)
-	// sets hl to "picked" if picked>0 else "none". hover/picking need the
-	// tracker (M5); lowstock needs a threshold nothing sets yet (doc §22,
-	// P3). Mapped anyway, onto the pre-rewrite outline's equiluminant-on-
-	// white palette (doc I8: hue carries the state, never brightness), so
-	// the wire contract holds even though nothing exercises most of it yet.
-	if(hl == "picked")   return ofColor(0, 115, 0);
-	if(hl == "hover")    return ofColor(200, 0, 0);
-	if(hl == "picking")  return ofColor(200, 120, 0);
-	if(hl == "lowstock") return ofColor(190, 140, 0);
-	if(hl == "disabled") return ofColor(190, 190, 190);
-	return ofColor(98, 98, 98);   // "none"
 }
 
 void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
@@ -682,34 +673,8 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 		tw.picked.setTarget(b.picked);
 		tw.price.setTarget((float)b.price);
 
-		ofColor target = highlightColour(b.hl);
-		tw.colR.setTarget((float)target.r);
-		tw.colG.setTarget((float)target.g);
-		tw.colB.setTarget((float)target.b);
-
-		// A pick is a discrete event, not something to spring into — snap
-		// the scale UP the instant picked grows, then let the spring
-		// relax it back to rest. Doc §13.3 tweens "plate scale" but leaves
-		// what drives it unspecified; a pick is the one thing M1 actually
-		// has to react to (core sends nothing else that varies per-bin).
-		//
-		// 1.6, not the 1.06 this was while it scaled a rectangle: the
-		// value now drives ring THICKNESS (drawBin), and 6% of a 6mm band
-		// is a third of a millimetre on the table — a pulse nobody could
-		// see. 1.6 is ~3.5mm of extra ring for the ~150ms the spring takes
-		// to relax, which reads as the plate acknowledging the pick.
-		if(b.picked > tw.lastPicked + 0.5f){
-			tw.scale.snapTo(1.6f);
-		}
-		tw.lastPicked = b.picked;
-		tw.scale.setTarget(1.0f);
-
 		tw.picked.update(dt);
 		tw.price.update(dt);
-		tw.scale.update(dt);
-		tw.colR.update(dt);
-		tw.colG.update(dt);
-		tw.colB.update(dt);
 	}
 	_totalAmount.setTarget((float)state.total.amount);
 	_totalAmount.update(dt);
@@ -719,20 +684,19 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	ofRectangle box = binRectPx(i);
 	ofRectangle cut = cutoutRectPx(i);
 
-	// The pop thickens the ring outward instead of scaling a rectangle.
-	// Doc §13.3 asks for a tweened "plate scale", but the plate is now a
-	// frame around a hole in the table, and a physical hole cannot grow —
-	// scaling the frame would just slide it off the cutout it belongs to.
-	// Growing outward from a fixed inner edge is the same gesture with the
-	// one degree of freedom the geometry actually has.
-	const float s = tw.scale.get();
-	const float ringX = mmToPxX(kRingMM) * s;
-	const float ringY = mmToPxY(kRingMM) * s;
-
-	ofColor ring((int)roundf(tw.colR.get()), (int)roundf(tw.colG.get()),
-		(int)roundf(tw.colB.get()));
-	drawRing(cut, ringX, ringY, ring, mmToPxX(CUTOUT_CORNER_RADIUS_MM));
-
+	// 2026-08-14, developer instruction: the solid plate ring (the M1-era
+	// grey/green frame that used to carry doc §4.3's `hl` state — I8, "hue
+	// carries state") is REMOVED outright, now that the idle halo exists to
+	// occupy that same visual role. It never appears in VISUAL_LAYER.md's
+	// own palette table (§3), which only ever specified the halo/fire pair —
+	// this was the pre-M8 mechanism the new one supersedes, not a second
+	// state channel meant to coexist with it. `highlightColour()` and
+	// `BinTween`'s scale/colR/colG/colB springs went with it — nothing else
+	// read them. **Consequence, not yet answered: "picked" now has no
+	// visual distinction of its own** until the fire ring (build item 6/7)
+	// exists — an idle-halo'd bin and a picked-but-otherwise-idle bin
+	// currently render identically. That is expected to be fire's job, not
+	// a gap to patch here.
 	if(!b.resolved){
 		return;   // doc §9.3: unresolved bins render with no label
 	}
@@ -741,10 +705,12 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	const float clearance = mmToPxY(kLabelClearanceMM);
 	const float gap = mmToPxY(kLabelLineGapMM);
 
-	// Labels clear the ring at its RESTING width, never the popped one —
-	// anchoring them to the animation would twitch every label on every
-	// pick. And they clear the ring rather than the bin box, which is the
-	// bug this replaces: kLabelClearanceMM and CUTOUT_MARGIN_MM are both
+	// Labels clear a fixed offset past the CUTOUT, not the bin box — kept
+	// as its own named gap (kRingMM) even though nothing draws a ring there
+	// any more (2026-08-14, see this function's own comment above), because
+	// removing it would pull the label right up against the cutout edge,
+	// a layout change nobody asked for. This is the bug the offset
+	// originally fixed: kLabelClearanceMM and CUTOUT_MARGIN_MM are both
 	// 10mm, so measuring from box.y put the far row's baseline exactly on
 	// the cutout's edge and the light pass ate every descender — the "g"
 	// in both "45g" and "₹18.00/100g".

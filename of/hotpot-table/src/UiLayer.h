@@ -73,9 +73,6 @@ private:
 	struct BinTween {
 		Spring picked{0.15f};
 		Spring price{0.15f};
-		Spring scale{0.15f};
-		Spring colR{0.15f}, colG{0.15f}, colB{0.15f};
-		float lastPicked = 0.0f;
 	};
 
 	// Not static any more (M4 build item 4): the bin rects come from core
@@ -112,7 +109,6 @@ private:
 	void drawWidget(const StateLink::Widget & w) const;
 	void drawCursor(const CursorLink::Hand & pointer, float dwell) const;
 	float dwellFraction(const StateLink::State & state) const;
-	static ofColor highlightColour(const std::string & hl);
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
 	void drawTotal(const StateLink::Total & total) const;
 	void drawConnectionIndicator(bool connected, float staleSeconds) const;
