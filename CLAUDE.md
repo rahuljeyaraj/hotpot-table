@@ -3656,6 +3656,65 @@ second look** — this is one considered fix off the developer's own report,
 not a repeat observation. Next: watch a near-row bin's fire through a
 long hover again and see whether it now stays clear of the far row.
 
+**Follow-up, same day: the dissipation fix made no difference — developer
+report, verbatim: "actually ur fix didnt made any difference."** Different
+fix now, developer's own direction: "make all bins as obstructions. flame
+should not go through it, right now there is just a white overlay and fire
+go below it." Correctly diagnosed the dissipation fix as treating the
+wrong layer — it tuned how long an ambient draft persists, but nothing
+was stopping the fluid from occupying a bin's space at all. The ONLY thing
+that ever kept fire out of a bin was `UiLayer::drawBin` painting an opaque
+plate on TOP of the fluid layer (draw order, VISUAL_LAYER.md §5) — a
+cosmetic clip of the bin's own exact rect, not a physical stop, and it
+never covered the halo/ring margin around a bin, so a drifting flame still
+visibly wrapped around one it never actually touched (exactly what "come
+around top layer" was describing).
+
+Fixed properly this time: every bin is now a real wall in the fluid sim
+itself, not a paint-over. `ftFluidFlow` already has this built in and
+unused — `setObstacle(ofTexture&)` (VERIFIED by reading
+`ftFluidFlow.cpp`/`.h`, not assumed): an R8 mask, sim-resolution
+(`obstacleFbo` is allocated `simulationWidth x simulationHeight`, HALF of
+density resolution, same as the velocity FBO — got this wrong on a first
+pass reading only the header, caught before writing any code by actually
+checking the `.cpp`'s `allocate()` call), consumed by every stage of
+`update()` (`advectShader`, `jacobiDiffusionShader`, `divergenceShader`,
+`gradientShader` all take `obstacleFbo.getTexture()`) — density and
+velocity are advected AROUND a wall pixel, not through it, real fluid
+behaviour rather than a downstream mask. `setObstacle()` over
+`addObstacle()` deliberately: `setObstacle` calls `initObstacle()` first
+(ftFluidFlow.cpp), which re-lays the sim's own 1px boundary wall AND wipes
+last frame's shape before OR-ing in the new one; `addObstacle` only ORs,
+so it would accumulate every bin shape ever passed forever — fine while
+bin rects never move, a silent trap the moment core nudges one
+(`bins[].rect`, doc §5.3).
+
+New `FluidLayer::Obstacle{rect, cornerRadiusPx}` (STAGE space, same
+shape as `FireRing`) and a fourth `update()` parameter, defaulted empty so
+`kFluidDebugMouseOnly`'s isolated bench (draws no bins) needs no change.
+`ofApp.cpp` builds the list from `_ui.cutoutRectsPx()` — the exact rect
+the light pass already treats as the physical white plate, corner radius
+`mmToPxX(CUTOUT_CORNER_RADIUS_MM)` — so the obstacle can never be a
+different size than the thing it represents. `FluidLayer::update()` redraws
+the mask fresh every frame from whatever it's handed (same
+recompute-don't-cache pattern `fireRings` already uses), then calls
+`_fluid.setObstacle()` before `_fluid.update(dt)` so the new wall shape is
+in effect for that frame's own advect/diffuse/divergence/gradient passes.
+Checked the geometry doesn't self-collide: the fire ring's own inner edge
+sits `kFireRingInnerPx` (= halo margin, 20px) outside `binRectPx`, while
+the obstacle (`cutoutRectPx`) is only `CUTOUT_MARGIN_MM` (~12.6px) out —
+the ring's own annulus already clears the obstacle by ~7px, so the wall
+can't clip the very thing it's supposed to let burn.
+
+Full rebuild, msbuild Debug x64, 0 errors, same 2 pre-existing warnings.
+`run.py --stop` (stack from the dissipation-fix session was still up) /
+rebuild / `run.py` again — camera/core/voice/classifier/tracker all
+reached ready, `of`'s StateLink reconnected, no new errors in the merged
+log beyond the same two pre-existing shader warnings. **Not yet confirmed
+on the rig** — next: hover a near-row bin's fire long enough for it to
+reach for the far row, and check it now visibly curls/deflects at the
+bin edge instead of drifting through the space above it.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

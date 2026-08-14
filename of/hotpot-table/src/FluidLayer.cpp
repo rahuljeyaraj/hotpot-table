@@ -46,6 +46,8 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 
 	_toDensityX = (float)_densityW / (float)stageW;
 	_toDensityY = (float)_densityH / (float)stageH;
+	_toSimX = (float)_simW / (float)stageW;
+	_toSimY = (float)_simH / (float)stageH;
 
 	// fireTest/src/ofApp.cpp::setup(): fluidFlow.setup(simulationWidth,
 	// simulationHeight, densityWidth, densityHeight) — dual-resolution,
@@ -94,10 +96,15 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 	ftUtil::zero(_densityInject);
 	_velocityInject.allocate(_simW, _simH, GL_RG32F);
 	ftUtil::zero(_velocityInject);
+
+	// Sim resolution, matching ftFluidFlow's own obstacleFbo (ftFluidFlow.h/
+	// .cpp: allocated simulationWidth x simulationHeight, not density res).
+	_obstacleMask.allocate(_simW, _simH, GL_RGBA);
+	ftUtil::zero(_obstacleMask);
 }
 
 void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
-	const std::vector<FireRing> & fireRings){
+	const std::vector<FireRing> & fireRings, const std::vector<Obstacle> & obstacles){
 	// fireTest/src/ofApp.cpp::update() tracks one glm::vec2 (the mouse)
 	// frame to frame; this tracks one per hand id — see FluidLayer.h's
 	// class comment for why. Each hand's position here is fireTest's own
@@ -177,6 +184,29 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	}
 	_velocityInject.end();
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+
+	// 2026-08-14, obstacle fix: every bin is a real wall, rebuilt fresh each
+	// frame from whatever ofApp passes (bin rects do not move at runtime,
+	// but nothing here assumes that — same "recompute from caller, don't
+	// cache" pattern fireRings above already uses). setObstacle(), not
+	// addObstacle(): setObstacle re-derives the sim-boundary border AND
+	// replaces the wall shape outright (ftFluidFlow.cpp::setObstacle calls
+	// initObstacle() first) — addObstacle ORs into whatever was there last
+	// frame, which would accumulate stale wall shapes forever once a bin
+	// rect ever changes (core can nudge bins.rect, doc §5.3).
+	_obstacleMask.begin();
+	ofClear(0, 0, 0, 0);
+	ofEnableBlendMode(OF_BLENDMODE_DISABLED);
+	ofSetColor(255, 255, 255, 255);
+	for(const auto & obs : obstacles){
+		const ofRectangle r(obs.rect.x * _toSimX, obs.rect.y * _toSimY,
+			obs.rect.width * _toSimX, obs.rect.height * _toSimY);
+		const float radius = obs.cornerRadiusPx * 0.5f * (_toSimX + _toSimY);
+		ofDrawRectRounded(r, radius);
+	}
+	_obstacleMask.end();
+	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+	_fluid.setObstacle(_obstacleMask.getTexture());
 
 	_fluid.addDensity(_densityInject.getTexture());
 	_fluid.addTemperature(_densityInject.getTexture());
