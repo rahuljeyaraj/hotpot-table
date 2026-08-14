@@ -3750,6 +3750,64 @@ Full rebuild, msbuild Debug x64, 0 errors, same 2 pre-existing warnings.
 classifier/tracker all reached ready, `of`'s StateLink reconnected, no
 new errors. **Not yet seen on the rig.**
 
+### Dissipation fix reverted (2026-08-14), same day
+Developer report: "i think u should revert the fluid drift fix... i think
+that is what messing up the left side island, there the flame is going
+down." Reverted in `FluidLayer.cpp::setup()` —
+`dissipation.temperature`/`velocity` back to fireTest's own 0.1/0.1
+(were 1.0/0.6). The original fix's diagnosis (dissipation is a decay
+RATE, `velocity`/`temperature` at 0.1 have a ~7s half-life vs `density`'s
+~1s, so a sustained hover keeps adding upward push) was read straight off
+`ftFluidFlow.cpp`'s own source, not guessed — but it was tuned against a
+symptom (near-row fire drifting UP into the far row) that came from the
+fire-ring highlight, which is gone now regardless of this parameter (see
+the spark-shower-tried-and-reverted note above). The NEW report — the
+left island's flame going DOWNWARD — is a different direction of wrong
+than what this fix was ever aimed at, so keeping a fix tuned for a
+problem that's since been removed by a different change, on a rig
+showing a different symptom than the one that motivated it, had stopped
+being defensible. Left a note in the code: if a downward-blowing flame
+persists with this reverted, the dissipation formula was diagnosed
+correctly but was not this bug's actual cause — the next lever to try is
+buoyancy/weight or an obstacle-edge interaction, not this one again.
+
+Full rebuild, msbuild Debug x64, 0 errors, 2 pre-existing warnings.
+`run.py --stop` / rebuild / `run.py` again — clean boot, `of`'s
+StateLink reconnected. **Not yet seen on the rig.**
+
+### Bin 1/5 false-positive: found the actual number, not just the mechanism
+Same developer report named bin 1 alongside bin 5 this time — both share
+`BinGrid`'s column 1 (`core/bin_grid.py`: bin `i`'s column is `i % 4`,
+so bin 1 = row 0 col 1, bin 5 = row 1 col 1, same `v_lines[2]`/
+`v_lines[3]` pair). That match against the grid's own column structure is
+what turned "camera vs. projector grids can drift" (this file's earlier
+note) into an actual measurement: read both live files —
+`state/bin_grid_camera.json` and `state/bin_grid_projector.json`, both
+gitignored (`state/` — no history to diff against, this rig's own current
+values only. Every OTHER column, both grids, is 233–265px wide —
+consistent, physically-sane bin widths. Camera grid's column 1 is
+**397.0px** wide (`433.1` to `830.1`) — its own left edge (433.1) is
+within 2px of the projector grid's own column-1 left edge (435.3, camera
+and projector otherwise never compared against each other by design, but
+close agreement here is corroborating, not derived), so the anomaly is
+isolated to the ONE line, `v_lines[3]` — call it ~140–160px (~11–13cm)
+further right than a bin that width anywhere else on this table would
+put it. This is not subtle drift; it reads as a single bad drag or a
+stale value that never got corrected.
+
+**Not fixed in this session.** `state/bin_grid_camera.json` is untracked
+(no git history, no undo if a guessed number is wrong) and normally only
+ever edited through the live Setup/Capture tool, camera feed on screen —
+this machine has no camera->stage homography solved right now (this
+session's own earlier boot logs), so there is no way to confirm a
+corrected number against the real image before writing it. Asked the
+developer whether to write a computed correction (`433.1 +` the other
+three camera columns' own average width, `≈690`, entirely within the
+camera grid's own space — deliberately NOT copied from the projector
+grid's own `669.8`, since `bin_grid.py`'s module docstring is explicit
+that the two grids are "never derived from each other") or to re-drag it
+live instead.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

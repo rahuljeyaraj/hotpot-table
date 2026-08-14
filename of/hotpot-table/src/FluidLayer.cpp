@@ -68,29 +68,23 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 
 	// fireTest/src/ofApp.cpp::setup(), byte-for-byte — all eleven values.
 	// **2026-08-14, build item 6 rig report: a near-row bin's fire, left
-	// hovering, drifted up past its own ring into the far row.** Traced to
-	// ftFluidFlow.cpp's own dissipation formula — VERIFIED in the
-	// installed addon, not assumed — `1.0 - deltaTime * dissipation`, so
-	// the retained-per-frame FRACTION shrinks as the *parameter* grows;
-	// "dissipation" is a decay RATE, not a 0..1 amount-remaining knob. At
-	// this app's ~30fps, `velocity`/`temperature` at fireTest's own 0.1
-	// have an ~7s half-life — `density`'s own 1.0 already decays in ~1s,
-	// so the visible puff fades quickly, but the invisible temperature/
-	// velocity fields it left behind keep pushing for another six seconds,
-	// carrying every newly-injected frame's density further than the one
-	// before it the longer a hand keeps hovering. fireTest never showed
-	// this because its one blob already filled most of the screen — there
-	// was nowhere further for a long hover to carry it into. `temperature`
-	// raised to match `density`'s own decay (no field should outlive the
-	// density it is supposed to be pushing); `velocity` raised to 0.6, not
-	// all the way to 1.0, so the flame keeps some persistence/flicker
-	// rather than reading as inert. Unmeasured against the actual FIRE_RING
-	// geometry — tunable further once seen projected, same as every other
-	// build-item-6 constant.
+	// hovering, drifted up past its own ring into the far row.** A same-day
+	// fix raised `dissipation.temperature`/`velocity` (0.1 -> 1.0/0.6) on
+	// the theory that a slow-decaying temperature field was building an
+	// ever-stronger updraft under a sustained hover (`ftFluidFlow.cpp`'s
+	// own `1.0 - deltaTime*dissipation` formula, VERIFIED in the installed
+	// addon at the time) — reverted the same day, developer report: the
+	// left island's flame was going DOWNWARD, not drifting up, and the
+	// fire-ring highlight this was tuned for is itself gone now (see the
+	// spark-shower-tried-and-reverted note below). Back to fireTest's own
+	// byte-for-byte tuned values. If a downward-blowing flame persists with
+	// this reverted, the dissipation formula was diagnosed correctly but
+	// was not this bug's actual cause — look elsewhere (buoyancy/weight,
+	// obstacle interaction at a bin edge) rather than re-applying this fix.
 	_fluid.getParameters().getFloat("speed") = 0.3f;
-	_fluid.getParameters().getGroup("dissipation").getFloat("velocity") = 0.6f;
+	_fluid.getParameters().getGroup("dissipation").getFloat("velocity") = 0.1f;
 	_fluid.getParameters().getGroup("dissipation").getFloat("density") = 1.0f;
-	_fluid.getParameters().getGroup("dissipation").getFloat("temperature") = 1.0f;
+	_fluid.getParameters().getGroup("dissipation").getFloat("temperature") = 0.1f;
 	_fluid.getParameters().getGroup("dissipation").getFloat("pressure") = 0.1f;
 	_fluid.getParameters().getGroup("viscosity").getFloat("velocity") = 1.0f;
 	_fluid.getParameters().getGroup("viscosity").getFloat("density") = 1.0f;
