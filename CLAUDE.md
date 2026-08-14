@@ -2833,6 +2833,88 @@ readback behaviour. 912 tests pass,
 window can converge to a bad value; the next `run.py` on this machine is
 the actual check.
 
+## FLUID SIM — corner-clip bug found and fixed (2026-08-14, not an M8
+build item — M8 (the renderer/fluid milestone) has not formally started;
+this was debugged via `kFluidDebugMouseOnly`, the mouse-stands-in-for-a-
+hand isolation switch `ofApp.cpp` already had for exactly this kind of
+tuning)
+
+**Symptom:** the fire/fluid sim only ever rendered into a fixed
+640x360-ish sub-rectangle in the top-left of a 1920x1080 window — a
+*hard* 1px edge (confirmed by direct pixel readback: solid flame colour
+right up to the boundary, pure white one pixel later), not a soft
+diffusion falloff. Reproduced identically across every monitor tested.
+
+**Root cause, and it is NOT in this repo.** `ftJacobiDiffusionShader`
+(ofxFlowTools) ships two fragment shaders — `glFour()` (GLSL 410) and
+`glTwo()` (GLSL 120) — picked at construction by
+`ofIsGLProgrammableRenderer()`. hotpot-table's `main.cpp` never calls
+`setGLVersion`, so oF hands it the fixed-function 2.1 renderer and
+**`glTwo()` is what actually runs.** fireTest's own `main.cpp` calls
+`setGLVersion(4, 1)`, so it has only ever run `glFour()` and has never
+exercised this path — which is why porting fireTest's fluid code
+byte-for-byte here still hit the bug.
+`glTwo()` declares a `scale` uniform and never uses it: obstacle lookups
+sample the 640x360 SIM-resolution obstacle textures at raw
+DENSITY-space `st` (0..1280, 0..720) with no scaling. `GL_TEXTURE_RECTANGLE`
+clamps to edge, and `ftFluidFlow::initObstacle()` paints the texture's
+outer 1px border to `1.0` (blocked). Every fragment past x=640 or y=360
+therefore clamps onto that border, hits `if (oC == 1.0) { gl_FragColor =
+vec4(0.0); return; }`, and writes hard zero — 20x/frame, since
+`viscosity.density = 1.0` runs the diffuse loop every frame. That is the
+exact clip: a 640x360 region, a hard 1px edge, scaling proportionally
+with any monitor's resolution, `viscosity.density = 0` making it
+disappear (no diffuse pass = no clipped writes), and the advect pass
+unaffected (its own `glTwo()`, in `ftAdvectShader.h`, already scales
+obstacle lookups correctly, same as `glFour()` does).
+**This is also why the investigation kept measuring "correct" at every
+layer** (viewport, FBO dims, quad vertices, even a hardcoded-solid-colour
+shader body): every one of those experiments was performed on
+`ftJacobiDiffusionShader::glFour()`, which is dead code in this binary
+and was never compiled in. The C++/oF-API layer really was correct;
+the bug was in the sibling shader source nobody was looking at.
+
+**Fixed in `/c/openframeworks/addons/ofxFlowTools`** — a local editable
+copy, **not vendored/pinned and not tracked by this repo's git history**:
+`ftJacobiDiffusionShader.h`'s `glTwo()` now scales obstacle lookups by
+`scale`, matching `glFour()` and `ftAdvectShader`'s own `glTwo()`
+byte-for-byte. A diagnostic dedicated shader instance
+(`jacobiDiffusionShaderDensity`, added mid-investigation to rule out a
+shared-quad theory, which it did rule out) was reverted back to the
+single shared `jacobiDiffusionShader` instance.
+**Two known-related bugs in the same addon, named but NOT fixed:**
+fireTest and fluidTest each carry their own separate ofxFlowTools copies
+under their own `addons/` folders, both still with this exact `glTwo()`
+bug — latent in fireTest only because it runs the GL4 path, not because
+it was fixed there. And `ftBuoyancyShader`'s `glTwo()` also reads the
+1280x720 density texture at unscaled sim-space coordinates — a real bug,
+but a different symptom (biases/weakens buoyancy across the density
+field, does not clip anything) — left alone as out of scope for this fix.
+
+**This repo's changes**, both commits on `main`:
+- `957ffbd` — removed all `DIAG` logging/GPU-readback diagnostics added
+  during the investigation (`ofApp.cpp`, `FluidLayer.cpp`); kept two real
+  fixes found along the way that are not the corner-clip bug itself:
+  `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)` in `main.cpp`
+  (correct practice regardless of this bug), and `bin/data/display.txt`
+  changed to `"1"` (the actual projector monitor index — GLFW's monitor
+  enumeration order shifts as monitors are connected/disconnected; if
+  this drifts again, check the startup log's "Detected N monitor(s)"
+  listing and ask which physical monitor is the projector).
+- `5977172` — `kFluidDebugMouseOnly` back to `false`, after the fix was
+  **physically confirmed on the projected surface**: flame fills the
+  whole 1920x1080 window, no corner clip. This is a real observation,
+  not a framebuffer/reasoned check — the developer watched the table.
+
+**Still owed:** the ofxFlowTools fix lives in an untracked local copy —
+if that directory is ever reset, reinstalled, or replaced by a fresh
+clone of the upstream addon, this fix is lost silently and the corner
+clip comes back with no diff to explain why. Worth vendoring/patching
+properly, or at minimum noting the fix needs reapplying, before that
+happens. fireTest's and fluidTest's own ofxFlowTools copies still carry
+the bug, unfixed, and would corner-clip the moment either one is built
+with a non-programmable renderer.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
