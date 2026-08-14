@@ -3,6 +3,10 @@
 #include "ofAppGLFWWindow.h"
 #include <GLFW/glfw3.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 //--------------------------------------------------------------
 int readMonitorIndex(){
 	std::string path = "display.txt";
@@ -61,6 +65,19 @@ glm::ivec2 logMonitors(int & selected){
 
 //========================================================================
 int main( ){
+
+#ifdef _WIN32
+	// No manifest declares this app DPI-aware, so Windows was treating it as
+	// unaware and virtualizing it against a system-wide DPI baseline (usually
+	// the primary monitor's scale) instead of the actual monitor the
+	// fullscreen window lands on. 2026-08-14 rig test: the fluid sim (driven
+	// by raw mouse coords) only ever reached a fraction of the screen, and
+	// that fraction shrank further on the higher-DPI 2560x1440 monitor —
+	// exactly the signature of mouse coordinates (and/or the render surface)
+	// being scaled against the wrong monitor's DPI. Must run before any
+	// window is created.
+	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#endif
 
 	// default channel's lazy initialiser never runs on this toolchain - see Probe 1/2
 	ofSetLoggerChannel(std::make_shared<ofConsoleLoggerChannel>());

@@ -49,6 +49,25 @@ namespace {
 	const float kStatInterval = 1.0f;
 
 	const char * kScreenshotDir = "screenshots";
+
+	// Dev-only isolation switch, developer's explicit request 2026-08-14:
+	// the fluid was not rising on the rig (real hand input) and needed to be
+	// tuned with nothing else on screen — same window, same fullscreen
+	// process run.py already launches, not a separate app — but with
+	// nothing drawn except the fluid and no dependency on core/tracker/
+	// camera being up or calibrated. Same reasoning as fireTest's own
+	// standalone app, but inside THIS binary's actual Stage/FluidLayer code
+	// path, so whatever gets tuned here is exactly what the table will
+	// show, not a translation of it.
+	// True: skips UiLayer/StateLink/CursorLink and Stage's keystone warp/
+	// white floor/light pass, drives FluidLayer from the mouse instead of a
+	// tracked hand, draws only the fluid full-window. Window/fullscreen
+	// setup is untouched either way. This is the doc §7.1 "OSC hand mock...
+	// not coming back as a fluid-testing shortcut" decision deliberately
+	// reversed, on the developer's own call, for this same purpose the doc
+	// was originally trying to avoid — set false to return to the normal
+	// hand-driven table.
+	const bool kFluidDebugMouseOnly = true;
 }
 
 //--------------------------------------------------------------
@@ -98,6 +117,50 @@ void ofApp::setup(){
 //--------------------------------------------------------------
 void ofApp::update(){
 	float dt = ofGetLastFrameTime();
+
+	// fireTest/src/ofApp.cpp::update() computes the fluid's own dt as
+	// 1.0/max(ofGetFrameRate(),1.f) — a SMOOTHED value — not
+	// ofGetLastFrameTime()'s raw per-frame delta. This is not cosmetic:
+	// 2026-08-14 rig test found that feeding FluidLayer the raw value was
+	// the actual reason a byte-for-byte copy of fireTest's own fluid code
+	// still came up with a fully empty density buffer here. One occasional
+	// large raw frame time (a GC pause, a scheduling hiccup — anything)
+	// inflates ftFluidFlow's internal timeStep (dt*speed*100), which
+	// multiplies straight into the diffusion shader's strength
+	// (viscosityDen*timeStep, run 20 times every single frame) — one bad
+	// frame is enough to blur the just-injected density down to nothing.
+	// The smoothed formula doesn't have single-frame spikes. Applies to
+	// BOTH branches below, not just the debug one: the real hand-tracking
+	// path passes the same dt into the same FluidLayer::update() and would
+	// hit the identical failure mode on an ordinary frame hitch, which is
+	// plausibly why the table's own fluid looked wrong before any of
+	// today's other fixes too. UI tweening/`_statTimer` below intentionally
+	// keep the raw `dt` — this smoothing is specifically for the fluid sim.
+	float fluidDt = 1.0f / std::max(ofGetFrameRate(), 1.f);
+
+	if(kFluidDebugMouseOnly){
+		// Real FluidLayer, mouse standing in for a tracked hand — same shape
+		// of input CursorLink would give it (STAGE space, 1920x1080), so
+		// nothing about FluidLayer itself needs to know it's not a real
+		// hand. Scaling by ofGetWidth/Height's own ratio to PROJ_W_PX/
+		// PROJ_H_PX (confirmed 2026-08-14: both already read 1920x1080 on
+		// this rig, so this is presently a no-op) rather than assuming
+		// ofGetMouseX/Y() is already in stage space, in case that ever
+		// isn't true on a different display setup.
+		std::vector<CursorLink::Hand> mouseHands;
+		CursorLink::Hand h;
+		h.id = 1;
+		h.pointer = true;
+		h.x = (float)ofGetMouseX() * ((float)PROJ_W_PX / (float)ofGetWidth());
+		h.y = (float)ofGetMouseY() * ((float)PROJ_H_PX / (float)ofGetHeight());
+		h.conf = 1.0f;
+		mouseHands.push_back(h);
+		if(kFluidEnabled){
+			_fluid.update(fluidDt, mouseHands);
+		}
+		return;
+	}
+
 	// Drained once per frame, before anything reads it. Drain-to-latest, so
 	// a frame that arrives late is thrown away rather than replayed
 	// (doc §4) — CursorLink::update() is the only place that rule lives on
@@ -108,7 +171,7 @@ void ofApp::update(){
 	// mock is not coming back as a fluid-testing shortcut). Every hand
 	// injects, pointer and ambient alike (doc §14.4).
 	if(kFluidEnabled){
-		_fluid.update(dt, _cursor.hands());
+		_fluid.update(fluidDt, _cursor.hands());
 	}
 	// RIG_FEEDBACK item 11 diagnostic — same drain-to-latest discipline,
 	// see SkeletonLink::update()'s own comment.
@@ -133,6 +196,29 @@ void ofApp::draw(){
 		// the window is only shown just before the first draw, so read back
 		// the real geometry here rather than inferring it from setup()
 		logWindowState("frame " + ofToString(frame));
+	}
+
+	if(kFluidDebugMouseOnly){
+		ofBackground(255);
+		if(kFluidEnabled){
+			// PROJ_W_PX/PROJ_H_PX (stage space), not ofGetWidth/Height() —
+			// see update()'s own comment on DPI scaling. The production
+			// draw call below (Stage's content FBO) already uses these
+			// same fixed constants; matching it here for the same reason.
+			_fluid.draw(0, 0, PROJ_W_PX, PROJ_H_PX);
+		}
+		if(_screenshotPending){
+			_screenshotPending = false;
+			const std::string dir = ofToDataPath(kScreenshotDir);
+			if(!ofDirectory::doesDirectoryExist(dir)){
+				ofDirectory::createDirectory(dir, true, true);
+			}
+			const std::string name = std::string(kScreenshotDir) + "/hotpot-"
+				+ ofGetTimestampString("%Y%m%d-%H%M%S") + ".png";
+			ofSaveScreen(name);
+			ofLogNotice("ofApp") << "screenshot saved to " << ofToDataPath(name);
+		}
+		return;
 	}
 
 	bool hasState = _link.hasState();
