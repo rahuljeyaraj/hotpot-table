@@ -36,7 +36,8 @@
   "classifier": {
     "backend": "stub",
     "model": "models/ingredients-x86_64.eim",
-    "live_hz": 2
+    "live_hz": 2,
+    "enabled": false
   },
   "voice": {
     "backend": "stub",

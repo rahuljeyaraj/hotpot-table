@@ -862,6 +862,54 @@ class TestSwapHands(ProcCase):
         self.assertTrue(proc.has_homography)
 
 
+class TestSettingModeDisablesMediaPipe(ProcCase):
+    """Doc section 4.2's `mediapipe_enabled` — core sends `false` for the
+    whole of SETTING mode, and `tick()` must skip detection entirely, not
+    merely stop emitting: staff are physically in the frame swapping
+    trays, exactly what MediaPipe would otherwise track as a hand.
+    """
+
+    def test_tick_calls_nothing_while_disabled(self):
+        proc, source, _sender = self.make(script=[[det(10, 10)]])
+        proc.apply_welcome({"mediapipe_enabled": False})
+        calls_before = proc.backend.calls
+        frames_before = source.calls
+        self.assertFalse(proc.tick(now=0.0))
+        self.assertEqual(proc.backend.calls, calls_before)
+        self.assertEqual(source.calls, frames_before)
+
+    def test_disabling_mid_track_clears_the_hand_and_sends_an_empty_cursor(self):
+        proc, _src, sender = self.make(script=[[det(10, 10)]])
+        proc.tick(now=0.0)
+        self.assertTrue(sender.frames[-1].hands)
+        proc.apply_welcome({"mediapipe_enabled": False})
+        self.assertEqual(sender.frames[-1].hands, [])
+
+    def test_re_enabling_resumes_detection(self):
+        proc, _src, sender = self.make(script=[[det(10, 10)]])
+        proc.apply_welcome({"mediapipe_enabled": False})
+        proc.tick(now=0.0)
+        # Homography rides along, same reason as the absent-field test
+        # above: an omitted `homography_cam_to_stage` clears it, which
+        # would fail `tick()` for an unrelated reason.
+        proc.apply_welcome({"homography_cam_to_stage": H_TEST,
+                            "mediapipe_enabled": True})
+        self.assertTrue(proc.tick(now=0.1))
+        self.assertTrue(sender.frames[-1].hands)
+
+    def test_an_absent_field_leaves_it_enabled(self):
+        # Every other `cfg` push (e.g. a mirror-handedness flip) must not
+        # accidentally disable detection just by omitting this key. The
+        # homography rides along so this exercises only the field under
+        # test — `apply_welcome`'s own no-homography-clears-it behaviour
+        # (tested elsewhere) would otherwise make `tick()` return False
+        # for an unrelated reason.
+        proc, _src, _sender = self.make(script=[[det(10, 10)]])
+        proc.apply_welcome({"homography_cam_to_stage": H_TEST,
+                            "mirror_handedness": True})
+        self.assertTrue(proc.tick(now=0.0))
+
+
 class TestRolesEndToEnd(ProcCase):
     """Doc section 21's M5 acceptance scenario, driven through the whole
     process rather than through `HandTracker` alone.

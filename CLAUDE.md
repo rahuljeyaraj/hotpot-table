@@ -2915,6 +2915,75 @@ happens. fireTest's and fluidTest's own ofxFlowTools copies still carry
 the bug, unfixed, and would corner-clip the moment either one is built
 with a non-programmable renderer.
 
+## MediaPipe disabled in SETTING mode; classifier disabled by config
+(2026-08-14, developer request — not a doc build item)
+
+Two independent switches, per the developer's explicit ask: staff
+swapping trays in SETTING mode were being tracked as a hand, and the
+classifier's model is not properly tuned yet, so its live guesses
+shouldn't be landing in the bin map.
+
+**MediaPipe off for the whole of SETTING mode.** `core/main.py`'s
+`_tracker_cfg()` gained `mediapipe_enabled` (bool), computed from
+`fsm.state` the same way `_mode_msg()` already does, and pushed on
+`welcome` like every other tracker config field. `_handle_set_mode` now
+calls `_push_tracker_cfg()` immediately after a REAL mode transition
+(not on a refusal — nothing changed for a refused `set_mode`), the same
+live-push path `mirror_handedness` already uses, so the tracker doesn't
+wait for its next reconnect. `tracker/main.py`'s `TrackerProcess` gained
+`set_mediapipe_enabled()`, called from `apply_welcome` — on a real
+transition to `false` it clears tracked hands (`tracker.reset()`,
+`_hand_windows`) and sends one empty cursor immediately, the same "roles
+do not survive an outage" reasoning `_on_stale()` already uses, so a hand
+mid-track when setting mode is entered doesn't keep reporting a stale
+position. `tick()` checks this FIRST, before even the rate cap — no
+frame pulled, no `detect()` call, nothing for MediaPipe to do while
+staff are physically in the frame. Doc §4.2 updated (flagged the
+existing tracker `cfg` example as already stale rather than rewriting it
+— this doc's own precedent for a payload example this far behind).
+
+**Classifier disabled outright via config, default `false`.**
+`config/system.default.json` and the doc §8.6 example both gained
+`classifier.enabled: false`. `Core.__init__` gained a `classify_enabled`
+parameter (default `true` in code — the config default is what actually
+turns it off), read in `main()` from `classifier.enabled`. `_classify_loop`
+checks it before EVERY `_classify_pass()` call, boot scan included, not
+just the periodic SETTING-mode ones. **Does not touch the Setup tab's
+manual dataset capture** (`_handle_capture`) — that path never calls
+`_classify_pass`, and collecting training data under an untuned model is
+the reason to keep it running, not a reason to block it. Flip
+`classifier.enabled` to `true` once the model is retrained and worth
+trusting live; nothing else needs to change.
+
+**One regression found and fixed by the existing suite, not written in
+advance:** `test_core_main.TestTrackerConfigIsPushedOnChange`'s
+`test_a_new_homography_reaches_a_tracker_that_is_already_connected` sends
+`set_mode: setting` then `manual_calibrate` and waited on a single "got a
+`cfg` push" event — which the new mode-triggered push now satisfies
+FIRST, before the homography one, making the test check the wrong
+message and read `homography_cam_to_stage` as `None`. Fixed by waiting
+specifically for the push that carries a homography, not just any push —
+correctly reflects what the test is actually about and is not fooled by
+however many `cfg` pushes precede it.
+
+10 new tests: `test_tracker_main.py`'s `TestSettingModeDisablesMediaPipe`
+(4 — detect() not called while disabled, mid-track clears the hand and
+sends an empty cursor, re-enabling resumes, an unrelated `cfg` field
+does not disable it by omission); `test_core_main.py`'s
+`TestTrackerWelcomeConfig.test_the_tracker_is_told_mediapipe_is_enabled_
+while_serving` (1), `TestTrackerToldAboutSettingMode` (3 — entering
+pushes `false`, exiting pushes `true`, a refused `set_mode` pushes
+nothing), `TestClassifierDisabledByConfig` (2 — the boot scan never
+runs, the periodic pass never runs even in SETTING). 955 tests pass,
+`python -m unittest discover -s python/tests`.
+
+**Not observed on the rig** — reasoned from the code and the test suite
+only, same honest gap most sessions in this file carry for a change that
+touches the tracker or the classifier. The thing to watch for on the next
+real run: a hand entering the frame during SETTING must not move the
+cursor at all, and the Developer tab's Classifier card should show no
+live updates while `classifier.enabled` is `false`.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

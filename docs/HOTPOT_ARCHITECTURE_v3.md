@@ -231,6 +231,8 @@ Core replies to `hello` with the client's current configuration, so clients hold
 
 **Core marks a client dead after 3 missed heartbeats (3s).** Death is surfaced on the staff view status pips and, if it is `of` or `camera`, on the table.
 
+**The tracker's `cfg` example above is stale** (also missing `mirror_handedness`/`view_rotation_deg`, added 2026-08-12) — not rewritten here, per this doc's own precedent of flagging rather than line-editing a payload example every time a field is added; `core/main.py`'s `_tracker_cfg()` is the source of truth. **2026-08-14: `mediapipe_enabled` (bool) added** — `false` for the whole of SETTING mode, `true` otherwise. Pushed on `welcome` and re-pushed immediately by `_handle_set_mode` on every real mode transition, the same live-push path `mirror_handedness` already uses. `tracker/main.py`'s `tick()` skips `backend.detect()` entirely while it is `false` — staff are reaching into the frame to swap trays, which is exactly the input MediaPipe would otherwise track as a hand.
+
 ### 4.3 core → of
 
 Sent at a fixed 60Hz, whether or not anything changed. A fixed-rate state stream means oF's tweener always has a fresh target and never has to guess whether silence means "no change" or "core is dead."
@@ -697,7 +699,8 @@ Camera space is the stored ground truth. Stage-space rects are derived at load t
              "mjpeg_port":8081,"mjpeg_width":1920,"mjpeg_fps":8,
              "host_for_browser":"localhost"},
   "tracker":{"model_complexity":1,"max_hands":2,"emit_hz":60,"mirror_handedness":false},
-  "classifier":{"backend":"stub","model":"models/ingredients-x86_64.eim","live_hz":2},
+  "classifier":{"backend":"stub","model":"models/ingredients-x86_64.eim","live_hz":2,
+             "enabled":false},
   "voice":  {"backend":"stub","model":"models/keywords-x86_64.eim","threshold":0.75,
              "enabled":false},
   "of":     {"stage":[1920,1080],"monitor_index":2,"fluid_sim_scale":4,"target_fps":60,
@@ -713,6 +716,16 @@ tuning (§24.1) — every number in it was a decision made from the table's
 geometry rather than from a camera. Automated dot-projection calibration
 was removed outright (see §24.1's note and CLAUDE.md's M4h/M4i/M4j); the
 manual 4-corner tool (§12.6) needs no tuning at all.
+
+**`classifier.enabled`** (2026-08-14, default `false`): gates `core/main.py`'s
+`_classify_loop` outright — no boot pass, no periodic pass while SETTING,
+regardless of `live_hz`. The model is not properly tuned yet, so a live
+pass would write untrustworthy labels into the bin map rather than
+leaving bins on their mock-seed placeholders. Does not touch the Setup
+tab's manual dataset capture (`_handle_capture`), which never calls
+`_classify_pass` — collecting training data is the reason to run with an
+untuned model, not a reason to block it. Flip to `true` once the model is
+retrained and worth trusting live.
 
 `of.field_level` and `of.white_floor` are the two I9 knobs, and both are **measured on the rig, not chosen** (§6.6, §13.2). They are config rather than constants specifically so they can be swept without a rebuild. `field_level` is additionally mirrored into `state/camera_settings.json` at startup, because it belongs to the dataset's provenance as much as exposure does — config says what the rig is set to, that file says what the training images were taken under.
 

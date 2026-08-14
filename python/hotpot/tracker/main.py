@@ -718,6 +718,12 @@ class TrackerProcess:
 
         self._warned_no_h = False
         self._stale = False
+        # Core pushes this false while the table is in SETTING mode (doc
+        # section 4.2's `cfg`) — staff are reaching into the frame to swap
+        # trays, which is exactly the input MediaPipe would otherwise track
+        # as a hand. Defaults true so a tracker that hasn't heard from core
+        # yet behaves as it always has.
+        self._mediapipe_enabled = True
         self._last_emit: Optional[float] = None
         self._last_landmarks_send: Optional[float] = None
         # MediaPipe's VIDEO mode rejects a timestamp that does not
@@ -785,6 +791,33 @@ class TrackerProcess:
         if isinstance(rotation, int) and not isinstance(rotation, bool) \
                 and rotation in (0, 90, 180, 270):
             self.set_camera_rotation(rotation)
+        enabled = cfg.get("mediapipe_enabled")
+        if isinstance(enabled, bool):
+            self.set_mediapipe_enabled(enabled)
+
+    def set_mediapipe_enabled(self, enabled: bool) -> None:
+        """Doc section 4.2's `mediapipe_enabled` — core turns this off for
+        the whole of SETTING mode (`core/main.py`'s `_tracker_cfg`) and
+        `tick()` skips detection entirely while it is false, the same
+        "nothing to do this instant" idle path a rate cap or a missing
+        homography already takes.
+
+        Only acts on a real transition, not on every `cfg` — `apply_welcome`
+        calls this whenever the field is present, which on an unrelated
+        config push (e.g. a mirror-handedness flip) would otherwise re-clear
+        the tracker's roles and re-send an empty cursor for no reason.
+        Turning it off clears tracked hands and sends one empty cursor
+        immediately, the same "roles do not survive an outage" reasoning
+        `_on_stale` already uses — a hand mid-track when setting mode is
+        entered must not keep reporting a stale position to `of`.
+        """
+        if enabled == self._mediapipe_enabled:
+            return
+        self._mediapipe_enabled = enabled
+        if not enabled:
+            self.tracker.reset()
+            self._hand_windows = [None] * self.max_hands
+            self.sender.send([], ts=time.time())
 
     def _all_backends(self) -> List[Backend]:
         """Every distinct backend instance this process owns — one call
@@ -847,6 +880,14 @@ class TrackerProcess:
         sleeping.
         """
         now = time.monotonic() if now is None else now
+
+        # SETTING mode FIRST, before even the rate cap — `set_mediapipe_
+        # enabled` already did the one-time cleanup (cleared tracks, sent
+        # an empty cursor), so every tick after that is just idle: no
+        # frame pulled, no detect() call, nothing for MediaPipe to do
+        # while staff are physically in the frame swapping trays.
+        if not self._mediapipe_enabled:
+            return False
 
         # Rate cap FIRST, before a frame is pulled. Doc section 4.6 is "one
         # datagram per camera frame" and `emit_hz` (doc section 8.6) is a
@@ -1307,8 +1348,8 @@ class TrackerProcess:
         while not self._stop.is_set():
             if not self.tick():
                 # Nothing to do this instant. Every reason for that (no new
-                # frame, no camera, no homography, rate-capped) is answered
-                # by the same short wait.
+                # frame, no camera, no homography, rate-capped, SETTING
+                # mode) is answered by the same short wait.
                 self._stop.wait(IDLE_SLEEP_S)
 
     def stop(self) -> None:

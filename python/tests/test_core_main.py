@@ -94,6 +94,11 @@ class CoreCase(unittest.TestCase):
     # Subclasses set this False to exercise doc section 9.1's first-boot
     # path — a fresh clone with an empty `state/`.
     calibrated_fixture = True
+    # Subclasses set this False to exercise `classifier.enabled: false`
+    # (2026-08-14) — every other CoreCase test wants the boot/live classify
+    # passes `TestClassifyLive` already covers, on by default same as Core's
+    # own constructor default.
+    classify_enabled = True
 
     def write_calibration(self):
         atomicio.write_json(self.h_path, {
@@ -139,6 +144,7 @@ class CoreCase(unittest.TestCase):
             homography_path=self.h_path, camera_grid_path=self.g_path,
             projector_grid_path=self.pg_path,
             view_rotation_path=self.v_path,
+            classify_enabled=self.classify_enabled,
             # An ephemeral cursor port, never doc section 4.1's real 8771
             # (M5). Same class of reason as `cal_path` and the grid paths:
             # a test that bound the live port would fight a running rig on
@@ -2466,6 +2472,49 @@ class TestClassifyLive(CoreCase):
         self.fail(f"no {want} message arrived")
 
 
+class TestClassifierDisabledByConfig(CoreCase):
+    """`classifier.enabled: false` (2026-08-14, doc §8.6) — the model is
+    not properly tuned yet, so `_classify_loop` must call `_classify_pass`
+    NEVER, not even the doc §19 boot scan, while this is set.
+    """
+
+    classify_enabled = False
+
+    def test_the_boot_scan_never_runs(self):
+        calls = []
+        self.core._classify_pass = lambda: calls.append(True)
+        # The real boot scan already ran once inside `setUp()`'s
+        # `coremain.start()`, before this test could patch it out — this
+        # re-runs the loop's own boot branch directly, same white-box
+        # approach `test_the_live_loop_only_runs_while_setting` uses for
+        # the periodic branch below.
+        t = threading.Thread(target=self.core._classify_loop, daemon=True)
+        self.core._classify_stop.set()   # exits the periodic wait immediately
+        t.start()
+        t.join(2.0)
+        self.assertEqual(calls, [])
+
+    def test_the_periodic_pass_never_runs_even_in_setting(self):
+        calls = []
+        self.core._classify_pass = lambda: calls.append(True)
+        self.core._classify_hz = 200.0   # 5ms ticks
+        t = threading.Thread(target=self.core._classify_loop, daemon=True)
+        t.start()
+        self.addCleanup(self.core._classify_stop.set)
+        try:
+            self.ws_ = self.ws()
+            for _ in range(6):
+                self.recv_json(self.ws_)
+            self.ws_.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+            self.assertTrue(wait_for(
+                lambda: self.core.fsm.state is fsm.State.SETTING))
+            time.sleep(0.05)
+            self.assertEqual(calls, [])
+        finally:
+            self.core._classify_stop.set()
+            t.join(2.0)
+
+
 class TestUncalibratedBoot(CoreCase):
     """M4 build item 6, doc section 9.1: "BOOT always goes to UNCALIBRATED
     if `homography.json` or `bin_rects.json` is missing… This is the
@@ -2861,6 +2910,12 @@ class TestTrackerWelcomeConfig(CoreCase):
         self.assertEqual(cfg["emit_hz"], coremain.TRACKER_EMIT_HZ)
         self.assertIs(cfg["mirror_handedness"], False)
 
+    def test_the_tracker_is_told_mediapipe_is_enabled_while_serving(self):
+        # 2026-08-14: `mediapipe_enabled` — every CoreCase fixture boots
+        # SERVING, so a tracker connecting fresh must be told to detect.
+        cfg = self.welcome_cfg("tracker")
+        self.assertIs(cfg["mediapipe_enabled"], True)
+
     def test_nobody_else_is_given_a_config(self):
         # `of` holds only rig calibration it reads off disk itself (I2) and
         # the classifier is told what to do per command (doc section 4.7).
@@ -2902,13 +2957,20 @@ class TestTrackerConfigIsPushedOnChange(CoreCase):
         # told "no homography" when it connected. A solve that did not
         # reach it would leave the table calibrated and the cursor dead
         # until the next restart — with nothing on any screen saying so.
+        #
+        # Waits for the push that actually CARRIES a homography, not just
+        # any push: `set_mode` below now triggers its own earlier `cfg`
+        # push too (2026-08-14's `mediapipe_enabled`, sent on every real
+        # mode transition), which would otherwise race this test's single
+        # `got_push` event against `manual_calibrate`'s later one.
         pushed = []
-        got_push = threading.Event()
+        got_homography = threading.Event()
 
         def on_msg(m):
             if m.get("t") == "cfg":
                 pushed.append(m)
-                got_push.set()
+                if m["cfg"].get("homography_cam_to_stage") is not None:
+                    got_homography.set()
 
         c = self.wire_client("tracker", on_message=on_msg)
         self.assertTrue(c.wait_connected(DEADLINE))
@@ -2918,9 +2980,72 @@ class TestTrackerConfigIsPushedOnChange(CoreCase):
         ws.send(json.dumps({"t": "manual_calibrate",
                             "points": [[100, 900], [1800, 900],
                                        [1700, 200], [200, 200]]}))
-        self.assertTrue(got_push.wait(DEADLINE),
+        self.assertTrue(got_homography.wait(DEADLINE),
                         "the tracker was never told about the new homography")
         self.assertIsNotNone(pushed[-1]["cfg"]["homography_cam_to_stage"])
+
+
+class TestTrackerToldAboutSettingMode(CoreCase):
+    """2026-08-14: `_tracker_cfg()`'s `mediapipe_enabled`, live-pushed by
+    `_handle_set_mode` the same way `_push_tracker_cfg` already pushes a
+    new homography — doc section 4.2's `cfg`, sent to an already-connected
+    tracker rather than waiting for its next reconnect.
+    """
+
+    def enabled_pushes(self):
+        pushed = []
+
+        def on_msg(m):
+            if m.get("t") == "cfg" and "mediapipe_enabled" in m.get("cfg", {}):
+                pushed.append(m["cfg"]["mediapipe_enabled"])
+        c = self.wire_client("tracker", on_message=on_msg)
+        self.assertTrue(c.wait_connected(DEADLINE))
+        return pushed
+
+    def test_entering_setting_mode_pushes_false(self):
+        pushed = self.enabled_pushes()
+        ws = self.ws()
+        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.assertTrue(wait_for(
+            lambda: self.core.fsm.state is fsm.State.SETTING))
+        self.assertTrue(wait_for(lambda: pushed and pushed[-1] is False))
+
+    def test_exiting_setting_mode_pushes_true_again(self):
+        pushed = self.enabled_pushes()
+        ws = self.ws()
+        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.assertTrue(wait_for(
+            lambda: self.core.fsm.state is fsm.State.SETTING))
+        ws.send(json.dumps({"t": "set_mode", "mode": "serving"}))
+        self.assertTrue(wait_for(
+            lambda: self.core.fsm.state is not fsm.State.SETTING))
+        self.assertTrue(wait_for(lambda: pushed and pushed[-1] is True))
+
+    def test_a_refused_set_mode_pushes_nothing(self):
+        # An unresolved bin refuses SETTING->SERVING with a confirm prompt
+        # (doc section 9.3) — the mode did not change, so re-pushing the
+        # tracker's config would be a lie about what just happened.
+        with self.core.state_lock:
+            self.core.binmap.set_bin(0, item_id=None, conf=0.0, source="mock")
+        ws = self.ws()
+        ws.send(json.dumps({"t": "set_mode", "mode": "setting"}))
+        self.assertTrue(wait_for(
+            lambda: self.core.fsm.state is fsm.State.SETTING))
+        pushed = self.enabled_pushes()
+        ws.send(json.dumps({"t": "set_mode", "mode": "serving"}))
+        # Several `mode` broadcasts precede the refusal on this connection
+        # (the join seed, the earlier successful entry into SETTING) — the
+        # one this test wants is the first with a non-null `refused`.
+        deadline = time.monotonic() + DEADLINE
+        msg = None
+        while time.monotonic() < deadline:
+            got = self.recv_json(ws, timeout=deadline - time.monotonic())
+            if got.get("t") == "mode" and got.get("refused") is not None:
+                msg = got
+                break
+        self.assertIsNotNone(msg, "no refused mode message arrived")
+        time.sleep(0.1)
+        self.assertEqual(pushed, [])
 
 
 if __name__ == "__main__":

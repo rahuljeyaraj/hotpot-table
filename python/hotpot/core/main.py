@@ -266,6 +266,7 @@ class Core:
         cursor_port: int = cursorbus.CORE_PORT,
         dwell_ms: float = hover.DEFAULT_DWELL_MS,
         classify_hz: float = CLASSIFIER_LIVE_HZ,
+        classify_enabled: bool = True,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -472,6 +473,16 @@ class Core:
         # `_handle_capture` already runs on a caller's WebSocket thread
         # rather than in here, just with no tablet request to ride.
         self._classify_hz = classify_hz
+        # `classifier.enabled`, config §8.6, default false: the model is
+        # not properly tuned yet, so a live pass would write untrustworthy
+        # labels into `binmap` instead of leaving bins on `_seed_binmap`'s
+        # mock placeholders (`_classify_pass`'s own "nothing to show for
+        # it" rule, extended to "not tuned" as well as "not connected").
+        # The Capture tab's manual dataset photography (`_handle_capture`)
+        # is untouched — it never calls `_classify_pass` and collecting
+        # training data is the reason to run with a bad model, not a
+        # reason to block it.
+        self._classify_enabled = classify_enabled
         self._classify_stop = threading.Event()
         self._classify_thread: Optional[threading.Thread] = None
 
@@ -589,6 +600,13 @@ class Core:
             # for detection quality, and `geometry.view_rotation_deg` is
             # the one place core already tracks it.
             "view_rotation_deg": self.geometry.view_rotation_deg,
+            # False for the whole of SETTING mode: staff are reaching into
+            # the frame to swap trays, which `tracker/main.py` would
+            # otherwise track as a hand. `_handle_set_mode` re-pushes this
+            # the instant the mode actually flips, same as it does for
+            # `mirror_handedness`, so the tracker does not wait for its
+            # next reconnect to stop (or resume) detecting.
+            "mediapipe_enabled": not self._in_setting(),
         }
 
     def _push_tracker_cfg(self) -> None:
@@ -887,6 +905,13 @@ class Core:
                 else:
                     self.fsm.exit_setting()
         self._publish_mode(refused=refused)
+        # A refused set_mode changed nothing, so nothing to re-push. On a
+        # real transition, `_tracker_cfg()`'s `mediapipe_enabled` already
+        # reads the new `fsm.state` — this just gets the new value to the
+        # tracker now instead of at its next reconnect, same as every other
+        # push_tracker_cfg call site in this file.
+        if refused is None:
+            self._push_tracker_cfg()
 
     def _unresolved_bin_count(self) -> int:
         """Doc section 9.3. Caller holds `state_lock` (matches every other
@@ -1146,11 +1171,17 @@ class Core:
         after normal diner picks... re-scanning there is pure risk") —
         `_classify_pass` itself is the same call either way, this loop
         just decides when to make it.
+
+        Doc §8.6's `classifier.enabled` gates the whole loop, boot pass
+        included — `_classify_stop.wait` still runs every tick so `stop()`
+        keeps joining this thread promptly, it just never calls
+        `_classify_pass` while disabled.
         """
-        self._classify_pass()
+        if self._classify_enabled:
+            self._classify_pass()
         interval = 1.0 / self._classify_hz if self._classify_hz > 0 else 1.0
         while not self._classify_stop.wait(interval):
-            if self._in_setting():
+            if self._classify_enabled and self._in_setting():
                 self._classify_pass()
 
     def _classify_pass(self) -> None:
@@ -2135,6 +2166,7 @@ def main() -> None:
                                   hover.DEFAULT_DWELL_MS)),
         classify_hz=float(config.get(cfg, "classifier.live_hz",
                                      CLASSIFIER_LIVE_HZ)),
+        classify_enabled=bool(config.get(cfg, "classifier.enabled", True)),
     )
     # After both ports are bound (doc section 10.2: "say it after the
     # port is bound"), not before — run.py's tier 3 is waiting on this
