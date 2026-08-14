@@ -8,38 +8,34 @@
 #include <vector>
 
 // v3 doc §13.2's FBO stack, minus the fluid pass — FluidLayer does not
-// exist yet (M8's build item), so step 1 of the four below is skipped for
-// now and the composite starts from a flat paper-white background instead.
-// Steps 3 and 4 still run every frame, unconditionally, because I9 is a
-// hard invariant (CLAUDE.md) and not something that starts applying only
-// once a fluid exists to need protecting from:
+// exist yet (M8's build item), so step 1 of the three below is skipped for
+// now and the composite starts from the table-background colour instead.
+// Step 3 still runs every frame, unconditionally, because I9 is a hard
+// invariant (CLAUDE.md) and not something that starts applying only once a
+// fluid exists to need protecting from:
 //
 //   1. (fluidFBO — deferred to M8)
 //   2. uiFBO       — UiLayer draws here (labels, prices, plates, total)
 //      ───────────────────────────────────────────────────────────────
-//   3. FLOOR LIFT  — out = k + (1-k)*in, per pixel, on the composite so far
-//   4. LIGHT PASS  — flat pure-white over every tray cutout, stamped LAST
+//   3. LIGHT PASS  — flat pure-white over every tray cutout, stamped LAST
 //      ───────────────────────────────────────────────────────────────
 //      → keystone warp → screen
 //
-// Steps 3 and 4 are implemented with plain alpha-blended rectangles, not a
-// shader. That is not a shortcut: a standard SRC_ALPHA/ONE_MINUS_SRC_ALPHA
-// blend of opaque white at alpha=k over the existing composite computes
-// exactly white*k + in*(1-k) = k + (1-k)*in per channel — the doc's floor
-// lift formula, exactly, because "in" and "out" there are the normalised
-// 0..1 channel values a blend already operates on. Reaching for a GLSL
-// pass would add a version dependency (this app draws everything else with
-// oF's immediate-mode calls, no shader anywhere yet) to recompute something
-// alpha blending already does.
+// Step 3 is implemented with a plain filled rectangle per cutout, not a
+// shader — this app draws everything else with oF's immediate-mode calls,
+// no shader anywhere yet.
 //
-// docs/VISUAL_LAYER.md §9 step 1 (2026-08-14) repainted step 2's background
-// from flat white to #E8E6E1 — see Stage.cpp's kTableBackground — but left
-// steps 3/4 untouched. The floor lift still mixes the whole composite toward
-// literal white by kWhiteFloor (ofApp.cpp), which means the table's PROJECTED
-// colour is lighter than #E8E6E1 by that fraction, not the hex value exactly.
-// The bins are unaffected (the light pass stamps them opaque AFTER the lift).
-// VISUAL_LAYER.md §5's own 5-layer order has no floor-lift step at all —
-// reconciling that is explicitly step 5, "Layer reorder," not this one.
+// **2026-08-14, developer instruction: the "floor lift" that used to run
+// here (a per-frame blend of the whole composite toward literal white,
+// meant to keep the projected field bright enough for the camera to track
+// a hand) is REMOVED, not just left unused.** It brightened whatever colour
+// was already set, which meant no colour on the table ever stayed the value
+// it was assigned — VISUAL_LAYER.md's palette (§3) gives exact hex values
+// and nothing may move them once drawn. If the table needs to be brighter
+// anywhere, that is a change to the actual colour constant (e.g.
+// kTableBackground in Stage.cpp), never a blend applied on top of it. This
+// also brings the FBO stack in line with VISUAL_LAYER.md §5's own 5-layer
+// order, which never had a floor-lift step.
 class Stage {
 public:
 	// stageW/H default to v3 §5.1's canonical stage space, 1920x1080 —
@@ -64,13 +60,13 @@ public:
 	void beginContent(bool invertedField = false);
 	void endContent();
 
-	// Runs the floor lift and light pass on the FBO, then warps it onto
-	// the real window through the loaded keystone quad. cutoutsMM are the
-	// bin fill rects in table mm (TableGeometry.h's binFillRectMM), because
-	// this class does the one mm->px conversion the light pass needs and
-	// nothing calling it should have to duplicate that math.
-	// invertedField skips BOTH the floor lift and the light pass — see
-	// beginContent(). The keystone warp still runs: doc §5.2 is explicit
+	// Runs the light pass on the FBO, then warps it onto the real window
+	// through the loaded keystone quad. cutoutsMM are the bin fill rects in
+	// table mm (TableGeometry.h's binFillRectMM), because this class does
+	// the one mm->px conversion the light pass needs and nothing calling it
+	// should have to duplicate that math.
+	// invertedField skips the light pass — see beginContent(). The keystone
+	// warp still runs: doc §5.2 is explicit
 	// that "H_cam->stage implicitly contains the keystone", because the
 	// dots are drawn at known stage coordinates and keystoned onto the
 	// table by the same warp that will later carry the UI. Solving
@@ -92,7 +88,7 @@ public:
 	// cutoutCornerRadiusPx rounds every cutout's corners (0 = square, the old
 	// behaviour). One radius for all bins — TableGeometry.h's
 	// CUTOUT_CORNER_RADIUS_MM converted to px by the caller.
-	void compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx,
+	void compositeAndWarp(const std::vector<ofRectangle> & cutoutsPx,
 		float cutoutCornerRadiusPx = 0.0f,
 		bool invertedField = false,
 		const std::function<void()> & drawAboveLightPass = nullptr);

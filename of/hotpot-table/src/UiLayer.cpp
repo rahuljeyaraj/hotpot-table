@@ -54,8 +54,7 @@ namespace {
 	// 6mm rather than the old 3mm because the ring's job changed. A stroke
 	// on a bin edge was an outline; this is the state channel, and it has
 	// to read at the distance its own label reads at while sitting on a
-	// near-white field (§13.2's floor lift takes even a full-chroma hue to
-	// a mid tone). 6mm is roughly the stem weight of the 36px bold bin
+	// light field. 6mm is roughly the stem weight of the 36px bold bin
 	// name above it, which is §13.4's own answer to the same problem
 	// ("contrast has to come from stroke width"). One constant to change.
 	const float kRingMM = 6.0f;

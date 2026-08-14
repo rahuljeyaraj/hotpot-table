@@ -2,12 +2,6 @@
 #include "TableGeometry.h"
 
 namespace {
-	// v3 doc §13.2, `of.white_floor` default. Hardcoded rather than read
-	// from config/system.json, matching this repo's own established
-	// pattern (core/main.py's CONTROL_PORT etc.) of not building a config
-	// loader until something needs more than one key from it.
-	const float kWhiteFloor = 0.45f;
-
 	// doc §14.6's vocabulary: stage_size / sim_scale = simulation grid.
 	// 4 is the doc's own dev-machine default; no adaptive controller yet
 	// (§14.6 build item, not part of getting hand-driven fluid on screen).
@@ -25,9 +19,9 @@ namespace {
 	const std::string kCoreHost = "127.0.0.1";
 	const int kCorePort = 8765;
 
-	// doc §4.1's `cursor.of_port`. Hardcoded to the documented default for
-	// the same reason kCorePort is — this app still has no config reader
-	// (see kWhiteFloor's comment) and this is the one port oF listens on.
+	// doc §4.1's `cursor.of_port`. Hardcoded to the documented default —
+	// this app still has no config reader — and this is the one port oF
+	// listens on.
 	const int kCursorPort = 8770;
 
 	// skeletonbus.OF_PORT (RIG_FEEDBACK item 11 diagnostic — not in doc
@@ -235,8 +229,8 @@ void ofApp::draw(){
 
 	_stage.beginContent();
 	// doc §13.2's FBO stack, step 1: fluid first, UI drawn on top of it.
-	// I9 is untouched either way — the floor lift and light pass run on
-	// the composite afterward, unconditionally (Stage::compositeAndWarp).
+	// I9 is untouched either way — the light pass runs on the composite
+	// afterward, unconditionally (Stage::compositeAndWarp).
 	if(kFluidEnabled){
 		_fluid.draw(0, 0, PROJ_W_PX, PROJ_H_PX);
 	}
@@ -272,7 +266,7 @@ void ofApp::draw(){
 			_ui.drawCursorAboveLightPass(state, pointer);
 		};
 	}
-	_stage.compositeAndWarp(kWhiteFloor, _ui.cutoutRectsPx(),
+	_stage.compositeAndWarp(_ui.cutoutRectsPx(),
 		mmToPxX(CUTOUT_CORNER_RADIUS_MM), false, aboveLightPass);
 
 	if(_screenshotPending){

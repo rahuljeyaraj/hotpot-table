@@ -1,7 +1,6 @@
 #include "Stage.h"
 
 #include <algorithm>
-#include <cmath>
 #include <functional>
 #include <sstream>
 
@@ -112,34 +111,22 @@ void Stage::endContent(){
 	_fbo.end();
 }
 
-void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & cutoutsPx,
+void Stage::compositeAndWarp(const std::vector<ofRectangle> & cutoutsPx,
 	float cutoutCornerRadiusPx, bool invertedField, const std::function<void()> & drawAboveLightPass){
 	// --- I9's exception: dot calibration ---------------------------------
-	// Neither the floor lift nor the light pass runs. Both exist to keep
-	// the table lit for the camera, and during a solve the camera is
-	// deliberately at a dark exposure looking for bright dots on black —
-	// so a 45% white floor would raise the "black" field to the dots'
-	// own brightness, and the light pass would stamp eight full-white
-	// rectangles across the pattern. This is not a relaxation of I9; it
-	// is the case I9 itself carves out, and it is the only one.
+	// The light pass does not run. It exists to keep the table lit for the
+	// camera, and during a solve the camera is deliberately at a dark
+	// exposure looking for bright dots on black — the light pass would
+	// stamp eight full-white rectangles across the pattern. This is not a
+	// relaxation of I9; it is the case I9 itself carves out, and it is the
+	// only one.
 	if(!invertedField){
-		// --- step 3: floor lift ------------------------------------------
-		// out = k + (1-k)*in, applied as a single translucent white rect over
-		// the whole FBO — see the class comment for why this equals the doc
-		// formula exactly rather than approximating it.
+		// --- light pass ----------------------------------------------------
+		// Opaque, always full white, and last — nothing drawn after this
+		// point can put anything but flat white into a cutout, which is
+		// I9's entire safety property. VISUAL_LAYER.md §1: "Bin interior:
+		// #FFFFFF — pure white, all 8 bins, all modes, always."
 		_fbo.begin();
-		ofEnableAlphaBlending();
-		ofSetColor(255, 255, 255, (int)roundf(ofClamp(whiteFloor, 0.0f, 1.0f) * 255.0f));
-		ofDrawRectangle(0, 0, (float)_w, (float)_h);
-		ofSetColor(255);
-
-		// --- step 4: light pass ------------------------------------------
-		// Opaque, always full white regardless of whiteFloor (doc: "the bin
-		// patches are always at full level regardless of field_level"), and
-		// last — nothing drawn after this point can put anything but flat
-		// white into a cutout, which is I9's entire safety property.
-		// Also VISUAL_LAYER.md §1: "Bin interior: #FFFFFF — pure white, all
-		// 8 bins, all modes, always" — already true of this call, unchanged.
 		ofDisableAlphaBlending();
 		ofSetColor(255);
 		for(const auto & r : cutoutsPx){
@@ -160,7 +147,7 @@ void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & 
 			path.draw();
 		}
 
-		// --- step 5: above the light pass, 2026-08-12 ---------------------
+		// --- above the light pass, 2026-08-12 -------------------------------
 		// See the header comment on `drawAboveLightPass` for the full
 		// reasoning. `nullptr` (not serving, or no pointer this frame) means
 		// this is a no-op and I9 applies exactly as it always has.

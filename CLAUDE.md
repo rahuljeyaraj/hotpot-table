@@ -2984,6 +2984,38 @@ real run: a hand entering the frame during SETTING must not move the
 cursor at all, and the Developer tab's Classifier card should show no
 live updates while `classifier.enabled` is `false`.
 
+## M8 — VISUAL LAYER (renderer redesign, started 2026-08-14)
+`docs/VISUAL_LAYER.md` added (2026-08-14): the bins/halo/fire/cart spec for
+the oF renderer, with its own 10-step implementation order (§9) — one step
+per session, committed and physically verified on the projected surface
+before the next, same discipline as every M4 rig session above.
+
+**Step 1 (2026-08-14): repaint background and bins.**
+`Stage.cpp`'s non-inverted background changed from flat white to the doc's
+`#E8E6E1` (`kTableBackground`). Bin interiors were already pure white via
+the existing light pass — no change needed there.
+
+**Same day, developer instruction, not part of step 1 itself: the "floor
+lift" is REMOVED outright, not disabled.** It was `Stage`'s per-frame blend
+of the whole composite toward literal white (`ofApp.cpp`'s old
+`kWhiteFloor`, mixed in by `Stage::compositeAndWarp`'s old `whiteFloor`
+parameter) — CLAUDE.md's own HARD INVARIANTS list above named this
+mechanism explicitly ("everything else stays above a white floor"), and
+that line has been amended in place to record the change rather than left
+to go stale. The developer's reasoning: no colour may move once set — if
+the table needs to be brighter somewhere, that is a change to the actual
+colour constant, never a blend applied on top of it after the fact. This
+also brings the FBO stack in line with VISUAL_LAYER.md §5's own 5-layer
+order, which never had a floor-lift step — so this was going to be step 5
+("Layer reorder") regardless; doing it now instead just means step 5 has
+less left to do. `compositeAndWarp` lost the `whiteFloor` parameter
+entirely (call site in `ofApp.cpp` updated); nothing was left dormant.
+Builds clean (msbuild, Debug x64, 0 errors).
+**Not yet physically verified on the projected surface** — the doc's own
+step 1 check ("food in the bins is clearly visible with room lights off")
+and whether the table now reads as a visibly different colour from the
+bins are both still owed on the rig.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
@@ -3040,6 +3072,15 @@ stop it):
   into it. Never black, never coloured, never patterned.
   Everything else stays above a white floor so the hand
   stays trackable. Only dot calibration inverts.
+  **2026-08-14: the MECHANISM for this changed, the goal did not.** oF used
+  to enforce it with a per-frame blend (`Stage`'s "floor lift") that pushed
+  the whole composite toward literal white regardless of what colour was
+  actually drawn. Developer instruction, explicit: remove it outright — no
+  colour may move once set, so if the table needs to be brighter somewhere
+  that is a change to the colour constant itself (e.g. `Stage.cpp`'s
+  `kTableBackground`), never a blend on top of it. Deleted, not disabled
+  (`Stage::compositeAndWarp` lost its `whiteFloor` parameter entirely,
+  `ofApp.cpp`'s `kWhiteFloor` is gone). See VISUAL_LAYER.md section below.
 - Distinguish states by hue, never by brightness, and
   luminance-match the hues to each other.
 
