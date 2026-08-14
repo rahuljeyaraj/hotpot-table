@@ -31,6 +31,15 @@
 // pass would add a version dependency (this app draws everything else with
 // oF's immediate-mode calls, no shader anywhere yet) to recompute something
 // alpha blending already does.
+//
+// docs/VISUAL_LAYER.md §9 step 1 (2026-08-14) repainted step 2's background
+// from flat white to #E8E6E1 — see Stage.cpp's kTableBackground — but left
+// steps 3/4 untouched. The floor lift still mixes the whole composite toward
+// literal white by kWhiteFloor (ofApp.cpp), which means the table's PROJECTED
+// colour is lighter than #E8E6E1 by that fraction, not the hex value exactly.
+// The bins are unaffected (the light pass stamps them opaque AFTER the lift).
+// VISUAL_LAYER.md §5's own 5-layer order has no floor-lift step at all —
+// reconciling that is explicitly step 5, "Layer reorder," not this one.
 class Stage {
 public:
 	// stageW/H default to v3 §5.1's canonical stage space, 1920x1080 —

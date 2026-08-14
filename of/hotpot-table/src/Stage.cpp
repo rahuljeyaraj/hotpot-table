@@ -7,6 +7,14 @@
 
 namespace {
 	const char * kTag = "Stage";
+
+	// docs/VISUAL_LAYER.md §1/§3: "Table background: #E8E6E1" — the
+	// projector is the room light, so the table has to read as a warm
+	// near-white surface, not paper-white like the bin interiors (which
+	// stay literal 255,255,255 via the light pass below). Distinct from
+	// the bins by design: on the projected surface the bins must read
+	// brighter than the table around them.
+	const ofColor kTableBackground(0xE8, 0xE6, 0xE1);
 }
 
 void Stage::setup(int stageW, int stageH, const std::string & keystonePath){
@@ -80,14 +88,16 @@ void Stage::loadKeystone(const std::string & path){
 
 void Stage::beginContent(bool invertedField){
 	_fbo.begin();
-	// The paper base (§14.3: "the base of every palette is the paper,
-	// near-white"). Flat white stands in for FluidLayer until M8 — the
-	// same flat-field starting point the pre-rewrite app drew via
-	// ofBackground(fieldGrey) at its default full-brightness index.
+	// docs/VISUAL_LAYER.md §1: the table background, not paper-white — the
+	// bin interiors are what stay literal white (the light pass below,
+	// unconditionally opaque 255 regardless of this colour). Previously
+	// flat 255 here too, standing in for FluidLayer before that doc
+	// existed; §1 now gives the table its own colour distinct from the
+	// bins it surrounds.
 	//
 	// Black instead, and only, for dot calibration — I9's single
 	// exception. See the header.
-	ofBackground(invertedField ? 0 : 255);
+	ofBackground(invertedField ? ofColor(0) : kTableBackground);
 	// VERIFY, doc §13.2: "ofxFlowTools leaves the blend mode as
 	// OF_BLENDMODE_ADD. Call ofEnableAlphaBlending() explicitly before
 	// drawing the UI layer, every frame. Do not assume the state you left
@@ -128,6 +138,8 @@ void Stage::compositeAndWarp(float whiteFloor, const std::vector<ofRectangle> & 
 		// patches are always at full level regardless of field_level"), and
 		// last — nothing drawn after this point can put anything but flat
 		// white into a cutout, which is I9's entire safety property.
+		// Also VISUAL_LAYER.md §1: "Bin interior: #FFFFFF — pure white, all
+		// 8 bins, all modes, always" — already true of this call, unchanged.
 		ofDisableAlphaBlending();
 		ofSetColor(255);
 		for(const auto & r : cutoutsPx){
