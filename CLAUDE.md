@@ -3918,6 +3918,95 @@ Full rebuild, msbuild Debug x64, 0 errors, same pre-existing warnings.
 `run.py --stop` / rebuild / `run.py` again — clean boot, `of`'s
 StateLink reconnected. **Not yet seen on the rig.**
 
+### The left-island flame asymmetry: `ftBuoyancyShader`'s unscaled density
+### read — the SECOND instance of the corner-clip bug class (2026-08-14)
+**This file predicted this bug in writing and then left it unfixed.** The
+corner-clip entry above names it outright: "`ftBuoyancyShader`'s `glTwo()`
+also reads the 1280x720 density texture at unscaled sim-space coordinates
+— a real bug, but a different symptom... left alone as out of scope."
+That out-of-scope call is what the whole "left bins have too much flame"
+investigation was chasing.
+
+**Why four rounds of reasoning missed it, and it is the same trap twice:**
+every read of `ftBuoyancyShader` during this investigation quoted
+`glFour()` (GLSL 410, `texture(...)`), which is **dead code in this
+binary** — `main.cpp` never calls `setGLVersion`, so oF hands the app the
+fixed-function 2.1 renderer and `glTwo()` is what actually runs. This is
+byte-for-byte the same mistake the corner-clip investigation documented
+("every one of those experiments was performed on `glFour()`, which is
+dead code in this binary and was never compiled in"). **When reading any
+ofxFlowTools shader for this app, read `glTwo()`. `glFour()` is a
+decoy.**
+
+**Mechanism, derived from the source and the rig's own grid file, not
+guessed.** `buoyancyShader.update()` renders into `buoyancyFbo`, which is
+allocated at SIM resolution, so `st` spans 0..640 x 0..360. Of its three
+input textures, `tex_velocity` and `tex_temperature` are sim resolution
+(correct at unscaled `st`) but `tex_density` is **1280x720** and was read
+at that same raw `st`. Two consequences, and the second is the one that
+splits left from right:
+- A fragment at stage (X,Y) took its weight term from the density at
+  stage **(X/2, Y/2)**.
+- The lookup can only ever REACH density pixels 0..640 x 0..360, i.e.
+  **stage x < 960, y < 540 — the top-left quadrant.** Density outside
+  that quadrant never contributes a weight term at all.
+The sign is what makes it visible: `buoyancy_force = timestep * dtemp *
+fluid_buoyancy - density * fluid_weight`, applied as `vec2(0,-1) *
+force`, so MORE density means a more negative force means a **downward**
+push. Density in the top-left quadrant therefore injects a phantom
+downdraft at DOUBLE its own coordinates.
+Against `state/bin_grid_projector.json`'s real numbers (ring = bin rect
++/- 52px): bins 0/4 span x 69-406 and bins 1/5 span x 383-722 — both
+inside the readable quadrant — while bins 2/3/6/7 span x 1193-1851,
+**entirely outside it**. The right island can never generate this force.
+Column 0 (bins 0/4) additionally self-overlaps, since its downdraft lands
+at x 138-812 back across its own footprint (69 < 406/2), where column 1's
+lands at x 766-1444 — the empty pot gap.
+**This also explains the one report nothing else in the investigation ever
+accounted for:** "in the center area the flame is going down as if there
+is strong wind from top to bottom." The centre gap runs x 670-1245; bin
+1/5's density maps precisely onto it. Nothing near a bin ring could
+produce wind there, which is why every fix aimed at a ring (dissipation,
+obstacles, ring colour, ring heat) was aimed at the wrong location.
+
+**Fixed** in `/c/openframeworks/addons/ofxFlowTools/src/core/fluid/
+shaders/ftBuoyancyShader.h`: a `densityScale` uniform (`_denTex` dims /
+`_fbo` dims, exactly the pattern `ftAdvectShader` already uses for its own
+cross-resolution reads) applied to the density lookup only — velocity and
+temperature stay unscaled, which is correct for them and would break if
+scaled. Applied to BOTH `glTwo()` and `glFour()`: `glFour()` carries the
+identical bug and is live for any app that does call `setGLVersion`
+(fireTest does).
+
+**Honest bound on the claim.** The mis-sample is verified in source and
+the quadrant/doubling arithmetic is exact, and it accounts for bins 0 and
+4 being loud, bin 1 being clean, the whole right island being clean, and
+the centre-gap downdraft. **Bin 5 does not fall out of the pure footprint
+arithmetic** (its downdraft lands at x 766-1444, clear of its own x
+383-722) — the likely reason is that the force is injected via
+`addVelocity` and then spread by 40 Jacobi pressure-projection iterations
+plus vorticity confinement, so the point-to-point mapping understates the
+real spatial reach. That part is reasoning, not arithmetic. The test is
+one hover per bin: if 0/4/5 come down to match the right island AND the
+centre-gap downdraft goes with them, this was it.
+
+**Same untracked-copy risk as the corner-clip fix, now doubled.** This
+edit is in the local `addons/ofxFlowTools` copy, which is **outside this
+repo** (`git ls-files` confirms: "outside repository") — no diff, no
+history, and it disappears silently if that directory is ever reset or
+re-cloned, taking the corner-clip fix with it. Two real fixes now live
+there. Worth vendoring properly before that happens.
+
+Full rebuild, msbuild Debug x64, 0 errors, 2 pre-existing warnings
+(`ftVorticityForceShader.h`'s `ofClear` deprecation, `LNK4075`/`FORCE`),
+neither from this session's files. `run.py --stop` / rebuild /
+`run.py --replace` — stack back up, `hotpot-table_debug.exe` running.
+**Not yet seen on the rig.** Also still live from the previous session and
+NOT reverted by this fix: `kFireRingSingleColourDiagnostic = true` (every
+ring draws in one blue — flip to `false` to restore the 8-hue palette,
+`kFireRingColours` is untouched) and the `'f'` all-bins-lit toggle, which
+the developer reported unusable ("the flames are all getting mixed up").
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
