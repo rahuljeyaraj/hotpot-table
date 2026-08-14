@@ -192,33 +192,23 @@ void ofApp::update(){
 	// mock is not coming back as a fluid-testing shortcut). Every hand
 	// injects, pointer and ambient alike (doc §14.4).
 	//
-	// VISUAL_LAYER.md §9 build item 6: fireEmitters() must be read AFTER
-	// _ui.update() above, not before — it reads this frame's freshly
-	// stepped crossfade springs, which is also why this call moved below
-	// the hasState block (it used to run first, when nothing here depended
-	// on `state`). Safe to call unconditionally: with no state yet, every
-	// bin's fire spring is still at its constructed 0, so this returns
-	// empty rather than needing its own hasState guard.
+	// 2026-08-14: the active-bin fire ring is gone (see FluidLayer.h's own
+	// note) — the fluid layer now only ever carries the ambient hand trail
+	// plus the permanent per-bin obstacles below, neither of which needs
+	// anything read from `_ui` after its springs stepped, so this no
+	// longer has to run after `_ui.update()` for freshness reasons. Left
+	// here anyway, unchanged position, since nothing forces it earlier.
+	//
+	// Every bin is a real wall in the sim (FluidLayer::Obstacle ->
+	// ftFluidFlow::setObstacle) — cutoutRectsPx(), the exact rect the
+	// light pass already treats as the physical white plate, so the
+	// obstacle can never be a different size than the thing it represents.
 	if(kFluidEnabled){
-		std::vector<FluidLayer::FireRing> fireRings;
-		for(const auto & e : _ui.fireEmitters()){
-			fireRings.push_back({e.bin, e.cornerRadiusPx, e.innerOffsetPx, e.outerOffsetPx, e.intensity});
-		}
-		// 2026-08-14, rig report: a near-row bin's fire was visibly wrapping
-		// around the far row — nothing stopped it, since the only thing
-		// hiding fluid under a bin was UiLayer's opaque plate drawing on TOP
-		// of it (a paint-over-it clip, not a physical stop), and that clip
-		// only covers the bin's own rect, not the halo margin around it a
-		// drifting flame would pass right through. Every bin is now a real
-		// wall in the sim (FluidLayer::Obstacle -> ftFluidFlow::setObstacle)
-		// — cutoutRectsPx(), the exact rect the light pass already treats as
-		// the physical white plate, so the obstacle can never be a different
-		// size than the thing it's supposed to be.
 		std::vector<FluidLayer::Obstacle> obstacles;
 		for(const auto & r : _ui.cutoutRectsPx()){
 			obstacles.push_back({r, mmToPxX(CUTOUT_CORNER_RADIUS_MM)});
 		}
-		_fluid.update(fluidDt, _cursor.hands(), fireRings, obstacles);
+		_fluid.update(fluidDt, _cursor.hands(), obstacles);
 	}
 
 	_statTimer += dt;

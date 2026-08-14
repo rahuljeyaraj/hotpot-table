@@ -1,7 +1,5 @@
 #include "FluidLayer.h"
 
-#include <algorithm>
-
 using namespace flowTools;
 
 namespace {
@@ -10,35 +8,6 @@ namespace {
 	const float kInjectRadiusDensityPx = 30.0f;
 	const float kInjectRadiusVelocityPx = 20.0f;
 	const float kVelocityScale = 4.0f;
-
-	// VISUAL_LAYER.md §9 build item 6: the fire ring's own injection shape —
-	// same filled, ODD-winding rounded-rect-band technique UiLayer's own
-	// drawRoundedBand uses (that file's comment: an unfilled ofPath's own
-	// "stroke" is glLineWidth in disguise, capped on this rig's driver and
-	// ignored outright on the programmable renderer this app already runs
-	// on). Duplicated rather than shared — FluidLayer must not depend on
-	// UiLayer (I2/I3: layer 2 is core-agnostic, layer 4/5 is UI, and nothing
-	// about this one shape justifies a coupling neither file needs
-	// otherwise).
-	void drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
-		float outerOffsetPx, float cornerRadiusPx, const ofColor & colour){
-		const ofRectangle outer(base.x - outerOffsetPx, base.y - outerOffsetPx,
-			base.width + 2.0f * outerOffsetPx, base.height + 2.0f * outerOffsetPx);
-		const ofRectangle inner(base.x - innerOffsetPx, base.y - innerOffsetPx,
-			base.width + 2.0f * innerOffsetPx, base.height + 2.0f * innerOffsetPx);
-		const float rOuter = std::min(cornerRadiusPx + outerOffsetPx,
-			std::min(outer.width, outer.height) * 0.5f);
-		const float rInner = std::min(cornerRadiusPx + innerOffsetPx,
-			std::min(inner.width, inner.height) * 0.5f);
-		ofPath path;
-		path.setFilled(true);
-		path.setFillColor(colour);
-		path.setCircleResolution(24);
-		path.setPolyWindingMode(OF_POLY_WINDING_ODD);
-		path.rectRounded(outer, rOuter);
-		path.rectRounded(inner, rInner);
-		path.draw();
-	}
 }
 
 void FluidLayer::setup(int stageW, int stageH, int simScale){
@@ -104,7 +73,7 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 }
 
 void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
-	const std::vector<FireRing> & fireRings, const std::vector<Obstacle> & obstacles){
+	const std::vector<Obstacle> & obstacles){
 	// fireTest/src/ofApp.cpp::update() tracks one glm::vec2 (the mouse)
 	// frame to frame; this tracks one per hand id — see FluidLayer.h's
 	// class comment for why. Each hand's position here is fireTest's own
@@ -146,21 +115,6 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	ofSetColor(199, 74, 52, 255);
 	for(const auto & p : positions){
 		ofDrawCircle(p.pos.x, p.pos.y, kInjectRadiusDensityPx);
-	}
-	// VISUAL_LAYER.md §9 build item 6: the active bin's own emitter, drawn
-	// into the SAME density buffer as the hand's (and, via addTemperature
-	// below, the same buoyancy source too). `intensity` is UiLayer's own
-	// crossfade spring — the same one the halo fades out by — scaling
-	// alpha only, never the geometry, so the ring fills in smoothly rather
-	// than popping to full strength the instant `hl` flips to "hover".
-	for(const auto & ring : fireRings){
-		const float scale = 0.5f * (_toDensityX + _toDensityY);
-		const ofRectangle b(ring.bin.x * _toDensityX, ring.bin.y * _toDensityY,
-			ring.bin.width * _toDensityX, ring.bin.height * _toDensityY);
-		const ofColor colour(199, 74, 52,
-			(unsigned char)(255.0f * ofClamp(ring.intensity, 0.0f, 1.0f)));
-		drawRoundedBand(b, ring.innerOffsetPx * scale, ring.outerOffsetPx * scale,
-			ring.cornerRadiusPx * scale, colour);
 	}
 	_densityInject.end();
 

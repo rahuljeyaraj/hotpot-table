@@ -48,20 +48,6 @@ public:
 	// vocabulary as doc §14.6 (sim_scale in {8,6,4,3,2}).
 	void setup(int stageW, int stageH, int simScale);
 
-	// VISUAL_LAYER.md §9 build item 6: the active bin's fire ring, STAGE
-	// space (same space `hands` arrives in) — one entry per
-	// UiLayer::FireEmitter. A separate, duplicate type rather than a shared
-	// header: FluidLayer must stay UI-agnostic (I2/I3, the same reason it
-	// already knows nothing about bins or `hl`), so this only ever says
-	// "inject here, this hard," never anything about why.
-	struct FireRing {
-		ofRectangle bin;
-		float cornerRadiusPx = 0.0f;
-		float innerOffsetPx = 0.0f;
-		float outerOffsetPx = 0.0f;
-		float intensity = 0.0f;   // 0..1 crossfade — scales injected alpha only
-	};
-
 	// 2026-08-14, rig report: with no obstacle, a near-row bin's fire had
 	// nothing physical stopping it drifting up past the far row — the only
 	// thing hiding it there was UiLayer's opaque bin plate drawing on TOP
@@ -70,24 +56,30 @@ public:
 	// around a bin it never actually touched. This makes every bin a real
 	// wall in the sim itself (ftFluidFlow::setObstacle) — the flow curls
 	// around it and cannot advect through it — rather than trusting a
-	// paint-over-it clip. `rect` is STAGE space, same as FireRing::bin;
-	// callers pass UiLayer::cutoutRectsPx() (the exact rect the light pass
-	// already treats as the physical white plate), not the wider halo/fire
-	// rect — the obstacle should be exactly as big as the real object.
+	// paint-over-it clip. `rect` is STAGE space, same as everything else
+	// UiLayer hands this class; callers pass UiLayer::cutoutRectsPx() (the
+	// exact rect the light pass already treats as the physical white
+	// plate), not the wider halo rect — the obstacle should be exactly as
+	// big as the real object.
 	struct Obstacle {
 		ofRectangle rect;
 		float cornerRadiusPx = 0.0f;
 	};
 
-	// hands are in STAGE space (CursorLink::Hand::x/y), same space as
-	// everything else UiLayer draws in. fireRings defaults empty — build
-	// item 7 ("emitter handoff") is what makes hands/rings mutually
-	// exclusive; until then both can inject in the same frame, since the
-	// hand is usually still sitting over the bin it just made active.
-	// obstacles defaults empty too — kFluidDebugMouseOnly's isolated bench
-	// draws no bins at all, so it has none to pass.
+	// 2026-08-14: the active-bin highlight (build item 6's fire ring) is
+	// GONE from this class — developer's own call, after the ring's fire
+	// both false-positive-drifted into the far row AND, separately, was
+	// judged not to read as "this bin is selected" even where it stayed
+	// put. Its replacement (a spark shower) is pure UiLayer geometry with
+	// its own ballistic physics, not a fluid emitter, so it needed no
+	// FluidLayer API at all — see UiLayer.cpp's drawSparks. What is left
+	// here is only what VISUAL_LAYER.md's fluid layer was for from the
+	// start: hands are in STAGE space (CursorLink::Hand::x/y), same space
+	// as everything else UiLayer draws in, and every hand injects an
+	// ambient flame trail regardless of selection. obstacles defaults
+	// empty too — kFluidDebugMouseOnly's isolated bench draws no bins at
+	// all, so it has none to pass.
 	void update(float dt, const std::vector<CursorLink::Hand> & hands,
-		const std::vector<FireRing> & fireRings = {},
 		const std::vector<Obstacle> & obstacles = {});
 
 	// Draws the density field stretched to (w,h) — "upscaled to stage

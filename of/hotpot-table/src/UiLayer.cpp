@@ -152,15 +152,47 @@ namespace {
 	// (kHaloMarginPx or the ring span), not in drawBin's clearance, which
 	// several rig photos have already tuned for other reasons.
 
-	// --- VISUAL_LAYER.md §4/§6, build item 6: the active fire ring ---------
-	// "fireRect = binRect inflated by FIRE_RING (start at 52px)." Inner
-	// edge matches the halo's own margin on purpose — the fire ring picks
-	// up right where the halo's innermost band sits, so the crossfade
-	// (drawHalo's fireFade, fireEmitters()'s intensity — the same spring)
-	// never leaves a visible gap or a double-covered sliver between the two
-	// as one fades and the other fades in.
-	const float kFireRingInnerPx = kHaloMarginPx;
-	const float kFireRingOuterPx = 52.0f;
+	// --- VISUAL_LAYER.md §4/§6, build item 6 REPLACED 2026-08-14: the ------
+	// --- active-bin spark shower, not a fire ring ---------------------------
+	// Developer's own direction after two rig problems with the fire-ring
+	// version (see UiLayer.h's Spark comment for both). Sparks originate on
+	// the ring circumference — the same radius the halo's own innermost
+	// band sits at, so there is no gap between "where the halo was" and
+	// "where the highlight now is" as the crossfade runs — fire outward a
+	// short, fizzling distance, and fall under real gravity rather than a
+	// fluid sim's buoyant drift.
+	//
+	// kSparkTangential is the one open call the developer flagged as
+	// unresolved ("radial (shoot outward) vs tangential (race around
+	// ring) — TBD which reads better"): false ships radial for the first
+	// look, since "sparks fire outward" was the plainer of the two
+	// descriptions given and gravity has an obvious thing to fight against
+	// on a radial launch; flip to true and rebuild to compare tangential
+	// (particles launched along the ring instead of away from it) — no
+	// other constant here needs to change either way.
+	const float kSparkRingMarginPx = kHaloMarginPx;
+	const bool kSparkTangential = false;
+	// sparks/second at full intensity; scaled by the crossfade spring
+	// below intensity 1. At ~0.3s lifespan this steady-states around a
+	// dozen live sparks per fully-active bin — a shower, not a sprinkle,
+	// still sparse enough that "ring stays clean" (no filled band the way
+	// the fire ring's injected density made one).
+	const float kSparkSpawnRatePerSec = 40.0f;
+	const float kSparkSpeedMinPxS = 90.0f;
+	const float kSparkSpeedMaxPxS = 170.0f;
+	// Positive = downward (oF's y grows down) — real gravity, deliberately
+	// unlike the fire ring's buoyancy, which is what let hovering build an
+	// ever-stronger updraft (CLAUDE.md's dissipation-fix note, since
+	// superseded by dropping fire ring highlighting outright).
+	const float kSparkGravityPxS2 = 260.0f;
+	const float kSparkLifespanMinS = 0.18f;
+	const float kSparkLifespanMaxS = 0.35f;
+	const float kSparkRadiusPx = 2.5f;
+	// A filled circle, not an ofPath stroke — same reason every other ring
+	// in this file is a filled band: glLineWidth is capped at 1px on this
+	// rig's driver and ignored outright on the programmable renderer.
+	const ofColor kSparkColourHot(255, 210, 120);   // newly spawned
+	const ofColor kSparkColourCold(210, 70, 30);    // about to fizzle
 
 	// doc's old kBinOutlineMM/kLabelClearanceMM/kLabelLineGapMM (ofApp.cpp,
 	// now deleted). Redefined here rather than resurrected in
@@ -672,14 +704,14 @@ void UiLayer::drawHalo(int i) const {
 	// random seed so the 8 do not pulse in sync." All 8 bins draw this by
 	// default — "idle" is every bin's resting state.
 	//
-	// Active (build item 6): "Gold halo crossfades OUT as the fire ring
-	// crossfades IN... Never both at once in the same annulus — they go
-	// muddy." `_bins[i].fire` is the exact same crossfade spring
-	// fireEmitters() reads to drive the fluid's own ring injection — one
-	// spring, read by both halves of the crossfade, so halo and fire can
-	// never disagree about how far along the transition is.
-	const float fireFade = 1.0f - _bins[i].fire.get();
-	if(fireFade <= 0.001f){
+	// Active (build item 6, since replaced): "Gold halo crossfades OUT as
+	// the [selected-bin highlight] crossfades IN... Never both at once in
+	// the same annulus — they go muddy." `_bins[i].spark` is the exact
+	// same crossfade spring updateSparks()/drawSparks() read — one spring,
+	// read by both halves of the crossfade, so halo and sparks can never
+	// disagree about how far along the transition is.
+	const float haloFade = 1.0f - _bins[i].spark.get();
+	if(haloFade <= 0.001f){
 		return;   // fully active — nothing left of the idle halo to draw
 	}
 	const ofRectangle bin = binRectPx(i);
@@ -693,9 +725,9 @@ void UiLayer::drawHalo(int i) const {
 		const float innerPx = kHaloMarginPx + (float)k * kHaloRingPitchPx;
 		const float outerPx = innerPx + kHaloRingThicknessPx;
 		// k=0 (closest to the bin edge) is brightest; quadratic falloff
-		// outward, same shape doc §6 asks for on the fire ring's own fumes.
+		// outward, same shape this file's drawSparks fade uses too.
 		const float edgeFrac = (float)k / (float)(kHaloRingCount - 1);
-		const float alpha = 255.0f * breathe * fireFade * (1.0f - edgeFrac) * (1.0f - edgeFrac);
+		const float alpha = 255.0f * breathe * haloFade * (1.0f - edgeFrac) * (1.0f - edgeFrac);
 		if(alpha < 1.0f){
 			continue;   // skip a band nobody would see rather than draw it at 0 alpha
 		}
@@ -704,17 +736,70 @@ void UiLayer::drawHalo(int i) const {
 	}
 }
 
-std::vector<UiLayer::FireEmitter> UiLayer::fireEmitters() const {
-	std::vector<FireEmitter> out;
-	for(int i = 0; i < 8; i++){
-		const float intensity = _bins[i].fire.get();
-		if(intensity < 0.01f){
-			continue;   // skip an emitter nobody would see rather than inject at ~0 alpha
-		}
-		out.push_back({binRectPx(i), mmToPxX(CUTOUT_CORNER_RADIUS_MM),
-			kFireRingInnerPx, kFireRingOuterPx, intensity});
+void UiLayer::updateSparks(int i, float dt, float intensity){
+	std::vector<Spark> & sparks = _sparks[i];
+
+	// Advance and cull first, so a spark spawned THIS frame (below) is
+	// never aged by this same frame's dt before it has drawn once.
+	for(auto & s : sparks){
+		s.vel.y += kSparkGravityPxS2 * dt;
+		s.pos += s.vel * dt;
+		s.age += dt;
 	}
-	return out;
+	sparks.erase(std::remove_if(sparks.begin(), sparks.end(),
+		[](const Spark & s){ return s.age >= s.lifespanS; }), sparks.end());
+
+	// Fractional accumulator, not `if(ofRandom(1)<rate*dt)` — a fixed rate
+	// has to spawn the same long-run average regardless of frame time, and
+	// a per-frame coin flip drifts low the slower the app runs.
+	_sparkSpawnAccum[i] += kSparkSpawnRatePerSec * intensity * dt;
+	const ofRectangle bin = binRectPx(i);
+	const ofRectangle ring(bin.x - kSparkRingMarginPx, bin.y - kSparkRingMarginPx,
+		bin.width + 2.0f * kSparkRingMarginPx, bin.height + 2.0f * kSparkRingMarginPx);
+	const glm::vec2 centre(ring.x + ring.width * 0.5f, ring.y + ring.height * 0.5f);
+	const float halfW = ring.width * 0.5f, halfH = ring.height * 0.5f;
+	while(_sparkSpawnAccum[i] >= 1.0f){
+		_sparkSpawnAccum[i] -= 1.0f;
+		// A point on the ellipse inscribed in `ring` — not the rounded
+		// rect's own exact boundary (drawRoundedBand's contour), which
+		// needs the same corner-radius arithmetic that file works out for
+		// a filled band, not a single spawn point. An ellipse tracks a
+		// rounded rect closely enough for where a spark begins; nothing
+		// downstream needs the two to match exactly the way the halo's own
+		// bands do.
+		const float theta = ofRandom(TWO_PI);
+		const glm::vec2 outward(cosf(theta), sinf(theta));
+		const glm::vec2 pos = centre + glm::vec2(outward.x * halfW, outward.y * halfH);
+		const glm::vec2 launchDir = kSparkTangential
+			? glm::vec2(-outward.y, outward.x)
+			: outward;
+		const float speed = ofRandom(kSparkSpeedMinPxS, kSparkSpeedMaxPxS);
+		Spark s;
+		s.pos = pos;
+		s.vel = launchDir * speed;
+		s.age = 0.0f;
+		s.lifespanS = ofRandom(kSparkLifespanMinS, kSparkLifespanMaxS);
+		sparks.push_back(s);
+	}
+}
+
+void UiLayer::drawSparks(int i) const {
+	for(const auto & s : _sparks[i]){
+		const float frac = ofClamp(s.age / s.lifespanS, 0.0f, 1.0f);
+		// Quadratic fade-out, same falloff shape drawHalo uses — a spark
+		// that dims linearly reads as flickering out early since the eye
+		// is more sensitive near zero; matching curves also means the
+		// crossfade this replaces (halo out, highlight in) doesn't trade
+		// one easing shape for a visibly different one mid-transition.
+		const float alpha = 255.0f * (1.0f - frac) * (1.0f - frac);
+		if(alpha < 1.0f){
+			continue;
+		}
+		const ofColor colour = kSparkColourHot.getLerped(kSparkColourCold, frac);
+		ofSetColor(colour, (int)alpha);
+		ofDrawCircle(s.pos.x, s.pos.y, kSparkRadiusPx);
+	}
+	ofSetColor(255);
 }
 
 void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
@@ -741,12 +826,20 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 		// enforced by core (StateLink::Bin::hl comes from a single hover
 		// pointer — core/main.py's _bin_msg) rather than re-checked here;
 		// this spring just crossfades whichever bin(s) hl currently says
-		// are hovered.
-		tw.fire.setTarget(b.hl == "hover" ? 1.0f : 0.0f);
+		// are hovered. Note for whoever chases a false-positive highlight
+		// next: `hl` hit-tests against core's CAMERA bin grid, not the
+		// PROJECTOR grid this class draws (core/bin_grid.py's own
+		// docstring) — two independently-authored grids that can drift
+		// apart bin by bin. If a highlight fires before a hand visually
+		// reaches a bin's edge, that is very likely camera-grid
+		// calibration for THAT bin needing a re-nudge, not a springs/oF
+		// bug (see CLAUDE.md's 2026-08-14 note on bin 5).
+		tw.spark.setTarget(b.hl == "hover" ? 1.0f : 0.0f);
 
 		tw.picked.update(dt);
 		tw.price.update(dt);
-		tw.fire.update(dt);
+		tw.spark.update(dt);
+		updateSparks(i, dt, tw.spark.get());
 	}
 	_totalAmount.setTarget((float)state.total.amount);
 	_totalAmount.update(dt);
@@ -1228,10 +1321,15 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 	// the light pass punches them back to white if that geometry is ever
 	// wrong, rather than relying on draw order alone to keep it true.
 	//
-	// --- layer 4: halo ----------------------------------------------------
+	// --- layer 4: halo + the active-bin spark shower -----------------------
+	// Sparks drawn right after this bin's own halo, not in a separate pass
+	// over all 8 — both read the same per-bin crossfade spring, and a
+	// spark should never appear to float above a halo band that hasn't
+	// drawn yet this frame.
 	if(hasState){
 		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
 			drawHalo(i);
+			drawSparks(i);
 		}
 	}
 
