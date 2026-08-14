@@ -3806,7 +3806,62 @@ three camera columns' own average width, `≈690`, entirely within the
 camera grid's own space — deliberately NOT copied from the projector
 grid's own `669.8`, since `bin_grid.py`'s module docstring is explicit
 that the two grids are "never derived from each other") or to re-drag it
-live instead.
+live instead. **Resolved by the developer directly, same day, live on the
+rig**: "yes, i dragged it, i fixed it, that issue is fixed." No code or
+state file change needed here after all — this file's own analysis (the
+exact anomalous number) was offered as evidence, not applied blindly, and
+the actual fix happened through the tool built for it.
+
+### Hard reset to a4268a5 (2026-08-14): the fire-ring layer, and only that
+Dissipation reverted (the note above), bin 1/5 fixed live — and the
+downward-flame report was STILL there, developer's next message: "the
+flame going down issue is there... i think you need go back to
+`a4268a54117cfa64c8becdc973f27eb1a5857066`. and only the ring code is
+needed, all other code disable it for now." New detail on the symptom
+that reframed the whole session's diagnosis: "now in the center area the
+flame is going down as if there is strong wind from top to bottom... it
+is all messed up now, we need to go back." **Center area** — the 440mm
+pot gap between the two islands (`core/hover.py`'s own name for it), not
+near any bin, so this was never explainable by anything tuned for a bin's
+own ring (dissipation, obstacles, ring colour) — every one of that
+session's fixes was aimed at the wrong location for this particular
+symptom.
+
+Diffed current work against `a4268a5` first rather than guessing what to
+keep: only `FluidLayer.h`, `FluidLayer.cpp`, `ofApp.cpp` had drifted
+(`git diff --stat a4268a5 HEAD -- of/hotpot-table/src/`) — `UiLayer.h`/
+`.cpp` were already back to that commit's content net of the spark-shower
+revert. `git checkout a4268a5 -- <those three files>` — a clean reset,
+not a hand-reconstructed one, so nothing from the obstacle work, the blue
+ring colour, or the dissipation revert survives by accident. This also
+means dissipation is back to that commit's own values (`temperature`
+1.0, `velocity` 0.6) — the developer named this exact commit, not "the
+ring plus fireTest's original numbers," so that is what shipped.
+
+**"Only the ring code is needed" implemented as a kill switch**, this
+codebase's own established idiom for "disable for now" (`ofApp.cpp`'s
+`kFluidEnabled`/`kDrawSkeleton`) rather than deleting code that may come
+back: `FluidLayer.cpp`'s new `kAmbientHandFireEnabled = false` guards
+BOTH the hand density blob and the hand velocity impulse — the ring's own
+injection (density + temperature, no velocity of its own) runs
+unconditionally either way. The mechanism this targets, stated plainly
+because it is a real theory and not just "less code, fewer bugs": every
+hand shares ONE velocity field across the whole 1920x1080 canvas
+(`ftFluidFlow`'s own single `velocityFbo`) — a hand swiping anywhere,
+including straight across the empty centre gap, injects a velocity
+impulse that the sim propagates everywhere, a ring included. That is a
+literal, mechanical route for "wind" to appear far from where anyone's
+hand actually is. Turning this off should make a bin's ring behave as an
+isolated system again — driven only by its own crossfade intensity and
+buoyancy, nothing a hand elsewhere on the table can blow through it.
+Re-enable once the ring alone is confirmed clean; if "wind" still shows
+up with this off, the shared-velocity-field theory was wrong and the
+buoyancy/weight parameters are the next thing to look at, not this
+switch again.
+
+Full rebuild, msbuild Debug x64, 0 errors, same pre-existing warnings.
+`run.py --stop` / rebuild / `run.py` again — clean boot, `of`'s
+StateLink reconnected. **Not yet seen on the rig.**
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

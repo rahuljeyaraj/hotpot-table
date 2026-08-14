@@ -11,17 +11,20 @@ namespace {
 	const float kInjectRadiusVelocityPx = 20.0f;
 	const float kVelocityScale = 4.0f;
 
-	// 2026-08-14, developer instruction: the ring the active bin injects
-	// should read as visually distinct from the ambient hand trail (still
-	// coral, below) — "the colour of the flame blue when entering a bin."
-	// Not the fireTest coral: (30,110,220), a vivid azure chosen for the
-	// same MULTIPLY-blend reasoning kBenchCoral (ofApp.cpp) picked its own
-	// colour under — a low red channel is what keeps a colour reading as
-	// itself rather than washing toward the E8E6E1 background under
-	// multiply. Unconfirmed on the projected table; this rig's own history
-	// of colours reading differently projected than authored (halo's gold,
-	// the plate rate line) applies here too.
-	const ofColor kFireRingActiveColor(30, 110, 220);
+	// Kill switch, same pattern ofApp.cpp's own kFluidEnabled/kDrawSkeleton
+	// use. 2026-08-14, developer report: "in the center area the flame is
+	// going down as if there is strong wind from top to bottom... we need
+	// to go back [to only the ring]." The ambient hand trail's velocity
+	// impulse (below) is added into ONE shared velocity field for the
+	// whole canvas — any hand's movement anywhere on the table can inject
+	// a gust that then blows a bin's ring flame around, which is a
+	// plausible match for "wind" appearing far from any hand. False when
+	// only the fire ring should run; the ring itself needs nothing from
+	// this switch, since it never injected velocity of its own (buoyancy
+	// off its own temperature is what makes it rise). Flip true to bring
+	// the ambient hand-following flame back once the ring alone is
+	// confirmed clean.
+	const bool kAmbientHandFireEnabled = false;
 
 	// VISUAL_LAYER.md §9 build item 6: the fire ring's own injection shape —
 	// same filled, ODD-winding rounded-rect-band technique UiLayer's own
@@ -58,8 +61,6 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 
 	_toDensityX = (float)_densityW / (float)stageW;
 	_toDensityY = (float)_densityH / (float)stageH;
-	_toSimX = (float)_simW / (float)stageW;
-	_toSimY = (float)_simH / (float)stageH;
 
 	// fireTest/src/ofApp.cpp::setup(): fluidFlow.setup(simulationWidth,
 	// simulationHeight, densityWidth, densityHeight) — dual-resolution,
@@ -68,23 +69,29 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 
 	// fireTest/src/ofApp.cpp::setup(), byte-for-byte — all eleven values.
 	// **2026-08-14, build item 6 rig report: a near-row bin's fire, left
-	// hovering, drifted up past its own ring into the far row.** A same-day
-	// fix raised `dissipation.temperature`/`velocity` (0.1 -> 1.0/0.6) on
-	// the theory that a slow-decaying temperature field was building an
-	// ever-stronger updraft under a sustained hover (`ftFluidFlow.cpp`'s
-	// own `1.0 - deltaTime*dissipation` formula, VERIFIED in the installed
-	// addon at the time) — reverted the same day, developer report: the
-	// left island's flame was going DOWNWARD, not drifting up, and the
-	// fire-ring highlight this was tuned for is itself gone now (see the
-	// spark-shower-tried-and-reverted note below). Back to fireTest's own
-	// byte-for-byte tuned values. If a downward-blowing flame persists with
-	// this reverted, the dissipation formula was diagnosed correctly but
-	// was not this bug's actual cause — look elsewhere (buoyancy/weight,
-	// obstacle interaction at a bin edge) rather than re-applying this fix.
+	// hovering, drifted up past its own ring into the far row.** Traced to
+	// ftFluidFlow.cpp's own dissipation formula — VERIFIED in the
+	// installed addon, not assumed — `1.0 - deltaTime * dissipation`, so
+	// the retained-per-frame FRACTION shrinks as the *parameter* grows;
+	// "dissipation" is a decay RATE, not a 0..1 amount-remaining knob. At
+	// this app's ~30fps, `velocity`/`temperature` at fireTest's own 0.1
+	// have an ~7s half-life — `density`'s own 1.0 already decays in ~1s,
+	// so the visible puff fades quickly, but the invisible temperature/
+	// velocity fields it left behind keep pushing for another six seconds,
+	// carrying every newly-injected frame's density further than the one
+	// before it the longer a hand keeps hovering. fireTest never showed
+	// this because its one blob already filled most of the screen — there
+	// was nowhere further for a long hover to carry it into. `temperature`
+	// raised to match `density`'s own decay (no field should outlive the
+	// density it is supposed to be pushing); `velocity` raised to 0.6, not
+	// all the way to 1.0, so the flame keeps some persistence/flicker
+	// rather than reading as inert. Unmeasured against the actual FIRE_RING
+	// geometry — tunable further once seen projected, same as every other
+	// build-item-6 constant.
 	_fluid.getParameters().getFloat("speed") = 0.3f;
-	_fluid.getParameters().getGroup("dissipation").getFloat("velocity") = 0.1f;
+	_fluid.getParameters().getGroup("dissipation").getFloat("velocity") = 0.6f;
 	_fluid.getParameters().getGroup("dissipation").getFloat("density") = 1.0f;
-	_fluid.getParameters().getGroup("dissipation").getFloat("temperature") = 0.1f;
+	_fluid.getParameters().getGroup("dissipation").getFloat("temperature") = 1.0f;
 	_fluid.getParameters().getGroup("dissipation").getFloat("pressure") = 0.1f;
 	_fluid.getParameters().getGroup("viscosity").getFloat("velocity") = 1.0f;
 	_fluid.getParameters().getGroup("viscosity").getFloat("density") = 1.0f;
@@ -102,15 +109,10 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 	ftUtil::zero(_densityInject);
 	_velocityInject.allocate(_simW, _simH, GL_RG32F);
 	ftUtil::zero(_velocityInject);
-
-	// Sim resolution, matching ftFluidFlow's own obstacleFbo (ftFluidFlow.h/
-	// .cpp: allocated simulationWidth x simulationHeight, not density res).
-	_obstacleMask.allocate(_simW, _simH, GL_RGBA);
-	ftUtil::zero(_obstacleMask);
 }
 
 void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
-	const std::vector<FireRing> & fireRings, const std::vector<Obstacle> & obstacles){
+	const std::vector<FireRing> & fireRings){
 	// fireTest/src/ofApp.cpp::update() tracks one glm::vec2 (the mouse)
 	// frame to frame; this tracks one per hand id — see FluidLayer.h's
 	// class comment for why. Each hand's position here is fireTest's own
@@ -150,8 +152,10 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	ofClear(0, 0, 0, 0);
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 	ofSetColor(199, 74, 52, 255);
-	for(const auto & p : positions){
-		ofDrawCircle(p.pos.x, p.pos.y, kInjectRadiusDensityPx);
+	if(kAmbientHandFireEnabled){
+		for(const auto & p : positions){
+			ofDrawCircle(p.pos.x, p.pos.y, kInjectRadiusDensityPx);
+		}
 	}
 	// VISUAL_LAYER.md §9 build item 6: the active bin's own emitter, drawn
 	// into the SAME density buffer as the hand's (and, via addTemperature
@@ -163,7 +167,7 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 		const float scale = 0.5f * (_toDensityX + _toDensityY);
 		const ofRectangle b(ring.bin.x * _toDensityX, ring.bin.y * _toDensityY,
 			ring.bin.width * _toDensityX, ring.bin.height * _toDensityY);
-		const ofColor colour(kFireRingActiveColor,
+		const ofColor colour(199, 74, 52,
 			(unsigned char)(255.0f * ofClamp(ring.intensity, 0.0f, 1.0f)));
 		drawRoundedBand(b, ring.innerOffsetPx * scale, ring.outerOffsetPx * scale,
 			ring.cornerRadiusPx * scale, colour);
@@ -177,42 +181,21 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	_velocityInject.begin();
 	ofClear(0, 0, 0, 0);
 	ofEnableBlendMode(OF_BLENDMODE_DISABLED);
-	for(const auto & p : positions){
-		glm::vec2 last = p.pos;
-		auto it = _lastDensityPos.find(p.id);
-		if(it != _lastDensityPos.end()){
-			last = it->second;
+	if(kAmbientHandFireEnabled){
+		for(const auto & p : positions){
+			glm::vec2 last = p.pos;
+			auto it = _lastDensityPos.find(p.id);
+			if(it != _lastDensityPos.end()){
+				last = it->second;
+			}
+			const glm::vec2 delta = p.pos - last;
+			ofFloatColor velColor(-delta.x * kVelocityScale, -delta.y * kVelocityScale, 0.0f, 1.0f);
+			ofSetColor(velColor);
+			ofDrawCircle(p.pos.x * 0.5f, p.pos.y * 0.5f, kInjectRadiusVelocityPx);
 		}
-		const glm::vec2 delta = p.pos - last;
-		ofFloatColor velColor(-delta.x * kVelocityScale, -delta.y * kVelocityScale, 0.0f, 1.0f);
-		ofSetColor(velColor);
-		ofDrawCircle(p.pos.x * 0.5f, p.pos.y * 0.5f, kInjectRadiusVelocityPx);
 	}
 	_velocityInject.end();
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-
-	// 2026-08-14, obstacle fix: every bin is a real wall, rebuilt fresh each
-	// frame from whatever ofApp passes (bin rects do not move at runtime,
-	// but nothing here assumes that — same "recompute from caller, don't
-	// cache" pattern fireRings above already uses). setObstacle(), not
-	// addObstacle(): setObstacle re-derives the sim-boundary border AND
-	// replaces the wall shape outright (ftFluidFlow.cpp::setObstacle calls
-	// initObstacle() first) — addObstacle ORs into whatever was there last
-	// frame, which would accumulate stale wall shapes forever once a bin
-	// rect ever changes (core can nudge bins.rect, doc §5.3).
-	_obstacleMask.begin();
-	ofClear(0, 0, 0, 0);
-	ofEnableBlendMode(OF_BLENDMODE_DISABLED);
-	ofSetColor(255, 255, 255, 255);
-	for(const auto & obs : obstacles){
-		const ofRectangle r(obs.rect.x * _toSimX, obs.rect.y * _toSimY,
-			obs.rect.width * _toSimX, obs.rect.height * _toSimY);
-		const float radius = obs.cornerRadiusPx * 0.5f * (_toSimX + _toSimY);
-		ofDrawRectRounded(r, radius);
-	}
-	_obstacleMask.end();
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	_fluid.setObstacle(_obstacleMask.getTexture());
 
 	_fluid.addDensity(_densityInject.getTexture());
 	_fluid.addTemperature(_densityInject.getTexture());

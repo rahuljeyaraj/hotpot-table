@@ -204,21 +204,7 @@ void ofApp::update(){
 		for(const auto & e : _ui.fireEmitters()){
 			fireRings.push_back({e.bin, e.cornerRadiusPx, e.innerOffsetPx, e.outerOffsetPx, e.intensity});
 		}
-		// 2026-08-14, rig report: a near-row bin's fire was visibly wrapping
-		// around the far row — nothing stopped it, since the only thing
-		// hiding fluid under a bin was UiLayer's opaque plate drawing on TOP
-		// of it (a paint-over-it clip, not a physical stop), and that clip
-		// only covers the bin's own rect, not the halo margin around it a
-		// drifting flame would pass right through. Every bin is now a real
-		// wall in the sim (FluidLayer::Obstacle -> ftFluidFlow::setObstacle)
-		// — cutoutRectsPx(), the exact rect the light pass already treats as
-		// the physical white plate, so the obstacle can never be a different
-		// size than the thing it's supposed to be.
-		std::vector<FluidLayer::Obstacle> obstacles;
-		for(const auto & r : _ui.cutoutRectsPx()){
-			obstacles.push_back({r, mmToPxX(CUTOUT_CORNER_RADIUS_MM)});
-		}
-		_fluid.update(fluidDt, _cursor.hands(), fireRings, obstacles);
+		_fluid.update(fluidDt, _cursor.hands(), fireRings);
 	}
 
 	_statTimer += dt;

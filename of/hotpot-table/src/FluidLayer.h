@@ -62,33 +62,13 @@ public:
 		float intensity = 0.0f;   // 0..1 crossfade — scales injected alpha only
 	};
 
-	// 2026-08-14, rig report: with no obstacle, a near-row bin's fire had
-	// nothing physical stopping it drifting up past the far row — the only
-	// thing hiding it there was UiLayer's opaque bin plate drawing on TOP
-	// of the fluid layer, which only masks the exact bin rect, not the
-	// halo/ring margin around it, so a drifting flame still visibly wrapped
-	// around a bin it never actually touched. This makes every bin a real
-	// wall in the sim itself (ftFluidFlow::setObstacle) — the flow curls
-	// around it and cannot advect through it — rather than trusting a
-	// paint-over-it clip. `rect` is STAGE space, same as FireRing::bin;
-	// callers pass UiLayer::cutoutRectsPx() (the exact rect the light pass
-	// already treats as the physical white plate), not the wider halo/fire
-	// rect — the obstacle should be exactly as big as the real object.
-	struct Obstacle {
-		ofRectangle rect;
-		float cornerRadiusPx = 0.0f;
-	};
-
 	// hands are in STAGE space (CursorLink::Hand::x/y), same space as
 	// everything else UiLayer draws in. fireRings defaults empty — build
 	// item 7 ("emitter handoff") is what makes hands/rings mutually
 	// exclusive; until then both can inject in the same frame, since the
 	// hand is usually still sitting over the bin it just made active.
-	// obstacles defaults empty too — kFluidDebugMouseOnly's isolated bench
-	// draws no bins at all, so it has none to pass.
 	void update(float dt, const std::vector<CursorLink::Hand> & hands,
-		const std::vector<FireRing> & fireRings = {},
-		const std::vector<Obstacle> & obstacles = {});
+		const std::vector<FireRing> & fireRings = {});
 
 	// Draws the density field stretched to (w,h) — "upscaled to stage
 	// size" per doc §13.2's FBO stack, step 1.
@@ -106,16 +86,6 @@ private:
 	int _densityW = 1280, _densityH = 720;
 	int _simW = 640, _simH = 360;
 	float _toDensityX = 1.0f, _toDensityY = 1.0f;   // stage px -> density px
-	// stage px -> SIM px, not density px — ftFluidFlow's own obstacleFbo is
-	// allocated at simulationWidth/simulationHeight (ftFluidFlow.cpp), half
-	// of density resolution here, same as the velocity FBO.
-	float _toSimX = 1.0f, _toSimY = 1.0f;
-
-	// Rebuilt from `obstacles` every update() call, at sim resolution — see
-	// Obstacle's own comment. White (opaque) where a bin sits, black
-	// elsewhere; ftFluidFlow::setObstacle reads any nonzero channel as
-	// "wall" after its own round().
-	ofFbo _obstacleMask;
 
 	// Per-hand-id last density-space position, rebuilt fresh every frame so
 	// a hand that disappears and reappears (a new id, or the same id after
