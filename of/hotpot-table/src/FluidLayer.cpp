@@ -84,8 +84,7 @@ namespace {
 	const float kFireRingMaxAlpha = 190.0f;
 
 	// **2026-08-14: the ring's HUE was silently controlling how hard its
-	// flame rises, and that is what "the left bins have too much flame"
-	// was.** Traced through the installed addon, not guessed:
+	// flame rises.** Traced through the installed addon, not guessed:
 	// `addTemperature` writes into ftFluidFlow's `temperatureFbo`, which is
 	// allocated **GL_R32F** (ftFluidFlow.cpp's own setup) — a single RED
 	// channel, so green and blue are discarded on write. ftBuoyancyShader
@@ -93,23 +92,33 @@ namespace {
 	// force linearly proportional to it. Feeding the same coloured texture
 	// to addDensity and addTemperature — which this file did — therefore
 	// made lift a function of each bin's red channel. kFireRingColours'
-	// reds run 30 (teal/blue) to 224 (orange), and the palette happened to
-	// put the two reddest on the LEFT island's far row (bins 0/1, red
-	// 214/224) and the two least-red on the RIGHT island's far row (bins
-	// 2/3, red 46/30) — about a 6x difference in rise, on the row facing
-	// the diner. Nothing to do with the bin grid or the homography, which
-	// is why recalibrating both changed nothing.
+	// reds run 30 (teal/blue) to 224 (orange), so bins differed by ~7x in
+	// how hard they rose, for no reason anyone chose. Temperature now gets
+	// its OWN injection buffer, same geometry, hue-independent red, so a
+	// palette edit can never move a flame's lift again.
 	//
-	// Fix: temperature gets its OWN injection buffer with the same geometry
-	// but a hue-independent red, so all 8 bins lift identically and a
-	// future palette edit cannot reintroduce this. 30 is not arbitrary — it
-	// is the red channel of the single blue (30,110,220) every ring used
-	// before the 8-hue palette landed earlier the same day, i.e. the lift
-	// the flame was actually tuned at, and the one the developer called
-	// "sufficient" on the right island (whose far row is still sitting at
-	// red 30-46). Unmeasured against the projected table like every other
-	// constant here: raise it for more billow, lower it for a flatter ring.
-	const int kFireRingHeat = 30;
+	// **That coupling is real, but it was NOT the "left bins have too much
+	// flame" bug — equalising it on the rig did not fix the asymmetry.**
+	// Recorded so the next person does not re-derive this and conclude the
+	// same wrong thing: the left/right split survives with every bin on an
+	// identical heat, so its cause is somewhere else entirely (it is also
+	// not the bin grid and not the homography, both recalibrated first).
+	// This buffer is worth keeping on its own merits — hue should not
+	// control physics — but it is not the fix.
+	//
+	// **30 was tried and is WRONG, do not go back to it.** It is the red of
+	// the single blue (30,110,220) every ring used before the 8-hue palette,
+	// so it looked like the value the flame had been tuned at. On the table
+	// it made every ring read THICKER and BRIGHTER, not calmer: low heat is
+	// low buoyancy, and a ring the sim never lifts is a ring whose density
+	// piles up in place, frame after frame, into the persistent buffer
+	// until it saturates — the exact white-out kFireRingMaxAlpha exists to
+	// fight. Lift is what carries density away; removing it does not quiet
+	// a flame, it puddles one. The usable range is bounded on both ends:
+	// too low puddles, too high (the old 214-224) billows more than the
+	// developer wants. 120 is a mid-range starting point and nothing more —
+	// it has not been looked at on the projected table yet.
+	const int kFireRingHeat = 120;
 
 	// The hand blob's heat, deliberately the same 199 its density colour
 	// (199,74,52) already carried — the hand's own flame is not what

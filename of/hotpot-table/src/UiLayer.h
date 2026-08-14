@@ -68,6 +68,29 @@ public:
 	};
 	std::vector<FireEmitter> fireEmitters() const;
 
+	// **Diagnostic, 2026-08-14 — off unless a human presses 'f'.** Pins
+	// every bin's fire spring to full, ignoring `hl` entirely, so all 8
+	// rings crossfade in and inject at exactly the same intensity at the
+	// same time.
+	//
+	// It exists to bisect the "left bins have too much flame" report, which
+	// has now outlived a bin-grid recalibration, a homography
+	// recalibration, and the hue/buoyancy fix in FluidLayer.cpp — three
+	// plausible causes, each confirmed real, none of them it. With hover
+	// taken out of the loop and every bin driven identically, a screenshot
+	// ('p') splits what is left in half: 8 matching rings means the
+	// asymmetry rides in on hover/tracking, upstream of this file; 8
+	// different-looking rings means it is in the fluid or the geometry,
+	// here. Either answer eliminates half the remaining search space, which
+	// is the thing three rounds of reasoning from code have not managed.
+	//
+	// A key toggle rather than a compile-time switch (ofApp.cpp's own
+	// kFluidDebugMouseOnly pattern) for two reasons: it defaults OFF so it
+	// can never reach a diner, and it needs no rebuild to use — the rebuild
+	// loop here costs the whole process tree.
+	void setForceAllBinsLit(bool on){ _forceAllBinsLit = on; }
+	bool forceAllBinsLit() const { return _forceAllBinsLit; }
+
 	// 2026-08-12: draws ONLY the pointer cursor + dwell ring, with no
 	// cutout it cannot reach. This is the ONE place the cursor is drawn
 	// while serving — `draw()` itself skips its own cursor block in that
@@ -92,6 +115,10 @@ public:
 	void drawSkeleton(const std::vector<SkeletonLink::Hand> & hands) const;
 
 private:
+	// See setForceAllBinsLit(). Never persisted, never on the wire — a
+	// diagnostic lives and dies inside one run of the app.
+	bool _forceAllBinsLit = false;
+
 	struct BinTween {
 		Spring picked{0.15f};
 		Spring price{0.15f};

@@ -742,7 +742,14 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 		// pointer — core/main.py's _bin_msg) rather than re-checked here;
 		// this spring just crossfades whichever bin(s) hl currently says
 		// are hovered.
-		tw.fire.setTarget(b.hl == "hover" ? 1.0f : 0.0f);
+		// `_forceAllBinsLit` is the 'f' diagnostic (UiLayer.h) — it drives
+		// this ONE spring rather than being special-cased downstream, so
+		// every consumer of "this bin is active" (the halo's crossfade out,
+		// fireEmitters()'s injection, the ring itself) sees the forced
+		// state through exactly the path a real hover uses. A diagnostic
+		// that took a different route than the thing it is diagnosing would
+		// be worth nothing.
+		tw.fire.setTarget((_forceAllBinsLit || b.hl == "hover") ? 1.0f : 0.0f);
 
 		tw.picked.update(dt);
 		tw.price.update(dt);

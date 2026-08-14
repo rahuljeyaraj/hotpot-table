@@ -407,6 +407,16 @@ void ofApp::keyPressed(int key){
 	if(key == 'd' || key == 'D'){
 		_devOverlayVisible = !_devOverlayVisible;
 	}
+	// f added 2026-08-14: the all-bins-lit flame diagnostic — see
+	// UiLayer::setForceAllBinsLit() for what it is for and what each
+	// outcome rules out. Logged rather than silent, so a screenshot taken
+	// while it is on can be told apart from one taken while it is off
+	// later, when nobody remembers which was which.
+	if(key == 'f' || key == 'F'){
+		_ui.setForceAllBinsLit(!_ui.forceAllBinsLit());
+		ofLogNotice("ofApp") << "flame diagnostic: all bins lit = "
+			<< (_ui.forceAllBinsLit() ? "ON" : "off");
+	}
 }
 
 //--------------------------------------------------------------
