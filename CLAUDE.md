@@ -3239,10 +3239,17 @@ side reads correctly, flip back before building layer 2 (fire) itself.
 **Full rebuild, msbuild Debug x64, 0 errors** (2 warnings, both
 pre-existing `LNK4075`/`ftVorticityForceShader.h` noise, neither from
 `ofApp.cpp`).
-**Still owed, and blocking per doc §9: the actual rig run.** Nothing here
-has been seen projected — this entry only records that the bench exists
-and how to run it. Do not build layer 3 (fire ring) until a human has
-flipped the switch, looked at the table, and the answer is recorded here.
+**Run and decided, same day.** `kBlendBenchTest` flipped to `true`,
+rebuilt, `hotpot-table_debug.exe` launched standalone (no `run.py` stack
+needed — this branch skips Stage/StateLink entirely) and looked at by
+the developer. **Report: the two sides looked the same** — neither
+MULTIPLY nor opaque ALPHA came out wrong (the failure case §2 warns
+about, additive-on-light going invisible white, did not happen on
+either side). Decision, since the two are equivalent and the doc already
+lists it first: **use `OF_BLENDMODE_MULTIPLY`** for the fire ring
+(build item 6) — `docs/VISUAL_LAYER.md` §2 now records this. Switch
+flipped back to `false`, exe stopped, rebuilt clean again. **Doc §9 is
+now unblocked — build item 4 (idle halo) is next.**
 
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time

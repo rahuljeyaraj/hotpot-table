@@ -39,6 +39,19 @@ above the fluid uses normal blending.
 Bench-test this before building the rest. If multiply looks wrong, try alpha
 with fully opaque colour. Report which works.
 
+**Decided, 2026-08-14.** Bench-tested (`ofApp.cpp`'s `kBlendBenchTest`,
+CLAUDE.md's M8 step 3): a static `#C74A34` rect over `#E8E6E1`, each
+preceded by an explicit `OF_BLENDMODE_ADD` to reproduce ofxFlowTools'
+leftover state, under `OF_BLENDMODE_MULTIPLY` on the left and opaque
+`OF_BLENDMODE_ALPHA` on the right. Developer's own report: the two sides
+looked the same. Since neither is a regression and the doc already lists
+multiply first, **use `OF_BLENDMODE_MULTIPLY`** for the fire ring
+(build item 6) — it also composes more naturally with the density→colour
+falloff below (a near-white low-density sample multiplies the background
+to almost nothing, giving the transparent-at-low-density effect for free,
+where alpha would need the density value threaded into the alpha channel
+separately).
+
 ---
 
 ## 3. Palette (light background)

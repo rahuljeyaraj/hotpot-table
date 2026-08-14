@@ -68,19 +68,21 @@ namespace {
 	// secondary now, still legible up close where a diner reads this
 	// line). Re-run the same PIL/FreeType measurement rather than
 	// re-guessing if either face or size changes again.
-	const int kPlateRatePx = 18;
+	// 2026-08-14, developer's own follow-up call, unmeasured: 20px.
+	const int kPlateRatePx = 20;
 	// #2B2118, VISUAL_LAYER.md section 3's palette table exactly.
 	const ofColor kPlateNameColor(43, 33, 24);
 	// 2026-08-14, second rig photo: the doc's #B8781A amber read as RED on
 	// the projector, not yellow/gold — high enough red-channel share
 	// (184:120:26) that a warm projector white balance pushed it further
 	// that way (this exact rig's camera has needed repeated yellow-cast
-	// fixes — see CLAUDE.md's M4h/M4p). Developer's own replacement:
-	// #6AA84F, a mid green. Deliberately NOT tied to the doc's Halo-idle
-	// entry, which still lists the old amber — halo is unbuilt (build item
-	// 4) and has no rig evidence of its own yet; only the plate rate is
-	// corrected by this session's photo.
-	const ofColor kPlateRateColor(106, 168, 79);
+	// fixes — see CLAUDE.md's M4h/M4p). Developer tried a mid green
+	// (#6AA84F) then a blue (#0f26b8) in this same session; both
+	// superseded, same day, by an orange, #E67E22 — the developer's own
+	// call each time, none yet confirmed by a rig photo. Deliberately NOT
+	// tied to the doc's Halo-idle entry, which still lists the old amber —
+	// halo is unbuilt (build item 4) and has no rig evidence of its own.
+	const ofColor kPlateRateColor(0xE6, 0x7E, 0x22);
 
 	// VISUAL_LAYER.md section 4: "plateRect = fixed height PLATE_H (start
 	// at 130px)... Halo wraps the BIN ONLY, never the plate" — this app has
