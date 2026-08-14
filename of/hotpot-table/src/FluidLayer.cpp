@@ -45,15 +45,51 @@ namespace {
 	// against the projected table, same as every other colour this
 	// session picked; the one thing checked is that they are 8 genuinely
 	// different hues, not 8 numbers that happen to differ.
+	//
+	// **2026-08-14, replaced on developer instruction with a flame-chemistry
+	// palette of FOUR colours over eight bins**, paired across the two
+	// islands: 0-6, 4-2, 1-7, 5-3. That pairing is a point reflection, not a
+	// mirror — bin i's partner is diagonally opposite it (col 0<->2 / 1<->3
+	// AND row 0<->1), which is what puts all four colours on BOTH islands
+	// rather than giving each island two. Colours assigned in the order the
+	// developer listed them against the order the pairs were listed.
+	//
+	// Sources named for the record, since they are why these particular hues:
+	//   Electric Blue  #00D4FF  copper chloride
+	//   Golden Yellow  #FFD700  sodium chloride
+	//   Emerald Green  #00FF66  boric acid / barium
+	//   Deep Violet    #8A2BE2  potassium chloride
+	//
+	// **These are far more saturated than the palette they replace (peak
+	// channel 255 vs ~214), and that is SAFER here, not riskier** — the
+	// opposite of what it looks like. Under MULTIPLY a channel at 0 can never
+	// accumulate no matter how long a hover runs, so it blocks that channel
+	// permanently and the hue cannot wash toward the #E8E6E1 background. Blue
+	// (R=0), gold (B=0) and green (R=0) each have that anchor; not one of the
+	// eight colours this replaces did. **Violet is the exception — (138,43,226)
+	// has no zero channel**, so it is the only one of the four that can still
+	// saturate to a pale core under a long steady hover (the mechanism
+	// kFireRingMaxAlpha's own comment describes). If that shows up on the
+	// table, pull its GREEN toward 0 rather than reaching for the alpha cap —
+	// green is already its lowest channel at 43 and is what would wash first.
+	//
+	// Two things deliberately NOT done. Luminance is NOT matched across the
+	// four (gold is much brighter than violet), which is in tension with this
+	// project's own "luminance-match the hues to each other" invariant — that
+	// rule is about distinguishing STATE, and these four all mean the same
+	// state (one bin, on fire), so hue here is identity, not status. And none
+	// of the four is checked against the projector: this rig has turned an
+	// authored amber into red and a gold into muddy brown before now, so treat
+	// every hex here as unverified until somebody looks at the table.
 	const ofColor kFireRingColours[8] = {
-		ofColor(214, 67, 44),    // 0: red
-		ofColor(224, 121, 30),   // 1: orange
-		ofColor(46, 163, 68),    // 2: green
-		ofColor(30, 166, 160),   // 3: teal
-		ofColor(30, 110, 220),   // 4: blue (the earlier single ring colour)
-		ofColor(122, 46, 224),   // 5: purple
-		ofColor(208, 30, 140),   // 6: magenta
-		ofColor(110, 190, 30),   // 7: lime — greener than yellow on purpose
+		ofColor(0, 212, 255),    // 0: electric blue   — pairs with 6
+		ofColor(0, 255, 102),    // 1: emerald green   — pairs with 7
+		ofColor(255, 215, 0),    // 2: golden yellow   — pairs with 4
+		ofColor(138, 43, 226),   // 3: deep violet     — pairs with 5
+		ofColor(255, 215, 0),    // 4: golden yellow   — pairs with 2
+		ofColor(138, 43, 226),   // 5: deep violet     — pairs with 3
+		ofColor(0, 212, 255),    // 6: electric blue   — pairs with 0
+		ofColor(0, 255, 102),    // 7: emerald green   — pairs with 1
 	};
 
 	// **2026-08-14, rig report: "the screen is simply getting saturated
@@ -70,7 +106,15 @@ namespace {
 	// `true` here, not a deleted array: kFireRingColours stays byte-for-
 	// byte so this is a one-line revert once the question is answered,
 	// same discipline as every other kill-switch in this file.
-	const bool kFireRingSingleColourDiagnostic = true;
+	// **Answered and switched back OFF, 2026-08-14.** The test did its job:
+	// with every ring on one colour the asymmetry was unchanged, so hue was
+	// never the density side of the story either — which is what sent the
+	// investigation into the addon's own shaders, where the real cause was
+	// (ftBuoyancyShader's unscaled density read; CLAUDE.md has the full
+	// trace). Left in place rather than deleted because it costs one bool and
+	// it is the fastest way to take hue out of the picture the next time a
+	// per-bin difference needs explaining.
+	const bool kFireRingSingleColourDiagnostic = false;
 	const ofColor kFireRingSingleColour(30, 110, 220);   // the pre-palette blue
 
 	// 2026-08-14, developer question: "is there a way to reduce the white
