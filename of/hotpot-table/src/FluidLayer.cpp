@@ -84,30 +84,31 @@ namespace {
 	//   Pure Emerald Green  #00C853  ->  Bright Flame Orange  #FF5500
 	//   Deep Violet         #8A2BE2  ->  Velvet Violet         #9C27B0
 	//
-	// **Not flagged by the developer, worth naming anyway: orange and
-	// yellow are both warm hues and now sit adjacent** (bins 4-5's bottom
-	// edge, left island; bins 2-3's top edge, right island) — the same
-	// "close by colours" shape that motivated the diagonal swap for
-	// blue/green two instructions ago, on a different pair this time.
-	// Not acted on without being asked; the fix, if wanted, is the same
-	// move — swap this pair with whichever pair sits at the OTHER two
-	// slots so orange and yellow land diagonal instead of adjacent.
+	// **Fifth developer instruction, same day: "change diagonally like
+	// before"** — orange and yellow, named just above as adjacent and not
+	// yet acted on, get the exact same treatment bin 0/1's blue/green did.
+	// The adjacent pair this time is bin 4 (yellow) and bin 5 (orange), not
+	// 0/1 — same island, opposite edge (bottom, not top) — so the geometry
+	// is not identical, only the TECHNIQUE is: find the problem bin's
+	// diagonal partner and swap pair-colours so the two land there instead
+	// of on a shared edge. Bin 4's diagonal within the 2x2 island is bin 1,
+	// not bin 5 (bin 4 and bin 5 SHARE an edge, so nothing placed at bin 5
+	// stops being adjacent to bin 4 by moving to some other edge — only the
+	// diagonal removes the adjacency). Kept bin 4 (yellow) fixed, same as
+	// bin 0 (blue) stayed fixed last time, and swapped pair (3,5)'s colour
+	// (orange) with pair (1,7)'s colour (violet) — orange moves onto bin 4's
+	// diagonal (bin 1), violet takes the now-vacated bin 5/3 slot. Same
+	// unprompted symmetry as before: the right island (built from the same
+	// four pairs) gets the equivalent yellow/orange separation for free.
 	//
 	// Zero-channel white-out anchor (MULTIPLY blend; a channel truly at 0
 	// can never accumulate, however long a hover runs, so that channel
 	// cannot wash toward the #E8E6E1 background — kFireRingMaxAlpha's own
-	// comment has the full mechanism). Blue (0,34,255, R=0) keeps its
-	// anchor. **Orange (255,85,0, B=0) gains one the green it replaces
-	// already had** (green was R=0) — no change in how many colours are
-	// anchored. Yellow (255,235,59) still has none (B=59, not exactly
-	// zero, same as before this edit). **Velvet Violet (156,39,176) still
-	// has none either** — lowest channel is G=39, essentially the same
-	// exposure the deep violet it replaces had (G=43) — so the "two of
-	// four unanchored" risk profile from the previous palette is
-	// unchanged by this edit, not worsened and not improved. If yellow or
-	// violet washes out on the table, pull that colour's own lowest
-	// channel further toward 0 rather than reaching for the alpha cap
-	// first.
+	// comment has the full mechanism), unaffected by this move since it is
+	// a position swap, not a hex change: blue (0,34,255, R=0) and orange
+	// (255,85,0, B=0) are anchored; yellow (255,235,59) and violet
+	// (156,39,176) are not — same "two of four unanchored" bottom line as
+	// before this instruction.
 	//
 	// Two things deliberately NOT done, carried over unchanged. Luminance
 	// is NOT matched across the four — that invariant is about
@@ -118,13 +119,13 @@ namespace {
 	// treat every hex here as unverified until somebody looks at the table.
 	const ofColor kFireRingColours[8] = {
 		ofColor(0, 34, 255),      // 0: cobalt blue          — pairs with 6
-		ofColor(156, 39, 176),    // 1: velvet violet        — pairs with 7
+		ofColor(255, 85, 0),      // 1: bright flame orange  — pairs with 7
 		ofColor(255, 235, 59),    // 2: bright canary yellow — pairs with 4
-		ofColor(255, 85, 0),      // 3: bright flame orange  — pairs with 5
+		ofColor(156, 39, 176),    // 3: velvet violet        — pairs with 5
 		ofColor(255, 235, 59),    // 4: bright canary yellow — pairs with 2
-		ofColor(255, 85, 0),      // 5: bright flame orange  — pairs with 3
+		ofColor(156, 39, 176),    // 5: velvet violet        — pairs with 3
 		ofColor(0, 34, 255),      // 6: cobalt blue          — pairs with 0
-		ofColor(156, 39, 176),    // 7: velvet violet        — pairs with 1
+		ofColor(255, 85, 0),      // 7: bright flame orange  — pairs with 1
 	};
 
 	// **2026-08-14, rig report: "the screen is simply getting saturated
