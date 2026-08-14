@@ -11,6 +11,18 @@ namespace {
 	const float kInjectRadiusVelocityPx = 20.0f;
 	const float kVelocityScale = 4.0f;
 
+	// 2026-08-14, developer instruction: the ring the active bin injects
+	// should read as visually distinct from the ambient hand trail (still
+	// coral, below) — "the colour of the flame blue when entering a bin."
+	// Not the fireTest coral: (30,110,220), a vivid azure chosen for the
+	// same MULTIPLY-blend reasoning kBenchCoral (ofApp.cpp) picked its own
+	// colour under — a low red channel is what keeps a colour reading as
+	// itself rather than washing toward the E8E6E1 background under
+	// multiply. Unconfirmed on the projected table; this rig's own history
+	// of colours reading differently projected than authored (halo's gold,
+	// the plate rate line) applies here too.
+	const ofColor kFireRingActiveColor(30, 110, 220);
+
 	// VISUAL_LAYER.md §9 build item 6: the fire ring's own injection shape —
 	// same filled, ODD-winding rounded-rect-band technique UiLayer's own
 	// drawRoundedBand uses (that file's comment: an unfilled ofPath's own
@@ -157,7 +169,7 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 		const float scale = 0.5f * (_toDensityX + _toDensityY);
 		const ofRectangle b(ring.bin.x * _toDensityX, ring.bin.y * _toDensityY,
 			ring.bin.width * _toDensityX, ring.bin.height * _toDensityY);
-		const ofColor colour(199, 74, 52,
+		const ofColor colour(kFireRingActiveColor,
 			(unsigned char)(255.0f * ofClamp(ring.intensity, 0.0f, 1.0f)));
 		drawRoundedBand(b, ring.innerOffsetPx * scale, ring.outerOffsetPx * scale,
 			ring.cornerRadiusPx * scale, colour);

@@ -3715,6 +3715,41 @@ on the rig** — next: hover a near-row bin's fire long enough for it to
 reach for the far row, and check it now visibly curls/deflects at the
 bin edge instead of drifting through the space above it.
 
+### Spark shower tried and reverted (2026-08-14), same day
+Built as build item 6's replacement (see git history / the previous
+commit this reverted — `git show 90a0074` — for the full design if it's
+ever worth another look). Developer verdict, verbatim: "that was
+terrible, go back to the old flame idea itself revert the change u did
+now." Reverted outright (`git revert 90a0074`, commit `322eb01`) rather
+than patched — `FluidLayer::FireRing`, `UiLayer::FireEmitter`/
+`fireEmitters()`, `BinTween::fire` and the injection/crossfade code
+around them are all back exactly as build item 6 first shipped. The
+bins-as-fluid-obstacles work (the section above this one) was never part
+of what got reverted and is untouched.
+
+**New instruction alongside the revert: make the active bin's flame blue
+("the colour of the flame blue when entering a bin"), not the fire
+ring's original coral.** Done narrowly — only the ring `fireRings` loop
+injects in `(30, 110, 220)` (`FluidLayer.cpp`'s new
+`kFireRingActiveColor`) now; the ambient hand-following trail every hand
+still injects (the block just above it in the same function) is
+untouched, still `(199, 74, 52)`. So a hand's own flame stays the
+original coral everywhere on the table, and only turns blue inside the
+annulus of whichever bin it has actually activated — the colour itself is
+now doing some of the "this bin is different" work the fire ring alone
+apparently wasn't. Picked for the same MULTIPLY-blend reasoning
+`kBenchCoral` (ofApp.cpp, step 3's bench test) was chosen under — low red
+channel, so it reads as its own colour rather than washing toward the
+`#E8E6E1` background — but this rig has a documented history of a colour
+projecting differently than authored (halo's gold went through three
+revisions; the plate rate line's amber read as red) and this one has not
+been checked against a photo yet either.
+
+Full rebuild, msbuild Debug x64, 0 errors, same 2 pre-existing warnings.
+`run.py --stop` / rebuild / `run.py` again — camera/core/voice/
+classifier/tracker all reached ready, `of`'s StateLink reconnected, no
+new errors. **Not yet seen on the rig.**
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
