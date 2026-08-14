@@ -119,14 +119,21 @@ namespace {
 	const int kHaloRingCount = 24;
 	const float kHaloRingPitchPx = 1.5f;
 	const float kHaloRingThicknessPx = 1.5f;
-	// §3's palette: "Halo — idle #B8781A." Unverified on the rig — the
-	// halo was unbuilt through the 2026-08-14 rig photos that corrected
-	// the plate rate's own colour off this same hex (it read as RED
-	// projected, not amber — see kPlateRateColor above and CLAUDE.md's M8
-	// step 2 fix note). This row was deliberately left alone at the time
-	// for exactly that reason: no halo existed yet to have its own
-	// evidence. Expect this may need the same correction once photographed.
-	const ofColor kHaloIdleColor(0xB8, 0x78, 0x1A);
+	// §3's palette originally: "Halo — idle #B8781A." **2026-08-14, second
+	// screenshot: confirmed bad, same failure mode as the plate rate's own
+	// correction off this identical hex** — projected as a muddy brown, not
+	// amber/yellow. Developer: "make it more yellow." Replaced with
+	// #FFC800 (255,200,0) — brighter and shifted well toward yellow (G much
+	// closer to R, B at zero), on the same reasoning that saved the setting
+	// banner's own amber (`kSettingBannerFill`, #e8b33d, brighter/lighter
+	// than this row's original): a dark, desaturated amber is what read as
+	// muddy/red on this rig's warm-shifted projector white balance twice
+	// now (plate rate, then halo) — going both brighter and more saturated
+	// is the correction that has actually worked once already. §3 is not
+	// updated to match — see this file's other "doc still lists the
+	// original, unautomated" notes; someone should sync it once this is
+	// confirmed rather than before.
+	const ofColor kHaloIdleColor(0xFF, 0xC8, 0x00);
 	// "Slow breathing sine on alpha." No period is given in the doc; 3s is
 	// a reasoned starting guess (slow enough to read as breathing, not a
 	// strobe), unmeasured, tunable once seen projected. The floor was
@@ -443,10 +450,25 @@ void UiLayer::setup(){
 	}
 
 	// VISUAL_LAYER.md §6: "each bin phase-offset by a per-bin random seed
-	// so the 8 do not pulse in sync." Rolled once, here, not re-rolled
-	// per frame in drawHalo — a moving phase would defeat its own point.
+	// so the 8 do not pulse in sync." **2026-08-14, developer report from
+	// the second screenshot: several bins looked synced, in a pattern that
+	// held steady rather than drifting — i.e. not a bug, but 8 independent
+	// draws from `ofRandom(TWO_PI)` (the first version, literally "a
+	// random seed") landing close enough together by chance to read as
+	// grouped, and then staying that way for the rest of the run because
+	// the phases are rolled once, not re-rolled per frame (this function's
+	// own point).** True randomness does not guarantee separation — with
+	// only 8 samples over a full circle, clustering is a real and fairly
+	// likely outcome, not a rare one. Switched to evenly-spaced base phases
+	// (`i * TWO_PI/8`, so no two bins are ever closer than 45°) plus a
+	// small jitter well inside that spacing, so every run still looks
+	// organic rather than mechanically identical while guaranteeing no
+	// cluster is possible. Satisfies the doc's actual goal ("so the 8 do
+	// not pulse in sync") more reliably than the literal "random seed" it
+	// asks for — same class of call as drawHalo's filled-band geometry
+	// over a literal stroke elsewhere in this file.
 	for(int i = 0; i < 8; i++){
-		_haloPhase[i] = ofRandom(TWO_PI);
+		_haloPhase[i] = (float)i * (TWO_PI / 8.0f) + ofRandom(-0.3f, 0.3f);
 	}
 }
 

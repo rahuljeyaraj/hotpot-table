@@ -3366,6 +3366,46 @@ again, specifically at whether the halo now reads as a clean glow
 (not noise), whether the amber still needs correcting, and whether
 removing the ring changed the overall impression for the better.
 
+### Step 4 fix 2 (2026-08-14, same day): second screenshot — colour
+swapped for a brighter yellow, breathing phases made deterministic
+Two developer reports off the retuned halo (the glow shape/noise fix
+above): "colour is not yellow, it is projected as muddy brown" — the
+same failure mode as the plate rate's own correction off this identical
+hex — and several bins visibly breathing in sync, in a pattern that held
+steady rather than drifting.
+
+1. **Colour**: `kHaloIdleColor` (`UiLayer.cpp`) changed from `#B8781A`
+   to `#FFC800` — brighter, and shifted well toward yellow (green channel
+   much closer to red, blue at zero). Same reasoning that already worked
+   once for the setting-mode banner's own amber (`kSettingBannerFill`,
+   `#e8b33d`, itself brighter/lighter than the halo's original): dark,
+   desaturated ambers are what has twice now read as muddy/red on this
+   rig's warm-shifted projector white balance (plate rate, then halo) —
+   going both brighter and more saturated is the direction that has
+   actually corrected it before. §3's palette table is NOT updated to
+   match yet — same "flag it, don't silently edit ahead of confirmation"
+   precedent this doc already uses elsewhere.
+2. **Breathing sync**: root-caused, not just retuned. `_haloPhase[i]` was
+   `ofRandom(TWO_PI)`, independently, per bin — genuinely "a random seed"
+   per the doc's own words, but 8 independent draws over a full circle
+   can and did land close enough together to read as grouped, and then
+   stayed that way for the rest of the run because phases are rolled
+   once in `setup()`, not re-rolled per frame (deliberately — a moving
+   phase would defeat the point). True randomness never guaranteed
+   separation; with n=8 samples it is a genuinely likely outcome, not
+   a fluke. Replaced with evenly-spaced base phases (`i * TWO_PI/8`, so
+   no two bins are ever closer than 45°) plus a small jitter well inside
+   that spacing — every run still looks organic, but a repeat of "three
+   bins bunched together" is no longer possible by construction. This
+   satisfies the doc's actual stated goal ("so the 8 do not pulse in
+   sync") more reliably than its literal "random seed" instruction — the
+   same class of call as building the halo as filled bands instead of a
+   literal stroke elsewhere in this same step.
+
+**Full rebuild, msbuild Debug x64, 0 errors.** `run.py --stop` /
+rebuild / `run.py` again. **Neither fix has been re-confirmed by a third
+look yet.**
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
