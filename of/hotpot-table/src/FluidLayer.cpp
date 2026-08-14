@@ -56,6 +56,23 @@ namespace {
 		ofColor(110, 190, 30),   // 7: lime — greener than yellow on purpose
 	};
 
+	// **2026-08-14, rig report: "the screen is simply getting saturated
+	// with white flame" — developer's own next diagnostic, requested
+	// directly: make every bin the same colour and look again.** This is
+	// separate from kFireRingHeat's finding above: that was about lift
+	// (temperature, the RED channel of a second buffer); this is about the
+	// visible density colour itself, per-bin hue, 8 different values. If
+	// the white-out persists identically with one colour, hue was never
+	// the density side of the story either, the same way it was not the
+	// buoyancy side — narrows what is left to the accumulation math itself
+	// (persistent additive buffer, doc comment above kFireRingMaxAlpha) or
+	// to something upstream in how many bins/how long they are being fed.
+	// `true` here, not a deleted array: kFireRingColours stays byte-for-
+	// byte so this is a one-line revert once the question is answered,
+	// same discipline as every other kill-switch in this file.
+	const bool kFireRingSingleColourDiagnostic = true;
+	const ofColor kFireRingSingleColour(30, 110, 220);   // the pre-palette blue
+
 	// 2026-08-14, developer question: "is there a way to reduce the white
 	// part of the flame and show more colour... when the bin is on fire?"
 	// Mechanism, worked out from ftFluidFlow's own add/dissipate shaders
@@ -297,8 +314,10 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 			const unsigned char alpha =
 				(unsigned char)(kFireRingMaxAlpha * ofClamp(ring.intensity, 0.0f, 1.0f));
 			const int idx = ((ring.colourIndex % 8) + 8) % 8;
+			const ofColor densityColour = kFireRingSingleColourDiagnostic
+				? kFireRingSingleColour : kFireRingColours[idx];
 			const ofColor colour = heat ? ofColor(kFireRingHeat, 0, 0, alpha)
-			                            : ofColor(kFireRingColours[idx], alpha);
+			                            : ofColor(densityColour, alpha);
 			drawRoundedBand(b, ring.innerOffsetPx * scale, ring.outerOffsetPx * scale,
 				ring.cornerRadiusPx * scale, colour);
 		}
