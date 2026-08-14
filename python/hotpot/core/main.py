@@ -2073,12 +2073,19 @@ class Core:
         shown = pricing.display_grams(self.cart.shown_g[i])
         picked = int(shown)
         if resolved:
-            # display_name(), never names.get(locale, item.id): item.id is
-            # the hidden training label (pricing.Item's docstring), and the
-            # old fallback put it on the projected surface the moment a
-            # locale was missing one name. The catalogue is validated at
-            # load so this call cannot fail to find a name.
-            label = item.display_name(self.locale)
+            # short_display_name(), not display_name(): this `label` is what
+            # oF prints on the physical plate (VISUAL_LAYER.md section 3's
+            # 40px bold name), and a full display name is not guaranteed to
+            # fit that width on one line — that is `shortLabel`'s whole
+            # reason to exist. Never names.get(locale, item.id) either:
+            # item.id is the hidden training label (pricing.Item's
+            # docstring), and the old fallback put it on the projected
+            # surface the moment a locale was missing one name. The
+            # catalogue is validated at load so this call cannot fail to
+            # find a name. Staff-view surfaces (`_bins_tab_msg` below) keep
+            # the full display_name() — an operator needs the real name,
+            # not the plate's shortened one.
+            label = item.short_display_name()
             per_100g = self.locales.currency(item.price_per_100g, self.locale)
             # The unit suffix is a locale string, not punctuation. I2 puts
             # every diner-facing word on this side of the wire, and zh wants

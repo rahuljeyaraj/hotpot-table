@@ -27,23 +27,30 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("hotpot.pricing")
 
-CATALOGUE_SCHEMA = 4
+CATALOGUE_SCHEMA = 5
 
 
 @dataclass(frozen=True)
 class Item:
     """One catalogue entry. Two of these five fields are **hidden** and
-    two are shown, and the split is the whole point of doc section 8.1.
+    the rest are shown, and the split is the whole point of doc section 8.1.
 
     HIDDEN — never reaches a diner-facing surface, in any language:
         id          the catalogue's own key, and what BinMap stores.
         class_name  the label string the ML model emits.
 
     SHOWN — the only strings a diner ever reads:
-        names       display name per locale.
-        pinyin      romanisation of the `zh` name, en-locale only (doc
-                    section 8.1) — a pronunciation aid, not a translation,
-                    so it rides beside `names["zh"]` rather than inside it.
+        names        display name per locale.
+        pinyin       romanisation of the `zh` name, en-locale only (doc
+                     section 8.1) — a pronunciation aid, not a translation,
+                     so it rides beside `names["zh"]` rather than inside it.
+        short_label  what the projected plate actually prints (VISUAL_LAYER
+                     .md section 3/9 build item 2) — the table's 40px bold
+                     name has nowhere near a full display name's width
+                     without wrapping, and VISUAL_LAYER.md's own step 2
+                     acceptance check is "the longest name does not wrap
+                     or clip". Not a translation and not derived from
+                     `names` — a human picks it, same as `names` itself.
 
     `names` is **not** a translation of `id`. The label names a thing that
     is easy to photograph and train on; the display name is the hot pot
@@ -63,6 +70,7 @@ class Item:
     tags: List[str]
     class_name: str
     pinyin: str = ""
+    short_label: str = ""
 
     def display_name(self, locale: Optional[str] = None) -> str:
         """The label the table prints. **Cannot return `id` or
@@ -95,6 +103,15 @@ class Item:
         # here, and even they do not get to leak the label.
         raise ValueError(
             f"item {self.id!r} has no {FALLBACK_LOCALE!r} display name")
+
+    def short_display_name(self) -> str:
+        """The string the projected plate prints (VISUAL_LAYER.md's
+        `shortLabel`). Not localised — the whole table is still English
+        only (M1.4's own scope) — and `Catalogue.load()` requires every
+        item to have one, so this is total the same way display_name() is,
+        just without the locale fallback chain that method needs.
+        """
+        return self.short_label
 
 
 class Catalogue:
@@ -131,6 +148,14 @@ class Catalogue:
                     f"display name. Every item needs one — it is the "
                     f"fallback every other locale degrades to, and without "
                     f"it there is no name to show but the hidden label.")
+            short_label = it.get("shortLabel", "")
+            if not short_label:
+                raise ValueError(
+                    f"{path}: item {it['id']!r} has no shortLabel. Every "
+                    f"item needs one — it is what the projected plate "
+                    f"actually prints (VISUAL_LAYER.md), and the full "
+                    f"display name is not guaranteed to fit on one line "
+                    f"at plate size.")
             items.append(Item(
                 id=it["id"],
                 price_per_100g=float(it["pricePer100g"]),
@@ -138,6 +163,7 @@ class Catalogue:
                 tags=list(it.get("tags", [])),
                 class_name=it["class_name"],
                 pinyin=it.get("pinyin", ""),
+                short_label=short_label,
             ))
         return cls(items)
 

@@ -121,8 +121,22 @@ private:
 	mutable std::string _currencyPrefix;
 	mutable int _currencyDecimals = 2;
 
-	ofTrueTypeFont _nameFont;      // 36px, doc §13.4 "Bin item name"
-	ofTrueTypeFont _detailFont;    // 26px, "Bin weight / unit price"
+	// 28px/22px — no longer the bin plate's own fonts (see _plateNameFont/
+	// _plateRateFont below, VISUAL_LAYER.md build item 2). Kept at this
+	// size for the banner headline/subline and the M5 widget label, none
+	// of which VISUAL_LAYER.md has resized.
+	ofTrueTypeFont _nameFont;
+	ofTrueTypeFont _detailFont;
+	// VISUAL_LAYER.md section 3: the bin plate's own two lines. Separate
+	// font objects from _nameFont/_detailFont above so retyping the plate
+	// (this step) cannot also resize the banner or a widget label as a
+	// side effect — nothing in the doc's step 2 asks for that.
+	ofTrueTypeFont _plateNameFont;  // 40px bold, ink #2B2118
+	ofTrueTypeFont _plateRateFont;  // 26px, ink #B8781A — "regular" per the
+	                                // doc, but DejaVuSans-Bold is the only
+	                                // face file in this repo (see kFontFile
+	                                // in UiLayer.cpp) — swap when a regular
+	                                // weight ships.
 	ofTrueTypeFont _totalNumFont;  // 80px, "Running total, numeral"
 	ofTrueTypeFont _totalLabelFont;// 28px, "Total label"
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"

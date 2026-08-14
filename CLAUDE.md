@@ -3016,6 +3016,64 @@ step 1 check ("food in the bins is clearly visible with room lights off")
 and whether the table now reads as a visibly different colour from the
 bins are both still owed on the rig.
 
+**Step 2 (2026-08-14): retype the plates.** New sizes/colours (doc §3:
+40px bold `#2B2118` name, 26px `#B8781A` rate) and a `shortLabel` added to
+the ingredient catalogue, per the doc's own build item text.
+
+- **`shortLabel` is a new required field**, `core/pricing.py`'s `Item` and
+  `Catalogue.load()` (schema bumped 4 → 5, matching this codebase's
+  standing practice of bumping on every catalogue shape change, optional
+  fields included). Not localised — the whole table is still English-only
+  (M1.4's scope) — and validated at load exactly like `names["en"]` is:
+  missing it stops core on the bench with the item id in the message,
+  never a blank or wrapped plate discovered mid-service. All 12
+  `data/catalogue.json` items got one; the actual English words are a
+  placeholder judgement call (e.g. "Hand-Pulled Wheat Noodles" →
+  "Wheat Noodles", "Button Mushrooms" → "Mushrooms") — the developer's to
+  retune, not derived from any rule.
+- **`core/main.py`'s `_bin_msg`** (what oF's plate reads) now sends
+  `item.short_display_name()`, not `item.display_name(locale)`. Staff-view
+  surfaces (`_bins_tab_msg`) were deliberately left on the full
+  `display_name()` — an operator needs the real name, the plate needs one
+  that fits.
+- **oF: no more two-line wrap for the plate name.** `UiLayer.cpp`'s
+  `wrapNameToTwoLines` is deleted outright (this codebase's usual rule for
+  dead code, and `<sstream>` with it) — `shortLabel` exists specifically
+  so the name is always one line, and VISUAL_LAYER.md's own step 2
+  acceptance check is "does not wrap or clip"; a wrap fallback would have
+  hidden a `shortLabel` that was still too long instead of surfacing it.
+  Two new font objects, `_plateNameFont`/`_plateRateFont` (40px/26px,
+  `#2B2118`/`#B8781A`), kept **separate** from `_nameFont`/`_detailFont`
+  (still 28px/22px) — those two are shared by the banner headline/subline
+  and the M5 widget label, and neither is in VISUAL_LAYER.md's scope for
+  this step, so retyping the plate must not resize them as a side effect.
+  Doc §4's `PLATE_H` (130px) is recorded as `kPlateHPx` and checked once
+  at `setup()` against the actual loaded font metrics (warns if the
+  budget doesn't hold) — nothing yet consumes it as real layout geometry
+  (no halo/fire rect exists until build items 4/6), so this is a startup
+  sanity check, not enforcement.
+- Only face available in this repo is still DejaVuSans-Bold (doc's
+  "regular" rate weight is unmet, same open gap §13.4 already named for
+  the missing `Inter` face) — noted in the font member's own comment
+  rather than silently drawing bold-on-bold and calling it done.
+958 Python tests pass (`python -m unittest discover -s python/tests`) —
+3 new (`Catalogue.load()` refuses a missing `shortLabel`; the real
+catalogue file's `short_display_name()` is non-empty for every item;
+`Item.short_display_name()` returns the label verbatim), 2 existing tests
+updated where they asserted the wire `label` against `item.names["en"]`
+(now `item.short_label`, since that field genuinely changed what it
+carries).
+**Full rebuild, msbuild Debug x64, 0 errors, 0 warnings from UiLayer.cpp
+or .h** (1254 pre-existing warnings, all addon-library noise —
+ofxGui/ofxOsc/oF core — none touching this session's files). `run.py
+--stop` first, since a prior stack was still running and holding
+`hotpot-table_debug.exe` open (M4n-fix's own lesson); `run.py` again
+afterward to bring the new binary up, all six processes reached
+HOTPOT-READY.
+**Not physically verified on the projected surface** — the doc's own step
+2 check ("all 8 plates same height, longest name does not wrap or clip")
+needs a human looking at the real table, same gap step 1 above still has.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

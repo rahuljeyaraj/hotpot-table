@@ -5,7 +5,6 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
-#include <sstream>
 
 namespace {
 	const char * kTag = "UiLayer";
@@ -20,18 +19,40 @@ namespace {
 	// Swap this one line once the real font file exists.
 	const std::string kFontFile = "fonts/DejaVuSans-Bold.ttf";
 
-	// Doc §13.4 fixed these at 36px and 26px. Measured against the actual
-	// catalogue: at 36px DejaVuSans-Bold, only 3 of the 8 item names fit on
-	// one line inside a bin's own 200mm (252px) footprint, so five plates
-	// were carrying a two-line name — the block ran ~136px into a 209px
-	// margin to say "Curly Noodles". At 28px, 7 of 8 fit on one line and
-	// the block is ~112px. The names did not get harder to read; they got
-	// out of each other's way. Cap height at 28px is still ~17mm on the
-	// plywood, which is legible well past the 3m the banner is specified
-	// for. §13.4 corrected to match — the px values were a guess made
-	// before any name had been measured in a bin.
+	// Doc §13.4 fixed these at 36px and 26px, corrected once already
+	// (2026-08-11) to 28px/22px after the catalogue names of the day
+	// mostly didn't fit at 36px. Still used for the banner headline/
+	// subline and the M5 widget label — see kPlateNamePx/kPlateRatePx
+	// below for the bin plate's own, VISUAL_LAYER.md-specified sizes.
 	const int kNamePx = 28;
 	const int kDetailPx = 22;
+
+	// VISUAL_LAYER.md section 3's palette and section 9 build item 2
+	// ("Retype the plates"): the bin plate's name/rate, distinct from the
+	// banner sizes above. Bigger than the old plate text (40 vs 28, 26 vs
+	// 22), which is exactly why `shortLabel` (data/catalogue.json,
+	// core/pricing.py) exists — core now sends the SHORT name for this
+	// field (core/main.py's `_bin_msg`), chosen by a human to fit one line
+	// at this size, rather than the full display name §13.4's old text
+	// used to wrap to two lines. See drawBin: there is no wrap call left
+	// for the plate name any more, on purpose — the doc's own step 2
+	// acceptance check is "the longest name does not wrap or clip", and a
+	// wrap fallback would have hidden a shortLabel that was still too long
+	// instead of surfacing it on the rig.
+	const int kPlateNamePx = 40;
+	const int kPlateRatePx = 26;
+	// #2B2118 / #B8781A, VISUAL_LAYER.md section 3's palette table exactly.
+	const ofColor kPlateNameColor(43, 33, 24);
+	const ofColor kPlateRateColor(184, 120, 26);
+
+	// VISUAL_LAYER.md section 4: "plateRect = fixed height PLATE_H (start
+	// at 130px)... Halo wraps the BIN ONLY, never the plate" — this app has
+	// no halo or fire geometry yet (that's build items 4/6), so nothing
+	// reads this constant back out today. Recorded now, at the step that
+	// pins the font sizes it has to fit, and checked once at setup() below
+	// against the actual loaded metrics rather than left as an unverified
+	// guess for whichever later step is the first to consume it.
+	const float kPlateHPx = 130.0f;
 
 	// doc's old kBinOutlineMM/kLabelClearanceMM/kLabelLineGapMM (ofApp.cpp,
 	// now deleted). Redefined here rather than resurrected in
@@ -200,50 +221,6 @@ namespace {
 		font.drawString(text, cx - bb.width * 0.5f - bb.x, baselineY);
 	}
 
-	// Bin item names (e.g. "Curly Noodles") can render wider than the 250mm
-	// gap between two bin centres in the same pair at doc §13.4's fixed 36px
-	// — that overflowed into the neighbour's label before this existed.
-	// Greedy word-wrap to at most 2 lines instead of shrinking the font,
-	// which would abandon the doc's px value. A single word wider than
-	// maxWidthPx on its own is still returned whole — this never breaks
-	// mid-word, matching how nothing else in this file does character-level
-	// layout.
-	std::vector<std::string> wrapNameToTwoLines(const ofTrueTypeFont & font,
-		const std::string & text, float maxWidthPx){
-		if(!font.isLoaded() || font.getStringBoundingBox(text, 0, 0).width <= maxWidthPx){
-			return {text};
-		}
-		std::vector<std::string> words;
-		std::istringstream iss(text);
-		std::string w;
-		while(iss >> w){
-			words.push_back(w);
-		}
-		if(words.empty()){
-			return {text};
-		}
-		std::string line1;
-		size_t i = 0;
-		for(; i < words.size(); i++){
-			std::string candidate = line1.empty() ? words[i] : line1 + " " + words[i];
-			if(!line1.empty() && font.getStringBoundingBox(candidate, 0, 0).width > maxWidthPx){
-				break;
-			}
-			line1 = candidate;
-		}
-		if(line1.empty()){
-			line1 = words[i++];   // one overlong word — take it anyway, never emit an empty line
-		}
-		std::string line2;
-		for(; i < words.size(); i++){
-			line2 = line2.empty() ? words[i] : line2 + " " + words[i];
-		}
-		if(line2.empty()){
-			return {line1};
-		}
-		return {line1, line2};
-	}
-
 	// Pulls the currency symbol and decimal count out of core's already-
 	// resolved `total.text` (e.g. "\xE2\x82\xB9""41.20") instead of oF
 	// hardcoding either. Doc I2: "oF does no lookup" — this is not a
@@ -286,6 +263,8 @@ void UiLayer::setup(){
 	bool ok = true;
 	ok = loadUiFont(_nameFont, kFontFile, kNamePx) && ok;
 	ok = loadUiFont(_detailFont, kFontFile, kDetailPx) && ok;
+	ok = loadUiFont(_plateNameFont, kFontFile, kPlateNamePx) && ok;
+	ok = loadUiFont(_plateRateFont, kFontFile, kPlateRatePx) && ok;
 	ok = loadUiFont(_totalNumFont, kFontFile, 80) && ok;
 	ok = loadUiFont(_totalLabelFont, kFontFile, 28) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
@@ -293,6 +272,24 @@ void UiLayer::setup(){
 	if(!_fontsLoaded){
 		ofLogError(kTag) << "could not load " << kFontFile << " at one or more sizes"
 			<< " — labels will not draw";
+	}
+
+	// VISUAL_LAYER.md §4's PLATE_H budget, checked once against what the
+	// two fonts above actually measure — a single-line rate row, a
+	// single-line name row, the same clearance/gap the far/near rows use
+	// in drawBin. Not a hard clip (nothing here can shrink a font that
+	// already loaded); a warning is the honest amount of enforcement a
+	// startup check can do for a per-frame draw call.
+	if(_fontsLoaded){
+		const float measured =
+			_plateNameFont.getAscenderHeight() + fabsf(_plateNameFont.getDescenderHeight())
+			+ mmToPxY(kLabelLineGapMM)
+			+ _plateRateFont.getAscenderHeight() + fabsf(_plateRateFont.getDescenderHeight())
+			+ mmToPxY(kLabelClearanceMM);
+		if(measured > kPlateHPx){
+			ofLogWarning(kTag) << "plate label block measures " << measured
+				<< "px, over VISUAL_LAYER.md's " << kPlateHPx << "px PLATE_H budget";
+		}
 	}
 
 	// Pre-cropped, background-already-transparent — see assets/logo/ in the
@@ -540,11 +537,6 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		(int)roundf(tw.colB.get()));
 	drawRing(cut, ringX, ringY, ring, mmToPxX(CUTOUT_CORNER_RADIUS_MM));
 
-	// Name/detail text drawn below inherits the draw colour (drawCentered
-	// sets none of its own) — must be the doc §13.4 ink colour, not the
-	// ring's and not white, or it disappears into the white field.
-	ofSetColor(kInkColor);
-
 	if(!b.resolved){
 		return;   // doc §9.3: unresolved bins render with no label
 	}
@@ -566,7 +558,7 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	// Negative for descenders below the baseline, per ofTrueTypeFont.h's
 	// own doc comment (it is FreeType's face->descender). fabsf rather
 	// than negation so a font that reported it the other way still clears.
-	const float descend = fabsf(_detailFont.getDescenderHeight());
+	const float rateDescend = fabsf(_plateRateFont.getDescenderHeight());
 
 	std::string detail = b.sub;
 	if(b.picked > 0.5f){
@@ -579,22 +571,23 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		detail = std::string(g) + "  " + _priceText(tw.price.get());
 	}
 
-	// Wrap to the bin's own footprint, not the gap to its neighbour — the
-	// neighbour gap (250mm) is wider, but wrapping to the box the label
-	// sits over keeps every name visually inside its own plate.
-	std::vector<std::string> nameLines = wrapNameToTwoLines(_nameFont, b.label, mmToPxX(BIN_W_MM));
-	const float nameLineGap = 2.0f;   // px between a name's own wrapped lines, tighter than kLabelLineGapMM's block-to-block gap
-
+	// b.label is now core's shortLabel (core/main.py's `_bin_msg`,
+	// data/catalogue.json), chosen to fit one line at kPlateNamePx — no
+	// wrap pass here any more. VISUAL_LAYER.md's own step 2 acceptance
+	// check is "the longest name does not wrap or clip"; a wrap fallback
+	// would have quietly hidden a shortLabel that was still too long
+	// instead of surfacing it for a catalogue edit.
 	if(i < 4){
-		// far row: label strip is ABOVE the ring, into the 177mm far margin
-		float detailBaseline = ringTop - clearance - descend;
-		drawCentered(_detailFont, detail, cx, detailBaseline);
-		// nameLines.back() sits closest to detail; earlier lines stack upward.
-		float lastLineBaseline = detailBaseline - _detailFont.getLineHeight() - gap;
-		for(int li = (int)nameLines.size() - 1; li >= 0; li--){
-			float y = lastLineBaseline - (float)(nameLines.size() - 1 - li) * (_nameFont.getLineHeight() + nameLineGap);
-			drawCentered(_nameFont, nameLines[li], cx, y);
-		}
+		// far row: rate strip sits just above the ring, name strip above
+		// that — ring → price/grams → name, reading outward from the pot.
+		float rateBaseline = ringTop - clearance - rateDescend;
+		ofSetColor(kPlateRateColor);
+		drawCentered(_plateRateFont, detail, cx, rateBaseline);
+
+		float nameBaseline = rateBaseline - _plateRateFont.getLineHeight() - gap
+			- fabsf(_plateNameFont.getDescenderHeight());
+		ofSetColor(kPlateNameColor);
+		drawCentered(_plateNameFont, b.label, cx, nameBaseline);
 	}
 	else {
 		// near row: label strip is BELOW the ring, into the 177.4mm near
@@ -608,15 +601,16 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		// version put the name nearest the ring down here and the detail
 		// nearest it up there, so the same two rows of text were in
 		// opposite orders on the two sides of one table.
-		float detailBaseline = ringBottom + clearance + _detailFont.getAscenderHeight();
-		drawCentered(_detailFont, detail, cx, detailBaseline);
-		// nameLines.front() sits closest to detail; later lines stack downward.
-		float firstLineBaseline = detailBaseline + _nameFont.getLineHeight() + gap;
-		for(size_t li = 0; li < nameLines.size(); li++){
-			drawCentered(_nameFont, nameLines[li], cx,
-				firstLineBaseline + (float)li * (_nameFont.getLineHeight() + nameLineGap));
-		}
+		float rateBaseline = ringBottom + clearance + _plateRateFont.getAscenderHeight();
+		ofSetColor(kPlateRateColor);
+		drawCentered(_plateRateFont, detail, cx, rateBaseline);
+
+		float nameBaseline = rateBaseline + _plateRateFont.getLineHeight() + gap
+			+ _plateNameFont.getAscenderHeight();
+		ofSetColor(kPlateNameColor);
+		drawCentered(_plateNameFont, b.label, cx, nameBaseline);
 	}
+	ofSetColor(255);
 }
 
 std::string UiLayer::_priceText(double amount) const {
