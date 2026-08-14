@@ -7,24 +7,67 @@
 #include <windows.h>
 #endif
 
+// **2026-08-14: raw GLFW monitor INDEX is not stable and display.txt used to
+// hold one.** Confirmed in this session's own log, not assumed: two
+// consecutive `run.py` restarts, same three physical monitors, same cable
+// arrangement, produced DIFFERENT index-to-position mappings —
+// `[1] pos(-3840,136)` on every earlier restart, `[1] pos(-1920,139)` on the
+// next one. `display.txt` never changed; the projector silently became
+// "whichever monitor GLFW enumerates second right now," and the app landed
+// on the developer's own monitor instead. The desktop ORIGIN of each
+// physical monitor stayed identical across every single restart in that same
+// log — Windows ties it to the port/EDID, not enumeration order — so that is
+// what gets matched now, not the index.
+//
+// display.txt holds "x,y" (the target monitor's desktop origin). A bare
+// integer with no comma is still accepted as a one-time legacy index lookup
+// (logged loudly, since it is exactly the fragile mode this replaces) so an
+// old file does not silently misbehave; a fresh file is always written in
+// the new "x,y" form.
+struct MonitorTarget {
+	bool hasOrigin = false;
+	int x = 0, y = 0;
+	int legacyIndex = -1;
+};
+
 //--------------------------------------------------------------
-int readMonitorIndex(){
+MonitorTarget readMonitorTarget(){
 	std::string path = "display.txt";
+	MonitorTarget target;
 
 	if(!ofFile::doesFileExist(path)){
+		// First-ever run on this machine: nothing to target yet. Legacy
+		// index 0 (falls back to whatever GLFW calls monitor 0) is the only
+		// sane default with zero prior information.
 		ofFile out(path, ofFile::WriteOnly);
 		out << "0";
 		out.close();
-		return 0;
+		target.legacyIndex = 0;
+		return target;
 	}
 
 	ofBuffer buffer = ofBufferFromFile(path);
-	return ofToInt(*buffer.getLines().begin());
+	std::string line = *buffer.getLines().begin();
+	auto comma = line.find(',');
+	if(comma == std::string::npos){
+		target.legacyIndex = ofToInt(line);
+	}
+	else {
+		target.hasOrigin = true;
+		target.x = ofToInt(line.substr(0, comma));
+		target.y = ofToInt(line.substr(comma + 1));
+	}
+	return target;
 }
 
 //--------------------------------------------------------------
-// Logs every monitor and returns the desktop origin of the selected one.
-glm::ivec2 logMonitors(int & selected){
+// Logs every monitor and returns the desktop origin of the one matching
+// `target` — by exact origin when display.txt gives one, by legacy index
+// otherwise. Rewrites display.txt to the resolved monitor's own origin
+// either way, so a legacy-index file self-upgrades to the stable form the
+// first time it is actually used, and a later hotplug that changes which
+// index maps to that origin no longer matters.
+glm::ivec2 logMonitors(const MonitorTarget & target, int & chosenIndex){
 	glfwInit();
 
 	int count = 0;
@@ -48,18 +91,51 @@ glm::ivec2 logMonitors(int & selected){
 		return glm::ivec2(0, 0);
 	}
 
-	if(selected < 0 || selected >= count){
-		ofLogWarning("main") << "display.txt asks for monitor " << selected
-			<< " but only " << count << " present - falling back to 0";
-		selected = 0;
+	int chosen = -1;
+	if(target.hasOrigin){
+		for(int i = 0; i < count; i++){
+			int x, y;
+			glfwGetMonitorPos(monitors[i], &x, &y);
+			if(x == target.x && y == target.y){
+				chosen = i;
+				break;
+			}
+		}
+		if(chosen < 0){
+			ofLogWarning("main") << "display.txt asks for the monitor at origin("
+				<< target.x << "," << target.y << ") but no currently attached "
+				<< "monitor sits there — falling back to 0. Re-check which "
+				<< "physical monitor is the projector and rewrite display.txt "
+				<< "as \"x,y\" from the log above.";
+			chosen = 0;
+		}
+	}
+	else {
+		int idx = target.legacyIndex;
+		ofLogWarning("main") << "display.txt is in the OLD index-based format ("
+			<< idx << ") — this is the fragile mode that put the app on the "
+			<< "wrong monitor last time. Resolving it once by index, then "
+			<< "rewriting the file to the resolved origin so this does not "
+			<< "happen again.";
+		if(idx < 0 || idx >= count){
+			ofLogWarning("main") << "  index " << idx << " but only " << count
+				<< " present - falling back to 0";
+			idx = 0;
+		}
+		chosen = idx;
 	}
 
 	int ox = 0, oy = 0;
-	glfwGetMonitorPos(monitors[selected], &ox, &oy);
+	glfwGetMonitorPos(monitors[chosen], &ox, &oy);
 
-	ofLogNotice("main") << "Using monitor index " << selected
-		<< " origin(" << ox << "," << oy << ")";
+	ofLogNotice("main") << "Using monitor [" << chosen << "] origin("
+		<< ox << "," << oy << ")";
 
+	ofFile out("display.txt", ofFile::WriteOnly);
+	out << ox << "," << oy;
+	out.close();
+
+	chosenIndex = chosen;
 	return glm::ivec2(ox, oy);
 }
 
@@ -82,8 +158,9 @@ int main( ){
 	// default channel's lazy initialiser never runs on this toolchain - see Probe 1/2
 	ofSetLoggerChannel(std::make_shared<ofConsoleLoggerChannel>());
 
-	int monitorIndex = readMonitorIndex();
-	glm::ivec2 monitorOrigin = logMonitors(monitorIndex);
+	MonitorTarget target = readMonitorTarget();
+	int monitorIndex = 0;
+	glm::ivec2 monitorOrigin = logMonitors(target, monitorIndex);
 
 	// oF creates a plain windowed window first and defers setFullscreen() to the
 	// first frame, where the target monitor is resolved from wherever that window

@@ -51,45 +51,71 @@ namespace {
 	// islands: 0-6, 4-2, 1-7, 5-3. That pairing is a point reflection, not a
 	// mirror — bin i's partner is diagonally opposite it (col 0<->2 / 1<->3
 	// AND row 0<->1), which is what puts all four colours on BOTH islands
-	// rather than giving each island two. Colours assigned in the order the
-	// developer listed them against the order the pairs were listed.
+	// rather than giving each island two.
 	//
-	// Sources named for the record, since they are why these particular hues:
-	//   Electric Blue  #00D4FF  copper chloride
-	//   Golden Yellow  #FFD700  sodium chloride
-	//   Emerald Green  #00FF66  boric acid / barium
-	//   Deep Violet    #8A2BE2  potassium chloride
+	// **Second developer instruction, same day: 0 and 1 (adjacent, both far
+	// row, left island) read as "close by colours" — move one to the
+	// diagonal opposite.** Bin 0's diagonal within its 2x2 island is bin 5,
+	// not bin 1 — moving bin 1's colour there (and bin 5's colour to bin 1)
+	// is what actually separates them, since any colour placed at bin 1 OR
+	// bin 4 is still adjacent to bin 0 (they share an edge); only bin 5 is
+	// bin 0's diagonal. Because colour is assigned per PAIR, this is a swap
+	// between pair (1,7) and pair (5,3), not a single-bin edit — and it
+	// turns out symmetric: the same swap also separates the equivalent
+	// green/blue diagonal on the right island (2,3,6,7), unprompted, because
+	// that island is built from the same four pairs.
 	//
-	// **These are far more saturated than the palette they replace (peak
-	// channel 255 vs ~214), and that is SAFER here, not riskier** — the
-	// opposite of what it looks like. Under MULTIPLY a channel at 0 can never
-	// accumulate no matter how long a hover runs, so it blocks that channel
-	// permanently and the hue cannot wash toward the #E8E6E1 background. Blue
-	// (R=0), gold (B=0) and green (R=0) each have that anchor; not one of the
-	// eight colours this replaces did. **Violet is the exception — (138,43,226)
-	// has no zero channel**, so it is the only one of the four that can still
-	// saturate to a pale core under a long steady hover (the mechanism
-	// kFireRingMaxAlpha's own comment describes). If that shows up on the
-	// table, pull its GREEN toward 0 rather than reaching for the alpha cap —
-	// green is already its lowest channel at 43 and is what would wash first.
+	// **Third developer instruction, same day: swapped to a second
+	// flame-chemistry reference list** (this one gives a contrast role per
+	// colour, not a visual-character description — cobalt blue is named
+	// "dark, ultra-deep cool tone" against canary yellow's "high-luminance
+	// warm tone", i.e. the developer's second list is already speaking to
+	// luminance spread, unprompted, in the same direction as this file's own
+	// "distinguish states by hue, never brightness" invariant would want if
+	// this were a state signal — it is not one here, see below, but the
+	// alignment is worth knowing about):
+	//   Cobalt Blue           #0022FF  indium / copper chloride
+	//   Pure Emerald Green    #00C853  barium
+	//   Bright Canary Yellow  #FFEB3B  sodium
+	//   Deep Violet           #8A2BE2  potassium (unchanged from the first list)
 	//
-	// Two things deliberately NOT done. Luminance is NOT matched across the
-	// four (gold is much brighter than violet), which is in tension with this
-	// project's own "luminance-match the hues to each other" invariant — that
-	// rule is about distinguishing STATE, and these four all mean the same
-	// state (one bin, on fire), so hue here is identity, not status. And none
-	// of the four is checked against the projector: this rig has turned an
-	// authored amber into red and a gold into muddy brown before now, so treat
-	// every hex here as unverified until somebody looks at the table.
+	// **The zero-channel white-out anchor (this comment's own earlier
+	// finding, kept because the mechanism is unchanged) now covers HALF the
+	// palette, not three quarters.** Under MULTIPLY, a channel truly at 0
+	// can never accumulate however long a hover runs, so it blocks that
+	// channel permanently and the hue cannot wash toward the #E8E6E1
+	// background. Blue (0,34,255, R=0) and green (0,200,83, R=0) still have
+	// that exact anchor. **Yellow no longer does** — the first list's gold
+	// had B=0; this canary yellow is (255,235,59), B=59, not zero — so
+	// yellow now joins violet (138,43,226, no zero channel at all, lowest is
+	// G=43) as a colour that can in principle saturate to a pale core under
+	// a long steady hover, the mechanism kFireRingMaxAlpha's own comment
+	// describes. 59 is low enough that this should be slow and
+	// kFireRingMaxAlpha (190, well under 255) already bounds the amplified
+	// steady state for every colour regardless of this anchor — flagged as
+	// a real, slightly-increased risk versus the first list, not a
+	// regression severe enough to hold up shipping it. If yellow or violet
+	// washes out on the table, pull that colour's own lowest channel further
+	// toward 0 rather than reaching for the alpha cap first.
+	//
+	// Two things deliberately NOT done, both carried over from the first
+	// list. Luminance is NOT matched across the four (yellow is much
+	// brighter than violet) — in tension with this project's own
+	// "luminance-match the hues" invariant, but that rule is about
+	// distinguishing STATE, and all four colours here mean the same state
+	// (one bin, on fire), so hue is identity, not status. And none of the
+	// four is checked against the projector: this rig has turned an
+	// authored amber into red and a gold into muddy brown before now, so
+	// treat every hex here as unverified until somebody looks at the table.
 	const ofColor kFireRingColours[8] = {
-		ofColor(0, 212, 255),    // 0: electric blue   — pairs with 6
-		ofColor(0, 255, 102),    // 1: emerald green   — pairs with 7
-		ofColor(255, 215, 0),    // 2: golden yellow   — pairs with 4
-		ofColor(138, 43, 226),   // 3: deep violet     — pairs with 5
-		ofColor(255, 215, 0),    // 4: golden yellow   — pairs with 2
-		ofColor(138, 43, 226),   // 5: deep violet     — pairs with 3
-		ofColor(0, 212, 255),    // 6: electric blue   — pairs with 0
-		ofColor(0, 255, 102),    // 7: emerald green   — pairs with 1
+		ofColor(0, 34, 255),      // 0: cobalt blue          — pairs with 6
+		ofColor(138, 43, 226),    // 1: deep violet           — pairs with 7
+		ofColor(255, 235, 59),    // 2: bright canary yellow — pairs with 4
+		ofColor(0, 200, 83),      // 3: pure emerald green   — pairs with 5
+		ofColor(255, 235, 59),    // 4: bright canary yellow — pairs with 2
+		ofColor(0, 200, 83),      // 5: pure emerald green   — pairs with 3
+		ofColor(0, 34, 255),      // 6: cobalt blue          — pairs with 0
+		ofColor(138, 43, 226),    // 7: deep violet           — pairs with 1
 	};
 
 	// **2026-08-14, rig report: "the screen is simply getting saturated
