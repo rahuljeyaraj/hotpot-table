@@ -3451,6 +3451,76 @@ rebuild / `run.py` again. **Not yet re-confirmed — in particular the
 mirror-vs-matched rotation direction call has no rig evidence at all
 yet, only the reasoning above.**
 
+### Step 5 (2026-08-14): layer reorder — mostly already true, one real
+ordering bug fixed, the rest turned from implicit into structural
+Doc §9 build item 5: "Restructure draw into the 5 layers above. Verify:
+existing fireball cursor is now occluded by the bin rects and cannot
+appear inside any bin interior." Audited the actual draw path against
+VISUAL_LAYER.md §5's 5-layer list before changing anything, since steps 1
+and 4 had already moved most of this into place as a side effect (the
+floor-lift removal note under step 1 says so outright).
+
+**The verify condition already held, and does so for a stronger reason
+than draw order.** `Stage::compositeAndWarp`'s light pass (layer 3, the
+opaque white cutout rects) runs in its own `_fbo.begin()/end()` pair
+**after** `Stage::endContent()` — i.e. after `ofApp::draw()` has already
+drawn the fluid and the entire UI content into the FBO and closed it. The
+light pass then stamps over whatever is sitting in each cutout,
+unconditionally, as the literal last write before the keystone warp. This
+means the fireball (or anything else) cannot survive inside a bin
+interior no matter what order layers 2/4/5 draw in relative to each
+other — nothing after the light pass writes to the FBO again except the
+one deliberate, mode-gated `drawAboveLightPass` carve-out for the pointer
+cursor (2026-08-12), which only ever fires when `kFluidEnabled` is
+`false` (fluid is the cursor now, so this path is currently dead code in
+practice, not a hole).
+
+**One real ordering bug found and fixed: `drawBrandMark()` (layer 5, UI)
+was being called BEFORE the halo loop (layer 4)** in `UiLayer::draw()` —
+harmless today only because the brand mark lives in the pot-gap centre
+column and never spatially overlaps a bin's halo, but it was still the
+literal opposite of §5's "halo below UI" order and would have been the
+wrong thing to copy forward once build item 6 (fire) adds more to layer 2
+that layer 4/5 elements need to consistently sit above. Fixed:
+`UiLayer::draw()` now runs halo first, then brand mark, then the rest of
+UI (bins/total/widgets/banner), with the brand mark still drawn outside
+the `hasState` gate so it stays the "always visible from boot" default
+that reason for its position depended on — see the method's own comment
+for why it can't simply move inside the `if(hasState)` block with the
+rest of layer 5.
+
+**Restructured the comments, not the FBO architecture, to make the
+correspondence explicit rather than something a reader has to
+reconstruct:** `Stage.h`'s header comment (still describing the OLD
+3-stage FBO stack from doc §13.2, with fluid marked "deferred to M8" even
+though M8 built it long ago) now maps all 5 of VISUAL_LAYER.md §5's
+layers onto the actual code, states plainly that layer 3 is drawn
+structurally LAST rather than literally third, and explains why that is
+the safe choice: I9 only holds by construction if nothing can be drawn
+into a cutout AFTER the light pass, and relying on halo/UI never
+happening to paint into one is weaker than making it physically
+impossible. `ofApp::draw()` gained a matching comment at the top of the
+content pass, plus `--- layer N ---` markers at each stage. **Deliberately
+did NOT move the light pass earlier to literally match the doc's 1-2-3-4-5
+draw order** — doing so would trade a structural guarantee for a
+positional one, weakening I9's protection for a purely cosmetic match to
+the doc's numbering that nothing on the table would ever show a
+difference for (see `Stage.h`'s own reasoning).
+
+**Full rebuild, msbuild Debug x64, 0 errors, 0 warnings from this
+session's files** (1 pre-existing `LNK4075`/`FORCE` linker warning,
+unrelated). `run.py --stop` — a live stack was running from before this
+session and had to be stopped first (the M4n-fix lesson, again) — clean
+rebuild, `run.py` again: camera/core/voice/classifier/tracker all reached
+`HOTPOT-READY` or their own health-up equivalent, `of`'s StateLink
+connected, and core's staff-view HTTP answered 200 on :8090 afterward.
+**Not physically verified on the projected surface** — nobody has looked
+at the table with a hand moving a fireball near a bin edge since this
+rebuild; the reasoning above (the light pass is structurally, not just
+ordinarily, last) is why this is expected to already have been true
+before this session even started, but it is reasoning, not an
+observation. **Next: build item 6 (fire ring) is unblocked.**
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

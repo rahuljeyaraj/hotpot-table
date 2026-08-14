@@ -1174,12 +1174,38 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		return;
 	}
 
-	// Always on when loaded — never hidden by the banner, which now
-	// positions itself below the mark's bottom edge instead of sharing
-	// its strip (see drawBrandMark/drawBanner). Drawn outside the
-	// hasState gate too: a table with no core link yet still has no
-	// banner to show (state.mode/overlayKind don't exist without state),
-	// so the brand mark is the "always visible" default from boot.
+	// VISUAL_LAYER.md §9 build item 5 ("Layer reorder"): everything from
+	// here down is layers 4 (halo) and 5 (UI — plate text, logo, cart,
+	// info box), in that order, matching §5's "bottom to top" list.
+	// Layers 1-3 (table background, fluid, the white-cutout light pass)
+	// are Stage's job, not UiLayer's — see Stage.h's own header comment
+	// for why layer 3 is drawn structurally LAST of the whole frame
+	// (after this method returns) rather than literally third: I9
+	// requires nothing drawn afterward to survive inside a cutout, and
+	// that only holds if the light pass is the final write, not a
+	// mid-frame one. Halo and UI never draw INTO a cutout by design
+	// (halo wraps the bin only; plate text sits outside it), so drawing
+	// them here, ahead of the light pass in wall-clock terms, is safe —
+	// the light pass punches them back to white if that geometry is ever
+	// wrong, rather than relying on draw order alone to keep it true.
+	//
+	// --- layer 4: halo ----------------------------------------------------
+	if(hasState){
+		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
+			drawHalo(i);
+		}
+	}
+
+	// --- layer 5: UI --------------------------------------------------
+	// Brand mark first among the UI elements — always on when loaded,
+	// never hidden by the banner, which positions itself below the
+	// mark's bottom edge instead of sharing its strip (see
+	// drawBrandMark/drawBanner). Drawn outside the hasState gate too: a
+	// table with no core link yet still has no banner to show
+	// (state.mode/overlayKind don't exist without state), so the brand
+	// mark is the "always visible" default from boot — this is why it
+	// cannot simply move inside the `if(hasState)` block below alongside
+	// the rest of layer 5.
 	drawBrandMark();
 
 	if(hasState){
@@ -1188,16 +1214,6 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		// pair, pulled from the one locale-resolved string the wire gives
 		// oF (state.total.text) — see splitCurrencyText's comment.
 		splitCurrencyText(state.total.text, _currencyPrefix, _currencyDecimals);
-		// Halo first, THEN the bin: VISUAL_LAYER.md §6's "Draw halo BEFORE
-		// the white bin rect so the rect cuts the inner edge cleanly" is
-		// actually enforced by Stage's light pass (it stamps every cutout
-		// opaque white LAST, after this whole content pass ends) — drawing
-		// it here, ahead of drawBin's own ring/plate, additionally keeps
-		// the plate ink and the picked ring on top of the halo if their
-		// spans ever turn out to overlap (see kHaloMarginPx's own comment).
-		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
-			drawHalo(i);
-		}
 		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
 			drawBin(i, state.bins[i], _bins[i]);
 		}

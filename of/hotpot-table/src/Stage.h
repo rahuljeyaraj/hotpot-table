@@ -7,23 +7,36 @@
 #include <string>
 #include <vector>
 
-// v3 doc §13.2's FBO stack, minus the fluid pass — FluidLayer does not
-// exist yet (M8's build item), so step 1 of the three below is skipped for
-// now and the composite starts from the table-background colour instead.
-// Step 3 still runs every frame, unconditionally, because I9 is a hard
-// invariant (CLAUDE.md) and not something that starts applying only once a
-// fluid exists to need protecting from:
+// v3 doc §13.2's FBO stack, now that FluidLayer exists (M8) and
+// VISUAL_LAYER.md §5 gives the fuller, current 5-layer picture. This class
+// owns one content FBO; ofApp draws layers 1-2 and 4-5 into it (via
+// beginContent()/endContent()), and this class stamps layer 3 itself, in
+// compositeAndWarp(), AFTER endContent() has already been called:
 //
-//   1. (fluidFBO — deferred to M8)
-//   2. uiFBO       — UiLayer draws here (labels, prices, plates, total)
+//   1. table background   — Stage::beginContent() (kTableBackground)
+//   2. fluid               — ofApp::draw(), FluidLayer::draw(), first
+//      ───────────────────────────────────────────────────────────────
+//   4. halo                 } ofApp::draw() -> UiLayer::draw(), both
+//   5. UI (plates/total/…)  } drawn into the SAME content pass as 1-2,
+//                             immediately after them
 //      ───────────────────────────────────────────────────────────────
 //   3. LIGHT PASS  — flat pure-white over every tray cutout, stamped LAST
 //      ───────────────────────────────────────────────────────────────
 //      → keystone warp → screen
 //
-// Step 3 is implemented with a plain filled rectangle per cutout, not a
-// shader — this app draws everything else with oF's immediate-mode calls,
-// no shader anywhere yet.
+// Layer 3 is drawn structurally LAST of the whole frame, not third — this
+// is deliberate and does not match VISUAL_LAYER.md §5's "bottom to top"
+// numbering literally. I9 (CLAUDE.md's hard invariant) requires that
+// NOTHING drawn afterward can put anything but flat white into a cutout;
+// the only way to guarantee that by construction, rather than by every
+// future halo/UI change happening to avoid painting into a cutout, is for
+// the light pass to be the final write of the frame. Halo and UI never
+// draw INTO a cutout by design (halo wraps the bin only; plate text sits
+// outside it), so nothing in practice sees a difference between "layer 3
+// third" and "layer 3 last" — but only the second one is safe against a
+// future mistake. Implemented with a plain filled rectangle per cutout,
+// not a shader — this app draws everything else with oF's immediate-mode
+// calls, no shader anywhere yet.
 //
 // **2026-08-14, developer instruction: the "floor lift" that used to run
 // here (a per-frame blend of the whole composite toward literal white,

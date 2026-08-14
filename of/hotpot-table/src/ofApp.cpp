@@ -291,13 +291,21 @@ void ofApp::draw(){
 	// "where is the hand," not two competing ones.
 	const CursorLink::Hand * cursorForUi = kFluidEnabled ? nullptr : _cursor.pointer();
 
+	// VISUAL_LAYER.md §9 build item 5 ("Layer reorder") / §5's 5-layer
+	// order: layer 1 (table background) happens inside beginContent()
+	// itself; layers 2 (fluid), 4 (halo) and 5 (UI) are drawn here, into
+	// the same content pass, in that order; layer 3 (the white-cutout
+	// light pass) is Stage::compositeAndWarp()'s job below, after
+	// endContent() — see Stage.h's own header comment for why it is
+	// drawn structurally last rather than literally third. I9 is
+	// untouched either way — the light pass runs on the composite
+	// afterward, unconditionally.
 	_stage.beginContent();
-	// doc §13.2's FBO stack, step 1: fluid first, UI drawn on top of it.
-	// I9 is untouched either way — the light pass runs on the composite
-	// afterward, unconditionally (Stage::compositeAndWarp).
+	// --- layer 2: fluid -----------------------------------------------
 	if(kFluidEnabled){
 		_fluid.draw(0, 0, PROJ_W_PX, PROJ_H_PX);
 	}
+	// --- layers 4-5: halo, then UI (both inside UiLayer::draw) ---------
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
 		ofGetFrameRate(), _devOverlayVisible,
 		_cursor.hands(), cursorForUi);
