@@ -85,6 +85,11 @@ public:
 private:
 	flowTools::ftFluidFlow _fluid;
 	ofFbo _densityInject;
+	// Same shapes as _densityInject, but a hue-independent red — the fluid's
+	// temperature (and so its buoyancy) is a RED-CHANNEL-ONLY field, so
+	// sharing the coloured buffer made each bin's lift depend on its own
+	// hue. FluidLayer.cpp's kFireRingHeat has the full trace.
+	ofFbo _temperatureInject;
 	ofFbo _velocityInject;
 
 	// fireTest/src/ofApp.cpp's own resolution numbers, hardcoded — see

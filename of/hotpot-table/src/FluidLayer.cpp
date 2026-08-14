@@ -83,6 +83,40 @@ namespace {
 	// or up (brighter, more washed) once seen.
 	const float kFireRingMaxAlpha = 190.0f;
 
+	// **2026-08-14: the ring's HUE was silently controlling how hard its
+	// flame rises, and that is what "the left bins have too much flame"
+	// was.** Traced through the installed addon, not guessed:
+	// `addTemperature` writes into ftFluidFlow's `temperatureFbo`, which is
+	// allocated **GL_R32F** (ftFluidFlow.cpp's own setup) — a single RED
+	// channel, so green and blue are discarded on write. ftBuoyancyShader
+	// then reads `texture(tex_temperature, st).x` and applies an UPWARD
+	// force linearly proportional to it. Feeding the same coloured texture
+	// to addDensity and addTemperature — which this file did — therefore
+	// made lift a function of each bin's red channel. kFireRingColours'
+	// reds run 30 (teal/blue) to 224 (orange), and the palette happened to
+	// put the two reddest on the LEFT island's far row (bins 0/1, red
+	// 214/224) and the two least-red on the RIGHT island's far row (bins
+	// 2/3, red 46/30) — about a 6x difference in rise, on the row facing
+	// the diner. Nothing to do with the bin grid or the homography, which
+	// is why recalibrating both changed nothing.
+	//
+	// Fix: temperature gets its OWN injection buffer with the same geometry
+	// but a hue-independent red, so all 8 bins lift identically and a
+	// future palette edit cannot reintroduce this. 30 is not arbitrary — it
+	// is the red channel of the single blue (30,110,220) every ring used
+	// before the 8-hue palette landed earlier the same day, i.e. the lift
+	// the flame was actually tuned at, and the one the developer called
+	// "sufficient" on the right island (whose far row is still sitting at
+	// red 30-46). Unmeasured against the projected table like every other
+	// constant here: raise it for more billow, lower it for a flatter ring.
+	const int kFireRingHeat = 30;
+
+	// The hand blob's heat, deliberately the same 199 its density colour
+	// (199,74,52) already carried — the hand's own flame is not what
+	// changed today and must not change now. Split out as its own name only
+	// so the two can be tuned apart later if the hand ever needs it.
+	const int kHandFlameHeat = 199;
+
 	// VISUAL_LAYER.md §9 build item 6: the fire ring's own injection shape —
 	// same filled, ODD-winding rounded-rect-band technique UiLayer's own
 	// drawRoundedBand uses (that file's comment: an unfilled ofPath's own
@@ -166,6 +200,14 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 	ftUtil::zero(_densityInject);
 	_velocityInject.allocate(_simW, _simH, GL_RG32F);
 	ftUtil::zero(_velocityInject);
+
+	// The heat buffer (see kFireRingHeat). Density resolution, not sim, so
+	// both injections are drawn in exactly the same coordinates — ftFlow::
+	// add() rescales whatever it is handed onto the sim-resolution
+	// temperatureFbo either way, so matching density here costs nothing and
+	// removes a second coordinate space from this file.
+	_temperatureInject.allocate(_densityW, _densityH, GL_RGBA);
+	ftUtil::zero(_temperatureInject);
 }
 
 void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
@@ -202,40 +244,66 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 		positions.push_back({h.id, pos});
 		currentDensityPos[h.id] = pos;
 	}
+	// Two buffers, ONE geometry. The density buffer carries the per-bin hue
+	// a diner sees; the heat buffer carries how hard that ring rises, in a
+	// red the palette cannot reach into (kFireRingHeat's own comment has
+	// the whole reason). Written as one lambda rather than two copies of
+	// the loop specifically so the shapes cannot drift apart — a ring that
+	// glowed in one buffer and lifted in a slightly different place in the
+	// other would be a far nastier bug than the one this is fixing.
+	//
 	// fireTest/src/ofApp.cpp::update() — the visible "fire" blob at the
 	// hand: flat alpha=255, ORDINARY blending, every frame, no rate
 	// limiting. Byte-for-byte, generalized from one mouse to N hands.
-	_densityInject.begin();
-	ofClear(0, 0, 0, 0);
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	ofSetColor(199, 74, 52, 255);
-	if(kHandFlameDensityEnabled){
-		for(const auto & p : positions){
-			ofDrawCircle(p.pos.x, p.pos.y, kInjectRadiusDensityPx);
-		}
-	}
+	//
 	// VISUAL_LAYER.md §9 build item 6: the active bin's own emitter, drawn
-	// into the SAME density buffer as the hand's (and, via addTemperature
-	// below, the same buoyancy source too). `intensity` is UiLayer's own
+	// into the SAME buffers as the hand's. `intensity` is UiLayer's own
 	// crossfade spring — the same one the halo fades out by — scaling
 	// alpha only, never the geometry, so the ring fills in smoothly rather
-	// than popping to full strength the instant `hl` flips to "hover".
+	// than popping to full strength the instant `hl` flips to "hover". It
+	// scales the heat identically, via the same alpha, so a ring fading in
+	// gains its lift on exactly the same curve as its colour.
 	// Alpha capped at kFireRingMaxAlpha, not 255 — see that constant's own
 	// comment on why a full-alpha ring saturates to a white-looking core
 	// under a long hover. Colour picked per bin from kFireRingColours,
 	// `colourIndex` wrapped with `% 8` here rather than trusted, since
 	// this class has no way to know the caller's own bin count.
-	for(const auto & ring : fireRings){
-		const float scale = 0.5f * (_toDensityX + _toDensityY);
-		const ofRectangle b(ring.bin.x * _toDensityX, ring.bin.y * _toDensityY,
-			ring.bin.width * _toDensityX, ring.bin.height * _toDensityY);
-		const int idx = ((ring.colourIndex % 8) + 8) % 8;
-		const ofColor colour(kFireRingColours[idx],
-			(unsigned char)(kFireRingMaxAlpha * ofClamp(ring.intensity, 0.0f, 1.0f)));
-		drawRoundedBand(b, ring.innerOffsetPx * scale, ring.outerOffsetPx * scale,
-			ring.cornerRadiusPx * scale, colour);
-	}
+	auto injectShapes = [&](bool heat){
+		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+		if(heat){
+			ofSetColor(kHandFlameHeat, 0, 0, 255);
+		}
+		else {
+			ofSetColor(199, 74, 52, 255);
+		}
+		if(kHandFlameDensityEnabled){
+			for(const auto & p : positions){
+				ofDrawCircle(p.pos.x, p.pos.y, kInjectRadiusDensityPx);
+			}
+		}
+		for(const auto & ring : fireRings){
+			const float scale = 0.5f * (_toDensityX + _toDensityY);
+			const ofRectangle b(ring.bin.x * _toDensityX, ring.bin.y * _toDensityY,
+				ring.bin.width * _toDensityX, ring.bin.height * _toDensityY);
+			const unsigned char alpha =
+				(unsigned char)(kFireRingMaxAlpha * ofClamp(ring.intensity, 0.0f, 1.0f));
+			const int idx = ((ring.colourIndex % 8) + 8) % 8;
+			const ofColor colour = heat ? ofColor(kFireRingHeat, 0, 0, alpha)
+			                            : ofColor(kFireRingColours[idx], alpha);
+			drawRoundedBand(b, ring.innerOffsetPx * scale, ring.outerOffsetPx * scale,
+				ring.cornerRadiusPx * scale, colour);
+		}
+	};
+
+	_densityInject.begin();
+	ofClear(0, 0, 0, 0);
+	injectShapes(false);
 	_densityInject.end();
+
+	_temperatureInject.begin();
+	ofClear(0, 0, 0, 0);
+	injectShapes(true);
+	_temperatureInject.end();
 
 	// fireTest/src/ofApp.cpp::update() — the push, from hand movement.
 	// mousePos*0.5 there is DENSITY-space-position*0.5 here (both map
@@ -260,8 +328,11 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	_velocityInject.end();
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
+	// addTemperature reads ONLY the red channel (ftFluidFlow's temperatureFbo
+	// is GL_R32F) — which is exactly why it gets its own buffer now rather
+	// than the coloured one. See kFireRingHeat.
 	_fluid.addDensity(_densityInject.getTexture());
-	_fluid.addTemperature(_densityInject.getTexture());
+	_fluid.addTemperature(_temperatureInject.getTexture());
 	_fluid.addVelocity(_velocityInject.getTexture());
 	_fluid.update(dt);
 
