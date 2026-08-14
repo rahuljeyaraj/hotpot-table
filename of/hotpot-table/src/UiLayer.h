@@ -46,6 +46,22 @@ public:
 	// is what stops a plate's ink from ever landing inside its own cutout.
 	std::vector<ofRectangle> cutoutRectsPx() const;
 
+	// VISUAL_LAYER.md §9 build item 6: one entry per bin currently
+	// crossfading toward "active" (StateLink::Bin::hl == "hover"), for
+	// ofApp to hand to FluidLayer::update() so the sim emits into the same
+	// annulus this bin's halo is fading out of (drawHalo reads the same
+	// spring). `bin` is binRectPx(i) — the same rect drawHalo/drawBin use —
+	// so the fluid, the halo and the light-pass cutout can never disagree
+	// about where a bin actually is. Empty when no bin is active.
+	struct FireEmitter {
+		ofRectangle bin;
+		float cornerRadiusPx = 0.0f;
+		float innerOffsetPx = 0.0f;
+		float outerOffsetPx = 0.0f;
+		float intensity = 0.0f;
+	};
+	std::vector<FireEmitter> fireEmitters() const;
+
 	// 2026-08-12: draws ONLY the pointer cursor + dwell ring, with no
 	// cutout it cannot reach. This is the ONE place the cursor is drawn
 	// while serving — `draw()` itself skips its own cursor block in that
@@ -73,6 +89,14 @@ private:
 	struct BinTween {
 		Spring picked{0.15f};
 		Spring price{0.15f};
+		// VISUAL_LAYER.md §6 Active: "Gold halo crossfades OUT as the fire
+		// ring crossfades IN." Slower than picked/price's 150ms — those
+		// track a fact (weight, cost) that should read as near-instant;
+		// this is a deliberate cross-dissolve, and 150ms reads as a flicker
+		// at the alpha ranges drawHalo/fireEmitters() use. 350ms is an
+		// unmeasured starting guess, tunable once seen projected, same as
+		// every other new VISUAL_LAYER constant this session.
+		Spring fire{0.35f};
 	};
 
 	// Not static any more (M4 build item 4): the bin rects come from core

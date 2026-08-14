@@ -3521,6 +3521,141 @@ ordinarily, last) is why this is expected to already have been true
 before this session even started, but it is reasoning, not an
 observation. **Next: build item 6 (fire ring) is unblocked.**
 
+### Step 6 (2026-08-14): fire ring — built, cannot be triggered on this
+machine at all, not just unphotographed
+Doc §9 build item 6: "Emit into the annulus on activation. Crossfade halo
+out. Verify: fire is confined to the ring, bin interior stays white."
+"Activation" is `StateLink::Bin::hl == "hover"` — already on the wire
+since before M8 (core/main.py's `_bin_msg`: hover comes from a single
+tracked pointer, `core.hover.bin_under()`, so doc §6 Active's "max 1 bin
+at a time" is core's invariant to keep, not re-checked on the oF side).
+
+- **One crossfade spring drives both halves, on purpose.**
+  `UiLayer::BinTween` gained `Spring fire{0.35f}` (slower than picked/
+  price's 150ms — this is a deliberate cross-dissolve, not a fact
+  snapping into place), targeted 1.0 when `hl=="hover"` else 0.0.
+  `drawHalo(i)` now multiplies its alpha by `1 - fire[i].get()` (and skips
+  the bin outright once fully faded) — doc §6's "never both at once in
+  the same annulus" is enforced by construction: the same number that
+  fades the halo out is the number that fades the fire in, so the two
+  cannot disagree about how far along the transition is the way two
+  independently-tuned timers could.
+- **The "fire ring" has no draw call of its own — it IS the fluid,
+  already layer 2, already below the halo (layer 4).** `UiLayer::
+  fireEmitters()` (new, public) turns each active bin's crossfade value
+  into a `FireEmitter{bin, cornerRadiusPx, innerOffsetPx, outerOffsetPx,
+  intensity}` — `innerOffsetPx` matches the halo's own margin
+  (`kHaloMarginPx`) so the ring picks up right where the halo's innermost
+  band sits, `outerOffsetPx` is doc §4's `FIRE_RING` starting number
+  (52px). `FluidLayer` gained a matching-but-separate `FireRing` struct
+  (I2/I3: it must not depend on UiLayer, so it only ever hears "inject
+  here, this hard," never `hl` or a bin index) and now injects a filled,
+  ODD-winding rounded-rect BAND into the same `_densityInject` FBO the
+  hand's circle already draws into, every frame, alpha scaled by
+  `intensity` — so the ring fades in smoothly rather than popping to full
+  strength the instant a hand crosses into a bin. Same colour as the
+  hand's own injection (199,74,52 = `#C74A34`, already doc §3's fire-core
+  colour), and it feeds `addTemperature` for free (same texture the hand's
+  blob already feeds), so buoyancy alone should make it rise — no
+  velocity injection added for a stationary ring; build item 8 (fumes) is
+  its own step.
+- **A real gap found while wiring this, not cosmetic: the MULTIPLY
+  decision from step 3 had only ever been bench-tested in isolation, never
+  applied to the actual fluid draw call.** `Stage::beginContent()` calls
+  `ofEnableAlphaBlending()` BEFORE the fluid ever draws (too early to
+  matter for this) and nothing between `_fluid.draw()` and `_ui.draw()`
+  in `ofApp::draw()` reset the blend mode afterward — so halo (layer 4)
+  and UI (layer 5) have been drawing under whatever ofxFlowTools' own
+  compositing last left active, every frame, since `kFluidEnabled` went
+  true. Fixed: `ofApp.cpp` now wraps the layer-2 draw call itself —
+  `ofEnableBlendMode(OF_BLENDMODE_MULTIPLY)` immediately before
+  `_fluid.draw()`, `ofEnableAlphaBlending()` immediately after — matching
+  §2's own two-part instruction ("use MULTIPLY" + "call
+  ofEnableAlphaBlending() ... so every layer above the fluid uses normal
+  blending") literally for the first time. **Not claimed to explain any
+  previous photo** (steps 4's halo colour issues were reasoned through and
+  fixed on their own terms already) — flagged here only because it is a
+  real, previously-unapplied piece of §2's own mandate, load-bearing for
+  whether fire is visible on `#E8E6E1` at all per §2's own warning
+  ("additive... on a light background produces WHITE... will be
+  invisible").
+- **Emitter handoff (build item 7 — "exactly ONE fluid emitter... either
+  the cursor or one bin ring, never two") is explicitly NOT built.** Today
+  both the hand's own circle and the bin's ring inject in the same frame
+  whenever a hand is hovering a bin, since that is exactly when the hand
+  is usually still sitting over it. Doc's own next build item, not this
+  one.
+- `ofApp::update()`'s call order changed: `_ui.update()` now runs BEFORE
+  `_fluid.update()`, not after — `fireEmitters()` reads this frame's
+  freshly-stepped `fire` springs, which only exist once `_ui.update()` has
+  run. Safe with no state at all (every spring is still at its
+  constructed 0, so `fireEmitters()` returns empty rather than needing a
+  second `hasState` guard).
+
+**Full rebuild, msbuild Debug x64, 0 errors, 0 warnings from this
+session's files** (4 pre-existing warnings — `ftVorticityForceShader.h`'s
+`ofClear` deprecation notice x3, `LNK4075`/`FORCE` x1 — none from
+`UiLayer`/`FluidLayer`/`ofApp`). `run.py --stop` (a live stack from the
+step 5 rebuild was still running and holding `hotpot-table_debug.exe`
+open) / rebuild / `run.py` again: camera, core, tracker, classifier,
+voice all reached ready and `of`'s StateLink connected in the merged log.
+**Two pre-existing, unrelated warnings surfaced in this same boot, not
+caused by this step:** `ftTemperatureFieldShader`/`ftVelocityFieldShader`
+(ofxFlowTools' own optional debug field-visualization shaders, never
+called by anything in this app) fail to compile on this GPU's geometry-
+shader support (`texture2DRect` not resolving) — logged as `[warning]...
+failed to initialize`, non-fatal, nothing here uses either shader.
+**Cannot be verified on this machine at all, not merely "not yet
+verified" — a real gap, worth stating plainly rather than filed under the
+usual "owed a rig photo" pattern:** `hl` can only ever become `"hover"`
+through `core.hover.bin_under()`, which needs a real camera→stage
+homography (M4k's manual corner calibration) driving a real tracked
+pointer; this dev machine's tracker logged `no camera->stage homography
+from core yet` at boot, same as every prior session here. No dev-panel
+mock exists for hover (unlike pick/put-back's own mock cycle) and
+`kFluidDebugMouseOnly` bypasses `_link`/`StateLink` entirely, so it can
+never produce a `state.bins[].hl` value either. The crossfade, the ring
+injection, and the MULTIPLY fix have never fired even once, in a
+framebuffer or otherwise — only compiled and linked. Whoever picks up
+build item 7 on the rig should watch build item 6 for the first time in
+the same session.
+
+**Correction: it WAS run on the rig, same day — the note above was wrong
+about "cannot be verified on this machine."** Developer report: "the fire
+ring actually works," with one real problem — a near-row (bottom, i=4-7)
+bin's fire, left hovering, drifted up past its own ring far enough to
+appear over the far row (top, i=0-3). Root-caused, not guessed: read
+`ftFluidFlow.cpp` directly (VERIFIED against the installed addon) rather
+than tuning blind. Its dissipation formula is `1.0 - deltaTime *
+dissipation` — the parameter is a decay RATE, and a bigger number decays
+FASTER, the opposite of what the name suggests read cold. At this app's
+~30fps, `velocity`/`temperature` at fireTest's own tuned value (0.1) each
+have an ~7 SECOND half-life, while `density`'s own 1.0 already decays in
+~1s. The visible puff a hand injects fades in about a second, same as
+always — but the invisible temperature field it left behind (which is
+what drives buoyancy — `ftBuoyancyShader.h`'s own
+`buoyancy_force = timestep*dtemp*fluid_buoyancy - density*fluid_weight`)
+keeps pushing for another six seconds, and the velocity that force builds
+barely decays either. The longer a hand hovers, the stronger the ambient
+upward draft gets, carrying each new frame's density further than the
+last. fireTest itself never showed this because its one blob already
+filled most of the screen — there was nowhere further for a long hover to
+carry it. Fixed in `FluidLayer.cpp::setup()`: `dissipation.temperature`
+1.0 (matches density's own decay — no field should outlive the density it
+exists to push), `dissipation.velocity` 0.6 (not all the way to 1.0, so
+the flame keeps some persistence/flicker rather than reading as inert).
+`dissipation.density`/`pressure`, `viscosity.*`, `buoyancy`/`weight`/
+`ambient temperature`, `vorticity` all untouched — single-lever change,
+easier to judge on the next look.
+**Full rebuild, msbuild Debug x64, 0 errors, 2 pre-existing warnings**
+(`ftVorticityForceShader.h` deprecation, `LNK4075`/`FORCE`), neither from
+this file. `run.py --stop` (this session's own step-6 stack was still up)
+/ rebuild / `run.py` again — camera/core/voice/classifier/tracker all
+reached ready, `of`'s StateLink reconnected. **Not yet re-confirmed by a
+second look** — this is one considered fix off the developer's own report,
+not a repeat observation. Next: watch a near-row bin's fire through a
+long hover again and see whether it now stays clear of the far row.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

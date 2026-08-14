@@ -179,13 +179,6 @@ void ofApp::update(){
 	// (doc §4) — CursorLink::update() is the only place that rule lives on
 	// this side.
 	_cursor.update();
-	// Driven by the real hand cursor(s), never the mouse (ofApp's mouse
-	// callbacks are all empty, deliberately — v3 §7.1's deleted OSC hand
-	// mock is not coming back as a fluid-testing shortcut). Every hand
-	// injects, pointer and ambient alike (doc §14.4).
-	if(kFluidEnabled){
-		_fluid.update(fluidDt, _cursor.hands());
-	}
 	// RIG_FEEDBACK item 11 diagnostic — same drain-to-latest discipline,
 	// see SkeletonLink::update()'s own comment.
 	_skeleton.update();
@@ -193,6 +186,25 @@ void ofApp::update(){
 	if(hasState){
 		StateLink::State state = _link.getState();
 		_ui.update(dt, true, state);
+	}
+	// Driven by the real hand cursor(s), never the mouse (ofApp's mouse
+	// callbacks are all empty, deliberately — v3 §7.1's deleted OSC hand
+	// mock is not coming back as a fluid-testing shortcut). Every hand
+	// injects, pointer and ambient alike (doc §14.4).
+	//
+	// VISUAL_LAYER.md §9 build item 6: fireEmitters() must be read AFTER
+	// _ui.update() above, not before — it reads this frame's freshly
+	// stepped crossfade springs, which is also why this call moved below
+	// the hasState block (it used to run first, when nothing here depended
+	// on `state`). Safe to call unconditionally: with no state yet, every
+	// bin's fire spring is still at its constructed 0, so this returns
+	// empty rather than needing its own hasState guard.
+	if(kFluidEnabled){
+		std::vector<FluidLayer::FireRing> fireRings;
+		for(const auto & e : _ui.fireEmitters()){
+			fireRings.push_back({e.bin, e.cornerRadiusPx, e.innerOffsetPx, e.outerOffsetPx, e.intensity});
+		}
+		_fluid.update(fluidDt, _cursor.hands(), fireRings);
 	}
 
 	_statTimer += dt;
@@ -303,7 +315,19 @@ void ofApp::draw(){
 	_stage.beginContent();
 	// --- layer 2: fluid -----------------------------------------------
 	if(kFluidEnabled){
+		// VISUAL_LAYER.md §2, decided at §9 step 3 (the bench test): fire
+		// must DARKEN the light table, not brighten it, so it draws under
+		// OF_BLENDMODE_MULTIPLY rather than whatever ofxFlowTools' own
+		// internal compositing last left active (§2's own warning: it
+		// leaves OF_BLENDMODE_ADD set after its draw call, which on this
+		// #E8E6E1 background would wash straight to white). Re-enabling
+		// alpha blending right after is the other half of that same
+		// instruction — "so every layer above the fluid uses normal
+		// blending" — halo (layer 4) and UI (layer 5) below must not
+		// inherit whatever blend state this draw call leaves behind either.
+		ofEnableBlendMode(OF_BLENDMODE_MULTIPLY);
 		_fluid.draw(0, 0, PROJ_W_PX, PROJ_H_PX);
+		ofEnableAlphaBlending();
 	}
 	// --- layers 4-5: halo, then UI (both inside UiLayer::draw) ---------
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),

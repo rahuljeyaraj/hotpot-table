@@ -152,6 +152,16 @@ namespace {
 	// (kHaloMarginPx or the ring span), not in drawBin's clearance, which
 	// several rig photos have already tuned for other reasons.
 
+	// --- VISUAL_LAYER.md §4/§6, build item 6: the active fire ring ---------
+	// "fireRect = binRect inflated by FIRE_RING (start at 52px)." Inner
+	// edge matches the halo's own margin on purpose — the fire ring picks
+	// up right where the halo's innermost band sits, so the crossfade
+	// (drawHalo's fireFade, fireEmitters()'s intensity — the same spring)
+	// never leaves a visible gap or a double-covered sliver between the two
+	// as one fades and the other fades in.
+	const float kFireRingInnerPx = kHaloMarginPx;
+	const float kFireRingOuterPx = 52.0f;
+
 	// doc's old kBinOutlineMM/kLabelClearanceMM/kLabelLineGapMM (ofApp.cpp,
 	// now deleted). Redefined here rather than resurrected in
 	// TableGeometry.h, which v3 §7.1 keeps for CAD geometry only.
@@ -659,10 +669,19 @@ void UiLayer::drawHalo(int i) const {
 	// VISUAL_LAYER.md §6, Idle: "Halo only, no simulation... Alpha falls
 	// off quadratically from the bin edge outward (brightest at edge)...
 	// Slow breathing sine on alpha, each bin phase-offset by a per-bin
-	// random seed so the 8 do not pulse in sync." All 8 bins draw this,
-	// unconditionally — build item 4 has no "active bin" concept yet
-	// (that needs the fire ring, build item 6, and hand hover, M5); every
-	// bin is "idle" until something says otherwise.
+	// random seed so the 8 do not pulse in sync." All 8 bins draw this by
+	// default — "idle" is every bin's resting state.
+	//
+	// Active (build item 6): "Gold halo crossfades OUT as the fire ring
+	// crossfades IN... Never both at once in the same annulus — they go
+	// muddy." `_bins[i].fire` is the exact same crossfade spring
+	// fireEmitters() reads to drive the fluid's own ring injection — one
+	// spring, read by both halves of the crossfade, so halo and fire can
+	// never disagree about how far along the transition is.
+	const float fireFade = 1.0f - _bins[i].fire.get();
+	if(fireFade <= 0.001f){
+		return;   // fully active — nothing left of the idle halo to draw
+	}
 	const ofRectangle bin = binRectPx(i);
 	const float baseCornerRadiusPx = mmToPxX(CUTOUT_CORNER_RADIUS_MM);
 	// 0.35 floor, not the first attempt's 0.1 — see kHaloBreathPeriodS's
@@ -676,13 +695,26 @@ void UiLayer::drawHalo(int i) const {
 		// k=0 (closest to the bin edge) is brightest; quadratic falloff
 		// outward, same shape doc §6 asks for on the fire ring's own fumes.
 		const float edgeFrac = (float)k / (float)(kHaloRingCount - 1);
-		const float alpha = 255.0f * breathe * (1.0f - edgeFrac) * (1.0f - edgeFrac);
+		const float alpha = 255.0f * breathe * fireFade * (1.0f - edgeFrac) * (1.0f - edgeFrac);
 		if(alpha < 1.0f){
 			continue;   // skip a band nobody would see rather than draw it at 0 alpha
 		}
 		drawRoundedBand(bin, innerPx, outerPx,
 			ofColor(kHaloIdleColor, alpha), baseCornerRadiusPx);
 	}
+}
+
+std::vector<UiLayer::FireEmitter> UiLayer::fireEmitters() const {
+	std::vector<FireEmitter> out;
+	for(int i = 0; i < 8; i++){
+		const float intensity = _bins[i].fire.get();
+		if(intensity < 0.01f){
+			continue;   // skip an emitter nobody would see rather than inject at ~0 alpha
+		}
+		out.push_back({binRectPx(i), mmToPxX(CUTOUT_CORNER_RADIUS_MM),
+			kFireRingInnerPx, kFireRingOuterPx, intensity});
+	}
+	return out;
 }
 
 void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
@@ -705,9 +737,16 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 
 		tw.picked.setTarget(b.picked);
 		tw.price.setTarget((float)b.price);
+		// VISUAL_LAYER.md §6 Active / build item 6: "max 1 bin at a time,"
+		// enforced by core (StateLink::Bin::hl comes from a single hover
+		// pointer — core/main.py's _bin_msg) rather than re-checked here;
+		// this spring just crossfades whichever bin(s) hl currently says
+		// are hovered.
+		tw.fire.setTarget(b.hl == "hover" ? 1.0f : 0.0f);
 
 		tw.picked.update(dt);
 		tw.price.update(dt);
+		tw.fire.update(dt);
 	}
 	_totalAmount.setTarget((float)state.total.amount);
 	_totalAmount.update(dt);

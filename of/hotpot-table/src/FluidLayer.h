@@ -48,9 +48,27 @@ public:
 	// vocabulary as doc §14.6 (sim_scale in {8,6,4,3,2}).
 	void setup(int stageW, int stageH, int simScale);
 
+	// VISUAL_LAYER.md §9 build item 6: the active bin's fire ring, STAGE
+	// space (same space `hands` arrives in) — one entry per
+	// UiLayer::FireEmitter. A separate, duplicate type rather than a shared
+	// header: FluidLayer must stay UI-agnostic (I2/I3, the same reason it
+	// already knows nothing about bins or `hl`), so this only ever says
+	// "inject here, this hard," never anything about why.
+	struct FireRing {
+		ofRectangle bin;
+		float cornerRadiusPx = 0.0f;
+		float innerOffsetPx = 0.0f;
+		float outerOffsetPx = 0.0f;
+		float intensity = 0.0f;   // 0..1 crossfade — scales injected alpha only
+	};
+
 	// hands are in STAGE space (CursorLink::Hand::x/y), same space as
-	// everything else UiLayer draws in.
-	void update(float dt, const std::vector<CursorLink::Hand> & hands);
+	// everything else UiLayer draws in. fireRings defaults empty — build
+	// item 7 ("emitter handoff") is what makes hands/rings mutually
+	// exclusive; until then both can inject in the same frame, since the
+	// hand is usually still sitting over the bin it just made active.
+	void update(float dt, const std::vector<CursorLink::Hand> & hands,
+		const std::vector<FireRing> & fireRings = {});
 
 	// Draws the density field stretched to (w,h) — "upscaled to stage
 	// size" per doc §13.2's FBO stack, step 1.
