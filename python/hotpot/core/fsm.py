@@ -1,12 +1,15 @@
 """core/fsm.py — the table's state machine (doc section 9.1).
 
-Scope is BOOT, IDLE, SELECTING (M1 build item 2), SETTING (M2.6) and
-UNCALIBRATED (M4 build item 6, now that `geometry_store.py` exists to
-give BOOT something to check for). Doc section 9.1's diagram has more —
-BROTH, SPICE, RECAP, CHECKOUT arrive with M6, the milestone that gives
-them something to do. Adding a state means adding both a State member and
-a `_go(...)` method below; nothing about the shape here is provisional
+BOOT, IDLE, SELECTING (M1 build item 2), SETTING (M2.6), UNCALIBRATED
+(M4 build item 6) and, since M6, the whole checkout chain: BROTH, SPICE,
+RECAP, CHECKOUT. Adding a state means adding both a State member and a
+transition method below; nothing about the shape here is provisional
 scaffolding to be replaced later.
+
+**Two predicates, not one, since M6: `serving` and `weighing`.** They had
+the same answer while IDLE and SELECTING were the only serving states,
+and they stopped having it the moment a diner could be mid-checkout. Read
+both before gating anything new on either.
 
 The old docstring here scheduled the mode state for "M2 and M7". That was
 never true of M2's build items — none of them mention it — and M7 build
@@ -50,7 +53,21 @@ class State(enum.Enum):
     UNCALIBRATED = "uncalibrated"
     IDLE = "idle"
     SELECTING = "selecting"
+    # Doc section 9.1's checkout chain, M6. SELECTING -> BROTH -> SPICE ->
+    # RECAP -> CHECKOUT -> IDLE.
+    BROTH = "broth"
+    SPICE = "spice"
+    RECAP = "recap"
+    CHECKOUT = "checkout"
     SETTING = "setting"
+
+
+# The four states between "the diner stopped picking" and "the order is
+# done". Grouped because three separate places need exactly this set and
+# spelling it out at each would let them drift: the scale gate below, the
+# widget layout in `core/hover.py`, and the cart-freeze in
+# `core/main.py._apply_scale_to_cart`.
+CHECKOUT_STATES = (State.BROTH, State.SPICE, State.RECAP, State.CHECKOUT)
 
 
 class Fsm:
@@ -81,14 +98,36 @@ class Fsm:
 
     @property
     def serving(self) -> bool:
-        """Whether the table is billing. **This is the predicate the scale
-        is gated on, not `state is not SETTING`.**
+        """Whether the table is open for business — the mode predicate.
 
         Doc section 9.1: "In UNCALIBRATED, serving mode is unreachable." A
-        table with no homography has no idea which tray is which, so
-        weighing food out of one and charging for it would be billing
-        against a guess. BOOT is excluded for the reason it always was —
-        nothing is loaded yet.
+        table with no homography has no idea which tray is which. BOOT is
+        excluded for the reason it always was — nothing is loaded yet.
+
+        **This is no longer the scale gate.** It was, up to M6, when IDLE
+        and SELECTING were the only serving states and the two questions
+        had the same answer. They do not any more: a table in RECAP is
+        very much serving a diner, and must not be weighing. See
+        `weighing`.
+        """
+        return self.state in (State.IDLE, State.SELECTING) or \
+            self.state in CHECKOUT_STATES
+
+    @property
+    def weighing(self) -> bool:
+        """Whether the scale may still move the cart.
+
+        **The cart freezes the moment the diner presses Done, and this is
+        the predicate that freezes it.** Everything from BROTH onward
+        shows the diner numbers they are being asked to approve — a hand
+        brushing a tray while they read the recap, or the load cells
+        drifting a gram over the 90 seconds the QR is up, must not change
+        what they already agreed to. RECAP would otherwise be a total
+        that moves while somebody reads it.
+
+        A predicate rather than `state is SELECTING` for the same reason
+        `serving` is one: a state added later cannot start billing by
+        omission.
         """
         return self.state in (State.IDLE, State.SELECTING)
 
@@ -144,11 +183,70 @@ class Fsm:
         return self._go(State.IDLE, State.SELECTING)
 
     def cancel(self) -> bool:
-        """SELECTING -> IDLE. Re-baselines and clears the cart (I6) through
-        the one shared reset_session() — never inline that logic here, per
-        doc section 9.1.
+        """-> IDLE from SELECTING or from anywhere in the checkout chain.
+        Re-baselines and clears the cart (I6) through the one shared
+        reset_session() — never inline that logic here, per doc 9.1.
+
+        **Reachable from BROTH/SPICE/RECAP/CHECKOUT too, which doc
+        section 9.1's diagram does not draw.** The diagram has no edge out
+        of those four but the last one, and that cannot be right in a
+        restaurant: a diner three screens into a checkout they did not
+        mean to start would have no way back except waiting out
+        CHECKOUT's 90s timeout. Cancel is offered on every one of those
+        screens (`core/hover.py`), so the FSM has to accept it there.
         """
-        if self._go(State.SELECTING, State.IDLE):
+        if self.state is not State.SELECTING and self.state not in CHECKOUT_STATES:
+            return False
+        old = self.state
+        self.state = State.IDLE
+        self.cart.reset_session()
+        self._fire(old, State.IDLE)
+        return True
+
+    # -- the checkout chain (doc section 9.1, section 18.1 — M6) -----------
+
+    def done(self) -> bool:
+        """SELECTING -> BROTH, doc section 9.1's `dwell "done"` edge.
+
+        Refuses on an empty cart. Nothing else in the chain checks it, so
+        this is the one gate between "a hand rested on Confirm" and a
+        zero-total order written to the database with a code a diner
+        would then be asked to pay.
+        """
+        if not self.cart.is_active():
+            return False
+        return self._go(State.SELECTING, State.BROTH)
+
+    def broth_chosen(self) -> bool:
+        """BROTH -> SPICE. Which broth was chosen is core's to remember —
+        this module owns the state, not the order's contents, the same
+        way it owns neither the cart nor the bin map.
+        """
+        return self._go(State.BROTH, State.SPICE)
+
+    def spice_chosen(self) -> bool:
+        """SPICE -> RECAP."""
+        return self._go(State.SPICE, State.RECAP)
+
+    def confirm(self) -> bool:
+        """RECAP -> CHECKOUT, doc section 9.1's `dwell "confirm"` edge.
+
+        The order is written by core on this transition. Deliberately
+        NOT here: writing a row to SQLite from inside a state machine
+        that is unit-tested with no filesystem would drag a database into
+        every FSM test, the same reason `refresh_weights` is a callback.
+        """
+        return self._go(State.RECAP, State.CHECKOUT)
+
+    def checkout_complete(self) -> bool:
+        """CHECKOUT -> IDLE, doc section 9.1's "(receipt fetched OR timeout
+        90s)" edge, with its "[re-baseline, clear cart]".
+
+        This is the third of doc section 9.1's three `reset_session()`
+        callers ("cancel, checkout completion, and setting-mode exit") and
+        the only one that had no caller until M6.
+        """
+        if self._go(State.CHECKOUT, State.IDLE):
             self.cart.reset_session()
             return True
         return False

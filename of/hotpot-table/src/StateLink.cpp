@@ -295,6 +295,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 	out.seq = j.value("seq", (int64_t)-1);
 	out.ts = j.value("ts", 0.0);
 	out.mode = j.value("mode", "serving");
+	out.phase = j.value("phase", "selecting");
 	out.locale = j.value("locale", "en");
 
 	if(j.contains("fluid") && j["fluid"].is_object()){
@@ -311,7 +312,32 @@ bool StateLink::parseState(const ofJson & j, State & out){
 	}
 
 	if(j.contains("overlay") && j["overlay"].is_object()){
-		out.overlayKind = j["overlay"].value("kind", "none");
+		const ofJson & ov = j["overlay"];
+		out.overlayKind = ov.value("kind", "none");
+		// doc §18.1's CHECKOUT screen. Parsed only for its own kind — a
+		// stale QR left in the struct from a previous order must never be
+		// drawable, so the fields are cleared on every other overlay
+		// rather than merely ignored downstream.
+		out.qr = Qr();
+		if(out.overlayKind == "qr"){
+			out.qr.code = ov.value("code", "");
+			out.qr.url = ov.value("url", "");
+			out.qr.totalText = ov.value("total_text", "");
+			out.qr.paid = ov.value("paid", false);
+			if(ov.contains("qr") && ov["qr"].is_array()){
+				for(const auto & rowj : ov["qr"]){
+					if(!rowj.is_array()){
+						continue;
+					}
+					std::vector<bool> row;
+					row.reserve(rowj.size());
+					for(const auto & v : rowj){
+						row.push_back(v.is_number() && v.get<int>() != 0);
+					}
+					out.qr.modules.push_back(std::move(row));
+				}
+			}
+		}
 	}
 
 	// doc §4.3: "bins always has exactly 8 entries." Trusted where it can
@@ -344,7 +370,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 			if(bj.contains("info") && bj["info"].is_object()){
 				const ofJson & ij = bj["info"];
 				b.diet = ij.value("diet", "");
-				b.kcal = ij.value("kcal", "");
+				b.meta = ij.value("meta", "");
 				b.desc = ij.value("desc", "");
 			}
 			// Four finite numbers or nothing. A partially-parsed rect is
@@ -406,6 +432,19 @@ bool StateLink::parseState(const ofJson & j, State & out){
 			w.dwell = std::max(0.0f, std::min(1.0f, wj.value("dwell", 0.0f)));
 			w.enabled = wj.value("enabled", true);
 			w.style = wj.value("style", "primary");
+			w.hover = wj.value("hover", false);
+			w.swatch = wj.value("swatch", "");
+			// M6's option widgets carry the info box's content. Absent on
+			// Cancel/Confirm and on any older core, and absent means the
+			// box simply does not appear for them — the same rule an
+			// unresolved bin's empty `diet` already follows.
+			if(wj.contains("info") && wj["info"].is_object()){
+				const ofJson & ij = wj["info"];
+				w.diet = ij.value("diet", "");
+				w.meta = ij.value("meta", "");
+				w.desc = ij.value("desc", "");
+				w.hasInfo = !w.desc.empty() || !w.meta.empty();
+			}
 			out.widgets.push_back(w);
 		}
 	}

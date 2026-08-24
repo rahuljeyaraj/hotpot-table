@@ -38,3 +38,23 @@ pyserial>=3.5
 # JPEG codec paths, so this dependency does not carry that risk — see
 # camera/capture.py.
 opencv-python-headless>=4.10
+
+# core/orders.py's `qr_matrix` (M6, doc section 18.1's "a QR code
+# projected"). Pure Python, no compiled extension and no Pillow needed
+# for what this uses: `QRCode.get_matrix()` returns the module grid as
+# nested bools, which core puts straight on the wire for oF to draw as
+# filled rects (I2 — core owns the data, oF owns the pixels).
+#
+# Imported INSIDE `qr_matrix` rather than at module scope, the same seam
+# pyserial gets above, so the order database, the receipt page and the
+# whole checkout chain stay importable and testable without it. A missing
+# qrcode means no QR is projected; the short order code beside it is
+# still enough to pay at a counter.
+qrcode>=8.0
+
+# tracker/backend_mediapipe.py's hand tracking. Imported lazily there, so
+# the tracker's own smoothing and geometry stay testable without it.
+# Flagged as missing from this file on 2026-08-24 and added here: it was
+# installed by hand on the dev machine, which is exactly how a rig ends up
+# with a dependency nobody has written down.
+mediapipe>=0.10

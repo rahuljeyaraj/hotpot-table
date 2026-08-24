@@ -141,12 +141,20 @@ class Server:
 
     def __init__(self, host: str, port: int, static_root: Path, *,
                  on_join: Optional[Callable[[], Any]] = None,
-                 on_message: Optional[Callable[[Dict[str, Any]], Any]] = None) -> None:
+                 on_message: Optional[Callable[[Dict[str, Any]], Any]] = None,
+                 on_http: Optional[Callable[[str], Any]] = None) -> None:
         self.host = host
         self._port = port
         self._static_root = Path(static_root)
         self._on_join = on_join
         self._on_message = on_message
+        # M6, doc section 18.2's receipt page. Takes the request path and
+        # returns `(status, content_type, body_bytes)` for a route it
+        # owns, or None to fall through to the static tree. A callback
+        # rather than routes registered here because the only dynamic
+        # pages this server will ever serve are core's, and core is what
+        # holds the order database.
+        self._on_http = on_http
         self.hub = Hub()
         self._server: Optional[_WSServer] = None
         self._thread: Optional[threading.Thread] = None
@@ -192,6 +200,26 @@ class Server:
         path = request.path.split("?", 1)[0]
         if path == "/ws":
             return None                          # continue the WS handshake
+        if self._on_http is not None:
+            try:
+                answer = self._on_http(path)
+            except Exception:                    # noqa: BLE001
+                # A broken receipt page must not take the staff view's
+                # whole listener down with it — this runs on the server
+                # thread, and an exception here would kill the connection
+                # mid-handshake for a tablet that asked for something
+                # else entirely.
+                log.exception("web: on_http(%r) raised", path)
+                return Response(500, "Server Error", Headers(),
+                                b"receipt unavailable")
+            if answer is not None:
+                status, content_type, body = answer
+                headers = Headers([
+                    ("Content-Type", content_type),
+                    ("Content-Length", str(len(body))),
+                    ("Cache-Control", "no-store"),
+                ])
+                return Response(status, "OK", headers, body)
         return self._serve_static(path)
 
     def _serve_static(self, path: str) -> Response:

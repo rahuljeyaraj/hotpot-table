@@ -93,6 +93,17 @@ class Locales:
         log.warning("i18n: key %r missing from every loaded locale", key)
         return key
 
+    def currency_symbol(self, locale: Optional[str] = None) -> str:
+        """Just the symbol. M6's order rows store which currency a total
+        was taken in (doc section 9.7's `currency` column), and that is a
+        different question from formatting an amount — recovering it by
+        stripping the digits back off `currency()["text"]` would break the
+        day a locale puts its symbol after the number.
+        """
+        loc = locale or self.default
+        table = self._tables.get(loc) or self._tables.get(self.default) or {}
+        return str(table.get("_currency", {}).get("symbol", ""))
+
     def currency(self, amount_base: float, locale: Optional[str] = None) -> Dict[str, Any]:
         """Doc section 17.2. `amount_base` is in the catalogue's base
         currency (INR). Returns the shape doc section 4.3's `total` field

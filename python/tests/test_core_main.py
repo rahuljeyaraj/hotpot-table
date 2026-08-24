@@ -26,6 +26,8 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -41,6 +43,7 @@ from hotpot.common import wire  # noqa: E402
 from hotpot.core import bin_grid  # noqa: E402
 from hotpot.core import fsm  # noqa: E402
 from hotpot.core import geometry_store  # noqa: E402
+from hotpot.core import hover  # noqa: E402
 from hotpot.core import main as coremain  # noqa: E402
 
 DEADLINE = 5.0
@@ -134,6 +137,11 @@ class CoreCase(unittest.TestCase):
         # bin bills as, so a test that wrote the real one would leave the
         # rig charging for whatever a fixture happened to set.
         self.bm_path = os.path.join(self._cal_dir.name, "bin_map.json")
+        # orders_path, same rule again (M6): this is the real restaurant's
+        # order history, and a test run that appended to it would put
+        # fixture orders in front of staff on the Orders tab — and, worse,
+        # burn real order codes a diner might be holding.
+        self.orders_path = os.path.join(self._cal_dir.name, "orders.sqlite3")
         # **A CALIBRATED table by default (M4.6).** Doc section 9.1 boots
         # an empty `state/` to UNCALIBRATED, where nothing bills at all —
         # so every test in this file that is about pricing, the mode, or
@@ -152,6 +160,7 @@ class CoreCase(unittest.TestCase):
             projector_grid_path=self.pg_path,
             view_rotation_path=self.v_path,
             bin_map_path=self.bm_path,
+            orders_path=self.orders_path,
             classify_enabled=self.classify_enabled,
             # An ephemeral cursor port, never doc section 4.1's real 8771
             # (M5). Same class of reason as `cal_path` and the grid paths:
@@ -342,7 +351,7 @@ class TestStateBroadcast(CoreCase):
                 self.assertIn(b["info"]["diet"], coremain.pricing.VALID_DIETS)
                 # Resolved on this side of the wire, unit and all — I2:
                 # oF prints the string and appends nothing.
-                self.assertIn("kcal", b["info"]["kcal"])
+                self.assertIn("kcal", b["info"]["meta"])
                 self.assertTrue(b["info"]["desc"].strip())
 
     def test_an_unresolved_bin_says_nothing_about_what_is_in_it(self):
@@ -357,7 +366,7 @@ class TestStateBroadcast(CoreCase):
             b = msgs[-1]["bins"][4]
         self.assertFalse(b["resolved"])
         self.assertEqual(b["info"],
-                         {"diet": "", "kcal": "", "desc": ""})
+                         {"diet": "", "meta": "", "desc": ""})
 
     def test_bin_labels_never_fall_back_to_the_hidden_id(self):
         """The regression guard for the leak at core/main.py's `label =`.
@@ -1254,19 +1263,21 @@ class TestBinsTab(CoreCase):
         self.assertIsNone(reborn.binmap.bins[5].item_id)
         self.assertFalse(reborn.binmap.resolved(5))
 
-    def test_a_classifier_guess_does_not_survive_a_restart(self):
-        """**Developer, 2026-08-24: "when u handed over the app to me this
-        time, the food label all were wrong."**
+    def test_a_classifier_guess_does_survive_a_restart(self):
+        """**This test asserted the OPPOSITE for one day, and the reversal
+        is the point.**
 
-        They were. The model is not tuned yet, and the moment the bin map
-        started being written to disk a wrong guess stopped dying with the
-        process and started outliving every restart with nothing on any
-        screen saying where it came from. `_load_binmap` drops a saved bin
-        whose `source` is `"classifier"` back to the seed and leaves the
-        next classify pass to answer again.
+        2026-08-24 it dropped classifier rows back to the seed, answering
+        "the food label all were wrong". 2026-08-25 the developer
+        reported the consequence: "the bin item label is not getting
+        persisted across restarting the app." With the classifier
+        disabled nothing could re-answer a dropped bin, so it sat on a
+        seed value nobody chose, forever — and two bins showed the same
+        name in one photo because one was a real override and the other
+        was the seed's own first item showing through.
 
-        Capable of failing: restore the old "load every row" behaviour and
-        bin 5 comes back as `white_rusk`.
+        Capable of failing: restore the `if b.source == "classifier":
+        continue` line and bin 5 comes back as the seed's fifth id.
         """
         rows = [{"i": i, "item_id": None, "conf": 0.0, "source": "unset"}
                 for i in range(8)]
@@ -1277,9 +1288,8 @@ class TestBinsTab(CoreCase):
             "locked": False, "bins": rows})
 
         reborn = self.reborn_core()
-        seeded = reborn.catalogue.ids()[5]
-        self.assertEqual(reborn.binmap.bins[5].item_id, seeded)
-        self.assertEqual(reborn.binmap.bins[5].source, "mock")
+        self.assertEqual(reborn.binmap.bins[5].item_id, "white_rusk")
+        self.assertEqual(reborn.binmap.bins[5].source, "classifier")
 
     def test_the_lock_still_survives_a_restart(self):
         # `binmap.locked` is `fsm.exit_setting()`'s own third step and is
@@ -3568,7 +3578,7 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         self.assertFalse(any(e.get("id") == "dwell_fire" for e in evts),
                          "Confirm fired with an empty cart")
 
-    def test_dwelling_confirm_finalises_the_cart_and_then_ends_the_session(self):
+    def test_dwelling_confirm_finalises_the_cart_and_starts_the_checkout(self):
         # The other half, and the one the developer's "the confirm and
         # cancell button didnt work" report is really about: with a pick on
         # the table the button is armed and the dwell completes.
@@ -3624,12 +3634,15 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         self.assertEqual(len(seen), 1, "Confirm did not finalise the cart")
         self.assertAlmostEqual(seen[0][0], 54.0, places=3,
                                msg="finalize ran but not on the true removed grams")
-        # And then the session ended — developer, 2026-08-24: "a cancel
-        # order or confirmed order should set the current weight as the
-        # weight of the item."
-        self.assertAlmostEqual(self.core.cart.shown_g[0], 0.0, places=3)
-        self.assertAlmostEqual(self.core.cart.start_g[0],
-                               self.core.cart.live_g[0], places=3)
+        # **And then the checkout starts — it does NOT end the session.**
+        # This assertion was the other way round until M6, when Confirm
+        # in SELECTING became doc section 9.1's "done" edge. Ending the
+        # session here now would be a real bug: it would empty the cart
+        # the diner is about to be shown on the recap and asked to pay
+        # for. Doc section 9.1 lists checkout COMPLETION as the
+        # reset_session() caller, not checkout entry.
+        self.assertIs(self.core.fsm.state, fsm.State.BROTH)
+        self.assertAlmostEqual(self.core.cart.shown_g[0], 54.0, places=3)
 
     def test_neither_done_nor_language_came_back(self):
         # RIG_FEEDBACK items 4-7 removed three widgets; 2026-08-24 brought
@@ -3899,6 +3912,347 @@ class TestTrackerToldAboutSettingMode(CoreCase):
         time.sleep(0.1)
         self.assertEqual(pushed, [])
 
+
+class TestCheckoutFlow(CoreCase):
+    """M6, doc section 18.1: SELECTING -> BROTH -> SPICE -> RECAP ->
+    CHECKOUT -> IDLE, and the payment mock that closes it.
+
+    Drives `_fire_widget` directly rather than through a real dwell. The
+    dwell itself is `TestHoverAndDwell`'s subject and is unchanged by M6;
+    what is new here is what each widget DOES, which is the part that can
+    write a wrong number into a database.
+    """
+
+    def _pick(self, grams=120.0, binIdx=0):
+        with self.core.state_lock:
+            self.core.fsm.boot_complete()
+            self.core.fsm.hand_present()
+            self.core.cart.mock_pick(binIdx, grams)
+
+    def _advance_to(self, state):
+        """Walk the chain until `state`, firing the real widgets."""
+        self._pick()
+        with self.core.state_lock:
+            if state is fsm.State.SELECTING:
+                return
+            self.core._fire_widget(hover.CONFIRM)          # -> BROTH
+            if state is fsm.State.BROTH:
+                return
+            self.core._fire_widget(hover.broth_widget_id("mala"))
+            if state is fsm.State.SPICE:
+                return
+            self.core._fire_widget(hover.spice_widget_id(2))
+            if state is fsm.State.RECAP:
+                return
+            self.core._fire_widget(hover.CONFIRM)          # -> CHECKOUT
+
+    def test_the_whole_chain_walks_in_order(self):
+        self._pick()
+        with self.core.state_lock:
+            self.assertIs(self.core.fsm.state, fsm.State.SELECTING)
+            self.core._fire_widget(hover.CONFIRM)
+            self.assertIs(self.core.fsm.state, fsm.State.BROTH)
+            self.core._fire_widget(hover.broth_widget_id("mala"))
+            self.assertIs(self.core.fsm.state, fsm.State.SPICE)
+            self.assertEqual(self.core._broth_id, "mala")
+            self.core._fire_widget(hover.spice_widget_id(3))
+            self.assertIs(self.core.fsm.state, fsm.State.RECAP)
+            self.assertEqual(self.core._spice_level, 3)
+            self.core._fire_widget(hover.CONFIRM)
+            self.assertIs(self.core.fsm.state, fsm.State.CHECKOUT)
+
+    def test_an_empty_cart_cannot_start_a_checkout(self):
+        """The one gate between a hand resting on Confirm and a zero-total
+        order with a code a diner would be asked to pay.
+        """
+        with self.core.state_lock:
+            self.core.fsm.boot_complete()
+            self.core.fsm.hand_present()
+            self.core._fire_widget(hover.CONFIRM)
+            self.assertIs(self.core.fsm.state, fsm.State.SELECTING)
+        self.assertEqual(self.core.orders.recent(), [])
+
+    def test_each_screen_offers_its_own_widgets(self):
+        self._advance_to(fsm.State.BROTH)
+        with self.core.state_lock:
+            ids = [w.id for w in self.core._widgets_for_state()]
+        self.assertIn(hover.broth_widget_id("mala"), ids)
+        self.assertIn(hover.CANCEL, ids)
+        with self.core.state_lock:
+            self.core._fire_widget(hover.broth_widget_id("mala"))
+            ids = [w.id for w in self.core._widgets_for_state()]
+        self.assertIn(hover.spice_widget_id(0), ids)
+
+    def test_every_screen_in_the_chain_has_a_way_out(self):
+        """Doc section 9.1's diagram draws no edge out of BROTH/SPICE/
+        RECAP but the next one. A diner three screens into a checkout
+        they did not mean to start must not be stuck until the 90s
+        timeout, so Cancel is offered on each and the FSM accepts it.
+        """
+        for state in (fsm.State.BROTH, fsm.State.SPICE, fsm.State.RECAP):
+            with self.subTest(state=state):
+                self.setUp()
+                self._advance_to(state)
+                with self.core.state_lock:
+                    ids = [w.id for w in self.core._widgets_for_state()]
+                    self.assertIn(hover.CANCEL, ids)
+                    self.core._fire_widget(hover.CANCEL)
+                    self.assertIs(self.core.fsm.state, fsm.State.IDLE)
+
+    def test_the_cart_stops_moving_once_the_diner_presses_done(self):
+        """**The trap.** A hand brushing a tray while the diner reads the
+        recap, or the load cells drifting over the 90s the QR is up, must
+        not change an order already written. `fsm.weighing` is what
+        freezes it, and this fails if that gate goes back to
+        `fsm.serving` — which is what it was before M6.
+        """
+        def explode():
+            raise AssertionError("the scale was read after the cart froze")
+
+        # A first attempt at this used `cart.mock_pick`, which writes to
+        # the cart DIRECTLY (it is the developer panel's own entry point)
+        # and therefore never touches the gate it was supposed to be
+        # testing — it failed for the right reason and proved nothing.
+        # Booby-trapping `scale.read` is what actually pins the early
+        # return: if `_apply_scale_to_cart` gets past the gate at all, it
+        # reads the scale, and this raises.
+        self._advance_to(fsm.State.SELECTING)
+        with self.core.state_lock:
+            self.assertTrue(self.core.fsm.weighing)
+            real_read, self.core.scale.read = self.core.scale.read, explode
+            try:
+                with self.assertRaises(AssertionError):
+                    self.core._apply_scale_to_cart()
+            finally:
+                self.core.scale.read = real_read
+
+        for state in (fsm.State.BROTH, fsm.State.SPICE, fsm.State.RECAP,
+                      fsm.State.CHECKOUT):
+            with self.subTest(state=state):
+                self.setUp()
+                self._advance_to(state)
+                with self.core.state_lock:
+                    self.assertFalse(self.core.fsm.weighing)
+                    real_read, self.core.scale.read = self.core.scale.read, explode
+                    try:
+                        self.core._apply_scale_to_cart()   # must not raise
+                    finally:
+                        self.core.scale.read = real_read
+
+    def test_the_order_is_written_with_the_lines_the_diner_saw(self):
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            order = self.core._order
+        self.assertIsNotNone(order)
+        stored = self.core.orders.get(order.code)
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.broth, "mala")
+        self.assertEqual(stored.spice, 2)
+        self.assertGreater(stored.total, 0.0)
+        self.assertEqual(len(stored.lines), 1)
+        line = stored.lines[0]
+        self.assertEqual(line.bin, 0)
+        self.assertAlmostEqual(line.grams, 120.0, places=1)
+        # The DISPLAY name, denormalised at write time — a later catalogue
+        # edit must not relabel a receipt somebody already holds.
+        self.assertTrue(line.name)
+        self.assertNotEqual(line.name, line.item_id)
+        self.assertAlmostEqual(
+            line.line_total,
+            round(coremain.pricing.bin_price(120.0, line.price_per_100g), 2),
+            places=2)
+
+    def test_the_total_on_the_order_matches_the_billed_total(self):
+        """The receipt and the table must not disagree. `pricing.total()`
+        is the billed number (I5: the deadband never enters price maths)
+        and the order is summed from the same per-line formula.
+        """
+        self._advance_to(fsm.State.RECAP)
+        with self.core.state_lock:
+            expected = coremain.pricing.total(
+                self.core.cart, self.core.binmap, self.core.catalogue)
+            self.core._fire_widget(hover.CONFIRM)
+            order = self.core._order
+        self.assertAlmostEqual(order.total, round(expected, 2), places=2)
+
+    def test_the_qr_overlay_carries_a_scannable_code(self):
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            ov = self.core._overlay_msg()
+        self.assertEqual(ov["kind"], "qr")
+        self.assertTrue(ov["code"])
+        self.assertIn("/r/" + ov["code"], ov["url"])
+        self.assertFalse(ov["paid"])
+        # A square matrix of 0/1, which is what oF draws as filled rects.
+        self.assertTrue(ov["qr"], "no QR matrix — is `qrcode` installed?")
+        self.assertEqual(len(ov["qr"]), len(ov["qr"][0]))
+
+    def test_the_recap_screen_asks_of_for_the_recap_overlay(self):
+        self._advance_to(fsm.State.RECAP)
+        with self.core.state_lock:
+            self.assertEqual(self.core._overlay_msg()["kind"], "recap")
+
+    def test_paying_the_receipt_ends_the_session(self):
+        """Doc section 18.2: "The table sees the payment land (via the
+        WebSocket) and plays `order_done`."
+        """
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            code = self.core._order.code
+        body = urlopen("http://127.0.0.1:%d/pay/%s"
+                       % (self.core.web.port, code), timeout=DEADLINE).read()
+        self.assertIn(b'"ok":true', body)
+        self.assertTrue(wait_for(
+            lambda: self.core.fsm.state is fsm.State.IDLE))
+        self.assertTrue(self.core.orders.get(code).paid)
+        with self.core.state_lock:
+            self.assertAlmostEqual(
+                coremain.pricing.total(self.core.cart, self.core.binmap,
+                                       self.core.catalogue), 0.0, places=6)
+
+    def test_paying_an_old_order_does_not_reset_a_live_table(self):
+        """A judge scanning a receipt from ten minutes ago must not clear
+        a table a different diner is halfway through.
+        """
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            old_code = self.core._order.code
+            # That order finishes normally, and a new diner starts.
+            self.core._finish_checkout()
+        self._advance_to(fsm.State.RECAP)
+        urlopen("http://127.0.0.1:%d/pay/%s"
+                % (self.core.web.port, old_code), timeout=DEADLINE).read()
+        time.sleep(0.15)
+        with self.core.state_lock:
+            self.assertIs(self.core.fsm.state, fsm.State.RECAP)
+            self.assertGreater(
+                coremain.pricing.total(self.core.cart, self.core.binmap,
+                                       self.core.catalogue), 0.0)
+
+    def test_paying_twice_does_not_move_the_payment_time(self):
+        """The receipt is a web page on a stranger's phone. It will be
+        reloaded and double-tapped; the first payment is the one that
+        happened.
+        """
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            code = self.core._order.code
+        base = "http://127.0.0.1:%d/pay/%s" % (self.core.web.port, code)
+        urlopen(base, timeout=DEADLINE).read()
+        first = self.core.orders.get(code).paid_at
+        urlopen(base, timeout=DEADLINE).read()
+        self.assertEqual(self.core.orders.get(code).paid_at, first)
+
+    def test_the_receipt_page_is_itemised_and_offers_payment(self):
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            order = self.core._order
+        html = urlopen("http://127.0.0.1:%d/r/%s"
+                       % (self.core.web.port, order.code),
+                       timeout=DEADLINE).read().decode("utf-8")
+        self.assertIn(order.code, html)
+        self.assertIn("Classic Mala Broth", html)
+        self.assertIn("Medium", html)
+        self.assertIn("%.2f" % order.total, html)
+        self.assertIn("/pay/" + order.code, html)
+        # Doc section 18.2: a real UPI deep link is OFF. A QR that opens a
+        # payment app asking a judge for real money is an incident.
+        self.assertNotIn("upi://", html)
+        # Self-contained: a phone on a contest floor may have no route off
+        # this network, so nothing may be fetched from outside it.
+        self.assertNotIn("https://", html.replace("https://www.w3.org", ""))
+
+    def test_an_unknown_order_code_is_a_404_not_a_crash(self):
+        with self.assertRaises(HTTPError) as ctx:
+            urlopen("http://127.0.0.1:%d/r/ZZ99" % self.core.web.port,
+                    timeout=DEADLINE)
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_the_receipt_page_escapes_what_a_staff_member_typed(self):
+        """An item's display name comes from a JSON file somebody edits.
+        """
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            order = self.core._order
+        with self.core.orders._connect() as db:
+            db.execute("UPDATE order_lines SET name = ? WHERE order_id = ?",
+                       ("<script>alert(1)</script>", order.id))
+        html = urlopen("http://127.0.0.1:%d/r/%s"
+                       % (self.core.web.port, order.code),
+                       timeout=DEADLINE).read().decode("utf-8")
+        self.assertNotIn("<script>alert(1)</script>", html)
+        self.assertIn("&lt;script&gt;", html)
+
+    def test_the_checkout_screen_times_out_on_its_own(self):
+        """Doc section 18.3: 90s, "whether or not the receipt was
+        fetched... no diner will remember to press anything."
+        """
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            self.core._checkout_since = (time.monotonic()
+                                         - coremain.CHECKOUT_TIMEOUT_S - 1.0)
+        self.assertTrue(wait_for(
+            lambda: self.core.fsm.state is fsm.State.IDLE))
+        # The order stays in the queue, unpaid — it is not voided.
+        self.assertEqual(len(self.core.orders.recent()), 1)
+        self.assertFalse(self.core.orders.recent()[0].paid)
+
+    def test_a_new_session_does_not_inherit_the_last_diners_choices(self):
+        self._advance_to(fsm.State.CHECKOUT)
+        with self.core.state_lock:
+            self.core._finish_checkout()
+            self.assertEqual(self.core._broth_id, "")
+            self.assertEqual(self.core._spice_level, 0)
+            self.assertIsNone(self.core._order)
+            self.assertEqual(self.core._order_qr, [])
+
+    def test_the_broth_widgets_carry_their_info_box_content(self):
+        """Developer, 2026-08-25: "broth and spicy level also need info
+        box." Each option carries its own, so oF shows the hovered one's.
+        """
+        self._advance_to(fsm.State.BROTH)
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            widgets = msgs[-1]["widgets"]
+        options = [w for w in widgets if w["id"].startswith(hover.BROTH_PREFIX)]
+        self.assertEqual(len(options), len(self.core.menu.broths))
+        for w in options:
+            with self.subTest(widget=w["id"]):
+                self.assertTrue(w["label"])
+                self.assertTrue(w["info"]["desc"])
+                self.assertTrue(w["info"]["meta"])
+                self.assertIn(w["info"]["diet"], coremain.pricing.VALID_DIETS)
+                self.assertTrue(w["swatch"].startswith("#"))
+                self.assertIn("hover", w)
+
+    def test_a_spice_level_has_no_diet_because_it_is_not_food(self):
+        self._advance_to(fsm.State.SPICE)
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            widgets = msgs[-1]["widgets"]
+        options = [w for w in widgets if w["id"].startswith(hover.SPICE_PREFIX)]
+        self.assertEqual(len(options), 4)
+        for w in options:
+            with self.subTest(widget=w["id"]):
+                self.assertEqual(w["info"]["diet"], "")
+                self.assertTrue(w["info"]["desc"])
+
+    def test_the_state_message_names_the_checkout_states(self):
+        """oF branches its whole render on `mode`/`overlay`, so the chain
+        has to be visible on the wire, not only inside the FSM.
+        """
+        self._advance_to(fsm.State.BROTH)
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            msg = msgs[-1]
+        # `phase` alongside `mode`, never inside it: doc section 4.3 fixes
+        # `mode` at serving|setting and oF branches its banner on that, so
+        # a checkout screen must not read as a mode change.
+        self.assertEqual(msg["phase"], "broth")
+        self.assertEqual(msg["mode"], coremain.MODE_SERVING)
 
 if __name__ == "__main__":
     unittest.main()

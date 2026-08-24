@@ -53,7 +53,7 @@ with it — the same rule `drawBanner` follows.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from hotpot.common import cursorbus
 from hotpot.core import geometry_store as gs
@@ -81,6 +81,37 @@ LANGUAGE = "language"
 # M6's arrival a rename instead of an addition.
 CONFIRM = "confirm"
 
+# M6. Option widgets carry their choice in the id itself — `broth:mala`,
+# `spice:2` — so `_fire_widget` reads the choice off the id it was handed
+# rather than needing a parallel lookup of "which option was at index 3
+# when this layout was built". The layout is rebuilt every tick from the
+# menu, so an index would be a second thing to keep in step.
+BROTH_PREFIX = "broth:"
+SPICE_PREFIX = "spice:"
+
+
+def broth_widget_id(broth_id: str) -> str:
+    return BROTH_PREFIX + broth_id
+
+
+def spice_widget_id(level: int) -> str:
+    return SPICE_PREFIX + str(int(level))
+
+
+def parse_broth_id(widget_id: str) -> Optional[str]:
+    if widget_id.startswith(BROTH_PREFIX):
+        return widget_id[len(BROTH_PREFIX):] or None
+    return None
+
+
+def parse_spice_level(widget_id: str) -> Optional[int]:
+    if not widget_id.startswith(SPICE_PREFIX):
+        return None
+    try:
+        return int(widget_id[len(SPICE_PREFIX):])
+    except ValueError:
+        return None
+
 
 @dataclass
 class Widget:
@@ -99,6 +130,20 @@ class Widget:
     kind: str = "button"
     style: str = "primary"
     enabled: bool = True
+    # M6's option widgets carry their own label and info box content
+    # instead of an i18n key, because a broth's name lives in
+    # `data/menu.json` and is already localised there — resolving it
+    # through the locale table would need every broth name copied into
+    # every locale file, which is exactly the duplication `menu.json`'s
+    # own `names` dict exists to avoid. `label_key` stays the route for
+    # the fixed chrome (Cancel, Confirm), which genuinely is UI text.
+    label: str = ""
+    # {"diet","meta","desc"} — the info box's content while this widget is
+    # hovered, same shape as a bin's. Empty for a widget with nothing to
+    # say, and the info box then simply does not appear.
+    info: Dict[str, str] = field(default_factory=dict)
+    # Doc section 18.1's "colour swatch each", hex, "" for no swatch.
+    swatch: str = ""
 
     def contains(self, x: float, y: float) -> bool:
         rx, ry, rw, rh = self.rect
@@ -162,7 +207,11 @@ BAND_BOTTOM_PX = 820.0
 # this module does (see the module docstring: rects are derived from
 # `TableGeometry.h`'s chain rather than hardcoded, so moving a bin moves
 # the buttons with it).
-CART_WIDTH_PX = 500.0
+# 500 -> 520 (2026-08-25), to stop the cart truncating long item names.
+# **Mirrored in UiLayer.cpp's kCartWidthPx** — see the block comment above
+# on why the two cannot share a constant, and UiLayer::setup()'s own check
+# on what breaks if they drift.
+CART_WIDTH_PX = 520.0
 BUTTON_H_PX = 100.0
 BUTTON_GAP_PX = 16.0
 
@@ -220,6 +269,124 @@ def layout() -> Dict[str, Rect]:
         CANCEL: (left, BUTTONS_TOP_PX, btn_w, BUTTON_H_PX),
         CONFIRM: (left + btn_w + BUTTON_GAP_PX, BUTTONS_TOP_PX, btn_w, BUTTON_H_PX),
     }
+
+
+# --- M6: the option list the BROTH and SPICE screens share ----------------
+#
+# Both screens are "pick one of four", so they get one layout function
+# rather than two that would drift. The options stack VERTICALLY in the
+# centre column, which is the only span on the table with no bin and no
+# bin label in it (see the module docstring) — doc section 18.1 says
+# "large projected plates" without saying where, and the near/far margins
+# are where the plate labels already are.
+#
+# Sized to fit: the free band is BAND_TOP_PX..BAND_BOTTOM_PX = 470px, and
+# 4 * OPTION_H + 3 * OPTION_GAP = 448, leaving 22px of slack. A fifth
+# broth would not fit, and `option_rects` raises rather than silently
+# overflowing the band into the cart below it.
+OPTION_W_PX = CART_WIDTH_PX
+OPTION_H_PX = 100.0
+OPTION_GAP_PX = 16.0
+
+
+def option_rects(count: int) -> List[Rect]:
+    """`count` stacked rects, centred in the free band.
+
+    Raises if they will not fit. A silent overflow here would put a
+    dwellable button on top of the cart, i.e. a hand reaching for the
+    total would choose a broth — the kind of thing that is obvious on the
+    table and invisible in a diff, so it fails loudly at layout time.
+    """
+    if count <= 0:
+        return []
+    total_h = count * OPTION_H_PX + (count - 1) * OPTION_GAP_PX
+    band_h = BAND_BOTTOM_PX - BAND_TOP_PX
+    if total_h > band_h:
+        raise ValueError(
+            f"hover: {count} options need {total_h:.0f}px but the centre "
+            f"band is only {band_h:.0f}px — shrink OPTION_H_PX or the menu")
+    x0, col_w = centre_column_px()
+    left = x0 + (col_w - OPTION_W_PX) * 0.5
+    top = BAND_TOP_PX + (band_h - total_h) * 0.5
+    return [(left, top + i * (OPTION_H_PX + OPTION_GAP_PX),
+             OPTION_W_PX, OPTION_H_PX) for i in range(count)]
+
+
+def _cancel_only() -> Widget:
+    """Cancel, alone, on the button row.
+
+    The checkout screens put Cancel where Cancel has been the whole
+    session rather than moving it — a diner who has already used it once
+    on this table should not have to find it again.
+    """
+    return Widget(id=CANCEL, rect=layout()[CANCEL], label_key="cancel",
+                  style="danger", enabled=True)
+
+
+def broth_widgets(broths: Sequence[Any]) -> List[Widget]:
+    """Doc section 18.1's BROTH screen: one plate per broth, plus Cancel.
+
+    `broths` are `menu.Broth`es; typed loosely so this module does not
+    import `menu` (it imports nothing of core's but `geometry_store`, and
+    keeping it that way is what lets `test_hover` run with no data files).
+    """
+    rects = option_rects(len(broths))
+    out = [
+        Widget(id=broth_widget_id(b.id), rect=rect, label_key="",
+               label=b.display_name(), kind="option", style="option",
+               enabled=True, swatch=b.swatch,
+               info={"diet": b.diet, "meta": b.meta, "desc": b.note})
+        for b, rect in zip(broths, rects)
+    ]
+    out.append(_cancel_only())
+    return out
+
+
+def spice_widgets(levels: Sequence[Any]) -> List[Widget]:
+    """Doc section 18.1's SPICE screen: one plate per level, plus Cancel.
+
+    No `diet` on a spice level — it is not food. The info box draws the
+    diet mark only when there is one rather than drawing a blank dot.
+    """
+    rects = option_rects(len(levels))
+    out = [
+        Widget(id=spice_widget_id(s.level), rect=rect, label_key="",
+               label=s.display_name(), kind="option", style="option",
+               enabled=True,
+               info={"diet": "", "meta": s.meta, "desc": s.note})
+        for s, rect in zip(levels, rects)
+    ]
+    out.append(_cancel_only())
+    return out
+
+
+def recap_widgets() -> List[Widget]:
+    """Doc section 18.1's RECAP: "dwell confirm". Same two buttons and the
+    same two rects as SELECTING — the diner has been looking at them all
+    session and this is the screen where Confirm finally commits.
+    """
+    rects = layout()
+    return [
+        Widget(id=CANCEL, rect=rects[CANCEL], label_key="cancel",
+               style="danger", enabled=True),
+        Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="confirm",
+               style="primary", enabled=True),
+    ]
+
+
+def checkout_widgets() -> List[Widget]:
+    """CHECKOUT. One button, and it is not Cancel.
+
+    The order is written and the code is assigned by the time this screen
+    is up, so there is nothing left to cancel — offering it would suggest
+    the diner could still call the order off, which is not true. Doc
+    section 18.3's 90s timeout ends this screen on its own; this is the
+    "I have finished reading the code" shortcut, and it does exactly what
+    the timeout does.
+    """
+    rects = layout()
+    return [Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="done",
+                   style="primary", enabled=True)]
 
 
 def widgets_for(*, selecting: bool, locales_available: int,

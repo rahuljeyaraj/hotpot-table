@@ -79,7 +79,7 @@ public:
 		// bin, and empty means DRAW NOTHING: doc §8's "Idle: invisible.
 		// No fill, no border. Not an empty bordered box."
 		std::string diet;   // veg|nonveg|egg, or "" for an unresolved bin
-		std::string kcal;   // e.g. "74 kcal / 100g", resolved
+		std::string meta;   // right-hand slot: "74 kcal / 100g", resolved
 		// One sentence on what the ingredient is LIKE, so a diner can
 		// choose it. Never an instruction — the kitchen cooks this food,
 		// not the table. See pricing.Item.description for the full rule.
@@ -93,13 +93,42 @@ public:
 	// core computed, so the ring's fill is core's answer, not a second
 	// clock here that could disagree with the one that actually fires.
 	struct Widget {
-		std::string id;      // done|cancel|language
-		std::string kind = "button";
+		std::string id;      // cancel|confirm|broth:<id>|spice:<n>
+		std::string kind = "button";   // "button" | "option"
 		std::string label;   // already resolved in the current locale (I2)
 		float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;   // stage space
 		float dwell = 0.0f;  // 0..1
 		bool enabled = true;
 		std::string style = "primary";
+		// M6. Whether the pointer is inside this widget RIGHT NOW, which
+		// is core's answer (it owns the hit test, doc §9.4) rather than a
+		// second one derived here from `dwell > 0`. That derivation would
+		// be wrong for the first frame of a hover, when the accumulator
+		// is still at zero.
+		bool hover = false;
+		// The info box's content while this widget is hovered — a broth
+		// or a spice level has one, Cancel and Confirm do not. Same three
+		// fields and the same rules as Bin's, so drawInfoBox can take
+		// either without caring which it got.
+		bool hasInfo = false;
+		std::string diet;    // veg|nonveg|egg, or "" (a spice level is not food)
+		std::string meta;    // the right-hand slot: "22 kcal / 100g", "Very spicy"
+		std::string desc;
+		// doc §18.1's "a colour swatch each", hex, empty for no swatch.
+		std::string swatch;
+	};
+
+	// doc §18.1's CHECKOUT screen, carried on `overlay` (kind == "qr").
+	struct Qr {
+		std::string code;         // the short human code, e.g. "A17"
+		std::string url;          // what the modules below encode
+		std::string totalText;    // resolved by core (I2)
+		bool paid = false;
+		// Square, row-major, true == a dark module. Core sends the
+		// matrix and oF draws filled rects: I2 again — core owns the
+		// data, oF owns the pixels, and a matrix scales to whatever
+		// module size the projector needs with no resample.
+		std::vector<std::vector<bool>> modules;
 	};
 
 	struct Fluid {
@@ -125,12 +154,23 @@ public:
 		// `state` line that somehow arrived without the field must not
 		// paint SETTING — NOT BILLING over a table that is billing.
 		std::string mode = "serving";
+		// M6: which screen of doc §9.1's chain the table is on —
+		// idle|selecting|broth|spice|recap|checkout|setting|uncalibrated.
+		// **Alongside `mode`, never inside it.** doc §4.3 fixes `mode` at
+		// serving|setting and the banner branches on it, so folding the
+		// checkout screens in there would make every one of them paint a
+		// NOT SERVING banner over a table that is very much serving.
+		// Defaults to "selecting" for the same reason `mode` defaults to
+		// the billing value: a line that arrived without it must not put
+		// the table into a checkout screen nobody asked for.
+		std::string phase = "selecting";
 		std::string locale = "en";
 		Fluid fluid;
 		std::vector<Bin> bins;
 		std::vector<Widget> widgets;
 		Total total;
 		std::string overlayKind = "none";
+		Qr qr;
 	};
 
 	// who="of" (doc §4.1 process names / health.py's PROCESSES tuple).

@@ -7,6 +7,7 @@
 #include "StateLink.h"
 
 #include <array>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -172,22 +173,18 @@ private:
 		const ofColor & colour);
 	static void drawGlow(const ofRectangle & r, float cornerRadiusPx,
 		float reachPx, int bands, const ofColor & colour, int peakAlpha);
-	// A horizontal rule that is THICK AT THE CENTRE and tapers to nothing
-	// at both ends, rather than a bar of constant thickness.
+	// A horizontal rule whose ALPHA fades from the centre to nothing at
+	// both ends, at constant thickness.
 	//
-	// Developer, 2026-08-24, on the flat version that briefly replaced it:
-	// "the previous line in option a was thich at center and tapered
-	// towards the side, no it is a simply a straight line." Built from
-	// vertical slices with a quadratic falloff on BOTH alpha and height —
-	// the same falloff shape drawHalo/drawGlow use, so the rule belongs to
-	// the same family of light as everything else on this table.
-	//
-	// Two passes per rule: a wide, low-alpha bloom in `bloomColour` and a
-	// thin core in `coreColour`. That split is what makes a gold rule
-	// readable on a near-white field at all — see kCartRuleCoreColor.
-	static void drawTaperedRule(float x, float y, float widthPx,
-		float coreThickPx, const ofColor & coreColour, int coreAlpha,
-		float bloomThickPx, const ofColor & bloomColour, int bloomAlpha);
+	// Two developer reports made this what it is. 2026-08-24, on a flat
+	// bar: "the previous line in option a was thich at center and tapered
+	// towards the side, no it is a simply a straight line." Then
+	// 2026-08-25, on the tapered-height version that answered it: "the
+	// line spereator... looks terrible, why did u put that weierd broken
+	// lines there. just the fade effect is more than enough." So: fade
+	// the alpha, hold the height.
+	static void drawFadedRule(float x, float y, float widthPx,
+		float thickPx, const ofColor & colour, int peakAlpha);
 	void drawHalo(int i) const;
 	void drawWidgets(const StateLink::State & state) const;
 	void drawWidget(const StateLink::Widget & w) const;
@@ -215,6 +212,10 @@ private:
 	// sits in is reserved by kCartTopPx' own arithmetic whether anything
 	// is active or not.
 	void drawInfoBox(const StateLink::State & state) const;
+	// doc §18.1's CHECKOUT screen: the order code, the projected QR and
+	// the total. Replaces the cart for that one screen — see the call
+	// site in draw() for why the cart stays up until then.
+	void drawCheckout(const StateLink::State & state) const;
 	// The lowest px the cart's own ink reaches. Exists so setup()'s
 	// cross-file check against core/hover.py's button band measures the
 	// same number drawCart lays out from, rather than a second estimate.
@@ -288,7 +289,13 @@ private:
 	// option a implement it." It shared _infoFont until then, so the one
 	// number on the box a diner might weigh a choice against was set at
 	// body size next to a 30px name.
-	ofTrueTypeFont _infoKcalFont;   // info box, the kcal figure
+	ofTrueTypeFont _infoKcalFont;   // info box, the right-hand meta figure
+	ofTrueTypeFont _infoDietFont;   // info box, the VEG/NON-VEG label (bold)
+	ofTrueTypeFont _cartDetailFont; // cart, the grams/price column (mono)
+	// Names already reported as too wide for the cart's name column, so
+	// the warning is one line per name rather than one per frame at 60Hz.
+	// Mutable because drawCart is const and this is diagnostics, not state.
+	mutable std::set<std::string> _truncatedNames;
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
 
@@ -323,18 +330,28 @@ private:
 	// on which row a bin's numbers happen to sit in.
 	std::array<int, 8> _cartSlotBin{{-1, -1, -1, -1, -1, -1, -1, -1}};
 
-	// VISUAL_LAYER.md §8, build item 10. `_infoBin` is the bin the box is
-	// currently ABOUT — set when a bin becomes active and deliberately
-	// LEFT SET when it stops being, so the box has something to draw
-	// while it fades out. Clearing it on deactivation would blank the
-	// text a frame before the box itself finished going, which reads as
-	// the box breaking rather than as it closing.
+	// VISUAL_LAYER.md §8, build item 10. What the info box is currently
+	// ABOUT — a hovered bin, or (M6) a hovered broth/spice option, which
+	// is why this is the resolved CONTENT rather than a bin index: the
+	// box takes either without caring which it got, and a widget has no
+	// index into `state.bins` to be named by.
 	//
+	// Deliberately LEFT SET when nothing is hovered any more, so the box
+	// has something to draw while it fades out. Clearing it on
+	// deactivation would blank the text a frame before the box itself
+	// finished going, which reads as the box breaking rather than as it
+	// closing.
+	struct InfoContent {
+		std::string name;
+		std::string diet;   // veg|nonveg|egg, or "" — a spice level is not food
+		std::string meta;
+		std::string desc;
+	};
+	InfoContent _info;
 	// 250ms: slower than the 150ms a fact-tracking spring uses
 	// (BinTween::picked — those track a number that should feel
 	// instant), faster than the halo/fire cross-dissolve's 350ms.
 	// Unmeasured, tunable once seen projected, same as every other new
 	// timing constant in this file.
-	int _infoBin = -1;
 	Spring _infoFade{0.25f};
 };

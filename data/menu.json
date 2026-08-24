@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "_note": "Broths and spice levels for the checkout flow (doc 18.1). Broth names are the four on bigwayhotpot.com/menu, developer-supplied. `diet` is INFERRED FROM THE NAME and is not confirmed with the restaurant -- mala is traditionally a beef-tallow base and bone broth is bone, so both are marked nonveg; confirm before this is ever shown to a real diner. `note` and `meta` follow the same rules as pricing.Item.description: ASCII only (UiLayer loads Latin1Supplement + CurrencySymbols, so an em-dash silently does not render), and never an instruction -- the kitchen cooks, the diner chooses.",
+  "broths": [
+    {
+      "id": "mala",
+      "names": {"en": "Classic Mala Broth", "zh": "经典麻辣汤"},
+      "pinyin": "jingdian malatang",
+      "diet": "nonveg",
+      "meta": "Very spicy",
+      "note": "Numbing and fiery, built on Sichuan pepper and chilli. The boldest broth here.",
+      "swatch": "#C0392B"
+    },
+    {
+      "id": "mushroom",
+      "names": {"en": "Mushroom Vegan Broth", "zh": "素食菌菇汤"},
+      "pinyin": "sushi jungu tang",
+      "diet": "veg",
+      "meta": "Not spicy",
+      "note": "Deep and savoury with no meat at all. Earthy rather than rich.",
+      "swatch": "#7A5C3E"
+    },
+    {
+      "id": "collagen",
+      "names": {"en": "Collagen Bone Broth", "zh": "胶原骨汤"},
+      "pinyin": "jiaoyuan gu tang",
+      "diet": "nonveg",
+      "meta": "Not spicy",
+      "note": "Milky and slow simmered. Rich on the tongue but completely mild.",
+      "swatch": "#D8CFC0"
+    },
+    {
+      "id": "miso",
+      "names": {"en": "Miso Broth", "zh": "味噌汤"},
+      "pinyin": "weizeng tang",
+      "diet": "veg",
+      "meta": "Not spicy",
+      "note": "Light, salty and gently sweet. The easiest of the four to drink on its own.",
+      "swatch": "#C89A3C"
+    }
+  ],
+  "spice_levels": [
+    {
+      "level": 0,
+      "names": {"en": "No Spice", "zh": "不辣"},
+      "pinyin": "bu la",
+      "meta": "Level 0",
+      "note": "Plain broth, no chilli at all. A real choice here, not a fallback."
+    },
+    {
+      "level": 1,
+      "names": {"en": "Mild", "zh": "微辣"},
+      "pinyin": "wei la",
+      "meta": "Level 1",
+      "note": "A gentle warmth. You taste the broth first and the chilli after."
+    },
+    {
+      "level": 2,
+      "names": {"en": "Medium", "zh": "中辣"},
+      "pinyin": "zhong la",
+      "meta": "Level 2",
+      "note": "Properly spicy and still comfortable. The most ordered level."
+    },
+    {
+      "level": 3,
+      "names": {"en": "Hot", "zh": "特辣"},
+      "pinyin": "te la",
+      "meta": "Level 3",
+      "note": "Serious heat. Worth choosing only if you already know you like it."
+    }
+  ]
+}

@@ -60,8 +60,8 @@ from typing import Any, Callable, Dict, Optional
 from hotpot.classifier import ei_client, ei_deploy, ei_store
 from hotpot.common import atomicio, config, cursorbus, geometry, health, log, wire
 from hotpot.core import (bin_grid, binmap, calibrator, cart, fsm,
-                         geometry_store, hover, i18n, loadcell_cal, pricing,
-                         scale)
+                         geometry_store, hover, i18n, loadcell_cal, menu,
+                         orders, pricing, scale)
 from hotpot.core.web import server as web
 
 _log = logging.getLogger("hotpot.core")
@@ -210,6 +210,76 @@ CLASSIFY_LIVE_TIMEOUT_S = 5.0
 # makes core the one place a client's effective configuration lives.
 CLASSIFIER_LIVE_HZ = 2.0
 
+# Doc section 18.3: "CHECKOUT auto-returns to IDLE after 90s whether or
+# not the receipt was fetched. The order stays in the queue as unpaid. A
+# contest floor has no patience and no diner will remember to press
+# anything."
+CHECKOUT_TIMEOUT_S = 90.0
+
+
+def _html_escape(s: str) -> str:
+    """Everything on the receipt page is data somebody could have typed —
+    an item's display name comes from a JSON file a staff member edits.
+    """
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+# Doc section 18.2's receipt. One file, no external anything: a phone on a
+# contest floor may have no route off the table's own network.
+_RECEIPT_TEMPLATE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Order {code}</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin:0; padding:24px 18px 48px; font:16px/1.5 system-ui,-apple-system,
+         "Segoe UI",Roboto,sans-serif; background:#12100e; color:#f2ede2;
+         max-width:520px; margin-inline:auto; }}
+  h1 {{ font-size:15px; letter-spacing:.14em; text-transform:uppercase;
+       color:#8b8378; margin:0 0 4px; font-weight:600; }}
+  .code {{ font-size:44px; font-weight:700; letter-spacing:.04em; margin:0 0 2px; }}
+  .chosen {{ color:#b4aa9c; margin:0 0 22px; }}
+  table {{ width:100%; border-collapse:collapse; margin-bottom:8px; }}
+  td {{ padding:11px 0; border-bottom:1px solid rgba(255,255,255,.09); }}
+  td.n {{ text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;
+         color:#b4aa9c; width:1%; padding-left:14px; }}
+  .total {{ display:flex; justify-content:space-between; align-items:baseline;
+           padding-top:14px; font-size:26px; font-weight:700; }}
+  .total span:first-child {{ font-size:16px; color:#8b8378; font-weight:600; }}
+  button {{ width:100%; margin-top:26px; padding:18px; border:0; border-radius:14px;
+           background:#2e8c3c; color:#fff; font-size:19px; font-weight:700;
+           cursor:pointer; }}
+  button:disabled {{ opacity:.6; }}
+  .paid {{ margin-top:26px; padding:18px; border-radius:14px; text-align:center;
+          background:rgba(46,140,60,.18); color:#7fd08c; font-weight:700; }}
+  footer {{ margin-top:28px; color:#6b6357; font-size:12.5px; text-align:center; }}
+</style></head><body>
+<h1>Order</h1>
+<p class="code">{code}</p>
+<p class="chosen">{chosen}</p>
+<table>{rows}</table>
+<div class="total"><span>Total</span><span>{sym}{total:.2f}</span></div>
+<div id="action">{action}</div>
+<footer>Demo only. No money moves.</footer>
+<script>
+function pay() {{
+  var b = document.getElementById('pay');
+  b.disabled = true; b.textContent = 'Paying...';
+  fetch('/pay/{code}').then(function (r) {{ return r.json(); }})
+    .then(function (j) {{
+      document.getElementById('action').innerHTML = j.ok
+        ? '<div class="paid">Paid. Thank you.</div>'
+        : '<div class="paid">Could not find that order.</div>';
+    }})
+    .catch(function () {{
+      b.disabled = false; b.textContent = 'Try again';
+    }});
+}}
+</script>
+</body></html>"""
+
 
 def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
     """M1's fixed hand-built bin map (binmap.py's docstring, doc section
@@ -269,6 +339,8 @@ class Core:
         camera_host: str = CAMERA_HOST,
         camera_port: int = CAMERA_PORT,
         bin_map_path: Path = binmap.BIN_MAP_PATH,
+        menu_path: Path = menu.MENU_PATH,
+        orders_path: Path = orders.ORDERS_PATH,
         homography_path: Path = geometry_store.HOMOGRAPHY_PATH,
         camera_grid_path: Path = bin_grid.CAMERA_GRID_PATH,
         projector_grid_path: Path = bin_grid.PROJECTOR_GRID_PATH,
@@ -300,7 +372,8 @@ class Core:
         # no route to the tracker except through here.
         self.mirror_handedness = mirror_handedness
         self.web = web.Server(web_host, web_port, static_root,
-                              on_join=self._join_msgs, on_message=self._on_web_message)
+                              on_join=self._join_msgs, on_message=self._on_web_message,
+                              on_http=self._on_http)
         # Core beats its own pip from its own loop rather than being
         # hardcoded green (common/health.py's rationale): a wedged main
         # loop with a live web thread is a real failure and this is what
@@ -314,6 +387,24 @@ class Core:
         self.locales = i18n.Locales.load(data_dir / "locales", locales=(self.locale,))
         self.bin_map_path = Path(bin_map_path)
         self.binmap = self._load_binmap()
+        # -- M6: the checkout flow's own data ---------------------------
+        # Loaded at boot and validated there, like the catalogue: a bad
+        # `menu.json` stops core on the bench rather than projecting a
+        # blank broth plate at a diner three screens into an order.
+        self.menu = menu.Menu.load(menu_path)
+        self.orders = orders.OrderStore(orders_path)
+        # What the diner has chosen so far this session. Cleared by
+        # `_end_session`, which is the one place a session ends, so a
+        # previous diner's broth can never ride into the next order.
+        self._broth_id: str = ""
+        self._spice_level: int = 0
+        # The order written at RECAP -> CHECKOUT, held while the QR is up
+        # so the payment callback and the table can find it by code.
+        self._order: Optional[orders.Order] = None
+        self._order_qr: list = []
+        # `time.monotonic()` when CHECKOUT began — doc section 18.3's 90s
+        # timeout is measured from here.
+        self._checkout_since: Optional[float] = None
         self.cart = _seed_cart()
         # binmap and refresh_weights are both here so that fsm.py owns all
         # three of doc section 9.1's setting-exit steps — refresh, then
@@ -1171,24 +1262,29 @@ class Core:
         and that is the one case that takes the mock seed, exactly as
         every boot did before this.
 
-        **A CLASSIFIER result is not restored — only what a human set
-        is.** Developer, 2026-08-24, on the first restart after this file
-        started being written: "when u handed over the app to me this
-        time, the food label all were wrong." They were: the model is not
-        tuned yet (CLAUDE.md's own `classifier.enabled` note, 2026-08-14),
-        so `state/bin_map.json` had picked up guesses like bins 4 and 5
-        both reading `white_rusk` — and persistence, which had just
-        started working, made them permanent. Before this feature existed
-        a bad guess died with the process; after it, it outlived every
-        restart with nothing on any screen saying where it came from.
+        **EVERY saved bin is restored, whatever set it — and this was
+        the other way round for one day.** The 2026-08-24 version dropped
+        any bin whose `source` was `"classifier"` back to the seed,
+        answering that day's report ("when u handed over the app to me
+        this time, the food label all were wrong"): the model is not
+        tuned (`classifier.enabled` is false), it had written guesses
+        like bins 4 and 5 both reading `white_rusk`, and persistence had
+        just made them permanent.
 
-        So a saved bin whose `source` is `"classifier"` falls back to the
-        seed and is left for the next classify pass to answer again.
-        `"manual"` (an operator chose it) and `"unset"` (an operator
-        CLEARED it — a decision too, and the reason this is not simply
-        "restore the manual ones") are both restored verbatim, which is
-        the whole of what the original report asked for. Flip this back
-        the day the model is worth trusting across a restart.
+        That cure was worse than the disease, and the next day's report
+        is what showed it: "the bin item label is not getting persisted
+        across restarting the app." Four bins on the rig were
+        classifier-sourced, so every restart threw them back to
+        `catalogue.ids()[i]` — and with the classifier DISABLED nothing
+        could ever answer them again, so they sat on a seed value nobody
+        chose, permanently. Two bins reading "Wheat Noodles" in the same
+        photo is exactly that: bin 0 was a real manual override and bin 1
+        was the seed's own first item showing through.
+
+        The real cure for a wrong guess is the manual override, which
+        exists now and persists — a human's answer wins and stays won. A
+        stale guess is still visible and still fixable; a seed value that
+        silently replaces one every boot is neither.
         """
         seed = _seed_binmap(self.catalogue)
         if not Path(self.bin_map_path).exists():
@@ -1205,8 +1301,6 @@ class Core:
             return seed
         seed.locked = saved.locked
         for b in saved.bins:
-            if b.source == "classifier":
-                continue
             item_id = b.item_id
             if item_id is not None and self.catalogue.item(item_id) is None:
                 _log.warning("core: bin %d had %r, which is not in the "
@@ -1312,12 +1406,20 @@ class Core:
         Caller holds state_lock — this mutates Cart, the same rule every
         other cart.py call site in this file already follows.
         """
-        # `fsm.serving`, not "not SETTING": doc section 9.1 makes serving
+        # `fsm.weighing`, not "not SETTING": doc section 9.1 makes serving
         # unreachable in UNCALIBRATED too, and a table that does not know
         # which tray is which must not weigh food out of one and charge
         # for it. One predicate, so a state added later cannot start
         # billing by omission.
-        if not self.fsm.serving:
+        #
+        # **This was `fsm.serving` until M6 and had to change with it.**
+        # The two predicates split when the checkout chain landed: a
+        # table in RECAP is serving a diner but must not be weighing, or
+        # the total moves while they are reading the recap they are being
+        # asked to approve, and the QR's 90 seconds of load-cell drift
+        # would change an order already written to the database. See
+        # `fsm.weighing`.
+        if not self.fsm.weighing:
             return
         reading = self.scale.read()
         for i in range(cart.NUM_BINS):
@@ -1551,10 +1653,19 @@ class Core:
         # same reason M2.6 chose it for the setting-mode refusal: the raw
         # removed grams move with load-cell noise, so gating on those would
         # arm both buttons on an untouched table and never disarm them.
-        self._widgets = hover.widgets_for(
-            selecting=self.fsm.state is fsm.State.SELECTING,
-            locales_available=len(self.locales.available()),
-            cart_active=self.cart.is_active())
+        self._widgets = self._widgets_for_state()
+
+        # Doc section 18.3: "CHECKOUT auto-returns to IDLE after 90s
+        # whether or not the receipt was fetched. A contest floor has no
+        # patience and no diner will remember to press anything." Checked
+        # here, on the tick, rather than on a timer thread — this loop
+        # already runs at 60Hz and a second clock would need its own lock.
+        if (self.fsm.state is fsm.State.CHECKOUT
+                and self._checkout_since is not None
+                and now - self._checkout_since >= CHECKOUT_TIMEOUT_S):
+            _log.info("core: checkout timed out after %.0fs — back to IDLE",
+                      CHECKOUT_TIMEOUT_S)
+            self._finish_checkout()
 
         # `hover.bin_under` already answers None for a None hand (its own
         # docstring), so this runs unconditionally rather than duplicating
@@ -1572,6 +1683,36 @@ class Core:
         fired = self.dwell.update(self._widgets, pointer, now)
         if fired is not None:
             self._fire_widget(fired)
+
+    def _widgets_for_state(self) -> list:
+        """Which buttons the table is offering right now.
+
+        One place, so a state cannot end up with no way out of it — every
+        branch below returns at least one dwellable widget, and the
+        fallthrough returns the cart pair rather than an empty list.
+
+        Caller holds `state_lock`.
+        """
+        st = self.fsm.state
+        if st is fsm.State.BROTH:
+            return hover.broth_widgets(self.menu.broths)
+        if st is fsm.State.SPICE:
+            return hover.spice_widgets(self.menu.spice_levels)
+        if st is fsm.State.RECAP:
+            return hover.recap_widgets()
+        if st is fsm.State.CHECKOUT:
+            return hover.checkout_widgets()
+        # `cart_active` gates whether Cancel/Confirm are dwellable at all
+        # (hover.widgets_for's own docstring). `cart.is_active()` reads
+        # `shown_g`, i.e. the DEADBANDED number — deliberately, and for
+        # the same reason M2.6 chose it for the setting-mode refusal: the
+        # raw removed grams move with load-cell noise, so gating on those
+        # would arm both buttons on an untouched table and never disarm
+        # them.
+        return hover.widgets_for(
+            selecting=st is fsm.State.SELECTING,
+            locales_available=len(self.locales.available()),
+            cart_active=self.cart.is_active())
 
     def _send_evt(self, msg: Dict[str, Any]) -> None:
         """Doc section 4.4's one-shot events. Fire-and-forget: "if oF misses
@@ -1600,6 +1741,17 @@ class Core:
         Caller holds `state_lock`.
         """
         self.cart.reset_session()
+        # M6: the checkout's own scratch state dies with the session, so
+        # a previous diner's broth, spice or order code can never ride
+        # into the next one. `_order` in particular is what the QR screen
+        # and the payment callback read — leaving it set would let a
+        # payment landing minutes later reset a table a new diner is
+        # already using.
+        self._broth_id = ""
+        self._spice_level = 0
+        self._order = None
+        self._order_qr = []
+        self._checkout_since = None
 
     def _fire_widget(self, widget_id: str) -> None:
         """A dwell completed. One dispatch table, so a widget that fires
@@ -1619,49 +1771,312 @@ class Core:
             self._end_session()
             return
         if widget_id == hover.CONFIRM:
-            # **`finalize()` then `_end_session()`, in that order.**
-            # `finalize()` snaps every bin's SHOWN grams onto the true
-            # removed grams, dropping the display deadband (doc section
-            # 9.2's fix for open debt #5) — so the last numbers the cart
-            # holds are the numbers that would be billed, which is what a
-            # future M6 order-write reads. Only then does the session end.
-            #
-            # **Confirm used to stop at `finalize()` and deliberately leave
-            # the cart standing as the diner's receipt. The developer
-            # reversed that on 2026-08-24:** "a cancel order or confirmed
-            # order should set the current weight as the weight of the
-            # item." Leaving it standing was also actively wrong in a way
-            # the original reasoning missed — `finalize()` writes
-            # `removed_grams` into `shown_g` for ALL eight bins, deadband
-            # and all, so every bin carrying a few grams of load-cell noise
-            # (this file's own per-channel table: four channels at
-            # 500-1500 counts rms) appeared in the cart the instant Confirm
-            # fired, and stayed there for the next diner. That is the
-            # "all the old items get popped up" half of the same report.
-            #
-            # What happens AFTER the session ends is still M6 and is still
-            # not invented here — doc section 9.1's SELECTING -> BROTH ->
-            # RECAP -> CHECKOUT chain is written against `hover.DONE`.
-            self.cart.finalize()
-            self._end_session()
-            _log.info("core: Confirm fired (dwell complete) — cart finalised "
-                      "to true grams, then re-baselined. Checkout is M6.")
+            self._fire_confirm()
             return
         if widget_id == hover.LANGUAGE:
             self._cycle_locale()
             return
         if widget_id == hover.DONE:
-            # **Doc section 9.1's SELECTING -> BROTH edge is M6 and is not
-            # invented here.** Doc section 21's M5 acceptance test asks only
-            # that "the ring fills over 1.2s and fires", which it now does:
-            # the dwell completes, the ring resets, and the sound event
-            # above goes out. M6 build item 1 adds the BROTH/SPICE/RECAP/
-            # CHECKOUT states and attaches them at this line.
-            _log.info("core: Done fired (dwell complete). Checkout is M6 — "
-                      "no state change yet.")
+            # `DONE` is doc section 9.1's own name for the SELECTING ->
+            # BROTH edge and is kept as a synonym of Confirm-in-SELECTING
+            # so the voice keyword ("say done", doc section 17.2) has
+            # something to fire when M9 lands. No widget carries this id
+            # today — `widgets_for` returns Cancel/Confirm.
+            self._begin_checkout()
+            return
+        broth_id = hover.parse_broth_id(widget_id)
+        if broth_id is not None:
+            self._choose_broth(broth_id)
+            return
+        level = hover.parse_spice_level(widget_id)
+        if level is not None:
+            self._choose_spice(level)
             return
         _log.warning("core: widget %r fired with nothing bound to it",
                      widget_id)
+
+    def _fire_confirm(self) -> None:
+        """Confirm means different things on different screens, and this
+        is the one place that decides which.
+
+        SELECTING it is doc section 9.1's "done" — the cart is finished
+        and the diner is sent to BROTH. RECAP it is the commit that writes
+        the order. CHECKOUT it is "I have read the code", which does
+        exactly what doc section 18.3's timeout does.
+
+        Caller holds `state_lock`.
+        """
+        st = self.fsm.state
+        if st is fsm.State.RECAP:
+            self._write_order()
+            return
+        if st is fsm.State.CHECKOUT:
+            self._finish_checkout()
+            return
+        self._begin_checkout()
+
+    def _begin_checkout(self) -> None:
+        """SELECTING -> BROTH, doc section 9.1's `dwell "done"` edge.
+
+        **`cart.finalize()` happens HERE, not at RECAP.** It snaps every
+        bin's shown grams onto the true removed grams, dropping the
+        display deadband (doc section 9.2's fix for open debt #5) — so the
+        numbers the diner reads on the recap card are the numbers the
+        order is written from. Doing it later would mean the recap showed
+        deadbanded grams and the receipt showed different ones, which is
+        precisely the discrepancy the deadband exists to avoid.
+
+        `fsm.done()` refuses an empty cart (its own docstring), so a hand
+        resting on Confirm at an untouched table cannot start a checkout.
+
+        Caller holds `state_lock`.
+        """
+        if not self.fsm.done():
+            _log.info("core: Done fired but the cart is empty — staying put")
+            return
+        self.cart.finalize()
+        self._broth_id = ""
+        self._spice_level = 0
+        _log.info("core: SELECTING -> BROTH, cart finalised at %.2f",
+                  pricing.total(self.cart, self.binmap, self.catalogue))
+
+    def _choose_broth(self, broth_id: str) -> None:
+        """BROTH -> SPICE. Caller holds `state_lock`."""
+        if self.fsm.state is not fsm.State.BROTH:
+            return
+        if self.menu.broth(broth_id) is None:
+            _log.warning("core: unknown broth %r ignored", broth_id)
+            return
+        self._broth_id = broth_id
+        if self.fsm.broth_chosen():
+            self._send_evt({"t": "evt", "kind": "sound", "id": "broth_select"})
+            _log.info("core: broth %s chosen", broth_id)
+
+    def _choose_spice(self, level: int) -> None:
+        """SPICE -> RECAP. Caller holds `state_lock`."""
+        if self.fsm.state is not fsm.State.SPICE:
+            return
+        if self.menu.spice(level) is None:
+            _log.warning("core: unknown spice level %r ignored", level)
+            return
+        self._spice_level = level
+        if self.fsm.spice_chosen():
+            self._send_evt({"t": "evt", "kind": "sound", "id": "spice_select"})
+            _log.info("core: spice level %d chosen", level)
+
+    def _write_order(self) -> None:
+        """RECAP -> CHECKOUT: doc section 18.1's "order written to SQLite,
+        a short code assigned, a QR code projected".
+
+        **The cart is NOT re-baselined here.** That happens at
+        `_finish_checkout`, when the diner is actually done — doc section
+        9.1 lists checkout *completion* as the reset_session() caller, not
+        checkout entry. Resetting now would empty the cart out from under
+        the recap the QR screen still shows beside the code.
+
+        A failed write leaves the FSM in RECAP rather than advancing to a
+        CHECKOUT screen with no order behind it: the diner sees Confirm
+        not take, which is honest, instead of a code that is not in the
+        database when they try to pay with it.
+
+        Caller holds `state_lock`.
+        """
+        lines = self._order_lines()
+        if not lines:
+            _log.warning("core: Confirm on an empty cart — no order written")
+            return
+        total = round(sum(l.line_total for l in lines), 2)
+        try:
+            # The URL is built BEFORE the row exists, which needs the code,
+            # so the row is written first with an empty `qr_url` and the
+            # URL is stamped on afterwards. One column update beats
+            # allocating a code outside the transaction that guarantees it
+            # is unique (see `OrderStore.create`).
+            order = self.orders.create(
+                lines=lines, total=total, broth=self._broth_id,
+                spice=self._spice_level, locale=self.locale,
+                currency=self.locales.currency_symbol(self.locale))
+            url = self.receipt_url(order.code)
+            self.orders.set_qr_url(order.code, url)
+            order.qr_url = url
+        except Exception as e:                      # noqa: BLE001
+            _log.exception("core: could not write the order — staying in "
+                           "RECAP so the diner sees Confirm not take: %s", e)
+            return
+        if not self.fsm.confirm():
+            return
+        self._order = order
+        self._order_qr = orders.qr_matrix(url)
+        self._checkout_since = time.monotonic()
+        self._send_evt({"t": "evt", "kind": "sound", "id": "order_code",
+                        "code": order.code})
+        self.web.broadcast({"t": "orders", "orders": self.orders.as_dicts()})
+        _log.info("core: order %s written, total %.2f, QR %s",
+                  order.code, total, url)
+
+    def _order_lines(self) -> list:
+        """The cart as order lines, at the numbers the diner just read.
+
+        `name` is resolved here and stored on the row — see
+        `OrderStore`'s own docstring for why a receipt must not be
+        re-labelled by a later catalogue edit.
+
+        Caller holds `state_lock`.
+        """
+        out = []
+        for i in range(cart.NUM_BINS):
+            if not self.binmap.resolved(i):
+                continue
+            item_id = self.binmap.bins[i].item_id
+            item = self.catalogue.item(item_id)
+            if item is None:
+                continue
+            # **`removed_grams`, not `shown_g`** — I5: the deadband never
+            # enters price maths, and `pricing.total()` (what bills) is
+            # built on this same number. They agree anyway by the time
+            # this runs, because `_begin_checkout` called `finalize()`,
+            # but reading the billed number directly means they cannot
+            # come apart if that ordering is ever changed.
+            grams = self.cart.removed_grams(i)
+            if grams <= 0:
+                continue
+            out.append(orders.OrderLine(
+                bin=i, item_id=item_id, name=item.display_name(self.locale),
+                grams=round(grams, 1), price_per_100g=item.price_per_100g,
+                line_total=round(pricing.bin_price(grams, item.price_per_100g), 2)))
+        return out
+
+    def _finish_checkout(self) -> None:
+        """CHECKOUT -> IDLE. Doc section 9.1's "[re-baseline, clear cart]".
+
+        Reached three ways, all of them ending here so the cleanup cannot
+        differ between them: the 90s timeout (doc section 18.3), the
+        diner dwelling the one button on the screen, and the receipt page
+        being paid.
+
+        Caller holds `state_lock`.
+        """
+        self.fsm.checkout_complete()
+        self._end_session()
+
+    # -- doc section 18.2: the payment mock -------------------------------
+
+    def _on_http(self, path: str):
+        """Two routes, both doc section 18.2's: the receipt page and the
+        Pay button behind it.
+
+        Runs on the WEB SERVER's thread, not core's state thread, so
+        everything it touches is either the order store (its own
+        connection per call — see `OrderStore`) or taken under
+        `state_lock`.
+
+        **Pay is a GET.** It mutates, which a GET should not, and that is
+        a deliberate trade for a demo: `websockets`' `process_request`
+        hook is handed the request before any body has been read, so a
+        POST body is not available here without running a second HTTP
+        server on another port. The cost of the shortcut is bounded — the
+        operation is idempotent (`mark_paid` does not move `paid_at` on a
+        second call) and the worst a prefetching browser can do is mark
+        an order paid that a diner was about to pay anyway.
+        """
+        if path.startswith("/r/"):
+            code = path[3:].strip("/").upper()
+            order = self.orders.get(code)
+            if order is None:
+                return (404, "text/html; charset=utf-8",
+                        b"<!doctype html><meta charset=utf-8>"
+                        b"<p style='font:16px system-ui;padding:2rem'>"
+                        b"No such order.</p>")
+            return (200, "text/html; charset=utf-8",
+                    self._receipt_html(order).encode("utf-8"))
+        if path.startswith("/pay/"):
+            code = path[5:].strip("/").upper()
+            order = self.orders.mark_paid(code)
+            if order is None:
+                return (404, "application/json", b'{"ok":false}')
+            self._on_order_paid(order)
+            return (200, "application/json",
+                    b'{"ok":true,"paid":true}')
+        return None
+
+    def _on_order_paid(self, order: "orders.Order") -> None:
+        """Doc section 18.2: "The table sees the payment land (via the
+        WebSocket) and plays `order_done`."
+
+        Runs on the web server's thread, so it takes `state_lock` before
+        touching the FSM — this is the one place an outside event drives
+        a state change.
+
+        **Only ends the session if this is the order currently on the
+        table.** A judge scanning a receipt from ten minutes ago must not
+        reset a table a different diner is halfway through.
+        """
+        self.web.broadcast({"t": "orders", "orders": self.orders.as_dicts()})
+        with self.state_lock:
+            current = self._order is not None and self._order.code == order.code
+            if current:
+                self._order = order          # so the QR screen reads `paid`
+            if not current or self.fsm.state is not fsm.State.CHECKOUT:
+                _log.info("core: %s paid (not the order on the table now)",
+                          order.code)
+                return
+            self._send_evt({"t": "evt", "kind": "sound", "id": "order_done"})
+            _log.info("core: %s paid — ending the session", order.code)
+            self._finish_checkout()
+
+    def _receipt_html(self, order: "orders.Order") -> str:
+        """Doc section 18.2's "mobile-friendly receipt page — itemised, in
+        the diner's chosen locale, with a Pay button".
+
+        Self-contained: no external CSS, no fonts, no scripts from
+        anywhere. A diner's phone on a contest floor may have no working
+        internet at all — it only has to reach the table's own network to
+        have loaded this — so anything fetched from outside would leave
+        them with an unstyled page and a dead button.
+
+        **A real UPI deep link is deliberately NOT here.** Doc section
+        18.2: "A QR that opens a real payment app asking a judge for real
+        money is not a demo, it is an incident." The Pay button posts to
+        this server and nothing else.
+        """
+        sym = order.currency or self.locales.currency_symbol(order.locale)
+        broth = self.menu.broth(order.broth)
+        spice = self.menu.spice(order.spice)
+        rows = "".join(
+            "<tr><td>{name}</td><td class=n>{grams:.0f} g</td>"
+            "<td class=n>{sym}{total:.2f}</td></tr>".format(
+                name=_html_escape(l.name), grams=l.grams, sym=_html_escape(sym),
+                total=l.line_total)
+            for l in order.lines)
+        chosen = []
+        if broth is not None:
+            chosen.append(_html_escape(broth.display_name(order.locale)))
+        if spice is not None:
+            chosen.append(_html_escape(spice.display_name(order.locale)))
+        paid_banner = (
+            "<div class=paid>Paid. Thank you.</div>" if order.paid else
+            "<button id=pay onclick=\"pay()\">Pay {sym}{total:.2f}</button>"
+            .format(sym=_html_escape(sym), total=order.total))
+        return _RECEIPT_TEMPLATE.format(
+            code=_html_escape(order.code),
+            rows=rows,
+            chosen=" &middot; ".join(chosen) or "&nbsp;",
+            sym=_html_escape(sym),
+            total=order.total,
+            action=paid_banner,
+        )
+
+    def receipt_url(self, code: str) -> str:
+        """Doc section 18.2: "The QR encodes a URL served by core:
+        `http://<host>:8090/r/<order_code>`."
+
+        Built from `camera_host` — the one hostname in this config that is
+        already known to be reachable from a phone on the same network,
+        because the Live tab's `<img>` has been loading from it since M3.3
+        (doc section 8.6's `camera.host_for_browser`). `localhost` would
+        produce a QR that only works on the machine nobody is holding.
+        """
+        return "http://%s:%d/r/%s" % (self.camera_host, self.web.port, code)
 
     def _cycle_locale(self) -> None:
         """Doc section 17.1: "locale switches via: a projected button
@@ -1688,15 +2103,31 @@ class Core:
         """
         out = []
         for w in self._widgets:
-            out.append({
+            # A menu option carries its own already-localised name from
+            # `data/menu.json`; the fixed chrome (Cancel, Confirm) goes
+            # through the locale table. See `hover.Widget.label`.
+            label = w.label or self.locales.translate(w.label_key, self.locale)
+            item = {
                 "id": w.id,
                 "kind": w.kind,
                 "rect": [round(v, 1) for v in w.rect],
-                "label": self.locales.translate(w.label_key, self.locale),
+                "label": label,
                 "dwell": round(self.dwell.fraction(w.id), 3),
                 "enabled": w.enabled,
                 "style": w.style,
-            })
+                # Which one the pointer is actually inside, so oF knows
+                # whose info box to show. Taken from `DwellTracker`
+                # rather than re-hit-testing here: that class already
+                # decides what "inside" means (it skips disabled
+                # widgets), and two answers to that question would
+                # eventually disagree.
+                "hover": w.id == self.dwell.active_id,
+            }
+            if w.info:
+                item["info"] = dict(w.info)
+            if w.swatch:
+                item["swatch"] = w.swatch
+            out.append(item)
         return out
 
     def _hands_msg(self) -> Dict[str, Any]:
@@ -1733,6 +2164,30 @@ class Core:
         """
         if self.fsm.state is fsm.State.UNCALIBRATED:
             return {"kind": "uncalibrated"}
+        # M6, and it outranks the fault overlay for the same reason doc
+        # section 14.5 puts SETTING above `error`: a table in CHECKOUT is
+        # not billing any more — the order is written and the numbers are
+        # fixed — so "SCALES OFFLINE, NOT BILLING" would warn about a risk
+        # that cannot occur while covering the code the diner is trying to
+        # pay with.
+        if self.fsm.state is fsm.State.CHECKOUT and self._order is not None:
+            return {
+                "kind": "qr",
+                "code": self._order.code,
+                "url": self._order.qr_url,
+                "total": self._order.total,
+                "total_text": self.locales.currency(
+                    self._order.total, self.locale)["text"],
+                "paid": self._order.paid,
+                # The QR as a square bool matrix, drawn by oF as filled
+                # rects (I2 — core owns the data, oF owns the pixels).
+                # Sent once per state tick like everything else; it is a
+                # 29x29 array of bools, which is small enough not to earn
+                # a second, event-shaped message of its own.
+                "qr": [[1 if v else 0 for v in row] for row in self._order_qr],
+            }
+        if self.fsm.state is fsm.State.RECAP:
+            return {"kind": "recap"}
         reading = self.scale.read()
         lost = any(self._scale_baselined[i] and reading.grams[i] is None
                   for i in range(cart.NUM_BINS))
@@ -2699,6 +3154,14 @@ class Core:
                 "ts": time.time(),
                 "mode": (MODE_SETTING if self.fsm.state is fsm.State.SETTING
                           else MODE_SERVING),
+                # **M6: which screen the table is on, alongside — not
+                # inside — `mode`.** Doc section 4.3 fixes `mode` at
+                # serving|setting and oF branches its banner on it, so
+                # folding BROTH/SPICE/RECAP/CHECKOUT in there would have
+                # made every checkout screen read as a mode change. This
+                # is the FSM state's own name, and oF uses it to decide
+                # whether it is drawing a cart or a list of options.
+                "phase": self.fsm.state.value,
                 "locale": self.locale,
                 # M8 hasn't built the fluid renderer yet; the shape is correct
                 # per doc section 4.3, "mala" is the documented diner default,
@@ -2790,7 +3253,12 @@ class Core:
             # loopback socket.
             info = {
                 "diet": item.diet,
-                "kcal": f"{round(item.kcal_per_100g)} "
+                # `meta` is the info box's right-hand slot, NOT "kcal" —
+                # M6's broth and spice options put how hot it is there,
+                # which is the number a diner is choosing between on that
+                # screen. One field name so `drawInfoBox` can take a bin's
+                # info or a widget's without caring which it got.
+                "meta": f"{round(item.kcal_per_100g)} "
                         f"{self.locales.translate('kcal_per_100g', self.locale)}",
                 "desc": item.description,
             }
@@ -2801,7 +3269,7 @@ class Core:
             # box at all for this (UiLayer::drawInfoBox), which is doc
             # section 8's "Idle: invisible. No fill, no border. Not an
             # empty bordered box."
-            info = {"diet": "", "kcal": "", "desc": ""}
+            info = {"diet": "", "meta": "", "desc": ""}
         # Doc section 5.3: "core pushes … stage-space rects to oF" — from
         # `self.projector_grid` (M4n), never `self.camera_grid`: that one
         # feeds the classifier and core's own hand hit test, and the two
