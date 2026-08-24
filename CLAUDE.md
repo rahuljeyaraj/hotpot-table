@@ -4163,6 +4163,90 @@ in this file carry before a real look. `docs/HOTPOT_ARCHITECTURE_v3.md`
 edit ahead of confirmation" precedent this file already uses for
 changes of this size.
 
+## M8 build item 9 — cart panel (2026-08-24)
+VISUAL_LAYER.md §8/§9's cart panel, in `UiLayer.h`/`.cpp`: 8 fixed row
+slots, the divider, the total (folded in, see below), and the Confirm/
+Cancel placeholders. Fire ring (build item 6/7), fumes (8) and the info
+box (10) are untouched — this is build item 9 only.
+
+**Pick order is oF's own bookkeeping, not a new core field.** Doc §8:
+"Slots fill in PICK ORDER... the SAME slot updates in place... never
+creates a second row and never moves." `core/main.py`'s `_bin_msg`
+already sends a deadbanded, snapped `picked` int (`pricing.display_grams
+(shown_g)`) and already treats `picked > 0` as "this bin is picked" for
+its own `hl` field — so oF's new `_cartSlotBin[8]` (UiLayer.h) just
+watches that same crossing per bin, in `update()`, and assigns the next
+free slot the first frame a bin's `picked` goes above 0. No wire change:
+which row a bin's numbers land in is a rendering decision, not a fact
+core needs to compute or remember. Reset rule, named in the code rather
+than left implicit: every bin at `picked<=0` simultaneously clears every
+slot binding, because that state is true both at boot and after a future
+order-finalisation re-baselines the cart (I6) — the same "all 8 empty"
+signal either way, with no dedicated session-boundary field needed. A
+put-back on ONE bin among several does not clear anything, matching the
+doc's "never unbind a bound slot" rule for that case.
+
+**The total moved.** It used to be a free-standing 80px numeral near the
+table's diner edge (M1.4-era, unrelated to VISUAL_LAYER.md's own
+palette). Doc §8 puts it inside the cart, "Divider above total," so
+`drawTotal` was rewritten to take a `baselineY` and draw one receipt-
+style line (label left, value right, one shared baseline) inside the
+cart footer instead — `_totalNumFont`/`_totalLabelFont` resized 80→48px
+and 28→30px to match §3's "Total value"/"Total label" row. `drawCart` is
+now the only call site; there is no second total displayed anywhere.
+
+**Border and divider are filled bars, not `ofSetLineWidth`.** This file's
+own halo section already found stroke width driver-capped at 1px and
+ignored outright on this rig's renderer (the M1-era plate ring's own
+postmortem). A new `drawRectBorder` helper draws doc §3's "2px #C9C5BC"
+cart border and divider as four/one filled rects instead of risking the
+same silent-1px mismatch here.
+
+**Cart row text is truncated, not wrapped**, unlike the plate's own name
+(which wraps to 2 lines, VISUAL_LAYER.md step 2/its later fix). A cart
+row is a fixed 44px slot; wrapping would break that promise, so a new
+`truncateToWidth` helper (character-by-character, ellipsis) caps the name
+to whatever width is left after the row's own `<grams> <price>` detail
+text, measured per row since that detail text's width varies.
+
+**Confirm/Cancel reuse M5's existing disabled-button language** —
+`drawRing` + `kWidgetDisabled` ink, the same pair `drawWidget` already
+uses for a disabled widget — rather than inventing a second "greyed out"
+look for this table. Doc §8: "Inactive for now — placeholder only,
+behaviour and styling TBD." Nothing wires them to anything; there is no
+`confirm`/`cancel` wire message yet.
+
+**Colours are VISUAL_LAYER.md §3's palette verbatim**, unverified by any
+rig photo — same honest status every other brand-new constant in this
+file has carried before its first photo (the halo's own three colour
+revisions, the plate rate's three). `kCartTotalValueColor` (#B8781A) is
+deliberately its own constant, not aliased to `kPlateRateColor`, which
+has already been corrected three times this session chasing a different
+element's own read on this projector — keeping them independent means a
+future correction to one cannot silently drag the other along untested.
+
+Full rebuild, msbuild Debug x64 (`/t:Rebuild`), 0 errors, 1254 warnings —
+the same pre-existing addon-library count this file has recorded before;
+none from `UiLayer.h`/`.cpp`. `run.py --stop` (a stack from the prior
+session was still up and would have held the exe open, per M4n-fix's own
+lesson) / rebuild / `run.py` again — camera, core, voice, classifier and
+tracker all reached `HOTPOT-READY`, `of` reached fullscreen and
+`StateLink` connected, no new errors beyond the two pre-existing
+`ftTemperatureFieldShader`/`ftVelocityFieldShader` geometry-shader
+warnings this file has already recorded as harmless.
+**Not observed on the projected surface** — nobody has looked at the
+cart panel on the real table yet. Doc §9's own build item 9 check ("total
+does not move between 0 picks and 8 picks") and the row-truncation/
+button-layout guesses above are all reasoned from code and a clean build,
+not a photo. `docs/VISUAL_LAYER.md` is not updated to mark build item 9
+done — flagged, not done, same precedent this file already uses for a
+change of this size. Next: build item 10 (info box) needs new data
+(veg/non-veg, kcal, short description) that does not exist anywhere yet
+— not in `data/catalogue.json`, not on the wire, not in `StateLink::Bin`
+— so it is a bigger, separate step (catalogue schema + core wire message
++ StateLink parsing, before any oF drawing), not a continuation of this
+one.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

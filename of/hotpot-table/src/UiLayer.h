@@ -167,7 +167,17 @@ private:
 	void drawCursor(const CursorLink::Hand & pointer, float dwell) const;
 	float dwellFraction(const StateLink::State & state) const;
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
-	void drawTotal(const StateLink::Total & total) const;
+	// VISUAL_LAYER.md §8/§9 build item 9: the running total now draws as
+	// one receipt-style line (label left, value right) inside the cart
+	// footer drawCart lays out, not the old standalone centred numeral
+	// near the table's diner edge — baselineY is drawCart's to compute
+	// since it is the one call site now.
+	void drawTotal(const StateLink::Total & total, float baselineY) const;
+	// VISUAL_LAYER.md §8, build item 9: the cart panel — 8 fixed row
+	// slots bound to bins in PICK ORDER (see update()'s own binding
+	// logic and _cartSlotBin's comment below), the divider, the total
+	// (via drawTotal above) and the Confirm/Cancel placeholders.
+	void drawCart(const StateLink::State & state) const;
 	void drawConnectionIndicator(bool connected, float staleSeconds) const;
 	void drawBanner(const ofColor & fill, const ofColor & ink,
 		const std::string & headline, const std::string & subline) const;
@@ -208,8 +218,16 @@ private:
 	// its point size than the proportional bold face's does.
 	ofTrueTypeFont _plateNameFont;  // 28px bold DejaVuSans, ink #2B2118
 	ofTrueTypeFont _plateRateFont;  // 18px regular DejaVuSansMono, ink #6AA84F
-	ofTrueTypeFont _totalNumFont;  // 80px, "Running total, numeral"
-	ofTrueTypeFont _totalLabelFont;// 28px, "Total label"
+	// VISUAL_LAYER.md §3: "Total value" 48px bold / "Total label" 30px —
+	// resized from the pre-cart 80px/28px (this file's own git history)
+	// now that both draw as one receipt line inside the cart footer
+	// (drawCart/drawTotal) instead of the old free-standing giant numeral.
+	ofTrueTypeFont _totalNumFont;   // 48px bold, "Total value"
+	ofTrueTypeFont _totalLabelFont; // 30px, "Total label"
+	// VISUAL_LAYER.md §3: "Cart row — filled name" / "— filled g + cost,"
+	// both 26px, one face — only the ink colour differs between the two
+	// (drawCart sets it per column), so one font object serves both.
+	ofTrueTypeFont _cartRowFont;    // 26px bold, cart row name + detail
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
 
@@ -230,4 +248,17 @@ private:
 	// absence is NOT "a rect at the origin" — see StateLink::Bin::hasRect.
 	std::array<ofRectangle, 8> _coreRects;
 	std::array<bool, 8> _hasCoreRect{};
+
+	// VISUAL_LAYER.md §8, build item 9: which bin (0-7, or -1 if the slot
+	// is still blank) each of the cart's 8 fixed row SLOTS is bound to.
+	// Index is the SLOT (vertical position, top to bottom), value is the
+	// BIN — the inverse of everything else in this class, which is always
+	// indexed by bin. Bound the first time a bin's `picked` crosses above
+	// 0 (update()'s own logic), in slot order; stays bound afterward even
+	// if that bin's picked amount returns to 0 (doc §8: "the SAME slot
+	// updates in place — it never creates a second row and never moves").
+	// Purely a rendering decision — core sends no "pick order" field and
+	// does not need one, since nothing about pricing or the FSM depends
+	// on which row a bin's numbers happen to sit in.
+	std::array<int, 8> _cartSlotBin{{-1, -1, -1, -1, -1, -1, -1, -1}};
 };

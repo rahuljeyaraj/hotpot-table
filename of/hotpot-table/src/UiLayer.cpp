@@ -246,6 +246,48 @@ namespace {
 	const float kBrandTopMarginPx = 20.0f;
 	const float kBrandBannerGapPx = 24.0f;
 
+	// --- VISUAL_LAYER.md §8/§9, build item 9: the cart panel ----------------
+	// Lives in the same centre column as the brand mark and the mode
+	// banner (drawBrandMark/drawBanner's own gapLeftMM/gapRightMM — the
+	// pot gap, the one horizontal span with no bin in it), stacked below
+	// both. Doc: "Cart width ~460px, row height 44px... Total sits at a
+	// fixed position and never moves." All colours/sizes are VISUAL_LAYER
+	// .md §3's palette table verbatim — brand-new this session, so
+	// unverified by any rig photo yet, same honest status every other new
+	// constant in this file has carried before its first photo.
+	const ofColor kCartPanelFill(0xFF, 0xFF, 0xFF);      // #FFFFFF
+	const ofColor kCartBorderColor(0xC9, 0xC5, 0xBC);    // #C9C5BC
+	const ofColor kCartRowDetailColor(0x6E, 0x6A, 0x62); // #6E6A62
+	// #B8781A — the doc's original "Total value" hex. Deliberately NOT
+	// reusing kPlateRateColor: that constant has already been corrected
+	// twice this session (green, then blue, then orange) chasing how
+	// amber/gold reads on THIS rig's projector, and none of those photos
+	// were of this hex in this position. Keeping the total's colour
+	// independent means a future correction to one does not silently
+	// drag the other along for a reason nobody checked.
+	const ofColor kCartTotalValueColor(0xB8, 0x78, 0x1A);
+	const int kCartRowPx = 26;
+	const float kCartWidthPx = 460.0f;
+	const float kCartRowHeightPx = 44.0f;
+	const float kCartBorderWidthPx = 2.0f;   // filled bars, not ofSetLineWidth
+	                                          // — see the halo's own comment
+	                                          // above on why a stroke width
+	                                          // is unusable on this rig.
+	const float kCartPadXPx = 20.0f;
+	const float kCartPadYPx = 18.0f;
+	const float kCartRowMidGapPx = 16.0f;    // name column <-> detail column
+	const float kCartDividerGapPx = 12.0f;   // rows -> divider -> total
+	const float kCartButtonsGapPx = 20.0f;   // panel bottom -> Confirm/Cancel
+	const float kCartButtonGapPx = 16.0f;    // Confirm <-> Cancel
+	const float kCartButtonHeightPx = 56.0f;
+	// Fixed, never a function of whether the mode banner happens to be
+	// showing — doc §8's "never moves" applies as much to appearing as it
+	// does to growing, so this sits below the banner's own footprint
+	// (kBannerHeightPx) whether or not drawTopBanner actually draws one
+	// this frame.
+	const float kCartTopPx = kBrandTopMarginPx + kBrandHeightPx + kBrandBannerGapPx
+		+ kBannerHeightPx + 24.0f;
+
 	// --- M5: the pointer cursor and the dwell ring ------------------------
 	// Sizes in px because they are screen furniture, not table geometry —
 	// nothing about a cursor is measured in millimetres of plywood. The
@@ -319,6 +361,45 @@ namespace {
 		}
 		ofRectangle bb = font.getStringBoundingBox(text, 0, 0);
 		font.drawString(text, cx - bb.width * 0.5f - bb.x, baselineY);
+	}
+
+	// VISUAL_LAYER.md §8: a cart row is ONE fixed 44px line, unlike the
+	// plate's own name which is allowed to wrap to 2 (wrapNameToTwoLines,
+	// above) — wrapping here would break the "same 44px height as a
+	// filled row" promise every slot makes. Truncated character-by-
+	// character (not word-by-word like the wrap helper) so a single very
+	// long word still yields something rather than overflowing whole.
+	std::string truncateToWidth(const ofTrueTypeFont & font, const std::string & text,
+		float maxWidthPx){
+		if(!font.isLoaded() || font.getStringBoundingBox(text, 0, 0).width <= maxWidthPx){
+			return text;
+		}
+		const std::string ellipsis = "...";
+		std::string result = text;
+		while(!result.empty()){
+			result.pop_back();
+			std::string candidate = result + ellipsis;
+			if(font.getStringBoundingBox(candidate, 0, 0).width <= maxWidthPx){
+				return candidate;
+			}
+		}
+		return ellipsis;
+	}
+
+	// The cart panel's border and the divider above its total (doc §3:
+	// "2px #C9C5BC" for both) are drawn as filled bars, never
+	// ofSetLineWidth/ofPath stroke — this file's own halo comment already
+	// found that stroke width is driver-capped at 1px and ignored outright
+	// on the programmable renderer on this rig; a hairline "2px" border
+	// that silently draws at 1px is exactly the kind of unverified-until-
+	// photographed mismatch this session keeps flagging rather than risking
+	// again here.
+	void drawRectBorder(const ofRectangle & r, float thicknessPx, const ofColor & colour){
+		ofSetColor(colour);
+		ofDrawRectangle(r.x, r.y, r.width, thicknessPx);
+		ofDrawRectangle(r.x, r.y + r.height - thicknessPx, r.width, thicknessPx);
+		ofDrawRectangle(r.x, r.y, thicknessPx, r.height);
+		ofDrawRectangle(r.x + r.width - thicknessPx, r.y, thicknessPx, r.height);
 	}
 
 	// Bin item names (e.g. "Button Mushrooms", "Lotus Root Slices") can
@@ -412,8 +493,13 @@ void UiLayer::setup(){
 	ok = loadUiFont(_detailFont, kFontFile, kDetailPx) && ok;
 	ok = loadUiFont(_plateNameFont, kFontFile, kPlateNamePx) && ok;
 	ok = loadUiFont(_plateRateFont, kMonoFontFile, kPlateRatePx) && ok;
-	ok = loadUiFont(_totalNumFont, kFontFile, 80) && ok;
-	ok = loadUiFont(_totalLabelFont, kFontFile, 28) && ok;
+	// VISUAL_LAYER.md §3: "Total value" 48px bold / "Total label" 30px —
+	// was 80/28 (the pre-cart free-standing numeral's own sizes) until
+	// build item 9 folded the total into the cart footer's single
+	// receipt-style line (drawCart/drawTotal).
+	ok = loadUiFont(_totalNumFont, kFontFile, 48) && ok;
+	ok = loadUiFont(_totalLabelFont, kFontFile, 30) && ok;
+	ok = loadUiFont(_cartRowFont, kFontFile, kCartRowPx) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
 	_fontsLoaded = ok;
 	if(!_fontsLoaded){
@@ -757,6 +843,56 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 	}
 	_totalAmount.setTarget((float)state.total.amount);
 	_totalAmount.update(dt);
+
+	// VISUAL_LAYER.md §8, build item 9: bind cart slots in PICK ORDER, not
+	// bin order. `picked` is already core's deadbanded, snapped-to-truth
+	// integer (core/main.py's _bin_msg — pricing.display_grams(shown_g)),
+	// so ">0" is the same crossing core itself already treats as "this
+	// bin is picked" (it is exactly the condition _bin_msg uses for
+	// `hl: "picked"`) — no separate epsilon of oF's own invention needed.
+	//
+	// Reset condition: every bin at picked<=0 simultaneously. That is
+	// true at boot (nothing picked yet) and true again once an order
+	// finishes and the next diner's session re-baselines everything back
+	// to 0 (I6's reset_session) — the same "all 8 empty" state either
+	// way, so treating both as "clear the cart" is correct without needing
+	// a dedicated session-boundary field on the wire. The doc's own "never
+	// unbind a bound slot" rule (a put-back keeps its row) still holds for
+	// every OTHER case: this only clears when the WHOLE cart reads empty
+	// at once, not when one bin among several does.
+	bool anyPicked = false;
+	for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
+		if(state.bins[i].picked > 0.0f){
+			anyPicked = true;
+			break;
+		}
+	}
+	if(!anyPicked){
+		_cartSlotBin.fill(-1);
+	}
+	else {
+		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
+			if(state.bins[i].picked <= 0.0f){
+				continue;
+			}
+			bool alreadyBound = false;
+			for(int k = 0; k < 8; k++){
+				if(_cartSlotBin[k] == i){
+					alreadyBound = true;
+					break;
+				}
+			}
+			if(alreadyBound){
+				continue;
+			}
+			for(int k = 0; k < 8; k++){
+				if(_cartSlotBin[k] == -1){
+					_cartSlotBin[k] = i;
+					break;
+				}
+			}
+		}
+	}
 }
 
 void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const {
@@ -886,30 +1022,123 @@ std::string UiLayer::_priceText(double amount) const {
 	return formatCurrency(amount, _currencyPrefix, _currencyDecimals);
 }
 
-void UiLayer::drawTotal(const StateLink::Total & total) const {
-	// Centred over the pot gap, near its diner-facing edge (v3 §7.1's
-	// "wide gap up the middle for the pot") — the one open span on the
-	// table with no bin in it. There is nowhere better until a widget
-	// rect exists to anchor to (M1 sends widgets:[] — doc §21 item 5/6).
-	float cx = mmToPxX(TABLE_W_MM * 0.5f);
-	float baselineY = mmToPxY(TABLE_H_MM) - mmToPxY(40.0f);
+void UiLayer::drawTotal(const StateLink::Total & total, float baselineY) const {
+	// VISUAL_LAYER.md §3/§8: one receipt-style line inside the cart
+	// footer — "Total label" (30px, left) and "Total value" (48px bold,
+	// right), sharing one baseline the way a printed receipt's total
+	// line does. This replaces the old free-standing centred numeral
+	// near the table's diner edge (pre-M8; this function's own git
+	// history) now that build item 9 gives the total a permanent home
+	// inside the cart panel instead. cx is still the table's own centre,
+	// which is also the cart's centre — the pot gap is symmetric about
+	// it (TableGeometry.h's X chain), so no separate column math is
+	// needed here.
+	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
+	const float leftX = cx - kCartWidthPx * 0.5f + kCartPadXPx;
+	const float rightX = cx + kCartWidthPx * 0.5f - kCartPadXPx;
+
+	// doc §13.4's original "Total label" caption, still core-resolved per
+	// locale (data/locales/<locale>.json's "total" key) and put on
+	// `total.label` — oF only draws whatever string arrives (I2: no
+	// lookup here). Empty on an older core (StateLink defaults it to "")
+	// draws nothing, same rule drawCentered's own callers already follow.
+	if(!total.label.empty() && _totalLabelFont.isLoaded()){
+		ofSetColor(kPlateNameColor);
+		_totalLabelFont.drawString(total.label, leftX, baselineY);
+	}
 
 	std::string text = formatCurrency(_totalAmount.get(), _currencyPrefix, _currencyDecimals);
-	ofSetColor(kInkColor);
-	drawCentered(_totalNumFont, text, cx, baselineY);
-
-	// doc §13.4's 28px "Total label" caption — core now resolves it
-	// per-locale (data/locales/<locale>.json's "total" key) and puts it on
-	// `total.label`; oF only draws whatever string arrives (I2: no lookup
-	// here), so this reads correctly whichever locale core is set to,
-	// currency included, with no oF-side change needed when zh.json lands.
-	// Empty on an older core (StateLink defaults it to "") — draws nothing
-	// rather than a placeholder, same rule drawCentered already applies
-	// everywhere else.
-	if(!total.label.empty()){
-		float labelBaseline = baselineY - _totalNumFont.getAscenderHeight() - mmToPxY(kLabelLineGapMM);
-		drawCentered(_totalLabelFont, total.label, cx, labelBaseline);
+	if(_totalNumFont.isLoaded()){
+		ofRectangle bb = _totalNumFont.getStringBoundingBox(text, 0, 0);
+		ofSetColor(kCartTotalValueColor);
+		_totalNumFont.drawString(text, rightX - bb.width - bb.x, baselineY);
 	}
+	ofSetColor(255);
+}
+
+void UiLayer::drawCart(const StateLink::State & state) const {
+	// Same centre column as drawBrandMark/drawBanner (the pot gap), same
+	// fixed top (kCartTopPx — see that constant's own comment on why it
+	// does not move when the mode banner appears/disappears).
+	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
+	const float x = cx - kCartWidthPx * 0.5f;
+
+	const float rowsBottom = kCartTopPx + kCartRowHeightPx * 8.0f;
+	const float dividerY = rowsBottom + kCartDividerGapPx;
+	const float totalTop = dividerY + kCartBorderWidthPx + kCartDividerGapPx;
+	const float totalBaselineY = totalTop + _totalNumFont.getAscenderHeight();
+	const float panelBottom = totalTop + _totalNumFont.getAscenderHeight()
+		+ fabsf(_totalNumFont.getDescenderHeight()) + kCartPadYPx;
+	const ofRectangle panel(x, kCartTopPx, kCartWidthPx, panelBottom - kCartTopPx);
+
+	ofSetColor(kCartPanelFill);
+	ofDrawRectangle(panel);
+	drawRectBorder(panel, kCartBorderWidthPx, kCartBorderColor);
+
+	// The 8 fixed row slots, doc §8: "Slots are blank at startup. No
+	// name, no placeholder text, no icon, no border. Just reserved empty
+	// space" — an unbound slot draws nothing at all, not even a
+	// separator, which is what makes it read as reserved space rather
+	// than a rendering gap.
+	for(int k = 0; k < 8; k++){
+		int binIdx = _cartSlotBin[k];
+		if(binIdx < 0 || binIdx >= (int)state.bins.size()){
+			continue;
+		}
+		const StateLink::Bin & b = state.bins[binIdx];
+		if(!b.resolved){
+			continue;
+		}
+		const BinTween & tw = _bins[binIdx];
+		const float rowTop = kCartTopPx + (float)k * kCartRowHeightPx;
+		const float baselineY = rowTop + kCartRowHeightPx * 0.5f
+			+ _cartRowFont.getAscenderHeight() * 0.5f;
+
+		// Same "%dg  <price>" composition as drawBin's own post-pick
+		// detail line (doc §13.4), so the two never disagree about how a
+		// pick is worded — one bin's picked amount, read in two places.
+		char g[16];
+		snprintf(g, sizeof(g), "%dg", (int)roundf(tw.picked.get()));
+		std::string detail = std::string(g) + "  " + _priceText(tw.price.get());
+		ofRectangle detailBb = _cartRowFont.getStringBoundingBox(detail, 0, 0);
+
+		const float nameMaxWidth = kCartWidthPx - 2.0f * kCartPadXPx
+			- detailBb.width - kCartRowMidGapPx;
+		std::string name = truncateToWidth(_cartRowFont, b.label, nameMaxWidth);
+
+		ofSetColor(kPlateNameColor);
+		_cartRowFont.drawString(name, x + kCartPadXPx, baselineY);
+
+		ofSetColor(kCartRowDetailColor);
+		_cartRowFont.drawString(detail,
+			x + kCartWidthPx - kCartPadXPx - detailBb.width - detailBb.x, baselineY);
+	}
+
+	drawRectBorder(ofRectangle(x, dividerY, kCartWidthPx, kCartBorderWidthPx),
+		kCartBorderWidthPx, kCartBorderColor);
+	drawTotal(state.total, totalBaselineY);
+
+	// doc §8: "Two buttons below the cart: Confirm, Cancel. Inactive for
+	// now — placeholder only, behaviour and styling TBD." Drawn with the
+	// same disabled-button language M5's own widgets already use
+	// (drawWidget's ring+ink pair, both kWidgetDisabled) rather than
+	// inventing a second "disabled" look for this table — there is
+	// nothing to wire these to yet (no wire message, no FSM state), so
+	// they are visual only.
+	const float buttonsTop = panelBottom + kCartButtonsGapPx;
+	const float btnW = (kCartWidthPx - kCartButtonGapPx) * 0.5f;
+	const ofRectangle confirmBox(x, buttonsTop, btnW, kCartButtonHeightPx);
+	const ofRectangle cancelBox(x + btnW + kCartButtonGapPx, buttonsTop, btnW, kCartButtonHeightPx);
+	const float ringX = mmToPxX(kWidgetRingMM);
+	const float ringY = mmToPxY(kWidgetRingMM);
+	drawRing(confirmBox, ringX, ringY, kWidgetDisabled);
+	drawRing(cancelBox, ringX, ringY, kWidgetDisabled);
+	ofSetColor(kWidgetDisabled);
+	drawCentered(_nameFont, "CONFIRM", confirmBox.getCenter().x,
+		confirmBox.getCenter().y + _nameFont.getAscenderHeight() * 0.5f);
+	drawCentered(_nameFont, "CANCEL", cancelBox.getCenter().x,
+		cancelBox.getCenter().y + _nameFont.getAscenderHeight() * 0.5f);
+	ofSetColor(255);
 }
 
 void UiLayer::drawConnectionIndicator(bool connected, float staleSeconds) const {
@@ -1263,7 +1492,7 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
 			drawBin(i, state.bins[i], _bins[i]);
 		}
-		drawTotal(state.total);
+		drawCart(state);
 		drawWidgets(state);
 		drawTopBanner(state);
 	}
