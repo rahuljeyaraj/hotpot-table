@@ -437,6 +437,7 @@
      link. Same .setup-card/.setup-btn/.setup-status vocabulary as the
      rest of this tab, not a bespoke look. */
   .ei-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .ei-row + .ei-row { margin-top: 10px; }
   .ei-row input[type="text"], .ei-row input[type="password"] {
     min-height: 44px; padding: 0 10px; flex: 1 1 160px; min-width: 140px;
     border: 1px solid #3a3d47; border-radius: 6px;
@@ -449,7 +450,7 @@
     font-variant-numeric: tabular-nums;
   }
   .ei-progress.hide { display: none; }
-  #eiUnlinked.hide, #eiLinked.hide { display: none; }
+  #eiUnlinked.hide, #eiLinked.hide, #eiTotpRow.hide { display: none; }
 
   /* --- projector grid card (M4n): select-a-line, nudge with arrow keys,
      no camera and no typing ------------------------------------------- */
@@ -834,33 +835,41 @@
           <div class="setup-status" id="captureStatus"></div>
         </div>
         <div class="crop-grid" id="cropGrid"></div>
-      </div>
-      <!-- Doc §19.2/19.5: link the Studio project once, then Upload the
-           images above (or Download the trained deployment) reuse that
-           saved link. -->
-      <div class="setup-card" id="eiCard">
-        <h2>Edge Impulse</h2>
-        <p>Link a Studio project once, then push the captured images to it
-           and, once you have trained there, fetch the built model back.</p>
-        <div id="eiUnlinked">
-          <div class="ei-row">
-            <input id="eiUser" type="text" placeholder="Edge Impulse email" autocomplete="username">
-            <input id="eiPass" type="password" placeholder="password" autocomplete="current-password">
-            <input id="eiTotp" type="text" placeholder="2FA code (if asked)" style="flex: 0 1 140px;">
+        <!-- Doc §19.2/19.5: link the Studio project once, then Upload the
+             images above (or Download the trained deployment) reuse that
+             saved link. Inside .capture-shell, not a sibling of it, so it
+             gets the same 1100px cap and stacked-card spacing as the card
+             above rather than stretching to the section's full width. -->
+        <div class="setup-card" id="eiCard">
+          <h2>Edge Impulse</h2>
+          <p>Link a Studio project once, then push the captured images to it
+             and, once you have trained there, fetch the built model back.</p>
+          <div id="eiUnlinked">
+            <div class="ei-row">
+              <input id="eiUser" type="text" placeholder="Edge Impulse email" autocomplete="username">
+              <input id="eiPass" type="password" placeholder="password" autocomplete="current-password">
+            </div>
+            <!-- Hidden until a link attempt actually comes back asking for
+                 one (applyEiLinkResult's totp_required branch) — most
+                 accounts have no 2FA at all, and a field nobody needs
+                 reads as a required step nobody can explain. -->
+            <div class="ei-row hide" id="eiTotpRow">
+              <input id="eiTotp" type="text" placeholder="Two-factor code">
+            </div>
+            <div class="ei-row">
+              <button id="eiLinkBtn" class="setup-btn primary">Link Edge Impulse</button>
+            </div>
           </div>
-          <div class="ei-row" style="margin-top: 10px;">
-            <button id="eiLinkBtn" class="setup-btn primary">Link Edge Impulse</button>
+          <div id="eiLinked" class="hide">
+            <div class="ei-linked">Linked to <a id="eiProjectLink" href="#" target="_blank" rel="noopener"></a></div>
+            <div class="ei-row">
+              <button id="eiUploadBtn" class="setup-btn">Upload captures to Edge Impulse</button>
+              <button id="eiDownloadBtn" class="setup-btn">Download trained model</button>
+            </div>
           </div>
+          <div class="ei-progress hide" id="eiProgress"></div>
+          <div class="setup-status" id="eiStatus"></div>
         </div>
-        <div id="eiLinked" class="hide">
-          <div class="ei-linked">Linked to <a id="eiProjectLink" href="#" target="_blank" rel="noopener"></a></div>
-          <div class="ei-row">
-            <button id="eiUploadBtn" class="setup-btn">Upload captures to Edge Impulse</button>
-            <button id="eiDownloadBtn" class="setup-btn">Download trained model</button>
-          </div>
-        </div>
-        <div class="ei-progress hide" id="eiProgress"></div>
-        <div class="setup-status" id="eiStatus"></div>
       </div>
     </section>
     <section class="tab-panel" data-tab="developer">
@@ -3368,6 +3377,7 @@
   var eiLinked = document.getElementById("eiLinked");
   var eiUser = document.getElementById("eiUser");
   var eiPass = document.getElementById("eiPass");
+  var eiTotpRow = document.getElementById("eiTotpRow");
   var eiTotp = document.getElementById("eiTotp");
   var eiLinkBtn = document.getElementById("eiLinkBtn");
   var eiUploadBtn = document.getElementById("eiUploadBtn");
@@ -3436,8 +3446,16 @@
     setStatus(eiStatus, msg.message, msg.ok ? "good" : "bad");
     if (msg.ok) {
       eiPass.value = "";   // never held onto once the link exists
+      eiTotp.value = "";
+      eiTotpRow.classList.add("hide");
       applyEiStatus({ linked: true, project_id: msg.project_id,
                       project_name: msg.project_name, active: null });
+    } else if (msg.totp_required) {
+      // Most Edge Impulse accounts have no 2FA at all, so this field only
+      // appears once a link attempt actually comes back asking for one —
+      // see the ei-row's own HTML comment.
+      eiTotpRow.classList.remove("hide");
+      eiTotp.focus();
     }
   }
 
