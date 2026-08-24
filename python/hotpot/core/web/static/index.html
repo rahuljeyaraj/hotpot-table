@@ -872,6 +872,10 @@
             <div class="ei-row">
               <button id="eiUploadBtn" class="setup-btn">Upload captures to Edge Impulse</button>
               <button id="eiDownloadBtn" class="setup-btn">Download trained model</button>
+              <!-- Only drops the local project_id/api_key mapping -- see
+                   core/main.py's `_handle_ei_unlink` docstring for why it
+                   never touches the Studio project itself. -->
+              <button id="eiUnlinkBtn" class="setup-btn">Unlink</button>
             </div>
           </div>
           <div class="ei-progress hide" id="eiProgress"></div>
@@ -3389,6 +3393,7 @@
   var eiLinkBtn = document.getElementById("eiLinkBtn");
   var eiUploadBtn = document.getElementById("eiUploadBtn");
   var eiDownloadBtn = document.getElementById("eiDownloadBtn");
+  var eiUnlinkBtn = document.getElementById("eiUnlinkBtn");
   var eiProjectLink = document.getElementById("eiProjectLink");
   var eiProgress = document.getElementById("eiProgress");
   var eiStatus = document.getElementById("eiStatus");
@@ -3398,6 +3403,7 @@
     eiLinkBtn.disabled = eiBusy;
     eiUploadBtn.disabled = eiBusy;
     eiDownloadBtn.disabled = eiBusy;
+    eiUnlinkBtn.disabled = eiBusy;
   }
 
   function applyEiStatus(msg) {
@@ -3447,6 +3453,14 @@
     sendSetup({ t: "ei_download" });
   });
 
+  eiUnlinkBtn.addEventListener("click", function () {
+    if (eiUnlinkBtn.disabled) return;
+    eiBusy = true;
+    applyEiGating();
+    setStatus(eiStatus, "Unlinking…", "busy");
+    sendSetup({ t: "ei_unlink" });
+  });
+
   function applyEiLinkResult(msg) {
     eiBusy = false;
     applyEiGating();
@@ -3492,6 +3506,15 @@
     applyEiGating();
     eiProgress.classList.add("hide");
     setStatus(eiStatus, msg.message, msg.ok ? "good" : "bad");
+  }
+
+  function applyEiUnlinkResult(msg) {
+    eiBusy = false;
+    applyEiGating();
+    setStatus(eiStatus, msg.message, msg.ok ? "good" : "bad");
+    if (msg.ok) {
+      applyEiStatus({ linked: false, active: null });
+    }
   }
 
   // --- action bar and the mode (doc sections 12.2, 9.1 — M2.6) ---------
@@ -3689,6 +3712,7 @@
       else if (msg.t === "ei_upload_result") applyEiUploadResult(msg);
       else if (msg.t === "ei_download_progress") applyEiDownloadProgress(msg);
       else if (msg.t === "ei_download_result") applyEiDownloadResult(msg);
+      else if (msg.t === "ei_unlink_result") applyEiUnlinkResult(msg);
     };
     ws.onclose = function () {
       // A set_mode whose reply will now never arrive. Left true, the

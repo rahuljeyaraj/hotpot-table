@@ -899,6 +899,9 @@ class Core:
         if t == "ei_download":
             self._handle_ei_download(msg)
             return
+        if t == "ei_unlink":
+            self._handle_ei_unlink(msg)
+            return
         _log.debug("web: unhandled message type %r from a tablet", t)
 
     def _handle_set_mode(self, msg: Dict[str, Any]) -> None:
@@ -2103,6 +2106,31 @@ class Core:
             "message": (f"Downloaded {dest.name} ({len(zip_bytes)} bytes). "
                         f"Unzip it over tools/eim_cpp/vendor/ and rebuild "
                         "(tools/eim_cpp/CMakeLists.txt) to deploy it.")})
+
+    def _handle_ei_unlink(self, msg: Dict[str, Any]) -> None:
+        """Drops the saved local project_id/api_key mapping
+        (ei_store.remove_project()) so a fresh Link starts over -- e.g.
+        the linked Studio project was deleted by hand, or the wrong
+        project got linked and there's nothing to Upload/Download against
+        that's still correct. Never calls Edge Impulse's own API: there is
+        nothing left to delete there if the project genuinely is gone, and
+        even if it isn't, deleting someone's Studio project as a side
+        effect of a local "forget this" click would be a surprising blast
+        radius -- same call ei_store.remove_project()'s own docstring
+        already makes. Purely local and instant (no network call), but
+        still gated on `_ei_active` -- unlinking out from under an
+        in-flight Upload/Download would pull the api_key its background
+        work is already using.
+        """
+        if self._ei_active is not None:
+            self.web.broadcast({
+                "t": "ei_unlink_result", "ok": False,
+                "message": f"a {self._ei_active!r} job is already running"})
+            return
+        removed = ei_store.remove_project(self._ei_project_path)
+        self.web.broadcast({
+            "t": "ei_unlink_result", "ok": True,
+            "message": "Unlinked." if removed else "Nothing was linked."})
 
     def _check_calibration_complete(self) -> None:
         """Doc section 9.1's UNCALIBRATED -> IDLE, taken the moment both

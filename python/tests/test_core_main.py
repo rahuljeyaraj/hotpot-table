@@ -2516,7 +2516,12 @@ class TestEdgeImpulseTab(CoreCase):
                                   "password": "hunter2"}))
         reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
         self.assertFalse(reply["ok"])
-        self.assertIsNone(self.core._ei_active)
+        # `_ei_active` is reset in a `finally` that runs a moment AFTER
+        # the broadcast this test just waited on (same statement order as
+        # every _handle_ei_* method) -- polled, not asserted immediately,
+        # so a slow scheduler tick between "client received the reply" and
+        # "handler's finally actually ran" isn't a flake.
+        self.assertTrue(wait_for(lambda: self.core._ei_active is None))
 
     def test_upload_an_unexpected_exception_still_replies_not_hangs(self):
         ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
@@ -2526,7 +2531,7 @@ class TestEdgeImpulseTab(CoreCase):
         self.ws_.send(json.dumps({"t": "ei_upload"}))
         reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_upload_result")
         self.assertFalse(reply["ok"])
-        self.assertIsNone(self.core._ei_active)
+        self.assertTrue(wait_for(lambda: self.core._ei_active is None))
 
     def test_download_an_unexpected_exception_still_replies_not_hangs(self):
         ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
@@ -2536,7 +2541,7 @@ class TestEdgeImpulseTab(CoreCase):
         self.ws_.send(json.dumps({"t": "ei_download"}))
         reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_download_result")
         self.assertFalse(reply["ok"])
-        self.assertIsNone(self.core._ei_active)
+        self.assertTrue(wait_for(lambda: self.core._ei_active is None))
 
     def test_an_overlapping_job_is_refused_not_queued(self):
         ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
@@ -2548,6 +2553,35 @@ class TestEdgeImpulseTab(CoreCase):
         self.assertFalse(result["ok"])
         self.assertIn("upload", result["message"])
         self.assertEqual(self.fake_ei.build_calls, [])
+
+    def test_unlink_drops_the_saved_project(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_unlink"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_unlink_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertIsNone(ei_store.load_project(self.ei_project_path))
+
+    def test_unlink_with_nothing_linked_still_reports_ok(self):
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_unlink"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_unlink_result")
+        self.assertTrue(reply["ok"])
+        self.assertIn("Nothing", reply["message"])
+
+    def test_unlink_is_refused_while_a_job_is_in_flight(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self.core._ei_active = "download"
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_unlink"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_unlink_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("download", reply["message"])
+        # Refused, not just reported as failed -- the saved project must
+        # still be there for the in-flight job to keep using.
+        self.assertIsNotNone(ei_store.load_project(self.ei_project_path))
 
 
 class TestClassifyLive(CoreCase):
