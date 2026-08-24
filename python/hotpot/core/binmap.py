@@ -24,12 +24,23 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from hotpot.common import atomicio
 
 NUM_BINS = 8
 SCHEMA = 3
+
+# core/binmap.py -> core -> hotpot -> python -> repo root. Same shape as
+# `bin_grid.py`'s own grid paths and `geometry_store.py`'s homography.
+# Doc section 8.2's file. **`save`/`load` existed from M1 and nothing
+# called either until 2026-08-24** — see `core/main.py`'s own
+# `_load_binmap`/`_save_binmap`, and this module's docstring above, which
+# said outright that persistence was here early so the on-disk shape
+# would be right from the first write. This is that first write.
+_ROOT = Path(__file__).resolve().parents[3]
+BIN_MAP_PATH = _ROOT / "state" / "bin_map.json"
 
 # Doc section 8.6 default. Passed explicitly rather than stored so a
 # BinMap never goes stale relative to a config file it does not read.

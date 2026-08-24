@@ -4353,6 +4353,55 @@ Full build, msbuild Debug x64, linked clean (`run.py --stop` first — a
 stack was live and holds the exe open, M4n-fix's lesson).
 **Not observed on the projected surface.**
 
+### Cart fix 2 (2026-08-24): the bin map is finally written to disk
+**Developer: "the items i manually set in the bin tab didnt persist after
+a reload of the app. it should perssist."** Root cause is one line, and it
+had been there since M1: `Core.__init__` did
+`self.binmap = _seed_binmap(self.catalogue)` on every boot.
+**`BinMap.save`/`load` have existed since M1.2 and NOTHING has ever called
+either** — `binmap.py`'s own module docstring says persistence was written
+early "so the on-disk shape is right from the first write, even though
+M1's mock controls never call save()." This is that first write, four
+milestones later. Doc §8.2's `state/bin_map.json` did not exist on this
+rig at all (checked — the file is absent, which is also why nothing ever
+noticed).
+
+Not just the override: `binmap.locked` (set by `fsm.exit_setting()`'s own
+step 3) and every classify result were equally ephemeral.
+
+- `binmap.BIN_MAP_PATH` added, same `_ROOT / "state" / ...` shape
+  `bin_grid.py` and `geometry_store.py` already use. `Core` takes a
+  `bin_map_path` parameter for the same reason it takes `cal_path` — a
+  test must never read or write the real one, since this file decides
+  WHICH ITEM each bin bills as.
+- `Core._load_binmap()`: the file if it exists, `_seed_binmap`'s mock if
+  not (a missing file is a fresh clone, `BinMap.load`'s own docstring).
+  **An `item_id` the catalogue no longer holds is DROPPED at load**, not
+  carried — ids were renamed wholesale once already (2026-08-13's
+  substitute-prop pass) and a stale one would sit in the file forever,
+  unresolvable, with the bin silently unbillable and nothing saying why.
+  Dropped bins go to nothing, never back to the mock seed: a bin a human
+  set to something real must not quietly become whatever
+  `catalogue.ids()` lists Nth. A corrupt file logs and falls back to the
+  seed rather than stopping the table from opening.
+- `Core._save_binmap()`: called from the override handler (inside
+  `state_lock`, so the file can never be a snapshot of a map that never
+  existed), from setting-mode exit (for `locked`), and from a classify
+  pass — **but only when the ITEM actually changed**, never on a
+  confidence wobble: that loop runs at `classifier.live_hz` for as long as
+  an operator has the tab open, and 0.81 → 0.83 is not worth a disk write.
+  A failed write logs and is dropped; memory is still correct and the
+  table bills correctly for the rest of the evening.
+
+4 new tests in `TestBinsTab`, all of which build a SECOND `Core` over the
+same path — i.e. an actual restart — rather than reading the JSON back
+and asserting on it, which would pass on a file no Core can load: an
+override survives, a CLEARED override survives (the case a "save only
+when something is set" version gets wrong — the bin would rise from the
+dead as the mock seed's Nth item), a stale catalogue id is dropped, and a
+corrupt file still boots. 1042 tests pass.
+**Not observed on the rig** — the check is a restart with the tab open.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

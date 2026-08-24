@@ -268,6 +268,7 @@ class Core:
         scale_open_port: Optional[Callable[[], Any]] = None,
         camera_host: str = CAMERA_HOST,
         camera_port: int = CAMERA_PORT,
+        bin_map_path: Path = binmap.BIN_MAP_PATH,
         homography_path: Path = geometry_store.HOMOGRAPHY_PATH,
         camera_grid_path: Path = bin_grid.CAMERA_GRID_PATH,
         projector_grid_path: Path = bin_grid.PROJECTOR_GRID_PATH,
@@ -311,7 +312,8 @@ class Core:
         self.catalogue = pricing.Catalogue.load(data_dir / "catalogue.json")
         self.locale = i18n.DEFAULT_LOCALE   # build item 4: English only, for now
         self.locales = i18n.Locales.load(data_dir / "locales", locales=(self.locale,))
-        self.binmap = _seed_binmap(self.catalogue)
+        self.bin_map_path = Path(bin_map_path)
+        self.binmap = self._load_binmap()
         self.cart = _seed_cart()
         # binmap and refresh_weights are both here so that fsm.py owns all
         # three of doc section 9.1's setting-exit steps — refresh, then
@@ -954,6 +956,13 @@ class Core:
                         "charged. Exit anyway?")
                 else:
                     self.fsm.exit_setting()
+                    # `exit_setting` sets `binmap.locked` (its own step 3,
+                    # doc section 8.2: locked is true in serving mode).
+                    # Persisted here rather than inside Fsm, which owns no
+                    # file and must not learn to: this is the same
+                    # "whoever changed the map writes it" rule the override
+                    # handler and the classify pass follow.
+                    self._save_binmap()
         self._publish_mode(refused=refused)
         # A refused set_mode changed nothing, so nothing to re-push. On a
         # real transition, `_tracker_cfg()`'s `mediapipe_enabled` already
@@ -1136,6 +1145,69 @@ class Core:
             "noise_g": result.noise_g, "noisy": result.noisy,
         })
 
+    # -- the bin map on disk (doc section 8.2) ------------------------------
+
+    def _load_binmap(self) -> binmap.BinMap:
+        """`state/bin_map.json` if it exists, `_seed_binmap`'s mock if not.
+
+        **2026-08-24, developer: "the items i manually set in the bin tab
+        didnt persist after a reload of the app. it should perssist."**
+        `BinMap.save`/`load` have existed since M1.2 and NOTHING has ever
+        called either — `Core.__init__` rebuilt the mock seed on every
+        boot, so a manual override (and, equally, a classify result, and
+        `binmap.locked`) lived exactly as long as the process did. This
+        method and `_save_binmap` are that gap closed.
+
+        **An item_id the catalogue no longer has is dropped at load, not
+        carried.** Catalogue ids have been renamed wholesale once already
+        (2026-08-13's substitute-prop pass) and would be again; a stale id
+        would otherwise sit in the file forever, unresolvable, with the
+        bin silently unbillable and nothing saying why. Dropped bins fall
+        back to nothing rather than to the mock seed — a bin a human once
+        set to something real must not quietly become whatever
+        `catalogue.ids()` happens to list Nth.
+
+        A missing file is a fresh clone (`BinMap.load`'s own docstring),
+        and that is the one case that takes the mock seed, exactly as
+        every boot did before this.
+        """
+        if not Path(self.bin_map_path).exists():
+            return _seed_binmap(self.catalogue)
+        try:
+            bm = binmap.BinMap.load(self.bin_map_path)
+        except Exception as e:                        # noqa: BLE001
+            # A corrupt file must not stop a table from opening — same
+            # tolerance `_read_pidfile` gives its own (CLAUDE.md's FIXED
+            # section). The seed is visibly approximately right, which is
+            # the safer of the two wrong answers.
+            _log.warning("core: %s unreadable (%s) — falling back to the "
+                         "mock seed", self.bin_map_path, e)
+            return _seed_binmap(self.catalogue)
+        for b in bm.bins:
+            if b.item_id is not None and self.catalogue.item(b.item_id) is None:
+                _log.warning("core: bin %d had %r, which is not in the "
+                             "catalogue any more — cleared", b.i, b.item_id)
+                bm.set_bin(b.i, item_id=None, conf=0.0, source="unset")
+        return bm
+
+    def _save_binmap(self) -> None:
+        """Write the bin map, and never let a write failure reach a caller.
+
+        Called from every place that changes what is in a bin — a manual
+        override, a classify pass that actually moved something, and
+        setting-mode exit's `locked` write. A failed write is logged and
+        dropped rather than raised: the in-memory map is still correct and
+        the table still bills correctly for the rest of the evening, which
+        is a much better outcome than a handler that 500s because a disk
+        was full.
+        """
+        try:
+            self.binmap.save(self.bin_map_path)
+        except Exception as e:                        # noqa: BLE001
+            _log.warning("core: could not write %s (%s) — the bin map is "
+                         "correct in memory but will not survive a restart",
+                         self.bin_map_path, e)
+
     def _handle_set_bin_override(self, msg: Dict[str, Any]) -> None:
         """Manual fallback for a bin's item, for when the classifier gets
         it wrong. Doc section 9.3's `resolved()` only ever looks at
@@ -1175,6 +1247,10 @@ class Core:
                 self.binmap.set_bin(i, item_id=None, conf=0.0, source="unset")
             else:
                 self.binmap.set_bin(i, item_id=item_id, conf=1.0, source="manual")
+            # Written inside the lock, so the file can never be a snapshot
+            # of a map that never existed — a classify pass on the other
+            # thread must not land between the set and the write.
+            self._save_binmap()
         name = item.display_name(self.locale) if item is not None else "Auto"
         self.web.broadcast({"t": "bin_override_result", "bin": i, "ok": True,
                             "message": f"Bin {i} set to {name}."})
@@ -1321,6 +1397,7 @@ class Core:
 
         bins = reply.get("bins") or []
         with self.state_lock:
+            changed = False
             for entry in bins:
                 i = entry.get("i")
                 if not isinstance(i, int) or not (0 <= i < binmap.NUM_BINS):
@@ -1332,10 +1409,21 @@ class Core:
                     # so the skip applies to every pass for as long as the
                     # override stands, not just the one after it was set.
                     continue
-                self.binmap.set_bin(
-                    i, item_id=entry.get("label"),
-                    conf=float(entry.get("conf") or 0.0),
-                    source="classifier")
+                before = self.binmap.bins[i]
+                item_id = entry.get("label")
+                conf = float(entry.get("conf") or 0.0)
+                self.binmap.set_bin(i, item_id=item_id, conf=conf,
+                                    source="classifier")
+                if (before.item_id != item_id or before.source != "classifier"):
+                    changed = True
+            # **Only on a real change**, and only on the ITEM changing, not
+            # the confidence. This loop runs at `classifier.live_hz`
+            # throughout setting mode; writing every pass would rewrite the
+            # file a couple of times a second for as long as an operator
+            # has the tab open, and a conf that wobbles 0.81 -> 0.83 is not
+            # news worth a disk write.
+            if changed:
+                self._save_binmap()
 
         # Broadcast the RAW pass to every tablet, straight from the reply —
         # never gated by doc section 9.3's confidence floor the way

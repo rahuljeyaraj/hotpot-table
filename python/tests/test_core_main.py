@@ -129,6 +129,11 @@ class CoreCase(unittest.TestCase):
         self.g_path = os.path.join(self._cal_dir.name, "bin_grid_camera.json")
         self.pg_path = os.path.join(self._cal_dir.name, "bin_grid_projector.json")
         self.v_path = os.path.join(self._cal_dir.name, "view_rotation.json")
+        # bin_map_path, same rule again (2026-08-24, when Core started
+        # loading and saving it at all): this file decides WHICH ITEM each
+        # bin bills as, so a test that wrote the real one would leave the
+        # rig charging for whatever a fixture happened to set.
+        self.bm_path = os.path.join(self._cal_dir.name, "bin_map.json")
         # **A CALIBRATED table by default (M4.6).** Doc section 9.1 boots
         # an empty `state/` to UNCALIBRATED, where nothing bills at all —
         # so every test in this file that is about pricing, the mode, or
@@ -146,6 +151,7 @@ class CoreCase(unittest.TestCase):
             homography_path=self.h_path, camera_grid_path=self.g_path,
             projector_grid_path=self.pg_path,
             view_rotation_path=self.v_path,
+            bin_map_path=self.bm_path,
             classify_enabled=self.classify_enabled,
             # An ephemeral cursor port, never doc section 4.1's real 8771
             # (M5). Same class of reason as `cal_path` and the grid paths:
@@ -1158,6 +1164,78 @@ class TestBinsTab(CoreCase):
         self.assertEqual(b.conf, 0.0)
         self.assertEqual(b.source, "unset")
 
+    def test_an_override_survives_a_restart(self):
+        """**Developer, 2026-08-24: "the items i manually set in the bin tab
+        didnt persist after a reload of the app. it should perssist."**
+
+        The whole point of an override is that it outlives the classify
+        pass it exists to correct, and a restart is the longest version of
+        that. Checked by building a SECOND Core against the same
+        `bin_map_path` — not by reading the file back and asserting on its
+        JSON, which would pass on a file no Core can actually load.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        self.enter_setting(w)
+        w.send(json.dumps({"t": "set_bin_override", "bin": 3,
+                           "item_id": "lotus_root_slices"}))
+        self.assertTrue(self.override_result(w, 3)["ok"])
+
+        reborn = self.reborn_core()
+        b = reborn.binmap.bins[3]
+        self.assertEqual(b.item_id, "lotus_root_slices")
+        self.assertEqual(b.source, "manual")
+        self.assertTrue(reborn.binmap.resolved(3))
+
+    def test_a_cleared_override_survives_a_restart_too(self):
+        # The other direction, and the one a "save only when an item is
+        # set" version would get wrong: a bin cleared by hand must not come
+        # back from the dead on the next boot as the mock seed's Nth item.
+        w = self.ws()
+        self.recv_json(w)
+        self.enter_setting(w)
+        w.send(json.dumps({"t": "set_bin_override", "bin": 3, "item_id": None}))
+        self.assertTrue(self.override_result(w, 3)["ok"])
+
+        reborn = self.reborn_core()
+        self.assertIsNone(reborn.binmap.bins[3].item_id)
+        self.assertEqual(reborn.binmap.bins[3].source, "unset")
+
+    def test_an_item_the_catalogue_no_longer_has_is_dropped_on_load(self):
+        # Catalogue ids have been renamed wholesale once already
+        # (2026-08-13's substitute-prop pass, CLAUDE.md). A stale id left
+        # in the file would sit there forever, unresolvable, with the bin
+        # silently unbillable and nothing saying why.
+        rows = [{"i": i, "item_id": None, "conf": 0.0, "source": "unset"}
+                for i in range(8)]
+        rows[5] = {"i": 5, "item_id": "curly_noodle", "conf": 1.0,
+                   "source": "manual"}
+        atomicio.write_json(self.bm_path, {
+            "schema": coremain.binmap.SCHEMA, "written": 1.0,
+            "locked": True, "bins": rows})
+
+        reborn = self.reborn_core()
+        self.assertIsNone(reborn.binmap.bins[5].item_id)
+        self.assertFalse(reborn.binmap.resolved(5))
+
+    def test_a_corrupt_file_falls_back_to_the_seed_rather_than_refusing_to_boot(self):
+        # A table that will not start is worse than a table with the mock
+        # seed in it — same tolerance run.py's own pidfile reader gives a
+        # torn file (CLAUDE.md's FIXED section).
+        with open(self.bm_path, "w", encoding="utf-8") as f:
+            f.write("{not json at all")
+        reborn = self.reborn_core()
+        self.assertEqual(len(reborn.binmap.bins), 8)
+
+    def reborn_core(self):
+        """A second Core over the same `bin_map_path` — i.e. a restart."""
+        return coremain.Core(
+            control_host="127.0.0.1", control_port=0,
+            web_host="127.0.0.1", web_port=0,
+            cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            bin_map_path=self.bm_path,
+            scale_open_port=_no_serial_port)
+
     def test_bad_bin_index_is_ignored_not_a_crash(self):
         w = self.ws()
         self.recv_json(w)
@@ -1524,6 +1602,7 @@ class TestCameraJoinMessage(unittest.TestCase):
             control_host="127.0.0.1", control_port=0,
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            bin_map_path=os.path.join(self._cal_dir.name, "bin_map.json"),
             scale_open_port=_no_serial_port, **kwargs)
 
     def test_defaults_match_config_system_default_json(self):
@@ -1579,6 +1658,7 @@ class TestStateSnapshotIsAtomic(unittest.TestCase):
         self.core = coremain.Core(control_host="127.0.0.1", control_port=0,
                                   web_host="127.0.0.1", web_port=0,
                                   cal_path=os.path.join(cal_dir.name, "loadcell_cal.json"),
+                                  bin_map_path=os.path.join(cal_dir.name, "bin_map.json"),
                                   scale_open_port=_no_serial_port)
 
     def test_a_pick_cannot_land_between_the_bins_and_the_total(self):
@@ -1660,6 +1740,7 @@ class TestUnitSuffixIsLocalised(unittest.TestCase):
                                  web_host="127.0.0.1", web_port=0,
                                  data_dir=tmp,
                                  cal_path=os.path.join(tmp, "loadcell_cal.json"),
+                                 bin_map_path=os.path.join(tmp, "bin_map.json"),
                                  scale_open_port=_no_serial_port)
             msg = core._state_msg()
 
@@ -3236,6 +3317,7 @@ class TestStop(unittest.TestCase):
             core = coremain.start(control_host="127.0.0.1", control_port=0,
                                   web_host="127.0.0.1", web_port=0,
                                   cal_path=os.path.join(tmp, "loadcell_cal.json"),
+                                  bin_map_path=os.path.join(tmp, "bin_map.json"),
                                   scale_open_port=_no_serial_port)
             core.stop()
             core.stop()   # must not raise
