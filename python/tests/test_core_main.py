@@ -304,8 +304,14 @@ class TestStateBroadcast(CoreCase):
         self.assertEqual(len(msg["bins"]), 8)
         # RIG_FEEDBACK_2026-08-12.md items 4-7: Done/Cancel/Language were
         # removed outright 2026-08-13 (placeholders, developer's own call).
-        # `widgets_for()` always returns none now.
-        self.assertEqual(msg["widgets"], [])
+        # 2026-08-24 replaced them with the cart's own Cancel/Confirm pair
+        # (VISUAL_LAYER.md section 8), which is present in every state —
+        # disabled here, since a table at boot has nothing picked.
+        self.assertEqual([w["id"] for w in msg["widgets"]],
+                         [coremain.hover.CANCEL, coremain.hover.CONFIRM])
+        for w in msg["widgets"]:
+            self.assertFalse(w["enabled"])
+            self.assertEqual(len(w["rect"]), 4)
         self.assertEqual(msg["overlay"], {"kind": "none"})
         self.assertIn("style", msg["fluid"])
         self.assertIn("amount", msg["total"])
@@ -3329,11 +3335,10 @@ class TestHoverAndDwellOverTheWire(CoreCase):
             time.sleep(0.02)
         self.assertIs(self.core.fsm.state, coremain.fsm.State.IDLE)
 
-    def test_no_widgets_appear_once_a_session_starts(self):
-        # RIG_FEEDBACK_2026-08-12.md items 4-7, 2026-08-13: Done/Cancel/
-        # Language are removed outright — `widgets_for()` always returns
-        # none, so `state.widgets` must stay empty even in SELECTING, not
-        # just in IDLE (`test_shape_matches_doc_4_3` already covers IDLE).
+    def test_the_cart_buttons_are_on_the_wire_once_a_session_starts(self):
+        # 2026-08-24: the cart's Cancel/Confirm pair replaced the empty
+        # widget list Done/Cancel/Language left behind. Both are present in
+        # SELECTING, in that order (Cancel first, developer's own call).
         c, msgs, lock = self.of_client()
         tx = self.cursor_sender()
         x, y = self.bin_centre(0)
@@ -3347,56 +3352,101 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         with lock:
             recent = list(msgs[-5:])
         for m in recent:
-            self.assertEqual(m["widgets"], [])
+            self.assertEqual([w["id"] for w in m["widgets"]],
+                             [coremain.hover.CANCEL, coremain.hover.CONFIRM])
 
-    def test_dwelling_where_done_used_to_be_does_nothing(self):
-        # The dwell mechanism (`DwellTracker`, `_fire_widget`'s dispatch
-        # table) is kept intact and unused for a future real widget set —
-        # this guards against it silently reactivating: with no widgets
-        # ever produced, holding a hand over the old Done rect for well
-        # past the (shortened) dwell time must fire nothing and touch
-        # nothing.
+    def test_dwelling_confirm_on_an_empty_cart_fires_nothing(self):
+        # With nothing picked both buttons are `enabled: false`, and a
+        # disabled widget is not a dwell target (`DwellTracker.update`).
+        # This is the check that a button which cannot do anything also
+        # cannot LOOK like it did — a filled ring over Confirm with an
+        # empty cart would promise a confirmation that never happened.
         self.core.dwell.dwell_ms = 200.0
+        evts = self._dwell_evt_sink()
+        tx = self.cursor_sender()
+        self._reach_selecting(tx)
+
+        rects = coremain.hover.layout()
+        cx = rects[coremain.hover.CONFIRM][0] + rects[coremain.hover.CONFIRM][2] / 2
+        cy = rects[coremain.hover.CONFIRM][1] + rects[coremain.hover.CONFIRM][3] / 2
+        end = time.time() + 1.0
+        while time.time() < end:
+            self.send_pointer(tx, cx, cy)
+            time.sleep(0.02)
+        self.assertFalse(any(e.get("id") == "dwell_fire" for e in evts),
+                         "Confirm fired with an empty cart")
+
+    def test_dwelling_confirm_on_a_picked_cart_fires_and_finalises(self):
+        # The other half, and the one the developer's "the confirm and
+        # cancell button didnt work" report is really about: with a pick on
+        # the table the button is armed, the dwell completes, and
+        # `_fire_widget` runs `cart.finalize()` — shown grams snap off the
+        # display deadband onto the true removed grams (doc section 9.2).
+        # TWO picks, and the second one matters: 50g arms the buttons
+        # (`cart.is_active()` reads the deadbanded `shown_g`, so a
+        # sub-deadband pick alone would leave both disabled — that is the
+        # trap this test walked into first), then a further 4g moves the
+        # TRUE removed grams to 54 while `shown_g` stays at 50, because 4g
+        # is under the 10g display deadband. That gap is what makes the
+        # assertion below capable of failing: without `finalize()` the
+        # shown number stays 50 forever.
+        self.core.dwell.dwell_ms = 200.0
+        evts = self._dwell_evt_sink()
+        tx = self.cursor_sender()
+        self._reach_selecting(tx)
+
+        with self.core.state_lock:
+            self.core.cart.mock_pick(0, 50.0)
+            self.core.cart.mock_pick(0, 4.0)
+            self.assertAlmostEqual(self.core.cart.shown_g[0], 50.0, places=3)
+            self.assertAlmostEqual(self.core.cart.removed_grams(0), 54.0, places=3)
+
+        rects = coremain.hover.layout()
+        cx = rects[coremain.hover.CONFIRM][0] + rects[coremain.hover.CONFIRM][2] / 2
+        cy = rects[coremain.hover.CONFIRM][1] + rects[coremain.hover.CONFIRM][3] / 2
+        end = time.time() + DEADLINE
+        while (time.time() < end
+               and not any(e.get("id") == "dwell_fire" for e in evts)):
+            self.send_pointer(tx, cx, cy)
+            time.sleep(0.02)
+        self.assertTrue(any(e.get("id") == "dwell_fire" for e in evts),
+                        "Confirm never fired with a live pick")
+        self.assertAlmostEqual(self.core.cart.shown_g[0], 54.0, places=3)
+
+    def test_neither_done_nor_language_came_back(self):
+        # RIG_FEEDBACK items 4-7 removed three widgets; 2026-08-24 brought
+        # back a DIFFERENT pair, and only that pair. Done still has nowhere
+        # to go until M6 and there is still one locale file, so a `done` or
+        # `language` on the wire means the old set leaked back in.
         c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            ids = [w["id"] for w in msgs[0]["widgets"]]
+        self.assertNotIn(coremain.hover.DONE, ids)
+        self.assertNotIn(coremain.hover.LANGUAGE, ids)
+
+    # -- shared setup for the two dwell tests above -------------------------
+
+    def _dwell_evt_sink(self):
+        """A fresh `of` client whose one-shot `evt` messages land in a list."""
         evts = []
 
         def on_msg(m):
             if m.get("t") == "evt":
                 evts.append(m)
 
-        c.stop()
-        self._wire_clients.remove(c)
         c2 = self.wire_client("of", on_message=on_msg)
         self.assertTrue(c2.wait_connected(DEADLINE))
+        return evts
 
-        tx = self.cursor_sender()
+    def _reach_selecting(self, tx):
         bx, by = self.bin_centre(0)
         end = time.time() + DEADLINE
         while (time.time() < end
                and self.core.fsm.state is not coremain.fsm.State.SELECTING):
             self.send_pointer(tx, bx, by)
             time.sleep(0.02)
-
-        rects = coremain.hover.layout()
-        dx = rects["done"][0] + rects["done"][2] / 2
-        dy = rects["done"][1] + rects["done"][3] / 2
-        end = time.time() + 1.0
-        while time.time() < end:
-            self.send_pointer(tx, dx, dy)
-            time.sleep(0.02)
-        self.assertFalse(any(e.get("id") == "dwell_fire" for e in evts),
-                         "dwelling the old Done rect fired something")
-
-    def test_no_language_widget_on_the_wire(self):
-        # Language is gone with the other two (RIG_FEEDBACK items 4-7) —
-        # `test_hover.py`'s `test_locale_count_does_not_resurrect_language`
-        # covers `widgets_for()` itself across locale counts; this is the
-        # over-the-wire half, that a real Core never puts one on `state`.
-        c, msgs, lock = self.of_client()
-        self.wait_for_n(msgs, lock, 1)
-        with lock:
-            widgets = msgs[0]["widgets"]
-        self.assertEqual(widgets, [])
+        self.assertIs(self.core.fsm.state, coremain.fsm.State.SELECTING)
 
     def test_hover_outranks_picked_on_a_bin_already_taken_from(self):
         # A bin the diner has already taken from must still respond to

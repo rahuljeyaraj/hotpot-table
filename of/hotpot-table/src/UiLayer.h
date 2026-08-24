@@ -175,9 +175,16 @@ private:
 	void drawTotal(const StateLink::Total & total, float baselineY) const;
 	// VISUAL_LAYER.md §8, build item 9: the cart panel — 8 fixed row
 	// slots bound to bins in PICK ORDER (see update()'s own binding
-	// logic and _cartSlotBin's comment below), the divider, the total
-	// (via drawTotal above) and the Confirm/Cancel placeholders.
+	// logic and _cartSlotBin's comment below), the divider and the total
+	// (via drawTotal above). **Confirm/Cancel are NOT drawn here** — they
+	// are real widgets on the wire now (core/hover.py), drawn by
+	// drawWidget like any other, so the rect a hand is hit-tested against
+	// is the same rect it sees. See drawCart's own closing comment.
 	void drawCart(const StateLink::State & state) const;
+	// The lowest px the cart's own ink reaches. Exists so setup()'s
+	// cross-file check against core/hover.py's button band measures the
+	// same number drawCart lays out from, rather than a second estimate.
+	float cartBottomPx() const;
 	void drawConnectionIndicator(bool connected, float staleSeconds) const;
 	void drawBanner(const ofColor & fill, const ofColor & ink,
 		const std::string & headline, const std::string & subline) const;

@@ -36,26 +36,21 @@ def frame(hands, seq=1):
 
 
 def build_widgets(*, selecting: bool = True, locales_available: int = 2):
-    """The three-widget set `widgets_for()` used to return, built directly
-    from `layout()` instead.
+    """The real widget set, straight out of production's own `widgets_for()`.
 
-    `widgets_for()` itself now always returns `[]` — RIG_FEEDBACK_2026-08-12
-    .md items 4-7's decision to remove Done/Cancel/Language outright — but
-    `layout()`/`Widget`/`DwellTracker` are kept intact for whatever real
-    widget set replaces them. This mirrors `widgets_for()`'s old body so the
-    layout and dwell mechanism below stay exercised against something,
-    rather than only against production's now-permanently-empty list.
+    Was a hand-built stand-in while `widgets_for()` returned `[]`
+    (RIG_FEEDBACK_2026-08-12.md items 4-7 removed Done/Cancel/Language and
+    nothing replaced them until 2026-08-24). Now that the cart's own
+    Cancel/Confirm pair is real, the tests below exercise the shipped
+    function instead of a mirror of it — a mirror can agree with itself
+    while disagreeing with the table.
+
+    `cart_active=True` because every test below is about a widget being
+    dwellable, and an empty cart's buttons are deliberately disabled.
     """
-    rects = hover.layout()
-    out = [hover.Widget(id=hover.LANGUAGE, rect=rects[hover.LANGUAGE],
-                        label_key="language", style="tertiary",
-                        enabled=locales_available > 1)]
-    if selecting:
-        out.append(hover.Widget(id=hover.CANCEL, rect=rects[hover.CANCEL],
-                                label_key="cancel", style="secondary"))
-        out.append(hover.Widget(id=hover.DONE, rect=rects[hover.DONE],
-                                label_key="done", style="primary"))
-    return out
+    return hover.widgets_for(selecting=selecting,
+                             locales_available=locales_available,
+                             cart_active=True)
 
 
 class TestAmbientIsolation(unittest.TestCase):
@@ -82,17 +77,17 @@ class TestAmbientIsolation(unittest.TestCase):
     def test_an_ambient_hand_cannot_dwell(self):
         d = hover.DwellTracker()
         widgets = build_widgets()
-        done = [w for w in widgets if w.id == hover.DONE][0]
-        cx = done.rect[0] + done.rect[2] / 2
-        cy = done.rect[1] + done.rect[3] / 2
-        # The ambient hand is parked dead centre on Done for three seconds.
+        confirm = [w for w in widgets if w.id == hover.CONFIRM][0]
+        cx = confirm.rect[0] + confirm.rect[2] / 2
+        cy = confirm.rect[1] + confirm.rect[3] / 2
+        # Ambient hand parked dead centre on Confirm for three seconds.
         now = 0.0
         for _ in range(180):
             now += 0.016
             fired = d.update(widgets, hover.pick_pointer(
                 frame([ambient(cx, cy)])), now)
             self.assertIsNone(fired)
-        self.assertEqual(d.fraction(hover.DONE), 0.0)
+        self.assertEqual(d.fraction(hover.CONFIRM), 0.0)
 
 
 class TestWidgetLayout(unittest.TestCase):
@@ -128,45 +123,96 @@ class TestWidgetLayout(unittest.TestCase):
                             and ay < by + bh and by < ay + ah)
                 self.assertFalse(overlaps, f"{a.id} overlaps {b.id}")
 
-    def test_done_is_nearest_the_diner(self):
-        # Reach, not importance: the near edge is the bottom of the stage.
+    def test_cancel_comes_first(self):
+        # Developer, 2026-08-24: "cancel button should come first." Left to
+        # right, so Cancel's x is the smaller one, and the two share a row.
         ws = {w.id: w for w in build_widgets()}
-        self.assertGreater(ws[hover.DONE].rect[1], ws[hover.CANCEL].rect[1])
-        self.assertGreater(ws[hover.CANCEL].rect[1],
-                           ws[hover.LANGUAGE].rect[1])
+        self.assertLess(ws[hover.CANCEL].rect[0], ws[hover.CONFIRM].rect[0])
+        self.assertEqual(ws[hover.CANCEL].rect[1], ws[hover.CONFIRM].rect[1])
 
-    def test_done_is_the_biggest_target(self):
+    def test_both_buttons_are_the_same_size(self):
+        # Neither is the "big" one: Cancel is as reachable as Confirm, and
+        # a smaller Cancel would be a harder dwell target for the action a
+        # diner is most likely to want in a hurry.
         ws = {w.id: w for w in build_widgets()}
-        area = lambda w: w.rect[2] * w.rect[3]     # noqa: E731
-        self.assertGreater(area(ws[hover.DONE]), area(ws[hover.CANCEL]))
+        self.assertEqual(ws[hover.CANCEL].rect[2:], ws[hover.CONFIRM].rect[2:])
+
+    def test_the_buttons_span_the_carts_own_width(self):
+        # The pair plus the gap between them is exactly the cart's width —
+        # this is the number `UiLayer.cpp`'s `kCartWidthPx` mirrors, and a
+        # button band wider or narrower than the cart above it is visible
+        # on the table and invisible in a diff.
+        ws = {w.id: w for w in build_widgets()}
+        left = ws[hover.CANCEL].rect[0]
+        right = ws[hover.CONFIRM].rect[0] + ws[hover.CONFIRM].rect[2]
+        self.assertAlmostEqual(right - left, hover.CART_WIDTH_PX)
+
+    def test_the_buttons_stay_on_the_table(self):
+        # 1080px is the stage's near edge. A dwell target hanging off it is
+        # one a hand cannot finish.
+        for w in build_widgets():
+            with self.subTest(widget=w.id):
+                self.assertLess(w.rect[1] + w.rect[3], 1080.0)
 
 
 class TestWhichWidgetsExist(unittest.TestCase):
-    """RIG_FEEDBACK_2026-08-12.md items 4-7: Done/Cancel/Language are
-    removed outright. `widgets_for()` returns none, regardless of state or
-    locale count — the dwell mechanism these used to exercise is kept for a
-    future real widget set (see `build_widgets()` above and `TestDwell`
-    below), but nothing today should ever see a widget on the wire.
+    """2026-08-24: the cart's Cancel/Confirm pair, always both, always
+    drawn — `enabled` carries whether there is anything to act on, because
+    doc-section-8's cart "never moves" and a button that disappears is the
+    same broken promise as a row that does.
+
+    Done/Language stay removed (RIG_FEEDBACK_2026-08-12.md items 4-7):
+    Done has nowhere to go until M6, and there is still one locale file.
     """
 
-    def test_no_widgets_exist_outside_selecting(self):
-        ws = hover.widgets_for(selecting=False, locales_available=2)
-        self.assertEqual(ws, [])
+    def test_both_buttons_exist_outside_selecting(self):
+        ids = [w.id for w in hover.widgets_for(selecting=False,
+                                               locales_available=2)]
+        self.assertEqual(ids, [hover.CANCEL, hover.CONFIRM])
 
-    def test_no_widgets_exist_in_selecting_either(self):
-        ws = hover.widgets_for(selecting=True, locales_available=2)
-        self.assertEqual(ws, [])
+    def test_both_buttons_exist_in_selecting_too(self):
+        ids = [w.id for w in hover.widgets_for(selecting=True,
+                                               locales_available=2)]
+        self.assertEqual(ids, [hover.CANCEL, hover.CONFIRM])
+
+    def test_an_empty_cart_disables_both(self):
+        for w in hover.widgets_for(selecting=True, locales_available=2,
+                                   cart_active=False):
+            with self.subTest(widget=w.id):
+                self.assertFalse(w.enabled)
+
+    def test_a_picked_cart_enables_both(self):
+        for w in hover.widgets_for(selecting=True, locales_available=2,
+                                   cart_active=True):
+            with self.subTest(widget=w.id):
+                self.assertTrue(w.enabled)
+
+    def test_the_default_is_disabled_not_enabled(self):
+        # `cart_active` is defaulted so an un-updated caller cannot crash.
+        # It must default to the SAFE side: a caller that forgot to pass it
+        # gets buttons that cannot fire, never buttons that can.
+        for w in hover.widgets_for(selecting=True, locales_available=2):
+            with self.subTest(widget=w.id):
+                self.assertFalse(w.enabled)
 
     def test_locale_count_does_not_resurrect_language(self):
-        ws = hover.widgets_for(selecting=True, locales_available=1)
-        self.assertEqual(ws, [])
+        ids = [w.id for w in hover.widgets_for(selecting=True,
+                                               locales_available=1)]
+        self.assertNotIn(hover.LANGUAGE, ids)
+
+    def test_confirm_is_not_done(self):
+        # M6's SELECTING -> BROTH edge is written against `DONE`; the cart's
+        # own button is a separate id so M6 is an addition, not a rename.
+        ids = [w.id for w in build_widgets()]
+        self.assertNotIn(hover.DONE, ids)
+        self.assertNotEqual(hover.CONFIRM, hover.DONE)
 
 
 class DwellCase(unittest.TestCase):
 
     def setUp(self):
         self.widgets = build_widgets()
-        self.done = [w for w in self.widgets if w.id == hover.DONE][0]
+        self.confirm = [w for w in self.widgets if w.id == hover.CONFIRM][0]
         self.cancel = [w for w in self.widgets if w.id == hover.CANCEL][0]
         self.d = hover.DwellTracker()
 
@@ -202,19 +248,19 @@ class TestDwell(DwellCase):
 
     def test_a_dwell_fires_at_the_configured_time(self):
         # Doc section 21's M5 acceptance test, minus the hand.
-        fired, _ = self.hold(self.done, 1.1)
+        fired, _ = self.hold(self.confirm, 1.1)
         self.assertEqual(fired, [])
-        fired, _ = self.hold(self.done, 0.2, start=1.1)
-        self.assertEqual(fired, [hover.DONE])
+        fired, _ = self.hold(self.confirm, 0.2, start=1.1)
+        self.assertEqual(fired, [hover.CONFIRM])
 
     def test_the_fraction_fills_from_zero_to_one(self):
-        self.assertEqual(self.d.fraction(hover.DONE), 0.0)
-        self.hold(self.done, 0.6)
-        self.assertGreater(self.d.fraction(hover.DONE), 0.4)
-        self.assertLess(self.d.fraction(hover.DONE), 0.6)
+        self.assertEqual(self.d.fraction(hover.CONFIRM), 0.0)
+        self.hold(self.confirm, 0.6)
+        self.assertGreater(self.d.fraction(hover.CONFIRM), 0.4)
+        self.assertLess(self.d.fraction(hover.CONFIRM), 0.6)
 
     def test_the_fraction_is_zero_for_a_widget_not_being_dwelled(self):
-        self.hold(self.done, 0.6)
+        self.hold(self.confirm, 0.6)
         self.assertEqual(self.d.fraction(hover.CANCEL), 0.0)
 
     def test_it_fires_once_not_repeatedly(self):
@@ -222,19 +268,19 @@ class TestDwell(DwellCase):
         # This failed on the first version — resetting the accumulator on
         # fire is not enough, because the hand is still inside on the very
         # next tick. It needs a latch that only an exit clears.
-        fired, _ = self.hold(self.done, 4.0)
-        self.assertEqual(fired, [hover.DONE])
+        fired, _ = self.hold(self.confirm, 4.0)
+        self.assertEqual(fired, [hover.CONFIRM])
 
     def test_leaving_and_returning_re_arms_it(self):
         # The other half of the latch: it must not be a one-shot for the
         # life of the session. A diner who fires Done, changes their mind
         # and cancels, then picks more food, has to be able to fire it
         # again.
-        fired, now = self.hold(self.done, 1.5)
-        self.assertEqual(fired, [hover.DONE])
+        fired, now = self.hold(self.confirm, 1.5)
+        self.assertEqual(fired, [hover.CONFIRM])
         _, now = self.idle(0.5, start=now)
-        fired, _ = self.hold(self.done, 1.5, start=now)
-        self.assertEqual(fired, [hover.DONE])
+        fired, _ = self.hold(self.confirm, 1.5, start=now)
+        self.assertEqual(fired, [hover.CONFIRM])
 
     def test_a_jitter_out_and_back_does_not_re_arm_a_fired_widget(self):
         # The latch is cleared by the pointer being ANYWHERE else, so this
@@ -242,25 +288,25 @@ class TestDwell(DwellCase):
         # button after a fire re-arms it, and then a hand that never
         # really left fires a second time. 1200ms of continued rest after
         # one jittery frame must still produce nothing.
-        fired, now = self.hold(self.done, 1.5)
-        self.assertEqual(fired, [hover.DONE])
+        fired, now = self.hold(self.confirm, 1.5)
+        self.assertEqual(fired, [hover.CONFIRM])
         now += 0.016
         self.d.update(self.widgets, pointer(5.0, 5.0), now)     # one frame off
-        fired, _ = self.hold(self.done, 1.0, start=now)
+        fired, _ = self.hold(self.confirm, 1.0, start=now)
         self.assertEqual(fired, [])
 
     def test_a_short_leave_inside_the_grace_does_not_reset(self):
         # Doc section 9.4: "leaving resets to 0 after a 150ms grace (so a
         # jittery frame does not reset a nearly-complete dwell)".
-        self.hold(self.done, 1.1)
+        self.hold(self.confirm, 1.1)
         _, now = self.idle(0.1, start=1.1)
-        fired, _ = self.hold(self.done, 0.2, start=now)
-        self.assertEqual(fired, [hover.DONE])
+        fired, _ = self.hold(self.confirm, 0.2, start=now)
+        self.assertEqual(fired, [hover.CONFIRM])
 
     def test_a_long_leave_past_the_grace_resets_to_zero(self):
-        self.hold(self.done, 1.1)
+        self.hold(self.confirm, 1.1)
         self.idle(0.4, start=1.1)
-        self.assertEqual(self.d.fraction(hover.DONE), 0.0)
+        self.assertEqual(self.d.fraction(hover.CONFIRM), 0.0)
         self.assertIsNone(self.d.active_id)
 
     def test_moving_to_another_widget_does_not_carry_the_dwell_over(self):
@@ -268,20 +314,27 @@ class TestDwell(DwellCase):
         # this catches would let a hand sweeping across the buttons fire
         # whichever one it happened to land on.
         self.hold(self.cancel, 1.1)
-        fired, _ = self.hold(self.done, 0.2, start=1.1)
+        fired, _ = self.hold(self.confirm, 0.2, start=1.1)
         self.assertEqual(fired, [])
 
     def test_a_disabled_widget_never_accumulates(self):
-        widgets = build_widgets(locales_available=1)
-        lang = [w for w in widgets if w.id == hover.LANGUAGE][0]
-        cx = lang.rect[0] + lang.rect[2] / 2
-        cy = lang.rect[1] + lang.rect[3] / 2
+        # An empty cart's Confirm: drawn (so the diner sees it exists) but
+        # not dwellable. Used to be aimed at Language with one locale
+        # loaded; that widget is gone, and the empty cart is now the real
+        # case this rule protects — a ring that filled over Confirm with
+        # nothing picked would promise something that cannot happen.
+        widgets = hover.widgets_for(selecting=True, locales_available=1,
+                                    cart_active=False)
+        confirm = [w for w in widgets if w.id == hover.CONFIRM][0]
+        self.assertFalse(confirm.enabled)
+        cx = confirm.rect[0] + confirm.rect[2] / 2
+        cy = confirm.rect[1] + confirm.rect[3] / 2
         d = hover.DwellTracker()
         now = 0.0
         for _ in range(200):
             now += 0.016
             self.assertIsNone(d.update(widgets, pointer(cx, cy), now))
-        self.assertEqual(d.fraction(hover.LANGUAGE), 0.0)
+        self.assertEqual(d.fraction(hover.CONFIRM), 0.0)
 
     def test_the_first_tick_does_not_bank_time(self):
         # `update` measures the gap since the LAST call. With no previous
@@ -289,18 +342,18 @@ class TestDwell(DwellCase):
         # itself would fire instantly on a monotonic clock that is already
         # large.
         d = hover.DwellTracker()
-        cx, cy = self.centre(self.done)
+        cx, cy = self.centre(self.confirm)
         self.assertIsNone(d.update(self.widgets, pointer(cx, cy), 987654.0))
-        self.assertEqual(d.fraction(hover.DONE), 0.0)
+        self.assertEqual(d.fraction(hover.CONFIRM), 0.0)
 
     def test_a_custom_dwell_time_is_honoured(self):
         d = hover.DwellTracker(dwell_ms=400.0)
-        cx, cy = self.centre(self.done)
+        cx, cy = self.centre(self.confirm)
         now, fired = 0.0, None
         while now < 0.5 and fired is None:
             now += 0.016
             fired = d.update(self.widgets, pointer(cx, cy), now)
-        self.assertEqual(fired, hover.DONE)
+        self.assertEqual(fired, hover.CONFIRM)
         self.assertLess(now, 0.5)
 
     def test_a_pointer_outside_every_widget_accumulates_nothing(self):

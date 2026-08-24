@@ -1431,9 +1431,16 @@ class Core:
         if pointer is not None:
             self.fsm.hand_present()
 
+        # `cart_active` gates whether Cancel/Confirm are dwellable at all
+        # (hover.widgets_for's own docstring). `cart.is_active()` reads
+        # `shown_g`, i.e. the DEADBANDED number — deliberately, and for the
+        # same reason M2.6 chose it for the setting-mode refusal: the raw
+        # removed grams move with load-cell noise, so gating on those would
+        # arm both buttons on an untouched table and never disarm them.
         self._widgets = hover.widgets_for(
             selecting=self.fsm.state is fsm.State.SELECTING,
-            locales_available=len(self.locales.available()))
+            locales_available=len(self.locales.available()),
+            cart_active=self.cart.is_active())
 
         # `hover.bin_under` already answers None for a None hand (its own
         # docstring), so this runs unconditionally rather than duplicating
@@ -1472,6 +1479,28 @@ class Core:
             # `reset_session()` and this is one of its three callers.
             if not self.fsm.cancel() and self.cart.is_active():
                 self.cart.reset_session()
+            return
+        if widget_id == hover.CONFIRM:
+            # **What Confirm does AFTER this is a product decision that has
+            # not been made, and is not invented here** — doc section 9.1's
+            # SELECTING -> BROTH -> RECAP -> CHECKOUT chain is M6, and
+            # `hover.DONE` is the id that edge is written against. What the
+            # cart can honestly do today is close its own books: `finalize()`
+            # snaps every bin's SHOWN grams to the true removed grams,
+            # dropping the display deadband (doc section 9.2's fix for open
+            # debt #5 — "a diner must never be shown a recap that disagrees
+            # with the arithmetic they were actually charged from"). So the
+            # numbers on the table become the billed numbers, exactly, and
+            # the cart stays up as the diner's record — VISUAL_LAYER.md
+            # section 8's own words: "the diner's only receipt until an
+            # order-finalisation step exists."
+            #
+            # It deliberately does NOT clear the cart. Cancel means discard;
+            # if Confirm also emptied the table the two buttons would look
+            # identical from a diner's seat.
+            self.cart.finalize()
+            _log.info("core: Confirm fired (dwell complete) — cart finalised "
+                      "to true grams. Checkout is M6.")
             return
         if widget_id == hover.LANGUAGE:
             self._cycle_locale()

@@ -4247,6 +4247,112 @@ change of this size. Next: build item 10 (info box) needs new data
 + StateLink parsing, before any oF drawing), not a continuation of this
 one.
 
+### Cart fix 1 (2026-08-24): the first rig look — no white panel, full
+### names, buttons pulled down, and Confirm/Cancel made real
+Four of the developer's seven items off the first look at build item 9 on
+the table. (Items 5 and 7 — bin overrides not surviving a restart, and
+the info box's own content — are their own commits, below.)
+
+1. **"cart now have a white background, it is not needed, it should
+   remain like all other text written in the table."** The white panel
+   fill and its 2px border are gone; `kCartPanelFill` deleted outright
+   (this file's usual rule), `kCartBorderColor` kept because the divider
+   above the total still uses it. This is doc §4's own rule for the plate
+   ("Plate has no fill and no border. Text sits directly on the table
+   background") applied to the cart — §3's palette table has a "Cart panel
+   fill"/"Cart border" pair that contradicts it, and the table is what
+   settled it.
+2. **"the full name of item is not coming, that is unacceptable."**
+   Measured, not guessed (same PIL/FreeType script against the real
+   `.ttf` and the real catalogue that fixed the plate name in step 2):
+   at §3's 26px the widest name ("Button Mushrooms") is 279px and the
+   detail column's worst case ("500g  $17.50") is 191px — 486px of
+   content in a 460px panel, so every long name hit `truncateToWidth` and
+   lost its tail. **Both numbers moved, because either alone was
+   marginal**: row text 26px → 22px (238px + 160px) and cart width 460px
+   → 500px, leaving 46px spare. `truncateToWidth` stays as the safety
+   net, not the mechanism.
+3. **"there is no more space to show info box above the cart. so the cart
+   and the buttons should be pulled down."** A fixed 136px band
+   (`kInfoBoxTopPx`/`kInfoBoxHeightPx`) is reserved below the banner and
+   `kCartTopPx` derives from it, so everything below shifts by
+   136+20px. Reserved from boot whether or not anything is active —
+   that reservation IS doc §10's "fixed height, does not push the cart
+   down". Nothing draws in it yet; that is the next commit.
+4. **"confirm and cancell button looks washed out... need green and red
+   respectively. also cancel button should come first"** and **"the
+   confirm and cancell button didnt work and no progress of hover was
+   shown."** These turned out to be one problem: they were static paint
+   inside `drawCart`, drawn in `kWidgetDisabled` grey and hit-tested
+   against nothing, because `core/hover.py`'s `widgets_for()` has
+   returned `[]` since 2026-08-13 (RIG_FEEDBACK items 4-7).
+   - **The rects now live in core, not oF, and that is the whole point.**
+     Doc §9.4 makes core the hit-tester; a button drawn from an oF-local
+     rect and hit-tested against a core-local one is a button a hand can
+     miss while looking like it hit. `hover.layout()` returns the pair,
+     `widgets_for()` returns them **always** (a button that vanishes when
+     the cart empties breaks the same "never moves" promise a row does) —
+     `enabled` carries the state instead, off `cart.is_active()`, which
+     reads the DEADBANDED `shown_g` for the same reason M2.6's
+     setting-mode refusal does: raw removed grams move with load-cell
+     noise and would arm both buttons on an untouched table.
+   - Cancel LEFT, Confirm right, per the developer. Cancel reuses the
+     existing `_fire_widget` branch (the one `reset_session()` caller it
+     always was). **Confirm is a NEW widget id, not a relabelled `DONE`**
+     — doc §9.1's SELECTING→BROTH edge is M6's and is written against
+     `DONE` everywhere, so M6 stays an addition rather than a rename.
+   - **What Confirm does is deliberately the smallest honest thing:**
+     `cart.finalize()`, i.e. shown grams snap off the display deadband
+     onto the true removed grams (doc §9.2's fix for open debt #5). The
+     cart stays up as the receipt. It does NOT clear the cart — Cancel
+     means discard, and if Confirm emptied the table too the two would be
+     indistinguishable from a diner's seat. **Everything after that is a
+     product decision nobody has made** (§9.1's BROTH/RECAP/CHECKOUT is
+     M6), and inventing one is exactly what got the original three
+     widgets deleted.
+   - Colours: green is the existing `kWidgetPrimary` (already chosen
+     equiluminant per I8); red is `#C0392B`, a DEEP red rather than the
+     error banner's `#e05d5d` — that one is a fill with dark ink on it,
+     this is ink on a near-white table, where a light red reads as pink
+     and loses the contrast the grey just lost. An enabled button's
+     LABEL now takes the ring's colour too; a coloured hairline around
+     near-black text was half of "washed out".
+   - **Dwell progress is drawn inside the button**, filling from the
+     bottom up. The cursor's own dwell ring already showed the fraction
+     but it sits under the diner's hand — which is where a hand is while
+     dwelling — so on the rig it read as no feedback at all. Bottom-up
+     because that is the direction that stays visible past the edge of a
+     hand covering the middle. oF still times nothing; `w.dwell` is
+     core's 0..1 (doc §9.4).
+
+**The one real fragility, named rather than hidden:** the cart's width
+and the button band's top now exist in two languages and cannot share a
+constant (`hover.py`'s `CART_WIDTH_PX`/`BUTTONS_TOP_PX` vs
+`UiLayer.cpp`'s `kCartWidthPx`/`kCartTopPx`). `UiLayer::setup()` carries
+the check — it measures `cartBottomPx()` and warns if the cart has grown
+down into the button band. Move one side without the other and the
+buttons collide with the total or float away from the cart: visible on
+the table, invisible in a diff.
+
+Tests: `test_hover.py`'s `build_widgets()` now calls production's own
+`widgets_for()` instead of mirroring its old body — a mirror can agree
+with itself while disagreeing with the table. 12 rewritten/new cases
+across `test_hover.py` (Cancel-first, equal sizes, the pair spanning the
+cart's width, staying on the table, both enabled states, the default
+being the SAFE one) and `test_core_main.py` (both ids on the wire in
+SELECTING, `done`/`language` not back, dwelling Confirm on an EMPTY cart
+firing nothing, and dwelling it on a picked cart firing and finalising).
+That last one walked into a trap first and the fix is worth keeping: a
+single 4g pick leaves `shown_g` at 0, so `is_active()` is false and the
+button is never armed — it now picks 50g to arm, then a further 4g so
+the true removed (54g) and the shown (50g) genuinely disagree, which is
+what makes "finalize ran" capable of failing. 1031 tests pass.
+`data/locales/en.json` gained `"confirm": "Confirm"`.
+
+Full build, msbuild Debug x64, linked clean (`run.py --stop` first — a
+stack was live and holds the exe open, M4n-fix's lesson).
+**Not observed on the projected surface.**
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

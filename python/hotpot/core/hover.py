@@ -72,6 +72,15 @@ DONE = "done"
 CANCEL = "cancel"
 LANGUAGE = "language"
 
+# VISUAL_LAYER.md section 8's own pair, 2026-08-24: "Two buttons below the
+# cart: Confirm, Cancel." `CONFIRM` is deliberately a NEW id rather than a
+# relabelled `DONE`: doc section 9.1's SELECTING -> BROTH edge is M6's, and
+# `DONE` is the name that edge is written against everywhere in this repo.
+# Confirm is the cart's own button and does what the cart can honestly do
+# today (see `core/main.py._fire_widget`) — conflating the two would make
+# M6's arrival a rename instead of an addition.
+CONFIRM = "confirm"
+
 
 @dataclass
 class Widget:
@@ -133,6 +142,26 @@ def centre_column_px() -> Tuple[float, float]:
 BAND_TOP_PX = 350.0
 BAND_BOTTOM_PX = 820.0
 
+# --- the cart's own two buttons (VISUAL_LAYER.md section 8) --------------
+#
+# **These four numbers are mirrored in `of/hotpot-table/src/UiLayer.cpp`
+# and cannot share a constant — one is Python, the other C++.** They are
+# the seam between core, which owns the rect a hand is hit-tested against
+# (doc section 9.4), and oF, which lays the cart out directly above it.
+# `UiLayer::setup()` carries the matching check: it measures the cart's own
+# bottom and logs a warning if it has grown down into `BUTTONS_TOP_PX`.
+# Move one side without the other and the buttons collide with the total,
+# or float away from the cart — visible on the table, invisible in a diff.
+#
+# `CART_WIDTH_PX` matches `kCartWidthPx` so the pair spans exactly the
+# cart's width; `BUTTONS_TOP_PX` sits below the cart's measured bottom
+# (~932px with the 48px total font) with room to spare, and the band ends
+# at 1040px, 40px clear of the table's near edge.
+CART_WIDTH_PX = 500.0
+BUTTONS_TOP_PX = 952.0
+BUTTON_H_PX = 88.0
+BUTTON_GAP_PX = 16.0
+
 # Button sizes, largest for the primary action. Dwell targets have to be
 # comfortably bigger than the cursor's own wander — a hand is not a mouse,
 # and landmark 9 moves a few px per frame even on a still hand — so these
@@ -149,41 +178,66 @@ def _centred(width: float, height: float, y: float) -> Rect:
 
 
 def layout() -> Dict[str, Rect]:
-    """The three widget rects, stacked in the centre column.
+    """The cart's two button rects, side by side directly under the cart.
 
-    Ordered by reach, not by importance: `DONE` sits nearest the diner
-    because it is the one a hand goes to most and the one doc section 21's
-    acceptance test dwells on. `LANGUAGE` sits furthest away because it is
-    pressed once a session at most.
+    **CANCEL is on the LEFT, CONFIRM on the right** — developer, 2026-08-24:
+    "cancel button should come first." Read left-to-right that puts the
+    reversible action first and the committing one last, which is the
+    order every checkout a diner has already used puts them in.
+
+    Done/Language are NOT here. They were removed outright in 2026-08-13
+    (RIG_FEEDBACK items 4-7) and nothing has brought them back; the band
+    they used to sit in (`BAND_TOP_PX`..`BAND_BOTTOM_PX`) is the cart's
+    now. Those two constants and the three sizes above are kept because
+    they record what was measured on the rig about that band — see
+    `BAND_BOTTOM_PX`'s own comment, which is a finding, not a leftover.
     """
+    x0, col_w = centre_column_px()
+    left = x0 + (col_w - CART_WIDTH_PX) * 0.5
+    btn_w = (CART_WIDTH_PX - BUTTON_GAP_PX) * 0.5
     return {
-        LANGUAGE: _centred(*TERTIARY_SIZE, y=BAND_TOP_PX),
-        CANCEL: _centred(*SECONDARY_SIZE, y=BAND_TOP_PX + 130.0),
-        DONE: _centred(*DONE_SIZE, y=BAND_BOTTOM_PX - DONE_SIZE[1]),
+        CANCEL: (left, BUTTONS_TOP_PX, btn_w, BUTTON_H_PX),
+        CONFIRM: (left + btn_w + BUTTON_GAP_PX, BUTTONS_TOP_PX, btn_w, BUTTON_H_PX),
     }
 
 
-def widgets_for(*, selecting: bool, locales_available: int) -> List[Widget]:
-    """Which widgets exist right now: none.
+def widgets_for(*, selecting: bool, locales_available: int,
+                cart_active: bool = False) -> List[Widget]:
+    """The cart's Cancel and Confirm, always both, drawn in every state.
 
-    **DECISION, RIG_FEEDBACK_2026-08-12.md items 4-7, 2026-08-13: the three
-    widgets this milestone shipped (Done/Cancel/Language) are removed
-    outright.** The developer's own item-7 note called them placeholders
-    ("all these buttons are not expected to be here, we can change it
-    later"), and each of the other three items was a symptom of that: Cancel
-    cleared the whole cart with no product decision behind that ever made
-    (item 4), Done had nowhere to go until M6 (item 5), Language had nothing
-    to switch to until a second locale file exists (item 6).
+    **2026-08-24, developer: "the confirm and cancell button didnt work and
+    no progress of hover was shown."** They did not work because this
+    function returned `[]` — the buttons on the table were static paint in
+    `UiLayer::drawCart`, hit-tested against nothing. This is the fix: they
+    are real widgets, so core hit-tests them and `DwellTracker` fills them,
+    through the same path that has been tested since M5.
 
-    `layout()`, `Widget`, `DwellTracker` and `core/main.py`'s
-    `_fire_widget` dispatch table are all left intact and unused, ready for
-    whatever real widget set replaces these three, and for item 3's bin
-    dwell (which reuses `DwellTracker`, just fed a bin instead of a
-    widget) — not yet built. `selecting`/`locales_available` are kept as
-    parameters, unused, so callers and tests need not change shape the day
-    a real widget set replaces this.
+    That reverses part of RIG_FEEDBACK items 4-7 (2026-08-13), and only
+    that part, deliberately. Those three were removed because none had a
+    product decision behind it — but VISUAL_LAYER.md section 8 makes this
+    pair part of the cart itself, and the developer has now asked for them
+    to work. `DONE` and `LANGUAGE` stay removed: Done still has nowhere to
+    go until M6, and there is still only one locale file.
+
+    **Always returned, never conditionally absent** — doc section 8's cart
+    "never moves" and a button that vanishes when the cart empties is the
+    same broken promise as a row that does. `enabled` carries the state
+    instead: with nothing picked there is nothing to confirm or cancel, so
+    both are disabled, which `DwellTracker` already refuses to accumulate
+    on and `UiLayer::drawWidget` already greys out.
+
+    `selecting`/`locales_available` are unchanged in shape (callers and
+    tests do not move); `cart_active` is new and defaulted, so a caller
+    that has not been updated gets the disabled pair rather than a crash.
     """
-    return []
+    rects = layout()
+    enabled = bool(cart_active)
+    return [
+        Widget(id=CANCEL, rect=rects[CANCEL], label_key="cancel",
+               style="danger", enabled=enabled),
+        Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="confirm",
+               style="primary", enabled=enabled),
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -251,11 +251,18 @@ namespace {
 	// banner (drawBrandMark/drawBanner's own gapLeftMM/gapRightMM — the
 	// pot gap, the one horizontal span with no bin in it), stacked below
 	// both. Doc: "Cart width ~460px, row height 44px... Total sits at a
-	// fixed position and never moves." All colours/sizes are VISUAL_LAYER
-	// .md §3's palette table verbatim — brand-new this session, so
-	// unverified by any rig photo yet, same honest status every other new
-	// constant in this file has carried before its first photo.
-	const ofColor kCartPanelFill(0xFF, 0xFF, 0xFF);      // #FFFFFF
+	// fixed position and never moves."
+	//
+	// **2026-08-24, first rig look: the white panel fill and its 2px
+	// border are GONE** — developer: "cart now have a white background, it
+	// is not needed, it should remain like all other text written in the
+	// table." That is doc §4's own rule for the plate ("Plate has no fill
+	// and no border. Text sits directly on the table background") applied
+	// to the cart, which the §3 palette rows for "Cart panel fill"/"Cart
+	// border" contradicted. `kCartPanelFill` is deleted outright rather
+	// than left dormant; `kCartBorderColor` survives because the divider
+	// above the total (its own §3 row) still uses it — that one is a rule
+	// in a receipt, not a container around it.
 	const ofColor kCartBorderColor(0xC9, 0xC5, 0xBC);    // #C9C5BC
 	const ofColor kCartRowDetailColor(0x6E, 0x6A, 0x62); // #6E6A62
 	// #B8781A — the doc's original "Total value" hex. Deliberately NOT
@@ -266,27 +273,67 @@ namespace {
 	// independent means a future correction to one does not silently
 	// drag the other along for a reason nobody checked.
 	const ofColor kCartTotalValueColor(0xB8, 0x78, 0x1A);
-	const int kCartRowPx = 26;
-	const float kCartWidthPx = 460.0f;
+	// §3's palette says 26px for both cart-row columns. **Corrected to
+	// 22px, 2026-08-24, from the developer's first look at a filled cart:
+	// "the full name of item is not coming, that is unacceptable."** At
+	// 26px the widest catalogue name ("Button Mushrooms") measures 279px
+	// and the detail column's own worst case ("500g  $17.50") 191px — 486px
+	// of content against the doc's own 460px panel, so every long name hit
+	// truncateToWidth below and lost its tail. Measured, not guessed (the
+	// same PIL/FreeType script against the same real .ttf and the real
+	// catalogue that fixed the plate name's own overflow earlier this
+	// month): at 22px those are 238px and 160px, which fit inside a 500px
+	// panel with 46px to spare. Both numbers moved — the size DOWN and the
+	// width UP — because either alone was marginal. §3 is not edited to
+	// match yet, same "flag it, confirm on a photo first" rule this file
+	// already uses for the halo's own colour.
+	const int kCartRowPx = 22;
+	const float kCartWidthPx = 500.0f;
 	const float kCartRowHeightPx = 44.0f;
 	const float kCartBorderWidthPx = 2.0f;   // filled bars, not ofSetLineWidth
 	                                          // — see the halo's own comment
 	                                          // above on why a stroke width
 	                                          // is unusable on this rig.
 	const float kCartPadXPx = 20.0f;
-	const float kCartPadYPx = 18.0f;
 	const float kCartRowMidGapPx = 16.0f;    // name column <-> detail column
 	const float kCartDividerGapPx = 12.0f;   // rows -> divider -> total
-	const float kCartButtonsGapPx = 20.0f;   // panel bottom -> Confirm/Cancel
-	const float kCartButtonGapPx = 16.0f;    // Confirm <-> Cancel
-	const float kCartButtonHeightPx = 56.0f;
+
+	// --- VISUAL_LAYER.md §8, build item 10: the info box -------------------
+	// "Info box sits ABOVE the cart, fixed height, does not push the cart
+	// down." Fixed height is the whole mechanism: the space is reserved
+	// from boot whether or not a bin is active, so the cart's own top
+	// (kCartTopPx below) is a constant and cannot move when the box fades
+	// in. Sized to three 24px lines (§3's "Info box text") plus padding —
+	// one header line (veg/non-veg + kcal) and up to two description lines.
+	//
+	// 2026-08-24, developer: "there is no more space to show info box above
+	// the cart. so the cart and the buttons should be pulled down." That is
+	// what this block does — everything below it shifts by
+	// kInfoBoxHeightPx + kInfoBoxCartGapPx.
+	const float kInfoBoxTopPx = kBrandTopMarginPx + kBrandHeightPx
+		+ kBrandBannerGapPx + kBannerHeightPx + 24.0f;
+	const float kInfoBoxHeightPx = 136.0f;
+	const float kInfoBoxCartGapPx = 20.0f;
+	const int kInfoBoxTextPx = 24;
+	const float kInfoBoxPadXPx = 18.0f;
+	const float kInfoBoxPadYPx = 14.0f;
+	const float kInfoBoxLineGapPx = 6.0f;
+	const float kInfoBoxBorderWidthPx = 2.0f;
+	const ofColor kInfoBoxFill(0xF7, 0xE4, 0xDC);        // §3 "Info box fill"
+	const ofColor kInfoBoxBorderColor(0xC7, 0x4A, 0x34); // §3 "Info box border"
+	const ofColor kInfoBoxTextColor(0x8A, 0x35, 0x24);   // §3 "Info box text"
+	// §8: "Active: fill + border + text fade in." 250ms — slower than the
+	// 150ms a fact-tracking spring uses (BinTween::picked), faster than the
+	// halo/fire cross-dissolve's 350ms; unmeasured, tunable once seen.
+	const float kInfoBoxFadeS = 0.25f;
+
 	// Fixed, never a function of whether the mode banner happens to be
 	// showing — doc §8's "never moves" applies as much to appearing as it
 	// does to growing, so this sits below the banner's own footprint
 	// (kBannerHeightPx) whether or not drawTopBanner actually draws one
-	// this frame.
-	const float kCartTopPx = kBrandTopMarginPx + kBrandHeightPx + kBrandBannerGapPx
-		+ kBannerHeightPx + 24.0f;
+	// this frame, and below the info box's reserved band whether or not a
+	// bin is active.
+	const float kCartTopPx = kInfoBoxTopPx + kInfoBoxHeightPx + kInfoBoxCartGapPx;
 
 	// --- M5: the pointer cursor and the dwell ring ------------------------
 	// Sizes in px because they are screen furniture, not table geometry —
@@ -352,7 +399,29 @@ namespace {
 	const float kWidgetRingMM = 5.0f;
 	const ofColor kWidgetPrimary(0, 115, 0);      // the `picked` green, equiluminant
 	const ofColor kWidgetSecondary(98, 98, 98);
+	// **2026-08-24, developer, on the cart's own Confirm/Cancel pair:
+	// "confirm and cancell button looks washed out and i think it need
+	// green and red colour respectively."** They were drawn in
+	// kWidgetDisabled (190,190,190) — light grey on a near-white field,
+	// which is exactly the "washed out" report and was itself deliberate
+	// (doc §8: "Inactive for now — placeholder only"). They are real
+	// dwell targets now (core/hover.py's own widget set), so the disabled
+	// grey is wrong twice over.
+	//
+	// Green is kWidgetPrimary above, unchanged — already chosen as
+	// equiluminant with the greys per I8 ("distinguish states by hue,
+	// never by brightness"). Red is a DEEP red, not the error banner's
+	// #e05d5d: that one is a FILL with dark ink on top, where this is ink
+	// on the near-white table and a light red would read as pink and lose
+	// the same contrast the grey just lost. #C0392B is luminance-close to
+	// kWidgetPrimary and shares a family with §3's own fire-core #C74A34.
+	const ofColor kWidgetDanger(0xC0, 0x39, 0x2B);
 	const ofColor kWidgetDisabled(190, 190, 190);
+	// The dwell sweep, drawn INSIDE a widget as a rising fill (see
+	// drawWidget). Same amber as the cursor's own dwell ring
+	// (kDwellFillColor) so a filling button and a filling ring read as one
+	// mechanism, at the low alpha a tint under dark text has to keep.
+	const ofColor kWidgetDwellFill(200, 120, 0, 70);
 
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
@@ -529,6 +598,25 @@ void UiLayer::setup(){
 		if(measured > kPlateHPx){
 			ofLogWarning(kTag) << "plate label block (worst case, 2-line name) measures "
 				<< measured << "px, over VISUAL_LAYER.md's " << kPlateHPx << "px PLATE_H budget";
+		}
+	}
+
+	// The one check standing between this file's cart layout and
+	// core/hover.py's Confirm/Cancel band, which are in two languages and
+	// cannot share a constant. hover.py's `BUTTONS_TOP_PX` is mirrored
+	// here as a literal on purpose — if either side moves and the other
+	// does not, the buttons either collide with the total or float away
+	// from the cart, and both are visible on the table but neither is
+	// visible in a diff. A warning rather than a clamp: the rect that
+	// actually gets drawn (and hit-tested) is core's, and oF quietly
+	// moving a button core is still hit-testing elsewhere is the exact
+	// failure this whole arrangement exists to prevent.
+	if(_fontsLoaded){
+		const float kHoverButtonsTopPx = 952.0f;   // core/hover.py BUTTONS_TOP_PX
+		if(cartBottomPx() > kHoverButtonsTopPx){
+			ofLogWarning(kTag) << "cart bottom measures " << cartBottomPx()
+				<< "px, below core/hover.py's button band at " << kHoverButtonsTopPx
+				<< "px — the Confirm/Cancel buttons will overlap the total";
 		}
 	}
 
@@ -1067,13 +1155,11 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 	const float dividerY = rowsBottom + kCartDividerGapPx;
 	const float totalTop = dividerY + kCartBorderWidthPx + kCartDividerGapPx;
 	const float totalBaselineY = totalTop + _totalNumFont.getAscenderHeight();
-	const float panelBottom = totalTop + _totalNumFont.getAscenderHeight()
-		+ fabsf(_totalNumFont.getDescenderHeight()) + kCartPadYPx;
-	const ofRectangle panel(x, kCartTopPx, kCartWidthPx, panelBottom - kCartTopPx);
 
-	ofSetColor(kCartPanelFill);
-	ofDrawRectangle(panel);
-	drawRectBorder(panel, kCartBorderWidthPx, kCartBorderColor);
+	// No panel fill and no border — see kCartBorderColor's own comment
+	// above. The cart is now text on the table background, the same as
+	// every plate label, and the only rule left on it is the divider
+	// above the total.
 
 	// The 8 fixed row slots, doc §8: "Slots are blank at startup. No
 	// name, no placeholder text, no icon, no border. Just reserved empty
@@ -1114,31 +1200,41 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 			x + kCartWidthPx - kCartPadXPx - detailBb.width - detailBb.x, baselineY);
 	}
 
-	drawRectBorder(ofRectangle(x, dividerY, kCartWidthPx, kCartBorderWidthPx),
-		kCartBorderWidthPx, kCartBorderColor);
+	ofSetColor(kCartBorderColor);
+	ofDrawRectangle(x, dividerY, kCartWidthPx, kCartBorderWidthPx);
 	drawTotal(state.total, totalBaselineY);
-
-	// doc §8: "Two buttons below the cart: Confirm, Cancel. Inactive for
-	// now — placeholder only, behaviour and styling TBD." Drawn with the
-	// same disabled-button language M5's own widgets already use
-	// (drawWidget's ring+ink pair, both kWidgetDisabled) rather than
-	// inventing a second "disabled" look for this table — there is
-	// nothing to wire these to yet (no wire message, no FSM state), so
-	// they are visual only.
-	const float buttonsTop = panelBottom + kCartButtonsGapPx;
-	const float btnW = (kCartWidthPx - kCartButtonGapPx) * 0.5f;
-	const ofRectangle confirmBox(x, buttonsTop, btnW, kCartButtonHeightPx);
-	const ofRectangle cancelBox(x + btnW + kCartButtonGapPx, buttonsTop, btnW, kCartButtonHeightPx);
-	const float ringX = mmToPxX(kWidgetRingMM);
-	const float ringY = mmToPxY(kWidgetRingMM);
-	drawRing(confirmBox, ringX, ringY, kWidgetDisabled);
-	drawRing(cancelBox, ringX, ringY, kWidgetDisabled);
-	ofSetColor(kWidgetDisabled);
-	drawCentered(_nameFont, "CONFIRM", confirmBox.getCenter().x,
-		confirmBox.getCenter().y + _nameFont.getAscenderHeight() * 0.5f);
-	drawCentered(_nameFont, "CANCEL", cancelBox.getCenter().x,
-		cancelBox.getCenter().y + _nameFont.getAscenderHeight() * 0.5f);
 	ofSetColor(255);
+
+	// **Confirm/Cancel are NOT drawn here any more.** They were static
+	// placeholders in this function until 2026-08-24, when the developer
+	// reported the obvious consequence: "the confirm and cancell button
+	// didnt work and no progress of hover was shown." They are real dwell
+	// targets now, and a dwell target's rect has to be the rect CORE
+	// hit-tests against (doc §9.4: core hit-tests, "oF does not time
+	// anything") — so core/hover.py owns both buttons outright and they
+	// arrive on the wire like any other widget, drawn by drawWidgets/
+	// drawWidget. Drawing them from a second, oF-local rect would put a
+	// button on the table that a hand could miss while looking like it hit
+	// it, which is worse than the placeholder was.
+	//
+	// hover.py's CART_* constants mirror kCartWidthPx/the cart's own
+	// bottom edge here, and setup() logs if the two ever drift far enough
+	// for the buttons to collide with the total — that check is the only
+	// thing standing between the two files, so read it before moving
+	// either.
+}
+
+float UiLayer::cartBottomPx() const {
+	// The lowest ink the cart itself draws — the total's own descender.
+	// Public-ish (private, but read by setup()'s cross-file check against
+	// core/hover.py's button band) precisely so the number that has to
+	// agree with the other language is computed once, here, rather than
+	// re-derived by eye at the check.
+	const float rowsBottom = kCartTopPx + kCartRowHeightPx * 8.0f;
+	const float totalTop = rowsBottom + kCartDividerGapPx + kCartBorderWidthPx
+		+ kCartDividerGapPx;
+	return totalTop + _totalNumFont.getAscenderHeight()
+		+ fabsf(_totalNumFont.getDescenderHeight());
 }
 
 void UiLayer::drawConnectionIndicator(bool connected, float staleSeconds) const {
@@ -1313,6 +1409,27 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	else if(w.style == "primary"){
 		ring = kWidgetPrimary;
 	}
+	else if(w.style == "danger"){
+		// 2026-08-24: the cart's Cancel. A third style rather than
+		// reusing "secondary" grey — I8 wants a state carried by hue, and
+		// "this discards your order" is not the same statement as "this
+		// is the lesser of two buttons."
+		ring = kWidgetDanger;
+	}
+
+	// Dwell progress, drawn INSIDE the button as a rising fill. The
+	// cursor's own ring (drawCursor) already shows the same fraction, but
+	// it sits under the diner's hand — which is exactly where a hand is
+	// while dwelling — so on the rig it reads as no feedback at all
+	// (developer, 2026-08-24: "no progress of hover was shown"). The
+	// button fills from the BOTTOM up: it is the one direction that stays
+	// visible past the edge of a hand covering the middle of the button.
+	// `dwell` is core's 0..1 fraction; oF still times nothing (doc §9.4).
+	if(w.enabled && w.dwell > 0.0f){
+		const float fillH = box.height * ofClamp(w.dwell, 0.0f, 1.0f);
+		ofSetColor(kWidgetDwellFill);
+		ofDrawRectangle(box.x, box.y + box.height - fillH, box.width, fillH);
+	}
 
 	const float ringX = mmToPxX(kWidgetRingMM);
 	const float ringY = mmToPxY(kWidgetRingMM);
@@ -1324,7 +1441,16 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	// Dark ink on a light field (§13.4) — and a disabled button's label is
 	// greyed rather than hidden, because a button whose label vanished
 	// would read as a rendering fault rather than as unavailable.
-	ofSetColor(w.enabled ? kInkColor : kWidgetDisabled);
+	//
+	// 2026-08-24: an ENABLED label now takes the ring's own colour rather
+	// than kInkColor. Both live colours (kWidgetPrimary's green,
+	// kWidgetDanger's red) are dark enough for §13.4's rule on their own,
+	// and a green ring around near-black text carries the hue in a thin
+	// frame only — half of what the developer's "washed out" report was
+	// about. kInkColor is still what a plain "secondary" widget gets, so
+	// nothing that was neutral becomes coloured by this.
+	ofSetColor(w.enabled ? (w.style == "primary" || w.style == "danger" ? ring : kInkColor)
+		: kWidgetDisabled);
 	drawCentered(_nameFont, w.label, box.getCenter().x,
 		box.getCenter().y + _nameFont.getAscenderHeight() * 0.5f);
 	ofSetColor(255);
