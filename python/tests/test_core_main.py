@@ -1253,6 +1253,44 @@ class TestBinsTab(CoreCase):
         self.assertIsNone(reborn.binmap.bins[5].item_id)
         self.assertFalse(reborn.binmap.resolved(5))
 
+    def test_a_classifier_guess_does_not_survive_a_restart(self):
+        """**Developer, 2026-08-24: "when u handed over the app to me this
+        time, the food label all were wrong."**
+
+        They were. The model is not tuned yet, and the moment the bin map
+        started being written to disk a wrong guess stopped dying with the
+        process and started outliving every restart with nothing on any
+        screen saying where it came from. `_load_binmap` drops a saved bin
+        whose `source` is `"classifier"` back to the seed and leaves the
+        next classify pass to answer again.
+
+        Capable of failing: restore the old "load every row" behaviour and
+        bin 5 comes back as `white_rusk`.
+        """
+        rows = [{"i": i, "item_id": None, "conf": 0.0, "source": "unset"}
+                for i in range(8)]
+        rows[5] = {"i": 5, "item_id": "white_rusk", "conf": 0.94,
+                   "source": "classifier"}
+        atomicio.write_json(self.bm_path, {
+            "schema": coremain.binmap.SCHEMA, "written": 1.0,
+            "locked": False, "bins": rows})
+
+        reborn = self.reborn_core()
+        seeded = reborn.catalogue.ids()[5]
+        self.assertEqual(reborn.binmap.bins[5].item_id, seeded)
+        self.assertEqual(reborn.binmap.bins[5].source, "mock")
+
+    def test_the_lock_still_survives_a_restart(self):
+        # `binmap.locked` is `fsm.exit_setting()`'s own third step and is
+        # not a per-bin field, so dropping classifier rows must not drop it
+        # with them.
+        rows = [{"i": i, "item_id": None, "conf": 0.0, "source": "classifier"}
+                for i in range(8)]
+        atomicio.write_json(self.bm_path, {
+            "schema": coremain.binmap.SCHEMA, "written": 1.0,
+            "locked": True, "bins": rows})
+        self.assertTrue(self.reborn_core().binmap.locked)
+
     def test_a_corrupt_file_falls_back_to_the_seed_rather_than_refusing_to_boot(self):
         # A table that will not start is worse than a table with the mock
         # seed in it — same tolerance run.py's own pidfile reader gives a
@@ -1459,6 +1497,42 @@ class TestMode(ScaleRig, CoreCase):
         msg = self.mode_msg(w, lambda m: m["mode"] == "setting")
         self.assertIsNotNone(msg, "setting mode was still refused after cancel_order")
         self.assertIsNone(msg["refused"])
+
+    def test_cancelling_a_sub_deadband_pick_still_re_baselines_the_bin(self):
+        """**Developer, 2026-08-24: "a cance will clear the cart but if any
+        item is touched all the old items get popped up."**
+
+        This is that. Cancel used to be guarded by `cart.is_active()`,
+        which reads the DEADBANDED `shown_g` — so a 6g pick left the cart
+        reading empty, the guard read False, and `start_g` kept the old
+        baseline. The next diner taking 6g from the same bin crossed the
+        10g deadband on the sum of the two and saw the cancelled order's
+        grams inside their own. `_end_session()` is unconditional now.
+
+        Capable of failing: put the `is_active()` guard back and the last
+        assertion reads 12, not 6.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        self.recv_json(w)
+        w.send(json.dumps({"t": "mock_pick", "bin": 2, "grams": 6}))
+        end = time.time() + DEADLINE
+        while time.time() < end and self.core.cart.removed_grams(2) < 6.0:
+            time.sleep(0.02)
+        with self.core.state_lock:
+            self.assertAlmostEqual(self.core.cart.removed_grams(2), 6.0, places=3)
+            self.assertAlmostEqual(self.core.cart.shown_g[2], 0.0, places=3,
+                                   msg="6g should be under the display deadband")
+
+        w.send(json.dumps({"t": "cancel_order"}))
+        end = time.time() + DEADLINE
+        while time.time() < end and self.core.cart.removed_grams(2) > 0.0:
+            time.sleep(0.02)
+        with self.core.state_lock:
+            self.assertAlmostEqual(self.core.cart.removed_grams(2), 0.0, places=3,
+                                   msg="cancel left the old baseline in place")
+            self.core.cart.mock_pick(2, 6.0)
+            self.assertAlmostEqual(self.core.cart.removed_grams(2), 6.0, places=3)
 
     def test_cart_active_is_broadcast_without_being_asked(self):
         """The action bar pre-warns off this field, so it has to arrive on
@@ -3493,20 +3567,28 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         self.assertFalse(any(e.get("id") == "dwell_fire" for e in evts),
                          "Confirm fired with an empty cart")
 
-    def test_dwelling_confirm_on_a_picked_cart_fires_and_finalises(self):
+    def test_dwelling_confirm_finalises_the_cart_and_then_ends_the_session(self):
         # The other half, and the one the developer's "the confirm and
         # cancell button didnt work" report is really about: with a pick on
-        # the table the button is armed, the dwell completes, and
-        # `_fire_widget` runs `cart.finalize()` — shown grams snap off the
-        # display deadband onto the true removed grams (doc section 9.2).
+        # the table the button is armed and the dwell completes.
+        #
+        # **The ORDER is the whole assertion, and it is not observable in
+        # the outcome** — same shape as `fsm.exit_setting()`'s own
+        # refresh-then-re-baseline test (CLAUDE.md's M2.6 notes). Confirm
+        # runs `cart.finalize()` (shown grams snap off the display deadband
+        # onto the true removed grams, doc section 9.2) and THEN
+        # `_end_session()` (start_g = live_g, shown_g = 0). The re-baseline
+        # erases everything finalize did, so afterwards a Confirm that
+        # skipped finalize entirely looks identical. The spy below records
+        # what `shown_g` held at the moment finalize was called, which is
+        # the only place the two versions differ.
+        #
         # TWO picks, and the second one matters: 50g arms the buttons
         # (`cart.is_active()` reads the deadbanded `shown_g`, so a
         # sub-deadband pick alone would leave both disabled — that is the
         # trap this test walked into first), then a further 4g moves the
         # TRUE removed grams to 54 while `shown_g` stays at 50, because 4g
-        # is under the 10g display deadband. That gap is what makes the
-        # assertion below capable of failing: without `finalize()` the
-        # shown number stays 50 forever.
+        # is under the 10g display deadband.
         self.core.dwell.dwell_ms = 200.0
         evts = self._dwell_evt_sink()
         tx = self.cursor_sender()
@@ -3518,6 +3600,15 @@ class TestHoverAndDwellOverTheWire(CoreCase):
             self.assertAlmostEqual(self.core.cart.shown_g[0], 50.0, places=3)
             self.assertAlmostEqual(self.core.cart.removed_grams(0), 54.0, places=3)
 
+        seen = []
+        real_finalize = self.core.cart.finalize
+
+        def spy():
+            real_finalize()
+            seen.append(list(self.core.cart.shown_g))
+
+        self.core.cart.finalize = spy
+
         rects = coremain.hover.layout()
         cx = rects[coremain.hover.CONFIRM][0] + rects[coremain.hover.CONFIRM][2] / 2
         cy = rects[coremain.hover.CONFIRM][1] + rects[coremain.hover.CONFIRM][3] / 2
@@ -3528,7 +3619,16 @@ class TestHoverAndDwellOverTheWire(CoreCase):
             time.sleep(0.02)
         self.assertTrue(any(e.get("id") == "dwell_fire" for e in evts),
                         "Confirm never fired with a live pick")
-        self.assertAlmostEqual(self.core.cart.shown_g[0], 54.0, places=3)
+
+        self.assertEqual(len(seen), 1, "Confirm did not finalise the cart")
+        self.assertAlmostEqual(seen[0][0], 54.0, places=3,
+                               msg="finalize ran but not on the true removed grams")
+        # And then the session ended — developer, 2026-08-24: "a cancel
+        # order or confirmed order should set the current weight as the
+        # weight of the item."
+        self.assertAlmostEqual(self.core.cart.shown_g[0], 0.0, places=3)
+        self.assertAlmostEqual(self.core.cart.start_g[0],
+                               self.core.cart.live_g[0], places=3)
 
     def test_neither_done_nor_language_came_back(self):
         # RIG_FEEDBACK items 4-7 removed three widgets; 2026-08-24 brought

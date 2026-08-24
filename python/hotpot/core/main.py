@@ -1006,8 +1006,8 @@ class Core:
         will handle every live case and this falls back to unreachable.
         """
         with self.state_lock:
-            if not self.fsm.cancel() and self.cart.is_active():
-                self.cart.reset_session()
+            self.fsm.cancel()
+            self._end_session()
         self._publish_mode()
 
     def _handle_mock(self, t: str, msg: Dict[str, Any]) -> None:
@@ -1170,11 +1170,31 @@ class Core:
         A missing file is a fresh clone (`BinMap.load`'s own docstring),
         and that is the one case that takes the mock seed, exactly as
         every boot did before this.
+
+        **A CLASSIFIER result is not restored — only what a human set
+        is.** Developer, 2026-08-24, on the first restart after this file
+        started being written: "when u handed over the app to me this
+        time, the food label all were wrong." They were: the model is not
+        tuned yet (CLAUDE.md's own `classifier.enabled` note, 2026-08-14),
+        so `state/bin_map.json` had picked up guesses like bins 4 and 5
+        both reading `white_rusk` — and persistence, which had just
+        started working, made them permanent. Before this feature existed
+        a bad guess died with the process; after it, it outlived every
+        restart with nothing on any screen saying where it came from.
+
+        So a saved bin whose `source` is `"classifier"` falls back to the
+        seed and is left for the next classify pass to answer again.
+        `"manual"` (an operator chose it) and `"unset"` (an operator
+        CLEARED it — a decision too, and the reason this is not simply
+        "restore the manual ones") are both restored verbatim, which is
+        the whole of what the original report asked for. Flip this back
+        the day the model is worth trusting across a restart.
         """
+        seed = _seed_binmap(self.catalogue)
         if not Path(self.bin_map_path).exists():
-            return _seed_binmap(self.catalogue)
+            return seed
         try:
-            bm = binmap.BinMap.load(self.bin_map_path)
+            saved = binmap.BinMap.load(self.bin_map_path)
         except Exception as e:                        # noqa: BLE001
             # A corrupt file must not stop a table from opening — same
             # tolerance `_read_pidfile` gives its own (CLAUDE.md's FIXED
@@ -1182,13 +1202,19 @@ class Core:
             # the safer of the two wrong answers.
             _log.warning("core: %s unreadable (%s) — falling back to the "
                          "mock seed", self.bin_map_path, e)
-            return _seed_binmap(self.catalogue)
-        for b in bm.bins:
-            if b.item_id is not None and self.catalogue.item(b.item_id) is None:
+            return seed
+        seed.locked = saved.locked
+        for b in saved.bins:
+            if b.source == "classifier":
+                continue
+            item_id = b.item_id
+            if item_id is not None and self.catalogue.item(item_id) is None:
                 _log.warning("core: bin %d had %r, which is not in the "
-                             "catalogue any more — cleared", b.i, b.item_id)
-                bm.set_bin(b.i, item_id=None, conf=0.0, source="unset")
-        return bm
+                             "catalogue any more — cleared", b.i, item_id)
+                seed.set_bin(b.i, item_id=None, conf=0.0, source="unset")
+                continue
+            seed.set_bin(b.i, item_id=item_id, conf=b.conf, source=b.source)
+        return seed
 
     def _save_binmap(self) -> None:
         """Write the bin map, and never let a write failure reach a caller.
@@ -1553,6 +1579,28 @@ class Core:
         """
         self.control.broadcast(msg, only=["of"])
 
+    def _end_session(self) -> None:
+        """The order is over — re-baseline every bin onto what it weighs
+        right now. Doc section 9.1's I6: "re-baseline, never re-tare."
+
+        **Unconditional, deliberately — no `cart.is_active()` guard.**
+        Developer, 2026-08-24: "a cancel order or confirmed order should
+        set the current weight as the weight of the item, right now a
+        cance will clear the cart but if any item is touched all the old
+        items get popped up." The guard is exactly how that happened. A
+        pick under the display deadband leaves `shown_g` at 0, so
+        `is_active()` is False (cart.py's own docstring on why it reads
+        the deadbanded number and not the raw one), so the guarded call
+        did nothing at all — and `start_g` kept the old baseline. The next
+        pick from that bin added to the discarded one and crossed the
+        deadband together, so a cancelled order's grams reappeared inside
+        the following diner's. Ending a session has to end it for every
+        bin, including the ones with nothing visible in them.
+
+        Caller holds `state_lock`.
+        """
+        self.cart.reset_session()
+
     def _fire_widget(self, widget_id: str) -> None:
         """A dwell completed. One dispatch table, so a widget that fires
         and does nothing is visible as a missing entry rather than as
@@ -1562,33 +1610,42 @@ class Core:
         """
         self._send_evt({"t": "evt", "kind": "sound", "id": "dwell_fire"})
         if widget_id == hover.CANCEL:
-            # The same path the staff view's Cancel order button takes, not
-            # a second implementation — doc section 9.1 has exactly one
-            # `reset_session()` and this is one of its three callers.
-            if not self.fsm.cancel() and self.cart.is_active():
-                self.cart.reset_session()
+            # `fsm.cancel()` calls `reset_session()` itself on the SELECTING
+            # -> IDLE edge; the call below covers every other state, which
+            # today is all of them (nothing drives IDLE -> SELECTING until
+            # M5's tracker does). Calling it twice is harmless — it is
+            # idempotent by construction (`start_g[i] = live_g[i]`).
+            self.fsm.cancel()
+            self._end_session()
             return
         if widget_id == hover.CONFIRM:
-            # **What Confirm does AFTER this is a product decision that has
-            # not been made, and is not invented here** — doc section 9.1's
-            # SELECTING -> BROTH -> RECAP -> CHECKOUT chain is M6, and
-            # `hover.DONE` is the id that edge is written against. What the
-            # cart can honestly do today is close its own books: `finalize()`
-            # snaps every bin's SHOWN grams to the true removed grams,
-            # dropping the display deadband (doc section 9.2's fix for open
-            # debt #5 — "a diner must never be shown a recap that disagrees
-            # with the arithmetic they were actually charged from"). So the
-            # numbers on the table become the billed numbers, exactly, and
-            # the cart stays up as the diner's record — VISUAL_LAYER.md
-            # section 8's own words: "the diner's only receipt until an
-            # order-finalisation step exists."
+            # **`finalize()` then `_end_session()`, in that order.**
+            # `finalize()` snaps every bin's SHOWN grams onto the true
+            # removed grams, dropping the display deadband (doc section
+            # 9.2's fix for open debt #5) — so the last numbers the cart
+            # holds are the numbers that would be billed, which is what a
+            # future M6 order-write reads. Only then does the session end.
             #
-            # It deliberately does NOT clear the cart. Cancel means discard;
-            # if Confirm also emptied the table the two buttons would look
-            # identical from a diner's seat.
+            # **Confirm used to stop at `finalize()` and deliberately leave
+            # the cart standing as the diner's receipt. The developer
+            # reversed that on 2026-08-24:** "a cancel order or confirmed
+            # order should set the current weight as the weight of the
+            # item." Leaving it standing was also actively wrong in a way
+            # the original reasoning missed — `finalize()` writes
+            # `removed_grams` into `shown_g` for ALL eight bins, deadband
+            # and all, so every bin carrying a few grams of load-cell noise
+            # (this file's own per-channel table: four channels at
+            # 500-1500 counts rms) appeared in the cart the instant Confirm
+            # fired, and stayed there for the next diner. That is the
+            # "all the old items get popped up" half of the same report.
+            #
+            # What happens AFTER the session ends is still M6 and is still
+            # not invented here — doc section 9.1's SELECTING -> BROTH ->
+            # RECAP -> CHECKOUT chain is written against `hover.DONE`.
             self.cart.finalize()
+            self._end_session()
             _log.info("core: Confirm fired (dwell complete) — cart finalised "
-                      "to true grams. Checkout is M6.")
+                      "to true grams, then re-baselined. Checkout is M6.")
             return
         if widget_id == hover.LANGUAGE:
             self._cycle_locale()
