@@ -100,15 +100,60 @@ class EITotpRequiredError(EIClientError):
 # it in tearDown; no test needs a real network call.
 _urlopen = urllib.request.urlopen
 
+# `urlopen(req, timeout=_TIMEOUT_S)`'s timeout does NOT reliably bound DNS
+# resolution -- CPython's socket.create_connection() only applies the
+# timeout to the socket it creates AFTER getaddrinfo() already returned,
+# and getaddrinfo() itself is a plain blocking call with no timeout
+# parameter in the stdlib. On a machine with a broken/absent route to
+# Edge Impulse this can hang past _TIMEOUT_S with no exception ever
+# raised -- confirmed live 2026-08-24: a link() call sat on "Linking..."
+# indefinitely with nothing in core's log, because nothing had failed yet,
+# it just never returned. _bounded_call() below is the backstop: every
+# public network call in this module is wrapped in it, so none of them
+# can block a caller past _CALL_TIMEOUT_S regardless of which layer is
+# actually stuck.
+_CALL_TIMEOUT_S = _TIMEOUT_S + 10
 
-def _request(method: str, url: str, headers: Dict[str, str],
-             body: Optional[bytes] = None) -> dict:
+
+def _bounded_call(fn: Callable[[], object], timeout_s: float = _CALL_TIMEOUT_S) -> object:
+    """Runs fn() on a throwaway daemon thread and waits up to timeout_s for
+    it to finish. Raises EIClientError on timeout; re-raises whatever fn()
+    raised otherwise. The thread is daemon and simply abandoned on
+    timeout -- it does not block process exit even if fn() never returns
+    (unlike a bare concurrent.futures.ThreadPoolExecutor, whose non-daemon
+    worker threads get joined at interpreter shutdown and would hang the
+    process the same way)."""
+    import threading
+
+    box: list = []
+
+    def run() -> None:
+        try:
+            box.append((True, fn()))
+        except BaseException as e:  # noqa: BLE001 - re-raised verbatim below
+            box.append((False, e))
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout_s)
+    if t.is_alive():
+        raise EIClientError(
+            f"Edge Impulse did not respond within {timeout_s:.0f}s -- "
+            "check the network connection and try again")
+    ok, value = box[0]
+    if ok:
+        return value
+    raise value
+
+
+def _do_request(method: str, url: str, headers: Dict[str, str],
+                 body: Optional[bytes]) -> Tuple[int, bytes]:
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with _urlopen(req, timeout=_TIMEOUT_S) as resp:
-            status, raw = resp.status, resp.read()
+            return resp.status, resp.read()
     except urllib.error.HTTPError as e:
-        status, raw = e.code, e.read()
+        return e.code, e.read()
     except urllib.error.URLError as e:
         # DNS failure, connection refused, TLS error, timeout -- never got
         # as far as an HTTP response. A device/dev-machine offline is the
@@ -116,6 +161,11 @@ def _request(method: str, url: str, headers: Dict[str, str],
         # it deserves a real message rather than a raw exception bubbling
         # all the way up to the tablet.
         raise EIClientError(f"{url}: could not reach Edge Impulse ({e.reason})")
+
+
+def _request(method: str, url: str, headers: Dict[str, str],
+             body: Optional[bytes] = None) -> dict:
+    status, raw = _bounded_call(lambda: _do_request(method, url, headers, body))
 
     try:
         parsed = json.loads(raw) if raw else {}
@@ -365,14 +415,22 @@ def download_model(api_key: str, project_id: int, *,
     fetch's."""
     url = (f"{STUDIO_BASE}/api/{project_id}/deployment/download"
            f"?type={DEPLOY_TYPE}&engine={engine}")
-    req = urllib.request.Request(url, headers={"x-api-key": api_key}, method="GET")
-    try:
-        with _urlopen(req, timeout=_TIMEOUT_S) as resp:
-            status, raw = resp.status, resp.read()
-    except urllib.error.HTTPError as e:
-        status, raw = e.code, e.read()
-    except urllib.error.URLError as e:
-        raise EIClientError(f"{url}: could not reach Edge Impulse ({e.reason})")
+
+    def do() -> Tuple[int, bytes]:
+        req = urllib.request.Request(url, headers={"x-api-key": api_key}, method="GET")
+        try:
+            with _urlopen(req, timeout=_TIMEOUT_S) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+        except urllib.error.URLError as e:
+            raise EIClientError(f"{url}: could not reach Edge Impulse ({e.reason})")
+
+    # A larger bound than _request()'s -- this downloads the deployment
+    # ZIP's body, not a small JSON reply, so it needs more slack above
+    # _TIMEOUT_S before the same DNS/connect-hang backstop kicks in (see
+    # _bounded_call's docstring).
+    status, raw = _bounded_call(do, timeout_s=_CALL_TIMEOUT_S * 2)
     if status < 200 or status >= 300:
         raise EIClientError(f"{url}: HTTP {status} - {raw[:200].decode('utf-8', 'replace')}")
     return raw

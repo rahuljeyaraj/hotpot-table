@@ -436,6 +436,13 @@
      server-side, never re-shown), then Upload/Download reuse the saved
      link. Same .setup-card/.setup-btn/.setup-status vocabulary as the
      rest of this tab, not a bespoke look. */
+  /* .setup-card's own margin-bottom (14px) creates the gap BELOW every
+     other stacked card in this codebase; #eiCard's preceding sibling is
+     .crop-grid, which carries no margin-bottom of its own (its gap is
+     against .setup-card ABOVE it, via margin-top), so without this the
+     Edge Impulse card sat flush against the crop grid instead of getting
+     the same 14px rhythm every other card boundary gets. */
+  #eiCard { margin-top: 14px; }
   .ei-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .ei-row + .ei-row { margin-top: 10px; }
   .ei-row input[type="text"], .ei-row input[type="password"] {

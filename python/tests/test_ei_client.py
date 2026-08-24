@@ -297,5 +297,52 @@ class TestBuildAndDownload(EiClientTestCase):
             ei_client.download_model("ei_key", 1087506)
 
 
+class TestBoundedCall(unittest.TestCase):
+    """`_bounded_call`'s own backstop -- confirmed live 2026-08-24 that a
+    link() call can hang forever with no exception at all when the
+    underlying network call gets stuck below urlopen's own timeout=
+    (DNS resolution isn't bounded by it on every platform -- see
+    ei_client.py's own comment above `_CALL_TIMEOUT_S`). This class tests
+    `_bounded_call` directly with a fn that genuinely blocks, rather than
+    a fake `_urlopen` -- there is nothing to fake at that layer, the whole
+    point is a call that never returns control at all.
+    """
+
+    def test_a_fast_call_returns_normally(self):
+        self.assertEqual(ei_client._bounded_call(lambda: 42, timeout_s=5), 42)
+
+    def test_an_exception_from_fn_propagates(self):
+        def boom():
+            raise ValueError("bad response shape")
+        with self.assertRaises(ValueError):
+            ei_client._bounded_call(boom, timeout_s=5)
+
+    def test_a_call_that_never_returns_times_out_as_eiclienterror(self):
+        import threading
+
+        never = threading.Event()   # never set -- fn blocks forever
+
+        def hang():
+            never.wait()
+            return "unreachable"
+
+        with self.assertRaises(ei_client.EIClientError):
+            ei_client._bounded_call(hang, timeout_s=0.1)
+
+    def test_the_abandoned_thread_does_not_block_a_second_call(self):
+        # Regression check for the exact failure mode this exists to fix:
+        # a stuck call must not wedge the module for every call after it.
+        import threading
+
+        never = threading.Event()
+
+        def hang():
+            never.wait()
+
+        with self.assertRaises(ei_client.EIClientError):
+            ei_client._bounded_call(hang, timeout_s=0.05)
+        self.assertEqual(ei_client._bounded_call(lambda: "ok", timeout_s=5), "ok")
+
+
 if __name__ == "__main__":
     unittest.main()

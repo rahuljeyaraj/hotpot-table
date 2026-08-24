@@ -1954,6 +1954,19 @@ class Core:
             self.web.broadcast({"t": "ei_link_result", "ok": False,
                                 "message": str(e)})
             return
+        except Exception:      # noqa: BLE001 - never leave the tablet stuck
+            # web/server.py's own outer catch-all would swallow anything
+            # not caught here and log it, but with NO reply ever sent to
+            # the tablet -- the button stays disabled and the status stays
+            # "Linking..." forever, indistinguishable from a real hang.
+            # Every _handle_ei_* method needs its own catch-all for
+            # exactly that reason (classifier/main.py's `_run` worker loop
+            # already makes this same call for the same reason).
+            _log.exception("core: ei_link raised")
+            self.web.broadcast({
+                "t": "ei_link_result", "ok": False,
+                "message": "linking to Edge Impulse hit an internal error — see the log"})
+            return
         finally:
             self._ei_active = None
 
@@ -2000,6 +2013,13 @@ class Core:
         except ei_client.EIClientError as e:
             self.web.broadcast({"t": "ei_upload_result", "ok": False,
                                 "message": str(e)})
+            return
+        except Exception:      # noqa: BLE001 - see _handle_ei_link's own
+                                # catch-all for why this must exist too.
+            _log.exception("core: ei_upload raised")
+            self.web.broadcast({
+                "t": "ei_upload_result", "ok": False,
+                "message": "uploading to Edge Impulse hit an internal error — see the log"})
             return
         finally:
             self._ei_active = None
@@ -2064,6 +2084,13 @@ class Core:
         except ei_client.EIClientError as e:
             self.web.broadcast({"t": "ei_download_result", "ok": False,
                                 "message": str(e)})
+            return
+        except Exception:      # noqa: BLE001 - see _handle_ei_link's own
+                                # catch-all for why this must exist too.
+            _log.exception("core: ei_download raised")
+            self.web.broadcast({
+                "t": "ei_download_result", "ok": False,
+                "message": "downloading from Edge Impulse hit an internal error — see the log"})
             return
         finally:
             self._ei_active = None

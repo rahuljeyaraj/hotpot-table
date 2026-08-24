@@ -2502,6 +2502,42 @@ class TestEdgeImpulseTab(CoreCase):
         self.assertIn("build job failed", result["message"])
         self.assertFalse((self.models_dir / "hotpot-ingredients.zip").exists())
 
+    def test_link_an_unexpected_exception_still_replies_not_hangs(self):
+        # Confirmed live 2026-08-24: before this catch-all existed, an
+        # exception the two EIClientError except clauses didn't match
+        # (e.g. EI's real login response shape disagreeing with
+        # ei_client.login()'s assumed `resp["token"]`) was swallowed by
+        # web/server.py's own outer catch-all, which logs it but never
+        # replies -- the tablet's "Linking..." never resolved, and looked
+        # identical to a genuine network hang.
+        self.fake_ei.login_error = KeyError("token")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "username": "me@example.com",
+                                  "password": "hunter2"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertIsNone(self.core._ei_active)
+
+    def test_upload_an_unexpected_exception_still_replies_not_hangs(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self.fake_ei.upload_error = TypeError("unexpected shape")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_upload"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_upload_result")
+        self.assertFalse(reply["ok"])
+        self.assertIsNone(self.core._ei_active)
+
+    def test_download_an_unexpected_exception_still_replies_not_hangs(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self.fake_ei.build_error = RuntimeError("unexpected shape")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_download"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_download_result")
+        self.assertFalse(reply["ok"])
+        self.assertIsNone(self.core._ei_active)
+
     def test_an_overlapping_job_is_refused_not_queued(self):
         ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
                               "hotpot-ingredients")
