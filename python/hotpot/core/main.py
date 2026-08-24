@@ -1999,6 +1999,15 @@ class Core:
 
         ei_store.save_project(self._ei_project_path, project_id, api_key,
                               project_name)
+        # Every _handle_ei_* path logs the project id it acted on, added
+        # 2026-08-24 after a rig report ("pressed Download and the
+        # training was gone") could not be reconstructed at all: this
+        # whole flow used to log nothing but exceptions, so the log could
+        # not even say WHICH of the three same-named `hotpot-ingredients`
+        # projects on this account each click had gone to. The id is the
+        # one fact that tells a duplicate project apart from the real one.
+        _log.info("core: ei_link created NEW project %s (%r) — this is an "
+                  "empty project, not an adopted one", project_id, project_name)
         self.web.broadcast({
             "t": "ei_link_result", "ok": True, "linked": True,
             "project_id": project_id, "project_name": project_name,
@@ -2048,6 +2057,8 @@ class Core:
         project_name = project.get("name") or f"project-{project_id}"
         ei_store.save_project(self._ei_project_path, project_id, api_key,
                               project_name)
+        _log.info("core: ei_link adopted existing project %s (%r)",
+                  project_id, project_name)
         self.web.broadcast({
             "t": "ei_link_result", "ok": True, "linked": True,
             "project_id": project_id, "project_name": project_name,
@@ -2079,6 +2090,8 @@ class Core:
             self.web.broadcast({"t": "ei_upload_progress", **fields})
 
         self._ei_active = "upload"
+        _log.info("core: ei_upload -> project %s (%r) from %s",
+                  project["project_id"], project["project_name"], CAPTURES_DIR)
         try:
             result = self._ei_client.upload_captures(
                 project["api_key"], CAPTURES_DIR, on_progress=progress)
@@ -2097,11 +2110,17 @@ class Core:
             self._ei_active = None
 
         uploaded_total = sum(result["uploaded"].values())
+        _log.info("core: ei_upload -> project %s finished: %d image(s), "
+                  "per label %s, %d batch failure(s)%s",
+                  project["project_id"], uploaded_total, result["uploaded"],
+                  len(result["failures"]),
+                  "" if not result["failures"] else f" — {result['failures']}")
         self.web.broadcast({
             "t": "ei_upload_result", "ok": True,
             "uploaded": result["uploaded"], "failures": result["failures"],
             "message": (f"Uploaded {uploaded_total} image(s) to "
-                        f"{project['project_name']!r}."
+                        f"{project['project_name']!r} (id "
+                        f"{project['project_id']})."
                         + (f" {len(result['failures'])} batch(es) failed — "
                            "local files are untouched, re-run Upload to "
                            "retry." if result["failures"] else ""))})
@@ -2144,9 +2163,15 @@ class Core:
             self.web.broadcast({"t": "ei_download_progress", "stage": stage})
 
         self._ei_active = "download"
+        _log.info("core: ei_download -> project %s (%r), building %s/%s/%s",
+                  project_id, project["project_name"],
+                  ei_client.DEPLOY_TYPE, ei_client.DEPLOY_ENGINE,
+                  ei_client.DEPLOY_MODEL_TYPE)
         try:
             progress("building")
             job_id = self._ei_client.build_model(api_key, project_id)
+            _log.info("core: ei_download -> project %s build job %s started",
+                      project_id, job_id)
             self._ei_client.wait_for_job(
                 api_key, project_id, job_id,
                 on_poll=lambda: progress("building"))
@@ -2169,10 +2194,13 @@ class Core:
 
         dest = self._models_dir / f"{project['project_name']}.zip"
         atomicio.write_bytes(dest, zip_bytes)
+        _log.info("core: ei_download -> project %s wrote %s (%d bytes)",
+                  project_id, dest, len(zip_bytes))
 
         self.web.broadcast({
             "t": "ei_download_result", "ok": True, "path": str(dest),
-            "message": (f"Downloaded {dest.name} ({len(zip_bytes)} bytes). "
+            "message": (f"Downloaded {dest.name} ({len(zip_bytes)} bytes) "
+                        f"from {project['project_name']!r} (id {project_id}). "
                         f"Unzip it over tools/eim_cpp/vendor/ and rebuild "
                         "(tools/eim_cpp/CMakeLists.txt) to deploy it.")})
 
@@ -2197,6 +2225,9 @@ class Core:
                 "message": f"a {self._ei_active!r} job is already running"})
             return
         removed = ei_store.remove_project(self._ei_project_path)
+        _log.info("core: ei_unlink dropped the local project link (%s) — "
+                  "the Studio project itself is untouched",
+                  "there was one" if removed else "there was none")
         self.web.broadcast({
             "t": "ei_unlink_result", "ok": True,
             "message": "Unlinked." if removed else "Nothing was linked."})

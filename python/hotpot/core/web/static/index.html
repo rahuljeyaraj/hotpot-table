@@ -444,6 +444,19 @@
      the same 14px rhythm every other card boundary gets. */
   #eiCard { margin-top: 14px; }
   .ei-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  /* Vertical rhythm between stacked rows. This used to be `.ei-row +
+     .ei-row` alone, which only matches rows that are SIBLINGS of each
+     other -- and in #eiUnlinked they mostly aren't: the mode-buttons row,
+     the credential row (wrapped in #eiNewFields/#eiExistingFields, one
+     level down) and the Link row are three different parents' children,
+     so none of them matched and all three sat flush with zero gap
+     ("everything clustered together", rig report 2026-08-24). Spacing the
+     direct children of each group instead means a row nested inside a
+     wrapper gets the same 10px as one that happens to be a sibling. The
+     hidden group still takes the margin, which costs nothing: margins on
+     a `display: none` box are not rendered. */
+  #eiUnlinked > * + *, #eiLinked > * + *,
+  #eiNewFields > * + *, #eiExistingFields > * + *,
   .ei-row + .ei-row { margin-top: 10px; }
   .ei-row input[type="text"], .ei-row input[type="password"] {
     min-height: 44px; padding: 0 10px; flex: 1 1 160px; min-width: 140px;
@@ -859,13 +872,18 @@
                  hotpot-ingredients (id 1087506) already exists and is
                  trained, which is exactly what creating one here instead
                  of adopting it did on 2026-08-24 (core/main.py's
-                 `_handle_ei_link` docstring). "Use existing" is how to
-                 point back at a project that's already there. -->
+                 `_handle_ei_link` docstring) — twice: once producing id
+                 1095239, and again (same mistake, still the easier button
+                 to hit) producing id 1095356. "Use existing" is how to
+                 point back at a project that's already there, and is now
+                 the default/primary action for that reason — reconnecting
+                 to an already-linked-then-lost project is the common case
+                 here, not making a brand new one. -->
             <div class="ei-row">
-              <button id="eiModeNewBtn" type="button" class="setup-btn primary">Create new project</button>
-              <button id="eiModeExistingBtn" type="button" class="setup-btn">Use existing project</button>
+              <button id="eiModeNewBtn" type="button" class="setup-btn">Create new project</button>
+              <button id="eiModeExistingBtn" type="button" class="setup-btn primary">Use existing project</button>
             </div>
-            <div id="eiNewFields">
+            <div id="eiNewFields" class="hide">
               <div class="ei-row">
                 <input id="eiUser" type="text" placeholder="Edge Impulse email" autocomplete="username">
                 <input id="eiPass" type="password" placeholder="password" autocomplete="current-password">
@@ -878,7 +896,7 @@
                 <input id="eiTotp" type="text" placeholder="Two-factor code">
               </div>
             </div>
-            <div id="eiExistingFields" class="hide">
+            <div id="eiExistingFields">
               <div class="ei-row">
                 <input id="eiProjectId" type="text" inputmode="numeric" placeholder="Project ID (Studio → Dashboard)">
                 <input id="eiApiKey" type="password" autocomplete="off" placeholder="API key (Studio → Dashboard → Keys)">
@@ -3440,7 +3458,14 @@
     if (msg.linked) {
       eiUnlinked.classList.add("hide");
       eiLinked.classList.remove("hide");
-      eiProjectLink.textContent = msg.project_name;
+      // The ID, not just the name. There are three projects called
+      // `hotpot-ingredients` on this account (1087506 plus the two empty
+      // duplicates "Create new project" made on 2026-08-24), so the name
+      // alone cannot tell an operator which one Upload just pushed to or
+      // Download just built — which is exactly the confusion the
+      // 2026-08-24 rig report ran into. Studio's own project switcher
+      // shows names only, so this is the one place the id is visible.
+      eiProjectLink.textContent = msg.project_name + " (id " + msg.project_id + ")";
       eiProjectLink.href = "https://studio.edgeimpulse.com/studio/" + msg.project_id;
     } else {
       eiUnlinked.classList.remove("hide");
@@ -3453,8 +3478,12 @@
   // Studio project) or "existing" (paste an already-existing project's
   // id + API key -- core/main.py's `_link_existing`). Added 2026-08-24
   // after "new" was the only option and duplicated an already-trained
-  // project (see core/main.py's `_handle_ei_link` docstring).
-  var eiLinkMode = "new";
+  // project (see core/main.py's `_handle_ei_link` docstring). Defaults to
+  // "existing" -- defaulting to "new" is what produced the duplicate
+  // empty project *twice* (ids 1095239 and 1095356), since it's the
+  // primary button and the common case here is reconnecting to a project
+  // that's already there, not making a fresh one.
+  var eiLinkMode = "existing";
 
   function setEiLinkMode(mode) {
     eiLinkMode = mode;
