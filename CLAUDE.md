@@ -4493,6 +4493,156 @@ processes `HOTPOT-READY`, `of` fullscreen with StateLink up, and
 hover, so the check is a hand over a bin: the box fades in, shows that
 bin's facts, and the cart underneath does not move by a pixel.
 
+### Cart fix 4 (2026-08-24): the SECOND rig look — seven more reports
+Same day, same developer, after looking at cart fixes 1-3 on the table.
+Three commits: `3ae104b` (session end + persistence scope), `a8119b0`
+(the `fact` field), `6a68fdd` (the whole centre column redrawn).
+
+**1. "the names still gets tuncate when the weight go double didgit."**
+Fix 1 sized the name column against whatever the detail column measured
+THAT ROW — so `5g $0.18` left the name plenty of space and `125g $4.50`
+took it away again, and a name that fitted at 5 grams lost its tail at
+125. **A column whose width depends on the number in it is a column that
+moves, and the thing next to it pays for it.** The detail column is a
+fixed reserved width now (`kCartDetailWorstCase`, "999g  $99.99",
+measured once in `setup()`), leaving 284px for the name against the
+widest catalogue name's 238px at 22px. `truncateToWidth` stays as the
+net and should never fire again.
+
+**2. "let the cart grow from the bottom, as u add more stuff, the older
+cart items gets pushed upwards."** Rows are laid out from
+`kCartRowsBottomPx` upward, so the newest bound slot always sits
+directly above the total. **This deliberately overrides doc section 8's
+"the SAME slot updates in place — it never moves"** — `_cartSlotBin`'s
+pick order is untouched, so a row still never jumps as its own numbers
+change, which is what that rule was protecting; the only thing that
+moves a row now is another item arriving.
+
+**3. "the total and buttons all feels cramped together, reduce the cart
+size, it should fit with the near row... the buttons should be
+vertically center alligned in the space below the near row bottom edge
+and the bottom edge of the table."** Two derivations replaced two
+guesses. `kCartRowsBottomPx` is anchored to `mmToPxY(BINS[4].yMM +
+BIN_H_MM)` minus a gap and a footer budget, so the cart's last pixel
+sits a fixed distance above the near row however the info box above it
+changes; rows went 44px -> 32px so eight of them plus the footer fit.
+`hover.BUTTONS_TOP_PX` is computed from `geometry_store`'s own mm chain
+(near row bottom -> table bottom, button centred in it, 925.2px) rather
+than picked — the rule that module's docstring already stated and this
+constant was the exception to.
+
+**4. "the info box is shity design, it looks like a stupid text box with
+the content over lapping, it is not telling the food items name in it.
+it is not giving any interesting facts... there is ton of space above
+the box and below the logo unused."** Rebuilt:
+- **The item's NAME leads the box.** Nothing else near the reader said
+  which bin it was about — the plate's own label is at the far end of a
+  1.5m table.
+- **Catalogue schema 5 -> 6: a `fact` field**, one researched sentence
+  per item, required at load like the other three. Same basis as the
+  kcal figures — published, approximate, about the REAL ingredient the
+  plate names rather than the substitute prop in the bin. Sources,
+  2026-08-24: Fuzhou as China's designated "Fish Ball City" and the pork
+  filling (fujian.chinadaily.com.cn, chinawondersguide.com); Chaoshan
+  beef balls beaten ~3,000 times with iron rods and bouncing
+  (theworldofchinese.com, baike); yuba as the film lifted off simmering
+  soy milk and `fuzhu` = "tofu bamboo" (soyinfocenter.com, Wikipedia);
+  Momofuku Ando's 1958 flash-frying copied from tempura (nissin.com,
+  gov-online.go.jp); drying concentrating glutamates in dried shrimp
+  (Wikipedia, omnivorescookbook.com); Lanzhou lamian's five-colour rule
+  (berkshirepublishing.com, chinesefoodwiki.org); *Agaricus bisporus* in
+  the Paris quarries from the 1600s (tasteoffrancemag.com); surimi in
+  Japan since ~1115 (Wikipedia/kamaboko); the Edo-era marketing origin
+  of eating eel on the midsummer day of the ox (medium/sixtybolts,
+  wattention.com); the nine-holed lotus root staying crunchy
+  (int.japanesetaste.com, themalamarket.com). **Nobody has checked any
+  of these against a specialist**, same honest status as the kcal
+  numbers.
+- **The band starts at the mode banner's own top**, which is the "ton of
+  space" — the banner only exists when the table is NOT serving, so the
+  two can never be up together. `drawInfoBox` returns early on any
+  banner state rather than relying on that being true, which is also
+  doc section 14.5's precedence rule. The one case that could genuinely
+  coincide is `error`, raised while SERVING.
+- **The overlap was arithmetic, not a drawing bug**: a 136px band was
+  being asked to hold a 24px header plus two 24px description lines and
+  14px of padding. Every vertical step is computed from real font
+  metrics now, and `setup()` measures the total against the band and
+  warns. **That check earned itself twice in one session** — it caught
+  the first build at 305.9px in a 268.5px band and the second at 301.9,
+  before either reached the rig. It is silent on what shipped.
+- **Worth knowing, measured not assumed:** `ofTrueTypeFont::getLineHeight()`
+  and `getAscenderHeight() + |getDescenderHeight()|` are the SAME number
+  for DejaVuSans-Bold, about 1.55x the point size. A first fix here
+  swapped one for the other expecting to save four lines' worth of
+  leading, and saved nothing.
+
+**5. "the cancell and confirm buttons looks blocky, u need to see that
+this whole design is like a fluid, the flames the glowing hallow and so
+on, we need the cort info box and button match with it."** Both the
+buttons and the info box are drawn with `drawGlow`, a new generalisation
+of `drawHalo`'s own falloff (quadratic, brightest at the edge,
+contiguous bands) off the bins — so they are lit by the primitive the
+table already breathes with rather than by a second one that resembles
+it. Buttons are pills (corner radius = half the height, the roundest a
+rect can be); the info box is a rounded rect with no border at all.
+`drawRectBorder` is deleted outright — nothing draws a rectangular
+border on this table any more.
+**One geometry finding worth keeping:** the dwell fill had to move from
+bottom-up to left-to-right. A partial-HEIGHT rounded rect sitting on a
+pill's bottom edge necessarily has a shallower corner radius than the
+pill, so its bottom corners stick out through the pill's own curve —
+provably, for every fraction below full. A partial-WIDTH one sharing the
+pill's left cap, top and bottom edges is contained by construction.
+
+**6. "when u handed over the app to me this time, the food label all
+were wrong."** They were, and cart fix 2 caused it. The model is not
+tuned (`classifier.enabled`, 2026-08-14), and the moment the bin map
+started being written to disk a wrong guess stopped dying with the
+process and started outliving every restart with nothing on any screen
+saying where it came from — `state/bin_map.json` on this rig had bins 4
+and 5 both reading `white_rusk`. `_load_binmap` now drops a saved bin
+whose `source` is `"classifier"` back to the seed. `"manual"` and
+`"unset"` — both human decisions, and a CLEAR is as much a decision as a
+SET — are restored verbatim, which is all the original report asked for.
+Flip it back the day the model is worth trusting across a restart.
+
+**7. "a cancel order or confirmed order should set the current weight as
+the weight of the item, right now a cance will clear the cart but if any
+item is touched all the old items get popped up."** Two causes, one fix.
+- **Cancel's `cart.is_active()` guard.** That predicate reads the
+  DEADBANDED `shown_g` (cart.py's own docstring on why), so a 6g pick
+  left the cart looking empty, the guard read False, and `start_g` kept
+  the old baseline — the next diner taking 6g from the same bin crossed
+  the deadband on the sum of the two and saw the cancelled order's grams
+  inside their own. `_end_session()` is unconditional.
+- **Confirm never ended the session at all.** Fix 1 had it stop at
+  `finalize()` and leave the cart standing as the diner's receipt, which
+  was also actively wrong: `finalize()` writes `removed_grams` into
+  `shown_g` for ALL eight bins, deadband and all, so every bin carrying
+  load-cell noise appeared in the cart the instant Confirm fired and
+  stayed for the next diner. It finalises first — the numbers on the
+  table become the billed numbers — then ends the session. **The order
+  is not observable in the outcome** (the re-baseline erases everything
+  finalize did), so its test pins it by call sequence, the same shape
+  `fsm.exit_setting()`'s own trap test uses.
+
+1051 Python tests pass (`python -m unittest discover -s python/tests`),
+apart from the documented `test_calibrator` stale-link flake (~1 run in
+12, pre-dates M2.6), which passed on its own re-run. msbuild Debug x64,
+0 errors, only the pre-existing `ftVorticityForceShader.h` warnings.
+`run.py --stop` / rebuild / `run.py`: all five processes HOTPOT-READY,
+`of` fullscreen with StateLink up, **and no `UiLayer` warning** — the
+cart clears the near row's bottom edge, clears core's button band, and
+the info box's content fits its own band, all against the real font
+metrics.
+**Not observed on the projected surface.** `docs/VISUAL_LAYER.md` is
+still not updated: section 3's palette still lists the deleted cart
+panel fill/border and the old 26px rows, section 8 still describes a
+bordered info box and a cart whose rows never move, and section 9's
+build items 9/10 are not marked done. Flagged, not done — this file's
+own precedent for a change this size.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
