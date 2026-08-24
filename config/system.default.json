@@ -37,7 +37,7 @@
     "backend": "stub",
     "model": "models/ingredients-x86_64.eim",
     "live_hz": 2,
-    "enabled": false
+    "enabled": true
   },
   "voice": {
     "backend": "stub",
