@@ -162,12 +162,13 @@ apart**, which is why the staff view's "Linked to ..." line now prints it.
 | EI project | `hotpot-ingredients`, id `1095598`, owner `rahuljeyaraj` |
 | EI deploy version | 1 (job `53034211` metadata, impulse #1) |
 | Deployment target | C++ library, EON Compiler, quantized (int8) — unchanged |
-| Input | 224×224 RGB (**not** 160×160: doc §19.2 specifies 160×160 and entry 1 used it, so this impulse was configured by hand at a different size. Not a problem in itself — `tools/eim_cpp/` reads the size out of the export — but doc §19.2 and this row now disagree, and one of them should be corrected on purpose rather than left to be discovered.) |
+| Input | 224×224 RGB, squash resize — **doc §19.2 was amended to match this** (developer's call, 2026-08-24). It previously said 160×160, which is what entry 1 used; the size was raised by hand when this impulse was configured, and 224×224 is now the spec, not a drift from it. `tools/eim_cpp/` reads the size out of the export either way. |
 | Classes (13) | `button_mushrooms`, `chicken_eggs`, `dried_mango_strips`, `empty_tray`, `flat_round_cookies`, `instant_noodle_block`, `loose_straight_noodles`, `lotus_root_slices`, `no_tray`, `small_round_rusk`, `soya_chunks`, `white_rusk`, `yellow_rusk` — read out of the export's own `model-parameters/model_variables.h`, and an exact match for the 13 `datasets/captures/` folders |
-| Validation accuracy | (unrecorded) — read it off the Studio training page and fill this in |
-| Confusion matrix | (unrecorded) |
+| Trained | 2026-08-24T12:12:13Z (EI learn block 3, `Classifier`), 10 cycles, learning rate 0.0005, transfer-learning "visual" mode |
+| Validation accuracy | **99.69%** int8 (loss 0.0138); float32 is the same 99.69% (loss 0.0143). Both variants exist and EI recommends int8 — which is what this deploy uses. |
+| Confusion matrix | 323 validation samples, **one** off-diagonal cell: `dried_mango_strips` → `small_round_rusk`, 1 sample. Every other class is clean. Read off EI's own learn-block metadata, not eyeballed from the Studio page. |
 | Dataset session ranges | 2034 local captures, 150–192 per class (`datasets/captures/`), every class at or above doc §19.2's ≥150 images/class. The ≥4-sessions-on-different-days half of that target is (unrecorded). Closes entry 1's `dried_mango_strips` / `flat_round_cookies` / `yellow_rusk` gap; `dried_small_shrimps` is still absent, now alongside the rest of the 12-item catalogue's untouched entries. |
-| Downloaded | 2026-08-24, `models/hotpot-ingredients.zip`, 7,372,368 bytes (gitignored, `models/*.zip`) |
+| Downloaded | 2026-08-24 17:52:38 local, `models/hotpot-ingredients.zip`, 7,372,368 bytes (gitignored, `models/*.zip`). Fetched by the staff view's own Download path (`ei_client.download_model()`), from build job `53034211`; EI reports this project's `zip`/`int8` deployment at version 2. |
 | Current | **yes** |
 
 Not yet unzipped over `tools/eim_cpp/vendor/` and not yet rebuilt, so

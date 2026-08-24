@@ -1565,7 +1565,7 @@ So the check is not optional and cannot be done anywhere but on the board: downl
 
 - **Task:** classification, not detection. The bin rect already localises the food; asking a detector to find it again wastes compute and adds a failure mode.
 - **Classes:** the 8 catalogue items plus `empty` (an empty tray). 9 classes.
-- **Input:** 160×160 RGB. Start here; drop to 96×96 only if inference time forces it.
+- **Input:** 224×224 RGB, squash resize. **Amended 2026-08-24** (developer's call) from the original 160×160, which is what the first trained project (`1087506`) used; the impulse behind the current model (`1095598`, `models/README.md` entry 2) was configured at 224×224 by hand and that is now the spec. Drop to 160×160 or 96×96 only if inference time on the ODYSSEY (§1.4) forces it — that is a real risk at this size and is not yet measured on the board.
 - **Learning block:** transfer learning, MobileNetV2 α=0.35.
 - **Data:** collected via the staff view Capture tab (§12.7) on the real rig. Target ≥150 images per class across ≥4 sessions on different days.
 - **Existing Roboflow data is reusable:** crop each annotated bounding box out of the old detection dataset into a class folder. That converts a detection dataset into a classification dataset for free. The old `tray` class becomes `empty`.

@@ -14,7 +14,7 @@ is a **C++ library** (EON compiler, int8 — `models/README.md`'s
 "hotpot-ingredients" entry), not a bare `.tflite`.
 
 **What this module does NOT do, on purpose:** configure the impulse's
-input/DSP/transfer-learning blocks (doc section 19.2: 160x160 image input,
+input/DSP/transfer-learning blocks (doc section 19.2: 224x224 image input,
 image DSP block, MobileNetV2 alpha=0.35 transfer learning). The sibling
 project's own `create_impulse()`/`_impulse_body()` for a *feature-vector*
 project went through two wrong turns against a live account before

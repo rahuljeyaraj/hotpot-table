@@ -55,6 +55,15 @@ _ROOT = Path(__file__).resolve().parents[3]
 # — so a retrained model with a different input size needs this constant
 # updated by hand alongside rebuilding tools/eim_cpp. Checked against the
 # current export (2026-08-13, hotpot-ingredients project, deploy v2): 160x160.
+#
+# **A newer export is already downloaded and NOT yet vendored:**
+# models/hotpot-ingredients.zip (2026-08-24, project 1095598, 13 classes)
+# is 224x224. These constants are right for what tools/eim_cpp/vendor/
+# holds TODAY (project 1087506, 160x160, 8 classes -- checked) and must
+# not be bumped on their own: unzipping that ZIP over vendor/, changing
+# these two numbers to 224, and rebuilding tools/eim_cpp are one change,
+# not three. Doing any of them alone gives a binary whose preprocessing
+# silently disagrees with its own model.
 INPUT_WIDTH = 160
 INPUT_HEIGHT = 160
 
