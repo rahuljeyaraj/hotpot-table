@@ -4054,6 +4054,56 @@ element, hardware-accelerated and exact, no seam at all; (b) a finer
 triangle mesh (more, smaller affine patches) — simpler, still an
 approximation with a fainter seam. Start here.
 
+**FIXED same day, later session.** CSS `matrix3d` was reconsidered and
+rejected first: `drawRectifiedPreview` is called from 4 places
+(`index.html`), including the Capture tab's OFFSCREEN `rectifiedCanvas`,
+which is sampled for real pixel data (crop images), not just displayed —
+`matrix3d` only works on a DOM element the browser actually composites,
+so it can't produce pixel data inside an offscreen canvas, and using it
+for the 3 display-only call sites while leaving the Capture tab on the
+old affine warp would have left the two visibly disagreeing.
+Built option (b) instead, but NOT the naive version of it. A first
+attempt placed mesh vertices by bilinearly interpolating the 4 original
+quad corners at each grid point — a standalone Node check (independent
+reference homography, not the same code path) caught this as WRONG
+before it shipped: error against a true homography **plateaus around a
+fixed, non-shrinking value regardless of mesh density** (verified: ~20px
+at N=1 through N=32, no improvement), because bilinear-quad
+interpolation is a different curved surface than a true projective one,
+not a converging approximation of it. Corrected construction: solve a
+REAL homography once per call (`solveHomography`, closed-form 8x8 linear
+system, negligible cost) to place every mesh vertex exactly, then
+affine-warp only the INTERIOR of each small cell with the existing
+`affineFrom3Points`/`warpTriangle` primitives. This converges properly
+because a homography preserves line-straightness — a rectangle's
+straight grid lines map to exactly straight lines in the source quad, so
+each shrinking cell's own affine-vs-projective error is the only thing
+left, and that genuinely shrinks with cell size. Verified standalone in
+Node (not committed) against an independent reference: N=16 gave 0.18px
+max error for a representative trapezoid and 1.13px for a deliberately
+extreme near-degenerate one; N=1 (no subdivision, i.e. the old bug)
+was 43px/162px on the same cases. `RECTIFY_MESH_N = 16`.
+Rejected the true per-pixel remap alternative (getImageData +
+inverse-homography + bilinear sample per destination pixel): at
+1920x1080 destinations redrawn up to 10fps across up to 3 simultaneous
+canvases, that's ~2 million JS pixel operations/frame with no WebGL to
+offload to (this app's own no-WebGL rule) — real main-thread jank risk.
+The mesh gets the same visual result from ~300 cheap canvas draws
+instead.
+Same call signature, so all 4 call sites (Live tab, classifier overlay,
+Setup tab resting view, Capture tab's offscreen crop canvas) got the fix
+with no changes of their own — `gridRects()`/classifier boxes/etc.
+already draw in the destination rectangle's own coordinate space and
+needed no changes either way.
+`node --check` on the extracted `<script>` block: clean. Python test
+suite (`python -m unittest discover -s python/tests`) re-run as a
+sanity check even though no Python was touched — this is a client-JS-only
+fix.
+**Not yet seen in a real browser or on the projected table** — reasoned
+and verified against an independent Node reference, same as most Setup
+tab math in this file's earlier sessions, not yet watched live over the
+actual rig's real (non-synthetic) corner quad.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
