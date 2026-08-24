@@ -144,23 +144,44 @@ BAND_BOTTOM_PX = 820.0
 
 # --- the cart's own two buttons (VISUAL_LAYER.md section 8) --------------
 #
-# **These four numbers are mirrored in `of/hotpot-table/src/UiLayer.cpp`
-# and cannot share a constant — one is Python, the other C++.** They are
-# the seam between core, which owns the rect a hand is hit-tested against
-# (doc section 9.4), and oF, which lays the cart out directly above it.
-# `UiLayer::setup()` carries the matching check: it measures the cart's own
-# bottom and logs a warning if it has grown down into `BUTTONS_TOP_PX`.
-# Move one side without the other and the buttons collide with the total,
-# or float away from the cart — visible on the table, invisible in a diff.
+# **`CART_WIDTH_PX` and `BUTTON_H_PX` are mirrored in
+# `of/hotpot-table/src/UiLayer.cpp` and cannot share a constant — one is
+# Python, the other C++.** They are the seam between core, which owns the
+# rect a hand is hit-tested against (doc section 9.4), and oF, which lays
+# the cart out directly above them. `UiLayer::setup()` carries the matching
+# check: it measures the cart's own bottom and logs a warning if it has
+# grown down into `BUTTONS_TOP_PX`. Move one side without the other and the
+# buttons collide with the total, or float away from the cart — visible on
+# the table, invisible in a diff.
 #
-# `CART_WIDTH_PX` matches `kCartWidthPx` so the pair spans exactly the
-# cart's width; `BUTTONS_TOP_PX` sits below the cart's measured bottom
-# (~932px with the 48px total font) with room to spare, and the band ends
-# at 1040px, 40px clear of the table's near edge.
+# **`BUTTONS_TOP_PX` is DERIVED now, not chosen.** Developer, 2026-08-24:
+# "the buttons should be vertically center alligned in the space below the
+# near row bottom edge and the bottom edge of the table." That band is the
+# 177.4mm near margin, and both of its edges are already in
+# `geometry_store`'s mm chain — so this follows the same rule the rest of
+# this module does (see the module docstring: rects are derived from
+# `TableGeometry.h`'s chain rather than hardcoded, so moving a bin moves
+# the buttons with it).
 CART_WIDTH_PX = 500.0
-BUTTONS_TOP_PX = 952.0
-BUTTON_H_PX = 88.0
+BUTTON_H_PX = 100.0
 BUTTON_GAP_PX = 16.0
+
+
+def _near_margin_px() -> Tuple[float, float]:
+    """`(top, bottom)` in stage px of the band between the near row's
+    bottom edge and the table's own — the diner's margin.
+    """
+    near_bottom_mm = gs.BIN_ORIGINS_MM[4][1] + gs.BIN_H_MM
+    return (gs.mm_to_stage(0.0, near_bottom_mm)[1],
+            gs.mm_to_stage(0.0, gs.TABLE_H_MM)[1])
+
+
+def _buttons_top_px() -> float:
+    top, bottom = _near_margin_px()
+    return top + (bottom - top - BUTTON_H_PX) * 0.5
+
+
+BUTTONS_TOP_PX = _buttons_top_px()
 
 # Button sizes, largest for the primary action. Dwell targets have to be
 # comfortably bigger than the cursor's own wander — a hand is not a mouse,

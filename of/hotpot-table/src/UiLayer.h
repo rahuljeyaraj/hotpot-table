@@ -161,6 +161,17 @@ private:
 	// from.
 	static void drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
 		float outerOffsetPx, const ofColor & colour, float baseCornerRadiusPx);
+	// A filled rounded rect, and the soft outward glow around one.
+	// 2026-08-24, developer: "this whole design is like a fluid, the
+	// flames the glowing hallow and so on, we need the cort info box and
+	// button match with it." `drawGlow` is drawHalo's own falloff
+	// (quadratic, brightest at the edge) generalised off the bins, so the
+	// cart's box and buttons are lit by the same primitive the table
+	// already breathes with rather than by a second, similar-looking one.
+	static void drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
+		const ofColor & colour);
+	static void drawGlow(const ofRectangle & r, float cornerRadiusPx,
+		float reachPx, int bands, const ofColor & colour, int peakAlpha);
 	void drawHalo(int i) const;
 	void drawWidgets(const StateLink::State & state) const;
 	void drawWidget(const StateLink::Widget & w) const;
@@ -242,12 +253,20 @@ private:
 	// both 26px, one face — only the ink colour differs between the two
 	// (drawCart sets it per column), so one font object serves both.
 	ofTrueTypeFont _cartRowFont;    // 22px bold, cart row name + detail
-	// VISUAL_LAYER.md §3's "Info box text", 24px. Its own font object
-	// rather than sharing the cart row's, because the two are different
-	// sizes in the doc's own palette and the cart's has already been
-	// resized once (26 → 22) for a reason that has nothing to do with
-	// this box.
-	ofTrueTypeFont _infoFont;       // 24px, info box
+	// The RESERVED width of a cart row's right-hand column, measured once
+	// in setup() from kCartDetailWorstCase. Not per-row: a column whose
+	// width depends on the number in it moves the name column beside it
+	// every time a weight gains a digit, which is exactly the truncation
+	// the developer reported twice. See kCartDetailWorstCase.
+	float _cartDetailColPx = 0.0f;
+	// VISUAL_LAYER.md §3's "Info box text", now 20px (was 24 — developer,
+	// 2026-08-24: "u can reduce the font size"), plus its own larger face
+	// for the item name that leads the box. Separate objects from the cart
+	// row's, because the two are different sizes in the doc's own palette
+	// and the cart's has already been resized twice for reasons that have
+	// nothing to do with this box.
+	ofTrueTypeFont _infoNameFont;   // 32px, the item's name
+	ofTrueTypeFont _infoFont;       // 20px, info box body
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
 

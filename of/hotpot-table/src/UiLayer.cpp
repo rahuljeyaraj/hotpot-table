@@ -289,7 +289,16 @@ namespace {
 	// already uses for the halo's own colour.
 	const int kCartRowPx = 22;
 	const float kCartWidthPx = 500.0f;
-	const float kCartRowHeightPx = 44.0f;
+	// 44px -> 32px, 2026-08-24: developer, on the second rig look, "the
+	// total and buttons all feels cramped together, reduce the cart size,
+	// it should fit with the near row." Eight 44px rows plus the footer
+	// ran 394px, which cannot fit the near row's own 301mm-tall band
+	// however it is positioned. At 32px the rows are 256px and the whole
+	// cart is ~348px, which sits inside the band plus the empty 50mm gap
+	// above it — the "may take little space of far row" the same message
+	// allowed for. 32px still clears the row font's own ink height (22px
+	// bold measures 21px ascender + 6px descender).
+	const float kCartRowHeightPx = 32.0f;
 	const float kCartBorderWidthPx = 2.0f;   // filled bars, not ofSetLineWidth
 	                                          // — see the halo's own comment
 	                                          // above on why a stroke width
@@ -298,30 +307,97 @@ namespace {
 	const float kCartRowMidGapPx = 16.0f;    // name column <-> detail column
 	const float kCartDividerGapPx = 12.0f;   // rows -> divider -> total
 
+	// **The right-hand column is a FIXED width, measured once at setup()
+	// from this string, and that is the fix for the second truncation
+	// report.** Developer, 2026-08-24: "the names still gets tuncate when
+	// the weight go double didgit, even if it go tripple digit, it should
+	// not truncate." The first fix sized the name column against whatever
+	// the detail column happened to measure THAT ROW — so "5g $0.18" left
+	// the name plenty of room and "125g $4.50" took it away again, and a
+	// name that fitted at 5 grams lost its tail at 125. A column whose
+	// width depends on the number in it is a column that moves, and the
+	// thing next to it pays for it.
+	//
+	// Reserving the worst case instead costs the same 160px on every row
+	// and can never move: 500 - 2*20 pad - 16 gap - 160 leaves 284px for
+	// the name, against the widest catalogue name's 238px at 22px
+	// (measured, PIL/FreeType against the real .ttf and the real
+	// catalogue). `truncateToWidth` stays as the net; it should now never
+	// fire.
+	const char * kCartDetailWorstCase = "999g  $99.99";
+
+	// **The cart is anchored to the NEAR ROW's own bottom edge, not to the
+	// banner above it.** Developer, 2026-08-24: "it should fit with the
+	// near row... the buttons should be vertically center alligned in the
+	// space below the near row bottom edge and the bottom edge of the
+	// table." Growing the block downward from the banner is what left the
+	// total and the buttons crowding each other at the diner's edge; this
+	// derivation puts the cart's last pixel a fixed gap above the near
+	// row, whatever happens to the info box or the banner above it, and
+	// leaves the whole 209px below the near row free for the buttons.
+	//
+	// `kCartFooterHeightPx` is the divider gap + rule + gap + the total's
+	// own ascender-plus-descender block. It is a reserved budget rather
+	// than a font measurement because these are namespace constants and
+	// the fonts are not loaded yet — `setup()` measures the real thing and
+	// warns if this number is short. Do not shrink it without watching
+	// that warning.
+	const float kCartFooterHeightPx = 92.0f;
+	const float kCartBottomGapPx = 16.0f;
+	const float kNearRowBottomPx = mmToPxY(BINS[4].yMM + BIN_H_MM);
+	const float kCartRowsBottomPx = kNearRowBottomPx - kCartBottomGapPx
+		- kCartFooterHeightPx;
+	// Fixed, never a function of whether the mode banner or the info box
+	// happens to be showing — doc §8's "never moves" applies as much to
+	// appearing as it does to growing.
+	const float kCartTopPx = kCartRowsBottomPx - kCartRowHeightPx * 8.0f;
+
 	// --- VISUAL_LAYER.md §8, build item 10: the info box -------------------
 	// "Info box sits ABOVE the cart, fixed height, does not push the cart
-	// down." Fixed height is the whole mechanism: the space is reserved
-	// from boot whether or not a bin is active, so the cart's own top
-	// (kCartTopPx below) is a constant and cannot move when the box fades
-	// in. Sized to three 24px lines (§3's "Info box text") plus padding —
-	// one header line (veg/non-veg + kcal) and up to two description lines.
+	// down." Fixed height is still the whole mechanism, but the band it
+	// gets is now everything between the brand mark and the cart, rather
+	// than a 136px strip with the banner's own band left empty above it.
 	//
-	// 2026-08-24, developer: "there is no more space to show info box above
-	// the cart. so the cart and the buttons should be pulled down." That is
-	// what this block does — everything below it shifts by
-	// kInfoBoxHeightPx + kInfoBoxCartGapPx.
+	// **It starts where the mode banner starts, and the two never share a
+	// frame.** Developer, 2026-08-24: "there is ton of space above the box
+	// and below the logo unused." That space is the banner's, and the
+	// banner only exists when the table is NOT serving — no hover, so no
+	// info box. `drawInfoBox` refuses to draw while a banner is up rather
+	// than relying on that being true, which is also doc §14.5's own
+	// precedence rule: the state that changes what the table is DOING
+	// outranks anything else in the centre column.
+	//
+	// The height is derived from the cart's own top so the two can never
+	// be edited into overlapping.
 	const float kInfoBoxTopPx = kBrandTopMarginPx + kBrandHeightPx
-		+ kBrandBannerGapPx + kBannerHeightPx + 24.0f;
-	const float kInfoBoxHeightPx = 136.0f;
-	const float kInfoBoxCartGapPx = 20.0f;
-	const int kInfoBoxTextPx = 24;
-	const float kInfoBoxPadXPx = 18.0f;
+		+ kBrandBannerGapPx;
+	const float kInfoBoxCartGapPx = 12.0f;
+	const float kInfoBoxHeightPx = kCartTopPx - kInfoBoxCartGapPx - kInfoBoxTopPx;
+	// **The item's NAME leads the box now.** Developer, same message: "it
+	// is not telling the food items name in it." Nothing else on the table
+	// says which bin the box is about — the plate's own label is at the
+	// far end of a 1.5m table from the reader.
+	const int kInfoBoxNamePx = 30;
+	const int kInfoBoxTextPx = 19;    // was 24 — "u can reduce the font size"
+	const float kInfoBoxPadXPx = 24.0f;
 	const float kInfoBoxPadYPx = 14.0f;
 	const float kInfoBoxLineGapPx = 6.0f;
-	const float kInfoBoxBorderWidthPx = 2.0f;
+	const float kInfoBoxRulePx = 1.0f;
+	// **Rounded and glowing, not a bordered rectangle.** Developer: "the
+	// info box is shity design, it looks like a stupid text box" and, for
+	// the buttons in the same message, "u need to see that this whole
+	// design is like a fluid, the flames the glowing hallow and so on."
+	// So the box is built out of the same primitive the bin halos are
+	// (`drawRoundedBand`, nested contours with a quadratic alpha falloff)
+	// instead of §3's own 2px hard border — same visual family as the
+	// thing already on the table, rather than a second one.
+	const float kInfoBoxCornerPx = 28.0f;
+	const float kInfoBoxGlowReachPx = 26.0f;
+	const int kInfoBoxGlowBands = 10;
 	const ofColor kInfoBoxFill(0xF7, 0xE4, 0xDC);        // §3 "Info box fill"
-	const ofColor kInfoBoxBorderColor(0xC7, 0x4A, 0x34); // §3 "Info box border"
+	const ofColor kInfoBoxGlow(0xC7, 0x4A, 0x34);        // §3's fire core
 	const ofColor kInfoBoxTextColor(0x8A, 0x35, 0x24);   // §3 "Info box text"
+	const ofColor kInfoBoxNameColor(0x2B, 0x21, 0x18);   // the plate's own ink
 	// The veg/non-veg dot. Green and red are the same two the cart's own
 	// buttons use (kWidgetPrimary/kWidgetDanger) rather than a third
 	// pair — one green and one red on this table, not several. Egg is
@@ -329,16 +405,8 @@ namespace {
 	// of them; see `pricing.VALID_DIETS`' own comment for why the wire
 	// carries three values and not two.
 	const ofColor kInfoDietEggColor(0xD9, 0x82, 0x2B);
-	const float kInfoDietDotRadiusPx = 9.0f;
-	const float kInfoDietDotGapPx = 12.0f;
-
-	// Fixed, never a function of whether the mode banner happens to be
-	// showing — doc §8's "never moves" applies as much to appearing as it
-	// does to growing, so this sits below the banner's own footprint
-	// (kBannerHeightPx) whether or not drawTopBanner actually draws one
-	// this frame, and below the info box's reserved band whether or not a
-	// bin is active.
-	const float kCartTopPx = kInfoBoxTopPx + kInfoBoxHeightPx + kInfoBoxCartGapPx;
+	const float kInfoDietDotRadiusPx = 8.0f;
+	const float kInfoDietDotGapPx = 10.0f;
 
 	// --- M5: the pointer cursor and the dwell ring ------------------------
 	// Sizes in px because they are screen furniture, not table geometry —
@@ -422,11 +490,31 @@ namespace {
 	// kWidgetPrimary and shares a family with §3's own fire-core #C74A34.
 	const ofColor kWidgetDanger(0xC0, 0x39, 0x2B);
 	const ofColor kWidgetDisabled(190, 190, 190);
-	// The dwell sweep, drawn INSIDE a widget as a rising fill (see
-	// drawWidget). Same amber as the cursor's own dwell ring
-	// (kDwellFillColor) so a filling button and a filling ring read as one
-	// mechanism, at the low alpha a tint under dark text has to keep.
-	const ofColor kWidgetDwellFill(200, 120, 0, 70);
+	// The dwell sweep, drawn INSIDE a widget (see drawWidget). Same amber
+	// as the cursor's own dwell ring (kDwellFillColor) so a filling button
+	// and a filling ring read as one mechanism, at the low alpha a tint
+	// under dark text has to keep.
+	const ofColor kWidgetDwellFill(200, 120, 0, 80);
+
+	// **The buttons are pills with a glow, not rectangles with a frame.**
+	// Developer, 2026-08-24: "the cancell and confirm buttons looks
+	// blocky, u need to see that this whole design is like a fluid, the
+	// flames the glowing hallow and so on, we need the cort info box and
+	// button match with it." A pill is the least blocky shape there is,
+	// and the glow is built from the same `drawRoundedBand` primitive the
+	// bin halos already breathe with — so a button reads as belonging to
+	// the same table rather than as a UI control pasted onto it.
+	//
+	// `kWidgetRingMM` is unchanged and still what frames the pill; a ring
+	// that follows a corner radius is what `drawRing`'s rounded branch was
+	// built for (the light pass's own rounded cutouts).
+	const float kWidgetGlowReachPx = 24.0f;
+	const int kWidgetGlowBands = 9;
+	// Alpha of the button's own resting tint, and the peak alpha at the
+	// innermost glow band. Both low: this is ink-on-a-near-white-table
+	// (I9), so a heavy fill would fight its own label.
+	const int kWidgetFillAlpha = 28;
+	const int kWidgetGlowAlpha = 60;
 
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
@@ -460,21 +548,15 @@ namespace {
 		return ellipsis;
 	}
 
-	// The cart panel's border and the divider above its total (doc §3:
-	// "2px #C9C5BC" for both) are drawn as filled bars, never
-	// ofSetLineWidth/ofPath stroke — this file's own halo comment already
-	// found that stroke width is driver-capped at 1px and ignored outright
-	// on the programmable renderer on this rig; a hairline "2px" border
-	// that silently draws at 1px is exactly the kind of unverified-until-
-	// photographed mismatch this session keeps flagging rather than risking
-	// again here.
-	void drawRectBorder(const ofRectangle & r, float thicknessPx, const ofColor & colour){
-		ofSetColor(colour);
-		ofDrawRectangle(r.x, r.y, r.width, thicknessPx);
-		ofDrawRectangle(r.x, r.y + r.height - thicknessPx, r.width, thicknessPx);
-		ofDrawRectangle(r.x, r.y, thicknessPx, r.height);
-		ofDrawRectangle(r.x + r.width - thicknessPx, r.y, thicknessPx, r.height);
-	}
+	// `drawRectBorder` lived here and is deleted (2026-08-24): the cart
+	// panel's border went with the white panel on the first rig look, and
+	// the info box's went with its redesign on the second. Nothing draws a
+	// rectangular border on this table any more. The RULE it existed to
+	// respect still stands and still applies to the divider above the
+	// total and the info box's own hairline: every line on this surface is
+	// a FILLED rect, never ofSetLineWidth/ofPath stroke — this file's halo
+	// comment found stroke width driver-capped at 1px and ignored outright
+	// on the programmable renderer on this rig.
 
 	// Bin item names (e.g. "Button Mushrooms", "Lotus Root Slices") can
 	// render wider than a 200mm bin (252px) at kPlateNamePx — that
@@ -521,6 +603,55 @@ namespace {
 			return {line1};
 		}
 		return {line1, line2};
+	}
+
+	// The same greedy word-wrap, with a caller-chosen line cap instead of
+	// a hard 2 — the info box's `fact` needs three. Kept separate from
+	// wrapNameToTwoLines rather than replacing it, because the two differ
+	// in what they do when they run out of lines: that one dumps every
+	// remaining word onto line 2 (a bin label is short and overflowing is
+	// louder than truncating), this one truncates the last line with an
+	// ellipsis so a long fact cannot run out of its box. Every catalogue
+	// fact fits in 3 lines at kInfoBoxTextPx today (measured, PIL/FreeType
+	// against the real .ttf), so the truncation is a net, not the
+	// mechanism.
+	std::vector<std::string> wrapToLines(const ofTrueTypeFont & font,
+		const std::string & text, float maxWidthPx, size_t maxLines){
+		std::vector<std::string> lines;
+		if(!font.isLoaded() || text.empty() || maxLines == 0){
+			return lines;
+		}
+		std::istringstream iss(text);
+		std::vector<std::string> words;
+		std::string w;
+		while(iss >> w){
+			words.push_back(w);
+		}
+		std::string cur;
+		for(size_t i = 0; i < words.size(); i++){
+			std::string candidate = cur.empty() ? words[i] : cur + " " + words[i];
+			if(!cur.empty()
+				&& font.getStringBoundingBox(candidate, 0, 0).width > maxWidthPx){
+				lines.push_back(cur);
+				cur = words[i];
+				if(lines.size() == maxLines - 1){
+					// Last line left: take everything remaining and let
+					// truncateToWidth cut it, rather than dropping words
+					// silently.
+					for(size_t j = i + 1; j < words.size(); j++){
+						cur += " " + words[j];
+					}
+					break;
+				}
+			}
+			else {
+				cur = candidate;
+			}
+		}
+		if(!cur.empty()){
+			lines.push_back(truncateToWidth(font, cur, maxWidthPx));
+		}
+		return lines;
 	}
 
 	// Pulls the currency symbol and decimal count out of core's already-
@@ -574,12 +705,21 @@ void UiLayer::setup(){
 	ok = loadUiFont(_totalNumFont, kFontFile, 48) && ok;
 	ok = loadUiFont(_totalLabelFont, kFontFile, 30) && ok;
 	ok = loadUiFont(_cartRowFont, kFontFile, kCartRowPx) && ok;
+	ok = loadUiFont(_infoNameFont, kFontFile, kInfoBoxNamePx) && ok;
 	ok = loadUiFont(_infoFont, kFontFile, kInfoBoxTextPx) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
 	_fontsLoaded = ok;
 	if(!_fontsLoaded){
 		ofLogError(kTag) << "could not load " << kFontFile << " or " << kMonoFontFile
 			<< " at one or more sizes — labels will not draw";
+	}
+
+	// The cart's reserved detail column, measured once from the worst case
+	// rather than per row — see kCartDetailWorstCase for why the per-row
+	// version was the truncation bug.
+	if(_cartRowFont.isLoaded()){
+		_cartDetailColPx =
+			_cartRowFont.getStringBoundingBox(kCartDetailWorstCase, 0, 0).width;
 	}
 
 	// VISUAL_LAYER.md §4's PLATE_H budget, checked once against what the
@@ -618,11 +758,37 @@ void UiLayer::setup(){
 	// moving a button core is still hit-testing elsewhere is the exact
 	// failure this whole arrangement exists to prevent.
 	if(_fontsLoaded){
-		const float kHoverButtonsTopPx = 952.0f;   // core/hover.py BUTTONS_TOP_PX
+		const float kHoverButtonsTopPx = 925.0f;   // core/hover.py BUTTONS_TOP_PX
 		if(cartBottomPx() > kHoverButtonsTopPx){
 			ofLogWarning(kTag) << "cart bottom measures " << cartBottomPx()
 				<< "px, below core/hover.py's button band at " << kHoverButtonsTopPx
 				<< "px — the Confirm/Cancel buttons will overlap the total";
+		}
+		// The developer's own constraint, 2026-08-24: the cart "should fit
+		// with the near row." kCartFooterHeightPx is a reserved budget
+		// guessed ahead of the font metrics (it has to be — these are
+		// namespace constants), and this is where the guess is checked
+		// against what the total actually measures.
+		if(cartBottomPx() > kNearRowBottomPx){
+			ofLogWarning(kTag) << "cart bottom measures " << cartBottomPx()
+				<< "px, past the near row's own bottom edge at " << kNearRowBottomPx
+				<< "px — raise kCartFooterHeightPx";
+		}
+		// And the info box's own band, for the same reason: its content is
+		// laid out from real font metrics but its height is derived from
+		// constants, so a font change could silently overflow it.
+		const float infoContent = kInfoBoxPadYPx * 2.0f
+			+ _infoNameFont.getAscenderHeight()
+			+ fabsf(_infoNameFont.getDescenderHeight()) + kInfoBoxLineGapPx
+			+ _infoFont.getAscenderHeight()
+			+ fabsf(_infoFont.getDescenderHeight()) + kInfoBoxLineGapPx
+			+ kInfoBoxRulePx + kInfoBoxLineGapPx * 2.0f
+			+ (_infoFont.getAscenderHeight()
+				+ fabsf(_infoFont.getDescenderHeight()) + kInfoBoxLineGapPx) * 4.0f;
+		if(infoContent > kInfoBoxHeightPx){
+			ofLogWarning(kTag) << "info box content (1 name + 1 detail + 1 desc"
+				<< " + 3 fact lines) measures " << infoContent << "px in a "
+				<< kInfoBoxHeightPx << "px band — it will overflow";
 		}
 	}
 
@@ -843,6 +1009,40 @@ void UiLayer::drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
 	path.rectRounded(outer, rOuter);
 	path.rectRounded(inner, rInner);
 	path.draw();
+}
+
+void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
+	const ofColor & colour){
+	ofPath path;
+	path.setFilled(true);
+	path.setFillColor(colour);
+	path.setCircleResolution(48);
+	path.rectRounded(r, std::min(cornerRadiusPx,
+		std::min(r.width, r.height) * 0.5f));
+	path.draw();
+}
+
+void UiLayer::drawGlow(const ofRectangle & r, float cornerRadiusPx,
+	float reachPx, int bands, const ofColor & colour, int peakAlpha){
+	// drawHalo's own falloff, off the bins: alpha is brightest at the
+	// shape's edge and falls off QUADRATICALLY outward, so the glow reads
+	// as light coming off the thing rather than as a stack of outlines
+	// around it. Contiguous bands (thickness == pitch), which is the fix
+	// the halo itself needed on its first rig look — gapped bands read as
+	// noise, not as a gradient.
+	if(bands <= 0 || reachPx <= 0.0f || peakAlpha <= 0){
+		return;
+	}
+	const float pitch = reachPx / (float)bands;
+	for(int i = 0; i < bands; i++){
+		const float t = 1.0f - ((float)i + 0.5f) / (float)bands;
+		const int a = (int)((float)peakAlpha * t * t);
+		if(a <= 0){
+			continue;
+		}
+		drawRoundedBand(r, (float)i * pitch, (float)(i + 1) * pitch,
+			ofColor(colour, a), cornerRadiusPx);
+	}
 }
 
 void UiLayer::drawHalo(int i) const {
@@ -1179,15 +1379,45 @@ void UiLayer::drawTotal(const StateLink::Total & total, float baselineY) const {
 void UiLayer::drawInfoBox(const StateLink::State & state) const {
 	// VISUAL_LAYER.md §8/§9 build item 10. "Info box sits ABOVE the cart,
 	// fixed height, does not push the cart down. Idle: invisible. No fill,
-	// no border. Not an empty bordered box. Active: fill + border + text
-	// fade in. Shows veg/non-veg, kcal, short description for the active
-	// bin."
+	// no border. Not an empty bordered box."
+	//
+	// **Rebuilt 2026-08-24 from the first rig look.** Developer, verbatim:
+	// "the info box is shity design, it looks like a stupid text box with
+	// the content over lapping, it is not telling the food items name in
+	// it. it is not giving any interesting facts, u can reduce the font
+	// size and improve a well designed box and content, and there is ton
+	// of space above the box and below the logo unused." Four separate
+	// answers, all here:
+	//   - the NAME leads the box (nothing else near the reader says which
+	//     bin this is about);
+	//   - a researched `fact` per item is on the wire now (catalogue
+	//     schema 6) and gets three lines of its own;
+	//   - the band starts at the banner's own top instead of below it, so
+	//     the empty space under the brand mark is used;
+	//   - it is a rounded, glowing shape built from the halo's own
+	//     primitive, not a bordered rectangle.
+	// The overlap was the old 136px band trying to hold a 24px header plus
+	// two 24px description lines with 14px of padding; every line here is
+	// laid out from the last one's own metrics and the total is checked
+	// against the band in setup().
 	//
 	// The band is reserved unconditionally by kCartTopPx' own arithmetic,
 	// so "does not push the cart down" is true by construction rather than
 	// by this function being careful — nothing here can move anything.
 	const float fade = _infoFade.get();
 	if(fade <= 0.005f || _infoBin < 0 || _infoBin >= (int)state.bins.size()){
+		return;
+	}
+	// **Never over a banner.** The two share this band, and doc §14.5's
+	// precedence rule settles it: the state that changes what the table is
+	// DOING outranks everything else in the centre column. In practice a
+	// banner and a hover almost never coincide (setting mode disables
+	// MediaPipe; an uncalibrated table has no homography to hit-test
+	// with) — the one case that does is `error`, which is raised while
+	// SERVING, and that is exactly the case worth being explicit about
+	// rather than trusting to a coincidence.
+	if(state.overlayKind == "uncalibrated" || state.overlayKind == "error"
+		|| state.mode == "setting"){
 		return;
 	}
 	const StateLink::Bin & b = state.bins[_infoBin];
@@ -1199,28 +1429,44 @@ void UiLayer::drawInfoBox(const StateLink::State & state) const {
 	const ofRectangle box(cx - kCartWidthPx * 0.5f, kInfoBoxTopPx,
 		kCartWidthPx, kInfoBoxHeightPx);
 
-	// One alpha for fill, border and every glyph — §8 fades the box as one
-	// thing, and staggering them would read as a rendering fault rather
-	// than as a transition.
-	const int a = (int)(255.0f * ofClamp(fade, 0.0f, 1.0f));
-	ofSetColor(kInfoBoxFill, a);
-	ofDrawRectangle(box);
-	drawRectBorder(box, kInfoBoxBorderWidthPx,
-		ofColor(kInfoBoxBorderColor, a));
+	// One alpha for the glow, the fill and every glyph — §8 fades the box
+	// as one thing, and staggering them would read as a rendering fault
+	// rather than as a transition.
+	const float a01 = ofClamp(fade, 0.0f, 1.0f);
+	const int a = (int)(255.0f * a01);
+	drawGlow(box, kInfoBoxCornerPx, kInfoBoxGlowReachPx, kInfoBoxGlowBands,
+		kInfoBoxGlow, (int)(70.0f * a01));
+	drawRoundedRectFill(box, kInfoBoxCornerPx, ofColor(kInfoBoxFill, a));
 
-	if(!_infoFont.isLoaded()){
+	if(!_infoFont.isLoaded() || !_infoNameFont.isLoaded()){
 		ofSetColor(255);
 		return;
 	}
-	const float lineH = _infoFont.getLineHeight() + kInfoBoxLineGapPx;
 	const float leftX = box.x + kInfoBoxPadXPx;
-	float baselineY = box.y + kInfoBoxPadYPx + _infoFont.getAscenderHeight();
+	const float rightX = box.x + box.width - kInfoBoxPadXPx;
+	const float textWidth = box.width - 2.0f * kInfoBoxPadXPx;
+	// ascender+descender, NOT getLineHeight(): oF's line height for this
+	// face runs about 1.8x the point size (measured — the first build of
+	// this box overflowed its band by 37px and setup()'s own check
+	// caught it), which is generous leading for a paragraph and far too
+	// airy for six lines that have to share one panel. Every other
+	// vertical step in this function is built the same way.
+	const float bodyLineH = _infoFont.getAscenderHeight()
+		+ fabsf(_infoFont.getDescenderHeight()) + kInfoBoxLineGapPx;
+	float y = box.y + kInfoBoxPadYPx;   // the TOP of the next block, never a baseline
 
-	// Line 1: the diet dot and word on the left, kcal on the right. The
-	// dot is not decoration and is not alone — it is paired with the word
+	// Line 1 — the item's name, in the plate's own ink so the two read as
+	// the same label seen twice rather than as two different facts.
+	ofSetColor(kInfoBoxNameColor, a);
+	_infoNameFont.drawString(b.label, leftX, y + _infoNameFont.getAscenderHeight());
+	y += _infoNameFont.getAscenderHeight()
+		+ fabsf(_infoNameFont.getDescenderHeight()) + kInfoBoxLineGapPx;
+
+	// Line 2 — the diet dot and word on the left, kcal right-aligned. The
+	// dot is not decoration and is not alone: it is paired with the word
 	// for the same reason I8 says a state is never carried by colour by
-	// itself, and this is the one line on the table somebody may actually
-	// act on.
+	// itself, and this is the one line on the table somebody may act on.
+	const float line2Baseline = y + _infoFont.getAscenderHeight();
 	ofColor dietColour = kInfoDietEggColor;
 	std::string dietWord = "EGG";
 	if(b.diet == "veg"){
@@ -1233,28 +1479,39 @@ void UiLayer::drawInfoBox(const StateLink::State & state) const {
 	}
 	const float dotCx = leftX + kInfoDietDotRadiusPx;
 	ofSetColor(dietColour, a);
-	ofDrawCircle(dotCx, baselineY - _infoFont.getAscenderHeight() * 0.4f,
+	ofDrawCircle(dotCx, line2Baseline - _infoFont.getAscenderHeight() * 0.35f,
 		kInfoDietDotRadiusPx);
 	_infoFont.drawString(dietWord,
-		dotCx + kInfoDietDotRadiusPx + kInfoDietDotGapPx, baselineY);
+		dotCx + kInfoDietDotRadiusPx + kInfoDietDotGapPx, line2Baseline);
 
 	if(!b.kcal.empty()){
 		ofRectangle kb = _infoFont.getStringBoundingBox(b.kcal, 0, 0);
 		ofSetColor(kInfoBoxTextColor, a);
-		_infoFont.drawString(b.kcal,
-			box.x + kCartWidthPx - kInfoBoxPadXPx - kb.width - kb.x, baselineY);
+		_infoFont.drawString(b.kcal, rightX - kb.width - kb.x, line2Baseline);
 	}
+	y += _infoFont.getAscenderHeight() + fabsf(_infoFont.getDescenderHeight())
+		+ kInfoBoxLineGapPx;
 
-	// Lines 2-3: the description, wrapped by the same greedy word-wrap the
-	// plate's own name uses (wrapNameToTwoLines) rather than a second
-	// wrapper — two lines is also this box's own budget at its fixed
-	// height, so the cap and the layout agree by construction.
+	// A hairline rule between what the diner may ACT on (diet, kcal) and
+	// what is there to read (the description, the fact). Filled, never a
+	// stroke — see the note where drawRectBorder used to live for why a
+	// stroke width is unusable on this rig.
+	ofSetColor(kInfoBoxGlow, (int)(a * 0.35f));
+	ofDrawRectangle(leftX, y, textWidth, kInfoBoxRulePx);
+	y += kInfoBoxRulePx + kInfoBoxLineGapPx * 1.5f;
+
+	// The description — how to cook it — then the fact, in a lighter ink
+	// so the eye can take the two as separate without a second heading.
 	ofSetColor(kInfoBoxTextColor, a);
-	const float textWidth = kCartWidthPx - 2.0f * kInfoBoxPadXPx;
-	std::vector<std::string> lines = wrapNameToTwoLines(_infoFont, b.desc, textWidth);
-	for(size_t k = 0; k < lines.size() && k < 2; k++){
-		baselineY += lineH;
-		_infoFont.drawString(lines[k], leftX, baselineY);
+	for(const std::string & line : wrapToLines(_infoFont, b.desc, textWidth, 2)){
+		_infoFont.drawString(line, leftX, y + _infoFont.getAscenderHeight());
+		y += bodyLineH;
+	}
+	y += kInfoBoxLineGapPx * 0.5f;
+	ofSetColor(kInfoBoxTextColor, (int)(a * 0.78f));
+	for(const std::string & line : wrapToLines(_infoFont, b.fact, textWidth, 3)){
+		_infoFont.drawString(line, leftX, y + _infoFont.getAscenderHeight());
+		y += bodyLineH;
 	}
 	ofSetColor(255);
 }
@@ -1266,7 +1523,7 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
 	const float x = cx - kCartWidthPx * 0.5f;
 
-	const float rowsBottom = kCartTopPx + kCartRowHeightPx * 8.0f;
+	const float rowsBottom = kCartRowsBottomPx;
 	const float dividerY = rowsBottom + kCartDividerGapPx;
 	const float totalTop = dividerY + kCartBorderWidthPx + kCartDividerGapPx;
 	const float totalBaselineY = totalTop + _totalNumFont.getAscenderHeight();
@@ -1276,23 +1533,44 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 	// every plate label, and the only rule left on it is the divider
 	// above the total.
 
-	// The 8 fixed row slots, doc §8: "Slots are blank at startup. No
+	// **The cart grows UPWARD from the divider.** Developer, 2026-08-24:
+	// "let the cart grow from the bottom, as u add more stuff, the older
+	// cart items gets pushed upwards." So the newest bound slot always
+	// sits in the last row, directly above the total, and the list pushes
+	// up as it fills — a receipt printing towards the reader rather than a
+	// list filling a form from the top.
+	//
+	// This deliberately overrides doc §8's "the SAME slot updates in place
+	// — it never moves": a bin's row DOES move now, upward, when a later
+	// bin joins the cart. What §8's rule was protecting is that a row
+	// never jumps around as its own numbers change, and that still holds —
+	// _cartSlotBin's pick order is untouched, so the only thing that ever
+	// moves a row is another item arriving.
+	//
+	// Doc §8's other half is untouched: "Slots are blank at startup. No
 	// name, no placeholder text, no icon, no border. Just reserved empty
-	// space" — an unbound slot draws nothing at all, not even a
-	// separator, which is what makes it read as reserved space rather
-	// than a rendering gap.
+	// space" — the rows above the filled ones draw nothing at all.
+	std::vector<int> drawn;
 	for(int k = 0; k < 8; k++){
 		int binIdx = _cartSlotBin[k];
 		if(binIdx < 0 || binIdx >= (int)state.bins.size()){
 			continue;
 		}
-		const StateLink::Bin & b = state.bins[binIdx];
-		if(!b.resolved){
+		if(!state.bins[binIdx].resolved){
 			continue;
 		}
+		drawn.push_back(binIdx);
+	}
+
+	for(size_t k = 0; k < drawn.size(); k++){
+		const int binIdx = drawn[k];
+		const StateLink::Bin & b = state.bins[binIdx];
 		const BinTween & tw = _bins[binIdx];
-		const float rowTop = kCartTopPx + (float)k * kCartRowHeightPx;
-		const float baselineY = rowTop + kCartRowHeightPx * 0.5f
+		// Bottom-anchored: the last entry lands on the last row whatever
+		// `drawn.size()` is, so nothing below the cart ever moves.
+		const float rowBottom = rowsBottom
+			- (float)(drawn.size() - 1 - k) * kCartRowHeightPx;
+		const float baselineY = rowBottom - kCartRowHeightPx * 0.5f
 			+ _cartRowFont.getAscenderHeight() * 0.5f;
 
 		// Same "%dg  <price>" composition as drawBin's own post-pick
@@ -1303,8 +1581,13 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 		std::string detail = std::string(g) + "  " + _priceText(tw.price.get());
 		ofRectangle detailBb = _cartRowFont.getStringBoundingBox(detail, 0, 0);
 
+		// The name column is measured against the RESERVED width of the
+		// detail column, never against this row's own detail string — see
+		// kCartDetailWorstCase for why that difference is the whole of the
+		// "names still get truncated when the weight goes double digit"
+		// report.
 		const float nameMaxWidth = kCartWidthPx - 2.0f * kCartPadXPx
-			- detailBb.width - kCartRowMidGapPx;
+			- _cartDetailColPx - kCartRowMidGapPx;
 		std::string name = truncateToWidth(_cartRowFont, b.label, nameMaxWidth);
 
 		ofSetColor(kPlateNameColor);
@@ -1345,9 +1628,8 @@ float UiLayer::cartBottomPx() const {
 	// core/hover.py's button band) precisely so the number that has to
 	// agree with the other language is computed once, here, rather than
 	// re-derived by eye at the check.
-	const float rowsBottom = kCartTopPx + kCartRowHeightPx * 8.0f;
-	const float totalTop = rowsBottom + kCartDividerGapPx + kCartBorderWidthPx
-		+ kCartDividerGapPx;
+	const float totalTop = kCartRowsBottomPx + kCartDividerGapPx
+		+ kCartBorderWidthPx + kCartDividerGapPx;
 	return totalTop + _totalNumFont.getAscenderHeight()
 		+ fabsf(_totalNumFont.getDescenderHeight());
 }
@@ -1532,26 +1814,56 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 		ring = kWidgetDanger;
 	}
 
-	// Dwell progress, drawn INSIDE the button as a rising fill. The
-	// cursor's own ring (drawCursor) already shows the same fraction, but
-	// it sits under the diner's hand — which is exactly where a hand is
-	// while dwelling — so on the rig it reads as no feedback at all
-	// (developer, 2026-08-24: "no progress of hover was shown"). The
-	// button fills from the BOTTOM up: it is the one direction that stays
-	// visible past the edge of a hand covering the middle of the button.
-	// `dwell` is core's 0..1 fraction; oF still times nothing (doc §9.4).
+	// **A pill with a glow, not a rectangle with a frame.** Developer,
+	// 2026-08-24: "the cancell and confirm buttons looks blocky... this
+	// whole design is like a fluid, the flames the glowing hallow and so
+	// on, we need the cort info box and button match with it." The corner
+	// radius is half the height, which is the roundest a rect can be, and
+	// the glow is drawHalo's own falloff (drawGlow) so a lit button and a
+	// lit bin are the same effect at two sizes.
+	const float corner = box.height * 0.5f;
+
+	// A disabled button gets no glow at all — the glow is what says "this
+	// is live", and I8 forbids carrying that in brightness alone, so the
+	// hue goes with it (grey) rather than the glow merely dimming.
+	if(w.enabled){
+		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands,
+			ring, kWidgetGlowAlpha);
+	}
+	drawRoundedRectFill(box, corner,
+		ofColor(ring, w.enabled ? kWidgetFillAlpha : kWidgetFillAlpha / 2));
+
+	// Dwell progress, drawn INSIDE the button. The cursor's own ring
+	// (drawCursor) already shows the same fraction, but it sits under the
+	// diner's hand — which is exactly where a hand is while dwelling — so
+	// on the rig it read as no feedback at all (developer, 2026-08-24:
+	// "no progress of hover was shown"). `dwell` is core's 0..1 fraction;
+	// oF still times nothing (doc §9.4).
+	//
+	// **It fills LEFT to RIGHT, and that is geometry, not preference.**
+	// The first version filled bottom-up, which was right for a rectangle
+	// and is impossible for a pill: a partial-height rounded rect sitting
+	// on the pill's bottom edge has a SHALLOWER corner radius than the
+	// pill does, so its bottom corners stick out through the pill's own
+	// curve — visibly, on a shape this round. A partial-WIDTH rounded rect
+	// sharing the pill's left cap, top and bottom edges is contained by
+	// construction at every fraction, because it is the same shape with
+	// its right cap moved in.
 	if(w.enabled && w.dwell > 0.0f){
-		const float fillH = box.height * ofClamp(w.dwell, 0.0f, 1.0f);
-		ofSetColor(kWidgetDwellFill);
-		ofDrawRectangle(box.x, box.y + box.height - fillH, box.width, fillH);
+		const float fillW = box.width * ofClamp(w.dwell, 0.0f, 1.0f);
+		if(fillW > 1.0f){
+			drawRoundedRectFill(ofRectangle(box.x, box.y, fillW, box.height),
+				corner, kWidgetDwellFill);
+		}
 	}
 
 	const float ringX = mmToPxX(kWidgetRingMM);
 	const float ringY = mmToPxY(kWidgetRingMM);
 	// drawRing frames the rect from OUTSIDE it, the same annulus rule the
 	// plates follow (§14.4), so the label inside is never touched by its
-	// own frame however thick the frame becomes.
-	drawRing(box, ringX, ringY, ring);
+	// own frame however thick the frame becomes. Passing `corner` here is
+	// what makes the frame follow the pill instead of squaring it off.
+	drawRing(box, ringX, ringY, ring, corner);
 
 	// Dark ink on a light field (§13.4) — and a disabled button's label is
 	// greyed rather than hidden, because a button whose label vanished
