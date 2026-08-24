@@ -27,7 +27,16 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("hotpot.pricing")
 
-CATALOGUE_SCHEMA = 4
+# 4 -> 5, 2026-08-24: every item gained `diet`/`kcalPer100g`/`description`
+# for VISUAL_LAYER.md section 8's info box. Bumped because the file's
+# shape changed, this repo's standing practice on any catalogue change.
+CATALOGUE_SCHEMA = 5
+
+# The three answers `Item.diet` may hold. Three rather than two: an egg is
+# neither veg nor non-veg in most of the world this table is aimed at, and
+# collapsing it into either one would be stating something false to the
+# one person who cares about the distinction.
+VALID_DIETS = {"veg", "nonveg", "egg"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +72,29 @@ class Item:
     tags: List[str]
     class_name: str
     pinyin: str = ""
+    # VISUAL_LAYER.md section 8's info box: "Shows veg/non-veg, kcal, short
+    # description for the active bin." SHOWN, all three — they are read by
+    # a diner off the projected table, so they belong on the same side of
+    # doc section 8.1's split as `names`, and nothing here may be derived
+    # from `id`/`class_name` either.
+    #
+    # **`diet` is an explicit field, deliberately NOT derived from
+    # `tags`.** The tags are a loose editorial list ("vegetarian", "vegan",
+    # "seafood", "noodle") that nothing validates; deriving from them would
+    # make "is this safe for me to eat" a side effect of whether somebody
+    # remembered a tag. It is also the one field here where a wrong answer
+    # is not a cosmetic bug — `chicken_eggs` carries the tag "vegetarian"
+    # and a derivation would have projected "VEG" onto an egg.
+    # "veg" | "nonveg" | "egg" — three, not two, because egg is neither in
+    # most of the world this table is aimed at.
+    #
+    # `kcal_per_100g` is a per-100g figure to match `price_per_100g`, and
+    # is an approximate published value for the REAL ingredient the plate
+    # names, not a lab measurement of what is in the bin — see
+    # data/catalogue.json's own entries and CLAUDE.md for the sourcing.
+    diet: str = ""
+    kcal_per_100g: float = 0.0
+    description: str = ""
 
     def display_name(self, locale: Optional[str] = None) -> str:
         """The label the table prints. **Cannot return `id` or
@@ -131,6 +163,26 @@ class Catalogue:
                     f"display name. Every item needs one — it is the "
                     f"fallback every other locale degrades to, and without "
                     f"it there is no name to show but the hidden label.")
+            # The info box's three fields, required — same argument the
+            # `en` name check above makes: catalogue.json is committed
+            # data, so a missing one is an editing mistake that should
+            # stop core on the bench rather than project a blank box, or
+            # (worse, for `diet`) nothing at all where a diner is looking
+            # for whether they can eat it. `VALID_DIETS` is checked for
+            # the same reason: a typo'd "vegetarian" would silently draw
+            # neither veg nor non-veg.
+            diet = it.get("diet")
+            if diet not in VALID_DIETS:
+                raise ValueError(
+                    f"{path}: item {it['id']!r} has diet {diet!r}; expected "
+                    f"one of {sorted(VALID_DIETS)}. This is the one field a "
+                    f"diner may act on, so it is never guessed or derived "
+                    f"from `tags`.")
+            if "kcalPer100g" not in it or not str(it.get("description", "")).strip():
+                raise ValueError(
+                    f"{path}: item {it['id']!r} needs kcalPer100g and a "
+                    f"description — VISUAL_LAYER.md section 8's info box "
+                    f"shows both, and a blank one reads as a broken table.")
             items.append(Item(
                 id=it["id"],
                 price_per_100g=float(it["pricePer100g"]),
@@ -138,6 +190,9 @@ class Catalogue:
                 tags=list(it.get("tags", [])),
                 class_name=it["class_name"],
                 pinyin=it.get("pinyin", ""),
+                diet=diet,
+                kcal_per_100g=float(it["kcalPer100g"]),
+                description=str(it["description"]).strip(),
             ))
         return cls(items)
 

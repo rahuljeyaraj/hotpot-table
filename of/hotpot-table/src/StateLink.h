@@ -65,6 +65,22 @@ public:
 		// right, whereas a rect at 0,0 would look like a rendering bug.
 		bool hasRect = false;
 		float rx = 0.0f, ry = 0.0f, rw = 0.0f, rh = 0.0f;
+
+		// doc §4.3's `info` (VISUAL_LAYER.md §8's info box, build item
+		// 10). All three arrive ALREADY RESOLVED, including the "kcal /
+		// 100g" unit, for the same reason `sub` carries "/100g" rather
+		// than oF appending it: I2 puts every diner-facing word on core's
+		// side of the wire, so a second locale changes one JSON file and
+		// no C++.
+		//
+		// `diet` is the one machine-readable value of the three — "veg",
+		// "nonveg" or "egg" — because oF picks a colour and a dot from it
+		// (drawInfoBox) rather than printing it. Empty on an unresolved
+		// bin, and empty means DRAW NOTHING: doc §8's "Idle: invisible.
+		// No fill, no border. Not an empty bordered box."
+		std::string diet;   // veg|nonveg|egg, or "" for an unresolved bin
+		std::string kcal;   // e.g. "74 kcal / 100g", resolved
+		std::string desc;   // one short sentence, resolved
 	};
 
 	// doc §4.3's `widgets`, and §9.4's dwell fraction (M5 build item 3).

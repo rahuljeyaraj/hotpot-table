@@ -4402,6 +4402,97 @@ dead as the mock seed's Nth item), a stale catalogue id is dropped, and a
 corrupt file still boots. 1042 tests pass.
 **Not observed on the rig** — the check is a restart with the tab open.
 
+### Cart fix 3 (2026-08-24): VISUAL_LAYER.md build item 10 — the info box,
+### and the ingredient research behind its content
+**Developer: "do reserch on the food items we are presenting, and come up
+with the info box content and include that in the table projection."**
+Build item 10, i.e. the last of VISUAL_LAYER.md §9's ten steps. The data
+it needs did not exist anywhere — not in `data/catalogue.json`, not on the
+wire, not in `StateLink::Bin` — which is exactly why the previous session
+deferred it rather than folding it into build item 9.
+
+**Catalogue schema 4 → 5.** Every item gained `diet`, `kcalPer100g` and
+`description`. Three decisions in that, none of them cosmetic:
+- **`diet` is an explicit field, NOT derived from `tags`.** The tags are a
+  loose editorial list nothing validates, and deriving would make "is this
+  safe for me to eat" a side effect of whether somebody remembered a tag.
+  The case that settles it: `chicken_eggs` carries the tag `"vegetarian"`,
+  so a derivation would have projected **VEG onto an egg**. There is a
+  test named after that (`test_diet_is_not_derived_from_tags`).
+- **Three values, not two:** `veg` | `nonveg` | `egg`. An egg is neither
+  in most of the world this table is aimed at, and collapsing it into
+  either is stating something false to the one person who cares.
+  `pricing.VALID_DIETS` is checked at load — a typo'd "vegetarian" would
+  otherwise draw neither, i.e. silence where somebody is looking for an
+  answer.
+- All three are REQUIRED at load, same argument the `en` name check
+  already makes: `catalogue.json` is committed data, so a missing one is
+  an editing mistake that should stop core on the bench rather than
+  project a blank box mid-service.
+
+**The kcal figures are researched published values for the REAL
+ingredient the plate names, per 100g, and are approximate.** They are not
+measurements of what is physically in the bin — nine of these twelve bins
+hold a substitute prop (`docs/INGREDIENT_SUBSTITUTES.md`), and the number
+a diner reads has to be about the food the table says it is selling.
+Sourced 2026-08-24: fish balls 117, lotus root 74, dried shrimp 253, beef
+balls 202, shrimp cake 101 (surimi), fried tofu skin 400, dried eel 300
+(seasoned dried snack; raw eel is 184, which is the wrong form here),
+instant noodles 450 (fried block, dry), fresh wheat noodles 280 (raw),
+egg 143, button mushrooms 22, potato 77. Noodles/dried items are quoted in
+the form the bin actually holds (dry/raw), which is also the form the
+scale weighs — the same basis as `pricePer100g`. **Nobody has checked
+these against a nutritionist or a supplier's own label**; they are good
+enough for a table that says "≈" by intent and would need a real source
+before anything is billed or claimed on them.
+
+**Wire:** `_bin_msg` gained `info: {diet, kcal, desc}`, on **every** bin
+rather than only the hovered one — which bin the box is about is `hl`,
+already on the same message, and a separate "active item info" field
+would be a second place for the same fact to be computed from and to
+disagree with. `kcal` arrives as a finished string with its unit
+(`"74 kcal / 100g"`, new locale key `kcal_per_100g`) for the same reason
+`sub` carries "/100g": I2 puts every diner-facing word on core's side, so
+a second locale changes one JSON file and no C++.
+
+**oF:** `StateLink::Bin` gained the three fields (absent on an older core,
+and absent stays absent); `UiLayer::drawInfoBox` draws them into the band
+`kCartTopPx` already reserved in cart fix 1 above — so §9's own build-item
+10 check, "cart does not shift when the info box appears," is true by
+construction rather than by this function being careful. Doc §8's "Idle:
+invisible. No fill, no border. Not an empty bordered box" is an empty
+`diet` meaning draw NOTHING, not an empty box. One 250ms spring fades
+fill, border and every glyph together (staggering them would read as a
+rendering fault). `_infoBin` is deliberately LEFT SET when a bin
+deactivates, so the box has something to draw while it fades out.
+Layout: a diet dot + word on the left and kcal right-aligned on line 1,
+then the description wrapped to at most 2 lines by the same
+`wrapNameToTwoLines` the plate name uses. **The dot is never alone** —
+I8's "never carry a state by colour alone", and this is the one line on
+the table somebody may act on. Green/red are the cart buttons' own two
+(one green and one red on this table, not several); egg gets amber.
+`_forceAllBinsLit` (the 'f' diagnostic) is deliberately NOT honoured
+here: "every bin is active" has no answer for a box that shows one bin's
+facts, and picking the first would put one arbitrary bin's kcal up for as
+long as the diagnostic runs.
+
+9 new tests (`test_pricing.py`: all three fields required, an invalid
+diet refused, the real catalogue complete, and the egg tombstone above;
+`test_core_main.py`: every resolved bin carries the payload with a
+resolved unit string, and an unresolved bin sends blanks not
+placeholders). 1048 tests pass — 1 pre-existing flake
+(`test_calibrator`'s stale-link case, ~1 run in 12, documented under M2.6,
+passes on its own re-run and did).
+
+Full rebuild, msbuild Debug x64, 0 errors (2 pre-existing
+`ftVorticityForceShader.h` warnings). `run.py` boots clean: all five
+processes `HOTPOT-READY`, `of` fullscreen with StateLink up, and
+**no `UiLayer` warning** — i.e. the cart-vs-button-band check added in fix
+1 passed against the real font metrics.
+**Not observed on the projected surface.** The box only appears on a real
+hover, so the check is a hand over a bin: the box fades in, shows that
+bin's facts, and the cart underneath does not move by a pixel.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

@@ -322,10 +322,15 @@ namespace {
 	const ofColor kInfoBoxFill(0xF7, 0xE4, 0xDC);        // §3 "Info box fill"
 	const ofColor kInfoBoxBorderColor(0xC7, 0x4A, 0x34); // §3 "Info box border"
 	const ofColor kInfoBoxTextColor(0x8A, 0x35, 0x24);   // §3 "Info box text"
-	// §8: "Active: fill + border + text fade in." 250ms — slower than the
-	// 150ms a fact-tracking spring uses (BinTween::picked), faster than the
-	// halo/fire cross-dissolve's 350ms; unmeasured, tunable once seen.
-	const float kInfoBoxFadeS = 0.25f;
+	// The veg/non-veg dot. Green and red are the same two the cart's own
+	// buttons use (kWidgetPrimary/kWidgetDanger) rather than a third
+	// pair — one green and one red on this table, not several. Egg is
+	// neither, and gets its own amber rather than being rounded into one
+	// of them; see `pricing.VALID_DIETS`' own comment for why the wire
+	// carries three values and not two.
+	const ofColor kInfoDietEggColor(0xD9, 0x82, 0x2B);
+	const float kInfoDietDotRadiusPx = 9.0f;
+	const float kInfoDietDotGapPx = 12.0f;
 
 	// Fixed, never a function of whether the mode banner happens to be
 	// showing — doc §8's "never moves" applies as much to appearing as it
@@ -569,6 +574,7 @@ void UiLayer::setup(){
 	ok = loadUiFont(_totalNumFont, kFontFile, 48) && ok;
 	ok = loadUiFont(_totalLabelFont, kFontFile, 30) && ok;
 	ok = loadUiFont(_cartRowFont, kFontFile, kCartRowPx) && ok;
+	ok = loadUiFont(_infoFont, kFontFile, kInfoBoxTextPx) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
 	_fontsLoaded = ok;
 	if(!_fontsLoaded){
@@ -932,6 +938,32 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 	_totalAmount.setTarget((float)state.total.amount);
 	_totalAmount.update(dt);
 
+	// VISUAL_LAYER.md §8, build item 10: which bin the info box is about,
+	// and how far it has faded in. The active bin is `hl == "hover"` —
+	// the same field the fire ring's own crossfade reads, so the box and
+	// the flame can never disagree about which bin is active.
+	//
+	// `_forceAllBinsLit` (the 'f' diagnostic) is deliberately NOT honoured
+	// here, unlike the fire spring above: that switch exists to light
+	// every ring at once, and "every bin is active" has no answer for a
+	// box that shows exactly one bin's facts. Picking the first would put
+	// one arbitrary bin's kcal on the table for as long as the diagnostic
+	// is on, which is worse than the box simply not appearing.
+	int active = -1;
+	for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
+		if(state.bins[i].hl == "hover" && !state.bins[i].diet.empty()){
+			active = i;
+			break;
+		}
+	}
+	if(active >= 0){
+		// Held, not cleared, when nothing is active — the box needs
+		// something to draw while it fades out. See _infoBin's own comment.
+		_infoBin = active;
+	}
+	_infoFade.setTarget(active >= 0 ? 1.0f : 0.0f);
+	_infoFade.update(dt);
+
 	// VISUAL_LAYER.md §8, build item 9: bind cart slots in PICK ORDER, not
 	// bin order. `picked` is already core's deadbanded, snapped-to-truth
 	// integer (core/main.py's _bin_msg — pricing.display_grams(shown_g)),
@@ -1140,6 +1172,89 @@ void UiLayer::drawTotal(const StateLink::Total & total, float baselineY) const {
 		ofRectangle bb = _totalNumFont.getStringBoundingBox(text, 0, 0);
 		ofSetColor(kCartTotalValueColor);
 		_totalNumFont.drawString(text, rightX - bb.width - bb.x, baselineY);
+	}
+	ofSetColor(255);
+}
+
+void UiLayer::drawInfoBox(const StateLink::State & state) const {
+	// VISUAL_LAYER.md §8/§9 build item 10. "Info box sits ABOVE the cart,
+	// fixed height, does not push the cart down. Idle: invisible. No fill,
+	// no border. Not an empty bordered box. Active: fill + border + text
+	// fade in. Shows veg/non-veg, kcal, short description for the active
+	// bin."
+	//
+	// The band is reserved unconditionally by kCartTopPx' own arithmetic,
+	// so "does not push the cart down" is true by construction rather than
+	// by this function being careful — nothing here can move anything.
+	const float fade = _infoFade.get();
+	if(fade <= 0.005f || _infoBin < 0 || _infoBin >= (int)state.bins.size()){
+		return;
+	}
+	const StateLink::Bin & b = state.bins[_infoBin];
+	if(b.diet.empty()){
+		return;
+	}
+
+	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
+	const ofRectangle box(cx - kCartWidthPx * 0.5f, kInfoBoxTopPx,
+		kCartWidthPx, kInfoBoxHeightPx);
+
+	// One alpha for fill, border and every glyph — §8 fades the box as one
+	// thing, and staggering them would read as a rendering fault rather
+	// than as a transition.
+	const int a = (int)(255.0f * ofClamp(fade, 0.0f, 1.0f));
+	ofSetColor(kInfoBoxFill, a);
+	ofDrawRectangle(box);
+	drawRectBorder(box, kInfoBoxBorderWidthPx,
+		ofColor(kInfoBoxBorderColor, a));
+
+	if(!_infoFont.isLoaded()){
+		ofSetColor(255);
+		return;
+	}
+	const float lineH = _infoFont.getLineHeight() + kInfoBoxLineGapPx;
+	const float leftX = box.x + kInfoBoxPadXPx;
+	float baselineY = box.y + kInfoBoxPadYPx + _infoFont.getAscenderHeight();
+
+	// Line 1: the diet dot and word on the left, kcal on the right. The
+	// dot is not decoration and is not alone — it is paired with the word
+	// for the same reason I8 says a state is never carried by colour by
+	// itself, and this is the one line on the table somebody may actually
+	// act on.
+	ofColor dietColour = kInfoDietEggColor;
+	std::string dietWord = "EGG";
+	if(b.diet == "veg"){
+		dietColour = kWidgetPrimary;
+		dietWord = "VEG";
+	}
+	else if(b.diet == "nonveg"){
+		dietColour = kWidgetDanger;
+		dietWord = "NON-VEG";
+	}
+	const float dotCx = leftX + kInfoDietDotRadiusPx;
+	ofSetColor(dietColour, a);
+	ofDrawCircle(dotCx, baselineY - _infoFont.getAscenderHeight() * 0.4f,
+		kInfoDietDotRadiusPx);
+	_infoFont.drawString(dietWord,
+		dotCx + kInfoDietDotRadiusPx + kInfoDietDotGapPx, baselineY);
+
+	if(!b.kcal.empty()){
+		ofRectangle kb = _infoFont.getStringBoundingBox(b.kcal, 0, 0);
+		ofSetColor(kInfoBoxTextColor, a);
+		_infoFont.drawString(b.kcal,
+			box.x + kCartWidthPx - kInfoBoxPadXPx - kb.width - kb.x, baselineY);
+	}
+
+	// Lines 2-3: the description, wrapped by the same greedy word-wrap the
+	// plate's own name uses (wrapNameToTwoLines) rather than a second
+	// wrapper — two lines is also this box's own budget at its fixed
+	// height, so the cap and the layout agree by construction.
+	ofSetColor(kInfoBoxTextColor, a);
+	const float textWidth = kCartWidthPx - 2.0f * kInfoBoxPadXPx;
+	std::vector<std::string> lines = wrapNameToTwoLines(_infoFont, b.desc, textWidth);
+	for(size_t k = 0; k < lines.size() && k < 2; k++){
+		baselineY += lineH;
+		_infoFont.drawString(lines[k], leftX, baselineY);
 	}
 	ofSetColor(255);
 }
@@ -1618,6 +1733,7 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
 			drawBin(i, state.bins[i], _bins[i]);
 		}
+		drawInfoBox(state);
 		drawCart(state);
 		drawWidgets(state);
 		drawTopBanner(state);

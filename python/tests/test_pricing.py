@@ -18,6 +18,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from hotpot.core import binmap  # noqa: E402
+from hotpot.core import pricing  # noqa: E402
 from hotpot.core.cart import Cart  # noqa: E402
 from hotpot.core.pricing import (  # noqa: E402
     Catalogue, Item, bin_price, display_grams, shown_total, total)
@@ -88,10 +89,12 @@ class TestCatalogueLoad(unittest.TestCase):
             f.write(text)
 
     def test_loads_a_well_formed_file(self):
-        self.write('{"schema":4,"base_currency":"INR","items":['
+        self.write('{"schema":5,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,'
                    '"names":{"en":"Tofu","zh":"豆腐"},'
-                   '"tags":["vegetarian"],"class_name":"tofu"}]}')
+                   '"tags":["vegetarian"],"class_name":"tofu",'
+                   '"diet":"veg","kcalPer100g":76,'
+                   '"description":"A test item."}]}')
         cat = Catalogue.load(self.path)
         self.assertEqual(len(cat), 1)
         self.assertEqual(cat.item("tofu").price_per_100g, 18.0)
@@ -110,6 +113,58 @@ class TestCatalogueLoad(unittest.TestCase):
         self.assertIn("en", it.names)
         self.assertIn("zh", it.names)
         self.assertIsInstance(it.price_per_100g, float)
+
+    def test_the_info_box_fields_are_required(self):
+        """VISUAL_LAYER.md section 8's info box shows all three, and a
+        blank one reads as a broken table rather than as a missing field —
+        so a missing one stops core on the bench, exactly like a missing
+        `en` name does.
+        """
+        for missing in ('"diet":"veg",', '"kcalPer100g":76,',
+                        '"description":"A test item."'):
+            full = ('{"schema":5,"base_currency":"INR","items":['
+                    '{"id":"tofu","pricePer100g":18.0,'
+                    '"names":{"en":"Tofu"},"tags":[],"class_name":"tofu",'
+                    '"diet":"veg","kcalPer100g":76,'
+                    '"description":"A test item."}]}')
+            with self.subTest(missing=missing):
+                self.write(full.replace(missing, "").replace(",}", "}"))
+                with self.assertRaises(ValueError):
+                    Catalogue.load(self.path)
+
+    def test_a_diet_outside_the_three_valid_values_is_refused(self):
+        # `diet` is the one field a diner may act on. A typo'd
+        # "vegetarian" would otherwise draw neither veg nor non-veg — a
+        # silently missing answer where somebody is looking for one.
+        self.write('{"schema":5,"base_currency":"INR","items":['
+                   '{"id":"tofu","pricePer100g":18.0,'
+                   '"names":{"en":"Tofu"},"tags":[],"class_name":"tofu",'
+                   '"diet":"vegetarian","kcalPer100g":76,'
+                   '"description":"A test item."}]}')
+        with self.assertRaises(ValueError):
+            Catalogue.load(self.path)
+
+    def test_the_real_catalogue_has_info_for_every_item(self):
+        # The committed file, not a fixture: every one of these reaches a
+        # diner's eyes through the info box.
+        cat = Catalogue.load(CATALOGUE_PATH)
+        for item_id in cat.ids():
+            it = cat.item(item_id)
+            with self.subTest(item=item_id):
+                self.assertIn(it.diet, pricing.VALID_DIETS)
+                self.assertGreater(it.kcal_per_100g, 0.0)
+                self.assertTrue(it.description.strip())
+
+    def test_diet_is_not_derived_from_tags(self):
+        """The egg case, which is why `diet` is its own field.
+
+        `chicken_eggs` carries the tag "vegetarian" (it always has), so
+        any version that derived this from `tags` would project "VEG"
+        onto an egg. This test is that derivation's tombstone.
+        """
+        it = Catalogue.load(CATALOGUE_PATH).item("chicken_eggs")
+        self.assertIn("vegetarian", it.tags)
+        self.assertEqual(it.diet, "egg")
 
     def test_real_catalogue_has_at_least_one_id_per_bin_and_no_duplicates(self):
         """core/main.py's mock bin seed (`_seed_binmap`) needs one id per
@@ -364,18 +419,22 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
             f.write(text)
 
     def test_item_with_no_english_name_is_refused_at_load(self):
-        self.write('{"schema":4,"base_currency":"INR","items":['
+        self.write('{"schema":5,"base_currency":"INR","items":['
                    '{"id":"soya_chunks","pricePer100g":10.0,'
                    '"names":{"zh":"鱼丸"},'
-                   '"tags":[],"class_name":"soya_chunks"}]}')
+                   '"tags":[],"class_name":"soya_chunks",'
+                   '"diet":"veg","kcalPer100g":76,'
+                   '"description":"A test item."}]}')
         with self.assertRaises(ValueError) as ctx:
             Catalogue.load(self.path)
         self.assertIn("soya_chunks", str(ctx.exception))
 
     def test_item_with_empty_names_is_refused_at_load(self):
-        self.write('{"schema":4,"base_currency":"INR","items":['
+        self.write('{"schema":5,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,"names":{},'
-                   '"tags":[],"class_name":"tofu"}]}')
+                   '"tags":[],"class_name":"tofu",'
+                   '"diet":"veg","kcalPer100g":76,'
+                   '"description":"A test item."}]}')
         with self.assertRaises(ValueError):
             Catalogue.load(self.path)
 
@@ -383,10 +442,12 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
         """An empty string is not a name. It would render a blank plate
         that still bills — worse than refusing to start.
         """
-        self.write('{"schema":4,"base_currency":"INR","items":['
+        self.write('{"schema":5,"base_currency":"INR","items":['
                    '{"id":"tofu","pricePer100g":18.0,'
                    '"names":{"en":"","zh":"豆腐"},'
-                   '"tags":[],"class_name":"tofu"}]}')
+                   '"tags":[],"class_name":"tofu",'
+                   '"diet":"veg","kcalPer100g":76,'
+                   '"description":"A test item."}]}')
         with self.assertRaises(ValueError):
             Catalogue.load(self.path)
 
@@ -394,10 +455,12 @@ class TestCatalogueLoadRejectsUnnameableItems(unittest.TestCase):
         """Missing translations are tolerated — they fall back to English.
         Missing *English* is not, because nothing is below it.
         """
-        self.write('{"schema":4,"base_currency":"INR","items":['
+        self.write('{"schema":5,"base_currency":"INR","items":['
                    '{"id":"soya_chunks","pricePer100g":10.0,'
                    '"names":{"en":"Fish Ball"},'
-                   '"tags":[],"class_name":"soya_chunks"}]}')
+                   '"tags":[],"class_name":"soya_chunks",'
+                   '"diet":"veg","kcalPer100g":76,'
+                   '"description":"A test item."}]}')
         cat = Catalogue.load(self.path)
         self.assertEqual(cat.item("soya_chunks").display_name("zh"),
                          "Fish Ball")

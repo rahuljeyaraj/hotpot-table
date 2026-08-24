@@ -335,6 +335,18 @@ bool StateLink::parseState(const ofJson & j, State & out){
 			b.hl = bj.value("hl", "none");
 			b.stock = bj.value("stock", "ok");
 			b.resolved = bj.value("resolved", false);
+			// VISUAL_LAYER.md §8's info box. Absent on an older core, and
+			// absent has to stay absent rather than becoming a partly
+			// filled box: `drawInfoBox` treats an empty `diet` as "draw
+			// nothing at all", which is the doc's own idle state, so a
+			// core that has never heard of this field renders exactly the
+			// table it always did.
+			if(bj.contains("info") && bj["info"].is_object()){
+				const ofJson & ij = bj["info"];
+				b.diet = ij.value("diet", "");
+				b.kcal = ij.value("kcal", "");
+				b.desc = ij.value("desc", "");
+			}
 			// Four finite numbers or nothing. A partially-parsed rect is
 			// worse than none: it would move the light-pass cutout off
 			// the tray, which is a dark crescent on the food (I9).

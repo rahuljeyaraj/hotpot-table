@@ -323,6 +323,41 @@ class TestStateBroadcast(CoreCase):
         self.assertIn("amount", msg["total"])
         self.assertIn("text", msg["total"])
 
+    def test_every_resolved_bin_carries_the_info_box_payload(self):
+        """VISUAL_LAYER.md section 8's info box (build item 10), on the
+        wire. Sent on EVERY bin, not only the hovered one — which bin the
+        box is about is `hl`, already on this same message, and a separate
+        "active item info" field would be a second place for the same fact
+        to be computed from and to disagree with.
+        """
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            bins = msgs[0]["bins"]
+        for b in bins:
+            with self.subTest(bin=b["i"]):
+                self.assertIn("info", b)
+                if not b["resolved"]:
+                    continue
+                self.assertIn(b["info"]["diet"], coremain.pricing.VALID_DIETS)
+                # Resolved on this side of the wire, unit and all — I2:
+                # oF prints the string and appends nothing.
+                self.assertIn("kcal", b["info"]["kcal"])
+                self.assertTrue(b["info"]["desc"].strip())
+
+    def test_an_unresolved_bin_says_nothing_about_what_is_in_it(self):
+        # Doc section 8: "Idle: invisible. No fill, no border. Not an empty
+        # bordered box." oF keys that off an empty `diet`, so an
+        # unresolved bin has to send blanks, never a placeholder.
+        with self.core.state_lock:
+            self.core.binmap.set_bin(4, item_id=None, conf=0.0, source="unset")
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 2)
+        with lock:
+            b = msgs[-1]["bins"][4]
+        self.assertFalse(b["resolved"])
+        self.assertEqual(b["info"], {"diet": "", "kcal": "", "desc": ""})
+
     def test_bin_labels_never_fall_back_to_the_hidden_id(self):
         """The regression guard for the leak at core/main.py's `label =`.
 

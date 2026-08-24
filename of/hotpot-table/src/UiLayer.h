@@ -181,6 +181,13 @@ private:
 	// drawWidget like any other, so the rect a hand is hit-tested against
 	// is the same rect it sees. See drawCart's own closing comment.
 	void drawCart(const StateLink::State & state) const;
+	// VISUAL_LAYER.md §8, build item 10: the info box above the cart —
+	// veg/non-veg, kcal and one short description for the ACTIVE bin
+	// (`hl == "hover"`), faded in and out. Draws nothing at all when idle
+	// (not an empty bordered box), and cannot move the cart: the band it
+	// sits in is reserved by kCartTopPx' own arithmetic whether anything
+	// is active or not.
+	void drawInfoBox(const StateLink::State & state) const;
 	// The lowest px the cart's own ink reaches. Exists so setup()'s
 	// cross-file check against core/hover.py's button band measures the
 	// same number drawCart lays out from, rather than a second estimate.
@@ -234,7 +241,13 @@ private:
 	// VISUAL_LAYER.md §3: "Cart row — filled name" / "— filled g + cost,"
 	// both 26px, one face — only the ink colour differs between the two
 	// (drawCart sets it per column), so one font object serves both.
-	ofTrueTypeFont _cartRowFont;    // 26px bold, cart row name + detail
+	ofTrueTypeFont _cartRowFont;    // 22px bold, cart row name + detail
+	// VISUAL_LAYER.md §3's "Info box text", 24px. Its own font object
+	// rather than sharing the cart row's, because the two are different
+	// sizes in the doc's own palette and the cart's has already been
+	// resized once (26 → 22) for a reason that has nothing to do with
+	// this box.
+	ofTrueTypeFont _infoFont;       // 24px, info box
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
 
@@ -268,4 +281,19 @@ private:
 	// does not need one, since nothing about pricing or the FSM depends
 	// on which row a bin's numbers happen to sit in.
 	std::array<int, 8> _cartSlotBin{{-1, -1, -1, -1, -1, -1, -1, -1}};
+
+	// VISUAL_LAYER.md §8, build item 10. `_infoBin` is the bin the box is
+	// currently ABOUT — set when a bin becomes active and deliberately
+	// LEFT SET when it stops being, so the box has something to draw
+	// while it fades out. Clearing it on deactivation would blank the
+	// text a frame before the box itself finished going, which reads as
+	// the box breaking rather than as it closing.
+	//
+	// 250ms: slower than the 150ms a fact-tracking spring uses
+	// (BinTween::picked — those track a number that should feel
+	// instant), faster than the halo/fire cross-dissolve's 350ms.
+	// Unmeasured, tunable once seen projected, same as every other new
+	// timing constant in this file.
+	int _infoBin = -1;
+	Spring _infoFade{0.25f};
 };
