@@ -457,7 +457,8 @@
     font-variant-numeric: tabular-nums;
   }
   .ei-progress.hide { display: none; }
-  #eiUnlinked.hide, #eiLinked.hide, #eiTotpRow.hide { display: none; }
+  #eiUnlinked.hide, #eiLinked.hide, #eiTotpRow.hide,
+  #eiNewFields.hide, #eiExistingFields.hide { display: none; }
 
   /* --- projector grid card (M4n): select-a-line, nudge with arrow keys,
      no camera and no typing ------------------------------------------- */
@@ -852,16 +853,36 @@
           <p>Link a Studio project once, then push the captured images to it
              and, once you have trained there, fetch the built model back.</p>
           <div id="eiUnlinked">
+            <!-- "Create new" always makes a brand new, empty Studio
+                 project (Edge Impulse has no create-if-missing endpoint)
+                 -- the wrong choice whenever a project like
+                 hotpot-ingredients (id 1087506) already exists and is
+                 trained, which is exactly what creating one here instead
+                 of adopting it did on 2026-08-24 (core/main.py's
+                 `_handle_ei_link` docstring). "Use existing" is how to
+                 point back at a project that's already there. -->
             <div class="ei-row">
-              <input id="eiUser" type="text" placeholder="Edge Impulse email" autocomplete="username">
-              <input id="eiPass" type="password" placeholder="password" autocomplete="current-password">
+              <button id="eiModeNewBtn" type="button" class="setup-btn primary">Create new project</button>
+              <button id="eiModeExistingBtn" type="button" class="setup-btn">Use existing project</button>
             </div>
-            <!-- Hidden until a link attempt actually comes back asking for
-                 one (applyEiLinkResult's totp_required branch) — most
-                 accounts have no 2FA at all, and a field nobody needs
-                 reads as a required step nobody can explain. -->
-            <div class="ei-row hide" id="eiTotpRow">
-              <input id="eiTotp" type="text" placeholder="Two-factor code">
+            <div id="eiNewFields">
+              <div class="ei-row">
+                <input id="eiUser" type="text" placeholder="Edge Impulse email" autocomplete="username">
+                <input id="eiPass" type="password" placeholder="password" autocomplete="current-password">
+              </div>
+              <!-- Hidden until a link attempt actually comes back asking
+                   for one (applyEiLinkResult's totp_required branch) —
+                   most accounts have no 2FA at all, and a field nobody
+                   needs reads as a required step nobody can explain. -->
+              <div class="ei-row hide" id="eiTotpRow">
+                <input id="eiTotp" type="text" placeholder="Two-factor code">
+              </div>
+            </div>
+            <div id="eiExistingFields" class="hide">
+              <div class="ei-row">
+                <input id="eiProjectId" type="text" inputmode="numeric" placeholder="Project ID (Studio → Dashboard)">
+                <input id="eiApiKey" type="password" autocomplete="off" placeholder="API key (Studio → Dashboard → Keys)">
+              </div>
             </div>
             <div class="ei-row">
               <button id="eiLinkBtn" class="setup-btn primary">Link Edge Impulse</button>
@@ -3386,10 +3407,16 @@
 
   var eiUnlinked = document.getElementById("eiUnlinked");
   var eiLinked = document.getElementById("eiLinked");
+  var eiModeNewBtn = document.getElementById("eiModeNewBtn");
+  var eiModeExistingBtn = document.getElementById("eiModeExistingBtn");
+  var eiNewFields = document.getElementById("eiNewFields");
+  var eiExistingFields = document.getElementById("eiExistingFields");
   var eiUser = document.getElementById("eiUser");
   var eiPass = document.getElementById("eiPass");
   var eiTotpRow = document.getElementById("eiTotpRow");
   var eiTotp = document.getElementById("eiTotp");
+  var eiProjectId = document.getElementById("eiProjectId");
+  var eiApiKey = document.getElementById("eiApiKey");
   var eiLinkBtn = document.getElementById("eiLinkBtn");
   var eiUploadBtn = document.getElementById("eiUploadBtn");
   var eiDownloadBtn = document.getElementById("eiDownloadBtn");
@@ -3401,6 +3428,8 @@
 
   function applyEiGating() {
     eiLinkBtn.disabled = eiBusy;
+    eiModeNewBtn.disabled = eiBusy;
+    eiModeExistingBtn.disabled = eiBusy;
     eiUploadBtn.disabled = eiBusy;
     eiDownloadBtn.disabled = eiBusy;
     eiUnlinkBtn.disabled = eiBusy;
@@ -3420,17 +3449,44 @@
     applyEiGating();
   }
 
+  // "new" (login + create_project -- always makes a brand new, empty
+  // Studio project) or "existing" (paste an already-existing project's
+  // id + API key -- core/main.py's `_link_existing`). Added 2026-08-24
+  // after "new" was the only option and duplicated an already-trained
+  // project (see core/main.py's `_handle_ei_link` docstring).
+  var eiLinkMode = "new";
+
+  function setEiLinkMode(mode) {
+    eiLinkMode = mode;
+    eiModeNewBtn.classList.toggle("primary", mode === "new");
+    eiModeExistingBtn.classList.toggle("primary", mode === "existing");
+    eiNewFields.classList.toggle("hide", mode !== "new");
+    eiExistingFields.classList.toggle("hide", mode !== "existing");
+  }
+  eiModeNewBtn.addEventListener("click", function () { setEiLinkMode("new"); });
+  eiModeExistingBtn.addEventListener("click", function () { setEiLinkMode("existing"); });
+
   eiLinkBtn.addEventListener("click", function () {
     if (eiLinkBtn.disabled) return;
-    if (!eiUser.value || !eiPass.value) {
-      setStatus(eiStatus, "Enter your Edge Impulse email and password first.", "bad");
-      return;
+    var msg;
+    if (eiLinkMode === "existing") {
+      if (!eiProjectId.value || !eiApiKey.value) {
+        setStatus(eiStatus, "Enter the project ID and its API key first.", "bad");
+        return;
+      }
+      msg = { t: "ei_link", project_id: eiProjectId.value, api_key: eiApiKey.value };
+    } else {
+      if (!eiUser.value || !eiPass.value) {
+        setStatus(eiStatus, "Enter your Edge Impulse email and password first.", "bad");
+        return;
+      }
+      msg = { t: "ei_link", username: eiUser.value, password: eiPass.value,
+              totp: eiTotp.value || undefined };
     }
     eiBusy = true;
     applyEiGating();
     setStatus(eiStatus, "Linking…", "busy");
-    sendSetup({ t: "ei_link", username: eiUser.value, password: eiPass.value,
-               totp: eiTotp.value || undefined });
+    sendSetup(msg);
   });
 
   eiUploadBtn.addEventListener("click", function () {
@@ -3466,9 +3522,15 @@
     applyEiGating();
     setStatus(eiStatus, msg.message, msg.ok ? "good" : "bad");
     if (msg.ok) {
-      eiPass.value = "";   // never held onto once the link exists
+      // Nothing typed into either mode's fields is held onto once the
+      // link exists -- the password/API key already made their one trip
+      // to core (ei_client.py's/ei_store.py's own "never stored beyond
+      // that one call" rule) and have no reason to still be in the DOM.
+      eiPass.value = "";
       eiTotp.value = "";
       eiTotpRow.classList.add("hide");
+      eiApiKey.value = "";
+      eiProjectId.value = "";
       applyEiStatus({ linked: true, project_id: msg.project_id,
                       project_name: msg.project_name, active: null });
     } else if (msg.totp_required) {

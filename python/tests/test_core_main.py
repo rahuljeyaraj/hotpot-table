@@ -2280,6 +2280,7 @@ class FakeEiClient:
     def __init__(self):
         self.login_calls = []
         self.create_project_calls = []
+        self.get_project_calls = []
         self.upload_calls = []
         self.build_calls = []
         self.wait_calls = []
@@ -2289,6 +2290,8 @@ class FakeEiClient:
         self.login_error = None
         self.create_project_result = (1087506, "ei_xyz")
         self.create_project_error = None
+        self.get_project_result = {"id": 1087506, "name": "hotpot-ingredients"}
+        self.get_project_error = None
         self.upload_progress_ticks = []
         self.upload_result = {"uploaded": {"mushroom": 2}, "failures": []}
         self.upload_error = None
@@ -2309,6 +2312,12 @@ class FakeEiClient:
         if self.create_project_error:
             raise self.create_project_error
         return self.create_project_result
+
+    def get_project(self, api_key, project_id):
+        self.get_project_calls.append((api_key, project_id))
+        if self.get_project_error:
+            raise self.get_project_error
+        return self.get_project_result
 
     def upload_captures(self, api_key, captures_dir, on_progress=None):
         self.upload_calls.append((api_key, captures_dir))
@@ -2423,6 +2432,60 @@ class TestEdgeImpulseTab(CoreCase):
         self.assertFalse(reply["ok"])
         self.assertIn("quota exceeded", reply["message"])
         self.assertIsNone(ei_store.load_project(self.ei_project_path))
+
+    def test_link_existing_adopts_a_project_by_id_and_key(self):
+        # Added 2026-08-24 after `_link_new` (login+create_project) made
+        # a brand new, empty "hotpot-ingredients" project instead of
+        # adopting the already-trained one -- Edge Impulse has no
+        # create-if-missing endpoint, so pasting an existing project's id
+        # + API key is the only way to point back at it.
+        self.fake_ei.get_project_result = {"id": 1087506, "name": "hotpot-ingredients"}
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "project_id": "1087506",
+                                  "api_key": "ei_real_key"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertEqual(reply["project_id"], 1087506)
+        self.assertEqual(reply["project_name"], "hotpot-ingredients")
+        self.assertEqual(self.fake_ei.get_project_calls, [("ei_real_key", 1087506)])
+        # Never went anywhere near login()/create_project() -- there is
+        # nothing to log in for, and nothing new should be created.
+        self.assertEqual(self.fake_ei.login_calls, [])
+        self.assertEqual(self.fake_ei.create_project_calls, [])
+        saved = ei_store.load_project(self.ei_project_path)
+        self.assertEqual(saved["project_id"], 1087506)
+        self.assertEqual(saved["api_key"], "ei_real_key")
+        self.assertEqual(saved["project_name"], "hotpot-ingredients")
+
+    def test_link_existing_rejects_a_non_numeric_project_id(self):
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "project_id": "not-a-number",
+                                  "api_key": "ei_real_key"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(self.fake_ei.get_project_calls, [])
+
+    def test_link_existing_surfaces_a_key_project_id_mismatch(self):
+        self.fake_ei.get_project_error = ei_client.EIClientError(
+            "insufficient permissions to project 1087506")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "project_id": "1087506",
+                                  "api_key": "wrong_key"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("insufficient permissions", reply["message"])
+        self.assertIsNone(ei_store.load_project(self.ei_project_path))
+
+    def test_link_existing_falls_back_to_a_placeholder_name(self):
+        # get_project()'s response might not carry a "name" -- still
+        # usable rather than a broken link.
+        self.fake_ei.get_project_result = {"id": 1087506}
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "project_id": "1087506",
+                                  "api_key": "ei_real_key"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertEqual(reply["project_name"], "project-1087506")
 
     def test_upload_without_a_link_is_refused(self):
         self._ei_status()

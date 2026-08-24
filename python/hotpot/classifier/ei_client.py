@@ -219,6 +219,29 @@ def create_project(jwt_token: str, project_name: str,
     return resp["id"], resp["apiKey"]
 
 
+def get_project(api_key: str, project_id: int) -> dict:
+    """Fetches an existing project's own record by (project_id, api_key) --
+    `GET /api/{projectId}`, EI's documented "get project info" endpoint,
+    the pair also doubles as validating the api_key against that exact
+    project before anything is saved locally (a copy-pasted key for the
+    WRONG project id fails here with EI's own error message, rather than
+    getting silently linked and only failing later on the first Upload).
+
+    Used by core/main.py's `_handle_ei_link` "link to an EXISTING
+    project" path (pasting a project id + API key straight from Studio's
+    Dashboard -> Keys, as an alternative to login()+create_project()'s
+    "always creates a brand new project" behaviour) -- the whole reason
+    this exists: create_project() has no way to *adopt* an
+    already-trained project like `hotpot-ingredients` (id 1087506), only
+    to make a new, empty one that happens to share its name.
+
+    Returns the `project` sub-object (id, name, and other metadata EI
+    includes) -- not the raw response, since every other function in this
+    module already unwraps to the fields callers actually want."""
+    resp = _request("GET", f"{STUDIO_BASE}/api/{project_id}", {"x-api-key": api_key})
+    return resp.get("project", resp)
+
+
 # ---------------------------------------------------------------------------
 # Upload -- push datasets/captures/<label>/*.jpg via the ingestion API
 # ---------------------------------------------------------------------------

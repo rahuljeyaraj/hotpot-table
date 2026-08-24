@@ -129,6 +129,24 @@ class TestCreateProject(EiClientTestCase):
         self.assertEqual(self.fake.calls[0].headers.get("X-jwt-token"), "jwt-abc")
 
 
+class TestGetProject(EiClientTestCase):
+
+    def test_returns_the_project_sub_object(self):
+        self.fake.add(200, {"success": True,
+                            "project": {"id": 1087506, "name": "hotpot-ingredients"}})
+        project = ei_client.get_project("ei_key", 1087506)
+        self.assertEqual(project, {"id": 1087506, "name": "hotpot-ingredients"})
+        req = self.fake.calls[0]
+        self.assertTrue(req.full_url.endswith("/api/1087506"))
+        self.assertEqual(req.headers.get("X-api-key"), "ei_key")
+
+    def test_a_key_project_id_mismatch_raises_eiclienterror(self):
+        self.fake.add(403, {"success": False,
+                            "error": "insufficient permissions to project 1087506"})
+        with self.assertRaises(ei_client.EIClientError):
+            ei_client.get_project("wrong_key", 1087506)
+
+
 class TestUploadSamples(EiClientTestCase):
 
     def test_empty_samples_is_a_no_op_no_network_call(self):

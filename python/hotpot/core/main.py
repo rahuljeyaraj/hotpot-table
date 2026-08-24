@@ -1908,17 +1908,28 @@ class Core:
         }
 
     def _handle_ei_link(self, msg: Dict[str, Any]) -> None:
-        """Doc section 19.2's project link, done once per fresh clone (or
-        once ever, since the real `hotpot-ingredients` project already
-        exists — see `_handle_ei_link`'s reply message for how to adopt an
-        existing project instead of creating a new one).
+        """Doc section 19.2's project link, done once per fresh clone --
+        two ways in, both ending at the same ei_store.save_project() call:
 
-        Idempotent: an already-linked project is a no-op reporting the
-        existing link, same contract the ported-from project's
-        `EIController.link()` gives per device_type — here there is only
-        ever the one project. The username/password/TOTP the tablet sends
-        are used for exactly this one login() call and never stored — see
-        `ei_client.py`'s and `ei_store.py`'s module docstrings.
+        - `username`/`password`(/`totp`): login() then create_project(),
+          which always makes a brand NEW, empty Studio project (see
+          `_link_new`'s own docstring for why that's the wrong choice if
+          `hotpot-ingredients`, id 1087506, already exists and is
+          trained).
+        - `project_id`/`api_key`: adopts an EXISTING project by pasting
+          its own API key straight from Studio's Dashboard -> Keys —
+          `_link_existing` below, added 2026-08-24 after `_link_new`
+          created a second, empty "hotpot-ingredients" project (id
+          1095239) alongside the real one the first time this ran, since
+          nothing before this let a caller say "no, THAT one" instead.
+
+        Idempotent either way: an already-linked project is a no-op
+        reporting the existing link, same contract the ported-from
+        project's `EIController.link()` gives per device_type — here
+        there is only ever the one project. Whatever the tablet sent
+        (password, or API key) is used for exactly this one call and
+        never stored — see `ei_client.py`'s and `ei_store.py`'s module
+        docstrings.
         """
         existing = ei_store.load_project(self._ei_project_path)
         if existing is not None:
@@ -1933,6 +1944,23 @@ class Core:
                 "t": "ei_link_result", "ok": False,
                 "message": f"a {self._ei_active!r} job is already running"})
             return
+
+        if msg.get("project_id") and msg.get("api_key"):
+            self._link_existing(msg)
+        else:
+            self._link_new(msg)
+
+    def _link_new(self, msg: Dict[str, Any]) -> None:
+        """login() + create_project() -- ALWAYS makes a brand new, empty
+        Studio project (EI's API has no "create if missing, else adopt"
+        endpoint), which is the right call exactly once: the very first
+        time this app is ever linked to Edge Impulse at all, before any
+        project named `EI_PROJECT_NAME` exists yet. Any other time (e.g.
+        `hotpot-ingredients` id 1087506 already exists and is trained),
+        `_link_existing` is what a caller wants instead — see
+        `_handle_ei_link`'s own docstring for how that project came to
+        exist as a second, empty duplicate the first time this ran.
+        """
         username = msg.get("username")
         password = msg.get("password")
         if not username or not password:
@@ -1957,15 +1985,11 @@ class Core:
             self.web.broadcast({"t": "ei_link_result", "ok": False,
                                 "message": str(e)})
             return
-        except Exception:      # noqa: BLE001 - never leave the tablet stuck
-            # web/server.py's own outer catch-all would swallow anything
-            # not caught here and log it, but with NO reply ever sent to
-            # the tablet -- the button stays disabled and the status stays
-            # "Linking..." forever, indistinguishable from a real hang.
-            # Every _handle_ei_* method needs its own catch-all for
-            # exactly that reason (classifier/main.py's `_run` worker loop
-            # already makes this same call for the same reason).
-            _log.exception("core: ei_link raised")
+        except Exception:      # noqa: BLE001 - see the module-level note
+                                # in _handle_ei_link's docstring block for
+                                # why every _handle_ei_*/_link_* method
+                                # needs its own catch-all.
+            _log.exception("core: ei_link (new) raised")
             self.web.broadcast({
                 "t": "ei_link_result", "ok": False,
                 "message": "linking to Edge Impulse hit an internal error — see the log"})
@@ -1983,6 +2007,51 @@ class Core:
                         "(image input, image DSP block, MobileNetV2 "
                         "transfer learning — doc §19.2) before the first "
                         "upload.")})
+
+    def _link_existing(self, msg: Dict[str, Any]) -> None:
+        """Adopts an already-existing Studio project by its own
+        project_id + api_key (Studio's Dashboard -> Keys page), rather
+        than creating a new one -- the only way to point this app at
+        `hotpot-ingredients` (id 1087506) instead of at a fresh empty
+        project sharing its name. ei_client.get_project() both fetches
+        the project's real name (for the "Linked to <name>" link) and
+        validates the key actually belongs to that project id before
+        anything is saved locally — a copy-paste mismatch fails loudly
+        here instead of silently linking and only breaking on the first
+        Upload.
+        """
+        api_key = msg.get("api_key")
+        try:
+            project_id = int(msg.get("project_id"))
+        except (TypeError, ValueError):
+            self.web.broadcast({
+                "t": "ei_link_result", "ok": False,
+                "message": "That project ID isn't a number."})
+            return
+
+        self._ei_active = "link"
+        try:
+            project = self._ei_client.get_project(api_key, project_id)
+        except ei_client.EIClientError as e:
+            self.web.broadcast({"t": "ei_link_result", "ok": False,
+                                "message": str(e)})
+            return
+        except Exception:      # noqa: BLE001 - see _link_new's own note
+            _log.exception("core: ei_link (existing) raised")
+            self.web.broadcast({
+                "t": "ei_link_result", "ok": False,
+                "message": "linking to Edge Impulse hit an internal error — see the log"})
+            return
+        finally:
+            self._ei_active = None
+
+        project_name = project.get("name") or f"project-{project_id}"
+        ei_store.save_project(self._ei_project_path, project_id, api_key,
+                              project_name)
+        self.web.broadcast({
+            "t": "ei_link_result", "ok": True, "linked": True,
+            "project_id": project_id, "project_name": project_name,
+            "message": f"Linked to the existing project {project_name!r}."})
 
     def _handle_ei_upload(self, msg: Dict[str, Any]) -> None:
         """Doc section 19.2's dataset push -- every image under
