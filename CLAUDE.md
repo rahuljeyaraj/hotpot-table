@@ -4746,3 +4746,116 @@ Firmware: PlatformIO, firmware/loadcells/. Do not touch.
 Python deps: pip install -r python/requirements.txt (once per machine).
 Python tests: python -m unittest discover -s python/tests
 Run them before every commit that touches python/.
+
+## M6 — CHECKOUT, ORDERS, THE CLOSED LOOP (2026-08-25)
+Doc section 18.1's chain, built in one pass because the developer asked
+for the whole workflow before any of the cosmetic fixes in the same
+report: SELECTING -> BROTH -> SPICE -> RECAP -> CHECKOUT -> IDLE.
+
+New files: `core/menu.py` + `data/menu.json` (the four broths from
+bigwayhotpot.com/menu, developer-supplied; spice 0-3 with a genuine
+level 0 per doc section 17), `core/orders.py` (doc section 9.7's SQLite
+store). New wire: `state.phase`, per-widget `info`/`hover`/`swatch`,
+`overlay.kind == "qr"` carrying the code, the URL and the QR matrix.
+
+**`fsm.serving` split into `serving` and `weighing`, and that is the
+one thing to read before touching any of this.** They had the same
+answer while IDLE and SELECTING were the only serving states. They stop
+having it the moment a diner can be mid-checkout: a table in RECAP is
+serving and must NOT be weighing, or the total moves while somebody
+reads the recap they are approving, and 90s of load-cell drift under
+the QR changes an order already written. `_apply_scale_to_cart` gates
+on `weighing`. Its test boobytraps `scale.read` so what is pinned is
+the early return itself — a first version used `cart.mock_pick`, which
+writes to the cart directly and never touches the gate at all, and
+proved nothing. Reverting to `serving` turns four subtests red;
+checked.
+
+Five more decisions worth not re-deriving:
+- **Confirm in SELECTING is the "done" edge now**, so it finalises the
+  cart and starts the checkout rather than ending the session. The test
+  that asserted the old behaviour is REVERSED, not deleted — ending the
+  session there would empty the cart the diner is about to be shown and
+  asked to pay for. Doc section 9.1 lists checkout COMPLETION as the
+  `reset_session()` caller, never checkout entry.
+- **`cart.finalize()` runs at BROTH entry, not at RECAP**, so the grams
+  on the recap card are the grams the order is written from. Later
+  would mean the recap showed deadbanded grams and the receipt showed
+  different ones.
+- **Order lines denormalise the DISPLAY name at write time.** The
+  catalogue is live data a staff member re-points from the Bins tab;
+  reading an old order back through today's catalogue would silently
+  relabel last week's receipts.
+- **Cancel is reachable from every checkout screen.** Doc section 9.1's
+  diagram draws no edge out of BROTH/SPICE/RECAP but the next one,
+  which cannot be right in a restaurant — a diner three screens into a
+  checkout they did not mean to start would have no way back but the
+  90s timeout.
+- **Paying only ends the session when it is the order currently on the
+  table**, so a judge scanning a ten-minute-old receipt cannot reset a
+  table somebody else is using.
+
+**Trap, found by the tests: `with sqlite3.connect(...)` COMMITS but does
+not CLOSE.** It leaked a handle per call — invisible in normal use, and
+visible as a test run that could not delete its own temp directory. All
+13 errors in the first run were that one line.
+
+**Payment mock is doc section 18.2 and nothing more.** The QR encodes
+this core's own `/r/<code>` (built from `camera.host_for_browser`, the
+one hostname already known to be reachable from a phone). The page is
+self-contained — a phone on a contest floor may have no route off this
+network. Pay is a GET, deliberately: `websockets`' `process_request`
+hook has no body to read, and the operation is idempotent. **No UPI
+deep link** — doc section 18.2's own rule.
+**Verified against the RUNNING stack, not only in tests:** order
+written, receipt itemised with broth and spice, Pay marked it, receipt
+then showed Paid. 20 new tests in `TestCheckoutFlow`, 1070/1071 total
+(the one failure is `test_calibrator`'s documented stale-link flake).
+
+### Same session — the cosmetic report, each fixed from evidence
+- **The cart truncated because oF measures ~33% WIDER than PIL.** Both
+  previous truncation fixes sized the columns from a PIL measurement of
+  the real .ttf. `UiLayer::setup()` now LOGS what oF actually reserves,
+  and it said 192px where PIL predicted 144. Columns sized from oF's own
+  numbers, a startup warning when the name column drops under what the
+  longest catalogue name needs (it caught a 4px shortfall on the way
+  here), cart widened 500 -> 520 (mirrored in `hover.py`). 296px for
+  names, confirmed from the app's own boot log. **Next truncation report
+  is a grep, not a rebuild.**
+- **Gold is abandoned on this rig.** Three attempts — #B8781A (hue 35,
+  read red), the halo's own #FFEB00 (luminance 0.808 vs the field's
+  0.792, contrast 1.02, invisible as a glyph), and a dark ink of that
+  hue (developer: "dont go with gold"). `kAccentInk` is a deep teal:
+  far from the projector's warm shift so it cannot slide toward red,
+  clear of Confirm's green and Cancel's red, ~6:1 contrast where the
+  best gold managed 3.3.
+- The rectangle around the total was `drawGlow`, which emits nested
+  ROUNDED-RECT bands — right around a bin, nonsense around a numeral.
+- The separator's "broken lines" were its HEIGHT taper clamped to a 1px
+  floor: the ends became stubs whose alpha had already rounded to zero.
+  `drawFadedRule` fades alpha and holds height.
+- The button glow was present and invisible: 24px over 9 bands at peak
+  60 puts the outer bands in the low single digits on #E8E6E1. Now
+  matches the bin halo's own shape (40px/20 bands/130), which reads.
+- **A regular weight exists for the first time** (`DejaVuSans.ttf`,
+  vendored). Everything was bold because the repo had ONE proportional
+  face, so nothing could be subordinate to anything. Rule now: bold for
+  what is read first or at distance, regular for prose, mono for
+  numbers that must not jitter.
+- **Bin-label persistence was working; yesterday's fix was the bug.**
+  2026-08-24 dropped classifier-sourced bins back to the seed to answer
+  "the food label all were wrong". With `classifier.enabled` false
+  nothing could re-answer them, so they sat on a seed value nobody chose
+  forever — two bins reading "Wheat Noodles" in one photo was a real
+  manual override beside the seed's own first item showing through.
+  Every saved bin is restored now; the manual override is the cure for a
+  bad guess. That test is reversed too, with both reports in its
+  docstring.
+
+**Not seen on the projected surface — the whole of it.** The broth and
+spice screens, the recap, the QR, the teal, the new weights, the
+widened cart. `data/menu.json`'s broth `diet` flags are INFERRED FROM
+THE NAMES (mala is traditionally beef tallow, bone broth is bone) and
+are flagged in the file itself — confirm with the restaurant before a
+real diner reads them. Doc sections 4.3/9.1/18 are not updated to match
+the `phase` field or the Cancel edges — flagged, not done.
