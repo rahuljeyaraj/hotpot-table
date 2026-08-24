@@ -308,6 +308,18 @@
   .bins-toolbar .bin-btn { flex: none; padding: 0 18px; }
   .bins-toolbar-hint { font-size: 13px; color: var(--amber); }
   .bin-hint { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
+  /* The classifier's auto-detect fallback: an operator override for
+     whichever bin the model guessed wrong. Same select styling as the
+     Capture tab's own label picker (.crop-card select) — one look for
+     "pick this bin's item" across both tabs. Gated the same as
+     Tare/Calibrate: setting mode only, disabled/greyed otherwise. */
+  .bin-override {
+    width: 100%; min-height: 44px; margin-top: 10px;
+    border: 1px solid #3a3d47; border-radius: 6px;
+    background: #22252b; color: var(--text); font-size: 14px;
+  }
+  .bin-override:disabled { opacity: 0.4; cursor: not-allowed; }
+  .bin-override-label { font-size: 11px; color: var(--muted); margin-top: 10px; }
 
   /* --- Setup tab (doc section 12.6, M4 build item 4) --------------------
      Three things in one column, in the order an operator does them:
@@ -1808,6 +1820,26 @@
       priceEl.className = "bin-price";
       card.appendChild(priceEl);
 
+      // The manual fallback: auto-detect isn't reliable enough yet, so
+      // an operator can pick the item directly. `applyBins()` guards
+      // this against the 10Hz `bins` broadcast while the select is open
+      // (`document.activeElement === select`) the same way the Capture
+      // tab's own label select is guarded against a mid-edit reset —
+      // that one rebuilds only when the option list changes, this one
+      // has no such natural "changed" signal since the list is the
+      // catalogue and rarely moves, so focus is the guard instead.
+      var overrideLabel = document.createElement("div");
+      overrideLabel.className = "bin-override-label";
+      overrideLabel.textContent = "Item (auto-detect fallback)";
+      card.appendChild(overrideLabel);
+      var overrideSel = document.createElement("select");
+      overrideSel.className = "bin-override";
+      card.appendChild(overrideSel);
+      overrideSel.addEventListener("change", function () {
+        sendCal({ t: "set_bin_override", bin: bin,
+                  item_id: overrideSel.value || null });
+      });
+
       var noiseRow = document.createElement("div");
       noiseRow.className = "noise-row";
       var dotsWrap = document.createElement("div");
@@ -1860,6 +1892,7 @@
         nameEl: nameEl, gramsEl: gramsEl, priceEl: priceEl,
         dotEls: dotEls, noiseRow: noiseRow, noiseLabel: noiseLabel,
         hintEl: hintEl, tareBtn: tareBtn, calBtn: calBtn,
+        overrideSel: overrideSel,
       };
     })(bi);
   }
@@ -1889,6 +1922,8 @@
       c.calBtn.disabled = !on;
       c.tareBtn.title = on ? "" : NEEDS_SETTING;
       c.calBtn.title = on ? "" : NEEDS_SETTING;
+      c.overrideSel.disabled = !on;
+      c.overrideSel.title = on ? "" : NEEDS_SETTING;
     });
   }
 
@@ -1906,10 +1941,46 @@
       serialStatusEl.textContent = "Load cells: no connection";
       serialStatusEl.classList.add("down");
     }
+    var choices = msg.choices || [];
+    var wantedChoices = choices.map(function (ch) { return ch.id; }).join(" ");
     (msg.bins || []).forEach(function (b) {
       var c = binCards[b.i];
       if (!c) return;
       c.nameEl.textContent = b.label || "(unresolved)";
+      // Rebuild the option list only when the catalogue itself changed
+      // (practically: once, on the first message) — same guard the
+      // Capture tab's own label select uses, for the same reason: a
+      // rebuild wipes and reopens the dropdown, which must not happen
+      // while an operator has it open.
+      if (c.overrideSel.dataset.choices !== wantedChoices) {
+        c.overrideSel.dataset.choices = wantedChoices;
+        c.overrideSel.innerHTML = "";
+        var autoOpt = document.createElement("option");
+        autoOpt.value = "";
+        autoOpt.textContent = "Auto (from classifier)";
+        c.overrideSel.appendChild(autoOpt);
+        choices.forEach(function (ch) {
+          var o = document.createElement("option");
+          o.value = ch.id;
+          o.textContent = ch.name;
+          c.overrideSel.appendChild(o);
+        });
+      }
+      // Only sync the selected item from the server while the operator
+      // isn't actively looking at the dropdown — a `<select>` stays the
+      // page's activeElement for as long as it's open, so this is the
+      // same "don't clobber a live edit" rule the Capture/Projector-grid
+      // tabs apply with their own guards, just keyed on focus instead of
+      // a dirty flag since a select has no in-progress typed state.
+      // Shows the bin's CURRENT item_id regardless of source — a
+      // classifier guess is shown selected too, so the dropdown reads as
+      // "what this bin is right now", not only "what a human chose".
+      // "Auto" means the bin has none (unresolved), and is also what an
+      // operator picks to hand a manually-overridden bin back to the
+      // classifier (`_handle_set_bin_override`'s `item_id: null` path).
+      if (document.activeElement !== c.overrideSel) {
+        c.overrideSel.value = b.item_id || "";
+      }
       if (b.grams === null || b.grams === undefined) {
         c.gramsEl.textContent = "—";
         c.gramsEl.classList.add("unmeasured");
@@ -1927,6 +1998,19 @@
       c.noiseLabel.textContent = !known ? "unmeasured" : (b.noisy ? "noisy" : "stable");
       c.hintEl.textContent = b.tared ? "" : "Tare first, then Calibrate";
     });
+  }
+
+  // A result for the override select. Success needs no feedback here —
+  // the dropdown already shows the new item once the next `bins`
+  // broadcast lands, same as Tare/Calibrate's own numbers reaching the
+  // card through that same broadcast rather than a forced extra one
+  // (`_handle_cal`'s own comment). A failure is the rare case (the
+  // select is disabled outside setting mode, so this is mostly a
+  // same-tick mode-flip race) and reuses the toolbar hint spot rather
+  // than adding a second status line just for it.
+  function applyBinOverrideResult(msg) {
+    if (msg.ok) return;
+    binsHint.textContent = msg.message;
   }
 
   // --- the Tare/Calibrate wizard: one screen at a time, no branching
@@ -3788,6 +3872,7 @@
       if (msg.t === "pips") applyPips(msg.pips);
       else if (msg.t === "bins") applyBins(msg);
       else if (msg.t === "cal_result") applyCalResult(msg);
+      else if (msg.t === "bin_override_result") applyBinOverrideResult(msg);
       else if (msg.t === "mode") applyMode(msg);
       else if (msg.t === "camera") applyCamera(msg);
       else if (msg.t === "geometry") applyGeometry(msg);

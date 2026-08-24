@@ -892,6 +892,9 @@ class Core:
         if t == "seed_grid_projector":
             self._handle_seed_grid_projector()
             return
+        if t == "set_bin_override":
+            self._handle_set_bin_override(msg)
+            return
         if t == "capture":
             self._handle_capture(msg)
             return
@@ -1133,6 +1136,59 @@ class Core:
             "noise_g": result.noise_g, "noisy": result.noisy,
         })
 
+    def _handle_set_bin_override(self, msg: Dict[str, Any]) -> None:
+        """Manual fallback for a bin's item, for when the classifier gets
+        it wrong. Doc section 9.3's `resolved()` only ever looks at
+        `item_id`/`conf` — it does not care how they got set — so a
+        human's answer bills exactly like a confident classifier pass
+        would, through the same `Bin.source` field `binmap.py`'s own
+        comment already reserved for it ("classifier" | "mock" |
+        "manual") but nothing before this handler ever wrote.
+
+        **Setting mode required**, same rule as tare/calibrate/set_grid
+        on this tab: this changes what a bin bills as, and that must not
+        happen under a live diner.
+
+        `item_id: null` clears the override back to `source: "unset"`
+        rather than guessing a replacement — the next classify pass
+        (which only runs in SETTING, `_classify_loop`'s own docstring)
+        is what re-resolves it, same as a bin nobody has ever touched.
+        """
+        i = msg.get("bin")
+        if not isinstance(i, int) or isinstance(i, bool) or not (0 <= i < binmap.NUM_BINS):
+            _log.warning("web: set_bin_override with bad bin %r — ignored", i)
+            return
+        if not self._in_setting():
+            self.web.broadcast({"t": "bin_override_result", "bin": i,
+                                "ok": False, "message": NOT_IN_SETTING_MSG})
+            return
+        item_id = msg.get("item_id") or None
+        item = self.catalogue.item(item_id)
+        if item_id is not None and item is None:
+            self.web.broadcast({
+                "t": "bin_override_result", "bin": i, "ok": False,
+                "message": f"{item_id!r} is not in the catalogue.",
+            })
+            return
+        with self.state_lock:
+            if item_id is None:
+                self.binmap.set_bin(i, item_id=None, conf=0.0, source="unset")
+            else:
+                self.binmap.set_bin(i, item_id=item_id, conf=1.0, source="manual")
+        name = item.display_name(self.locale) if item is not None else "Auto"
+        self.web.broadcast({"t": "bin_override_result", "bin": i, "ok": True,
+                            "message": f"Bin {i} set to {name}."})
+
+    # -- classifier: keep a manual override off the auto-detect path --------
+    #
+    # `_classify_pass` (below) skips any bin whose current `source` is
+    # "manual" rather than overwriting it every pass — otherwise a
+    # periodic re-scan (which runs throughout setting mode,
+    # `_classify_loop`'s own docstring) would stomp the human's answer
+    # back to whatever the model guessed on the very next tick, making
+    # this handler pointless the moment the accuracy problem it exists
+    # for actually occurs.
+
     # -- wiring the scale into Cart (doc section 21, M2 build item 5) -------
 
     def _apply_scale_to_cart(self) -> None:
@@ -1268,6 +1324,13 @@ class Core:
             for entry in bins:
                 i = entry.get("i")
                 if not isinstance(i, int) or not (0 <= i < binmap.NUM_BINS):
+                    continue
+                if self.binmap.bins[i].source == "manual":
+                    # A human already answered this bin through the Bins
+                    # tab's override control — see the comment above
+                    # `_handle_set_bin_override`. Skipped here, not there,
+                    # so the skip applies to every pass for as long as the
+                    # override stands, not just the one after it was set.
                     continue
                 self.binmap.set_bin(
                     i, item_id=entry.get("label"),
@@ -2383,6 +2446,13 @@ class Core:
                 "i": i,
                 "label": label,
                 "sub": sub,
+                # `item_id`/`source` are what the Bins tab's manual
+                # override select reads to preselect the current item and
+                # to know whether it is looking at a classifier guess or
+                # a standing human answer — added for the override
+                # control, doc section 9.3's fallback for a bad classify.
+                "item_id": b.item_id,
+                "source": b.source,
                 "grams": None if grams is None else round(grams),
                 "calibrated": cal_bin.calibrated,
                 "tared": cal_bin.tared,
@@ -2394,6 +2464,12 @@ class Core:
             "t": "bins",
             "serial": {"open": status["open"], "stale": status["stale"],
                       "hz": status["hz"]},
+            # Every catalogue item, for the override select — doc §8.1's
+            # SHOWN half (display_name), since this is a staff-facing
+            # surface, not the Capture tab's hidden class_name.
+            "choices": [{"id": iid, "name": self.catalogue.item(iid).display_name(self.locale)}
+                       for iid in self.catalogue.ids()
+                       if self.catalogue.item(iid) is not None],
             "bins": bins,
         }
 

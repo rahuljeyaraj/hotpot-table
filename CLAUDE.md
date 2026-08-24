@@ -4104,6 +4104,65 @@ and verified against an independent Node reference, same as most Setup
 tab math in this file's earlier sessions, not yet watched live over the
 actual rig's real (non-synthetic) corner quad.
 
+## Manual bin-item override — the fallback for a bad classify (2026-08-24,
+## developer request, not a doc build item)
+Developer report: the classifier's accuracy isn't good enough yet, so
+staff need a way to override its guess by hand. Added to the **Bins
+tab** (not the Developer tab's read-only Classifier card, which is
+diagnostics only) — that is where an unresolved/wrong bin already shows
+up blank, and where Tare/Calibrate already live for the same
+setting-mode-gated workflow.
+
+- **`Bin.source`'s third value, `"manual"`, already reserved in
+  `binmap.py`'s own comment (`"classifier" | "mock" | "manual"`) since
+  M1, was never written anywhere until now.** New wire message,
+  `set_bin_override` (`{bin, item_id}`), handled by `_handle_set_bin_
+  override` (`core/main.py`) — setting-mode gated, same as every other
+  Bins-tab control, and validated against the real catalogue (an unknown
+  `item_id` is refused, not silently written). `item_id: null` clears the
+  bin back to `source: "unset"` rather than guessing a replacement — the
+  next classify pass (SETTING-only, `_classify_loop`'s own docstring)
+  re-resolves it, same as a bin nobody has ever touched. Answered by
+  broadcast, `bin_override_result`, same reasoning every other Bins-tab
+  handler already gives (`web/server.py`'s `on_message` hands the
+  callback no connection handle back).
+- **The one real design problem: a periodic classify pass would otherwise
+  overwrite a manual answer on the very next tick.** `_classify_loop`
+  re-scans every bin throughout setting mode — exactly when an operator
+  would use this control — so `_classify_pass` now skips any bin whose
+  current `source` is `"manual"`, per-bin, for as long as the override
+  stands. Without this the fallback would work for one broadcast and then
+  silently revert, which is worse than not having it: it would look fixed
+  and then un-fix itself with no signal.
+- `_bins_tab_msg` gained `item_id`/`source` per bin (what the override
+  select preselects) and a top-level `choices` list — **every** catalogue
+  item, not just the 8 seeded ones, since `pricing.Catalogue`'s own
+  docstring already says the catalogue is "every item that could ever be
+  in a bin," and this is the staff-facing surface so `choices` carries
+  `display_name()`, not the Capture tab's hidden `class_name` (doc §8.1's
+  split runs the other way on this tab than it does on Capture's).
+- Staff view: a `<select>` per bin card, same visual style as the Capture
+  tab's own label picker. Guarded against the Bins tab's 10Hz broadcast
+  clobbering an open dropdown the same way the Capture tab guards its
+  own select — but keyed on **focus** (`document.activeElement !==
+  select`) rather than an options-changed flag, since the catalogue
+  rarely changes and the Bins tab broadcasts continuously (Capture's
+  `capture_info` does not), so an options-changed guard alone would only
+  ever sync the value once.
+9 new Python tests in `test_core_main.py` (`TestBinsTab`: refused outside
+setting, a valid override, an unknown item refused, clearing an override,
+a bad bin index tolerated, the `bins` message's new `item_id`/`source`/
+`choices` fields; `TestClassifyLive`: a manual bin survives a classify
+pass while an untouched one still updates normally). 1031 tests pass,
+`python -m unittest discover -s python/tests`. `node --check` on the
+extracted `<script>` block: clean.
+**Not observed on the rig or in a real browser** — reasoned from the code
+and the test suite only, same honest gap most Bins/Capture-tab sessions
+in this file carry before a real look. `docs/HOTPOT_ARCHITECTURE_v3.md`
+§12.4 is not updated — flagged, not done, same "flag it, don't silently
+edit ahead of confirmation" precedent this file already uses for
+changes of this size.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to

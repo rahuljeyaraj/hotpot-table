@@ -831,6 +831,12 @@ class TestBinsTab(CoreCase):
                          and m.get("op") == op),
             timeout)
 
+    def override_result(self, w, bin_, timeout=DEADLINE):
+        return self.recv_until(
+            w, lambda m: (m.get("t") == "bin_override_result"
+                         and m.get("bin") == bin_),
+            timeout)
+
     def test_bins_message_has_eight_cards_all_uncalibrated_at_boot(self):
         w = self.ws()
         self.recv_json(w)   # the pips seed
@@ -1077,6 +1083,103 @@ class TestBinsTab(CoreCase):
             last = of_msgs[-1]
         self.assertEqual(last["bins"][6]["picked"], 0)
         self.assertEqual(last["total"]["amount"], 0.0)
+
+    # -- the manual fallback for a bad classifier guess (doc §9.3's
+    # `resolved()`, `binmap.py`'s own long-reserved "manual" source) ------
+
+    def test_override_is_refused_in_serving_mode(self):
+        """Same rule as Tare/Calibrate on this tab (M2.6 decision 4): this
+        changes what a bin bills as, so it must not happen under a live
+        diner.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        before = self.core.binmap.bins[0]
+        w.send(json.dumps({"t": "set_bin_override", "bin": 0,
+                           "item_id": "lotus_root_slices"}))
+        res = self.override_result(w, 0)
+        self.assertIsNotNone(res, "a refused override sent no bin_override_result at all")
+        self.assertFalse(res["ok"])
+        self.assertEqual(coremain.NOT_IN_SETTING_MSG, res["message"])
+        after = self.core.binmap.bins[0]
+        self.assertEqual((before.item_id, before.conf, before.source),
+                         (after.item_id, after.conf, after.source))
+
+    def test_a_valid_override_sets_the_bin_manual(self):
+        w = self.ws()
+        self.recv_json(w)
+        self.enter_setting(w)
+        w.send(json.dumps({"t": "set_bin_override", "bin": 0,
+                           "item_id": "lotus_root_slices"}))
+        res = self.override_result(w, 0)
+        self.assertTrue(res["ok"], res)
+        b = self.core.binmap.bins[0]
+        self.assertEqual(b.item_id, "lotus_root_slices")
+        self.assertEqual(b.conf, 1.0)
+        self.assertEqual(b.source, "manual")
+        self.assertTrue(self.core.binmap.resolved(0))
+
+    def test_an_unknown_item_id_is_refused(self):
+        w = self.ws()
+        self.recv_json(w)
+        self.enter_setting(w)
+        before = self.core.binmap.bins[2]
+        w.send(json.dumps({"t": "set_bin_override", "bin": 2,
+                           "item_id": "no_such_ingredient"}))
+        res = self.override_result(w, 2)
+        self.assertFalse(res["ok"])
+        after = self.core.binmap.bins[2]
+        self.assertEqual((before.item_id, before.conf, before.source),
+                         (after.item_id, after.conf, after.source))
+
+    def test_clearing_an_override_returns_it_to_unset(self):
+        """`item_id: null` hands the bin back to the classifier — the next
+        pass (SETTING-only, `_classify_loop`'s own docstring) is what
+        re-resolves it, same as a bin nobody has ever touched.
+        """
+        w = self.ws()
+        self.recv_json(w)
+        self.enter_setting(w)
+        w.send(json.dumps({"t": "set_bin_override", "bin": 0,
+                           "item_id": "lotus_root_slices"}))
+        self.assertTrue(self.override_result(w, 0)["ok"])
+
+        w.send(json.dumps({"t": "set_bin_override", "bin": 0, "item_id": None}))
+        res = self.override_result(w, 0)
+        self.assertTrue(res["ok"], res)
+        b = self.core.binmap.bins[0]
+        self.assertIsNone(b.item_id)
+        self.assertEqual(b.conf, 0.0)
+        self.assertEqual(b.source, "unset")
+
+    def test_bad_bin_index_is_ignored_not_a_crash(self):
+        w = self.ws()
+        self.recv_json(w)
+        self.enter_setting(w)
+        w.send(json.dumps({"t": "set_bin_override", "bin": 99,
+                           "item_id": "lotus_root_slices"}))
+        w.send(json.dumps({"t": "set_bin_override", "bin": 2,
+                           "item_id": "lotus_root_slices"}))
+        res = self.override_result(w, 2)
+        self.assertIsNotNone(res, "a valid override after a bad one never went through")
+        self.assertTrue(res["ok"])
+
+    def test_bins_message_carries_item_id_source_and_every_catalogue_choice(self):
+        """What the Bins tab's override select reads: each card's current
+        item/source to preselect the dropdown, and the full catalogue (not
+        just the 8 seeded items) as choices — any item could be manually
+        assigned to any bin (`pricing.Catalogue`'s own docstring: "every
+        item that could ever be in a bin").
+        """
+        w = self.ws()
+        self.recv_json(w)
+        msg = self.bins_msg(w)
+        self.assertIsNotNone(msg)
+        b0 = msg["bins"][0]
+        self.assertEqual(b0["item_id"], self.core.binmap.bins[0].item_id)
+        self.assertEqual(b0["source"], self.core.binmap.bins[0].source)
+        choice_ids = {c["id"] for c in msg["choices"]}
+        self.assertEqual(choice_ids, set(self.core.catalogue.ids()))
 
 
 class TestMode(ScaleRig, CoreCase):
@@ -2787,6 +2890,31 @@ class TestClassifyLive(CoreCase):
         after = self.core.binmap.bins[0]
         self.assertEqual((before.item_id, before.conf, before.source),
                          (after.item_id, after.conf, after.source))
+
+    def test_a_manual_override_survives_a_classify_pass(self):
+        """A human already answered this bin through the Bins tab's
+        override control (`_handle_set_bin_override`) — a later periodic
+        pass must not silently overwrite that answer with a fresh guess,
+        or the fallback would be pointless the moment a bad classify
+        actually happens.
+
+        MUTATION CHECKED: drop the `source == "manual"` skip from
+        `_classify_pass` and this goes red — the classifier's
+        "soya_chunks" answer would land in bin 0 instead.
+        """
+        self.core.binmap.set_bin(0, item_id="lotus_root_slices", conf=1.0,
+                                 source="manual")
+        self.fake_classifier(lambda rects: [
+            {"i": r[4], "label": "soya_chunks", "conf": 0.9} for r in rects])
+        self.core._classify_pass()
+        b = self.core.binmap.bins[0]
+        self.assertEqual(b.item_id, "lotus_root_slices")
+        self.assertEqual(b.conf, 1.0)
+        self.assertEqual(b.source, "manual")
+        # Untouched bins still update normally — the skip is per-bin, not
+        # a table-wide freeze the moment any one bin is manual.
+        self.assertEqual(self.core.binmap.bins[1].item_id, "soya_chunks")
+        self.assertEqual(self.core.binmap.bins[1].source, "classifier")
 
     def test_a_classifier_error_reply_is_tolerated(self):
         def on_message(msg):
