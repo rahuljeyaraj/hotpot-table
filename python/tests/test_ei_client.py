@@ -309,6 +309,32 @@ class TestBuildAndDownload(EiClientTestCase):
         self.assertIn("type=zip", req.full_url)
         self.assertIn(f"engine={ei_client.DEPLOY_ENGINE}", req.full_url)
 
+    def test_download_asks_for_the_same_triple_the_build_built(self):
+        """Regression, live-confirmed 2026-08-24 on project 1095598: EI
+        keys a stored deployment by (deploymentType, engine, modelType)
+        -- its own job metadata says so verbatim -- and download_model()
+        used to omit `modelType` from the query while build_model() put
+        `int8` in the body. The result reads as a build that never ran:
+        the job finishes SUCCESSFULLY, then the download 500s with EI's
+        "No deployment exists, did you build yet?", because it looked in
+        the default float32 slot. Nothing here covered the download URL
+        at all, which is how it shipped. Asserting the two agree, rather
+        than hardcoding the param list, is the point -- the failure was
+        the disagreement, not any one value."""
+        self.fake.add(200, {"success": True, "id": 7})
+        ei_client.build_model("ei_key", 1087506)
+        build = self.fake.calls[0]
+        built = json.loads(build.data.decode("utf-8"))
+
+        self.fake.add(200, b"PK")
+        ei_client.download_model("ei_key", 1087506)
+        got = self.fake.calls[1].full_url
+
+        self.assertIn(f"type={ei_client.DEPLOY_TYPE}", build.full_url)
+        self.assertIn(f"type={ei_client.DEPLOY_TYPE}", got)
+        self.assertIn(f"engine={built['engine']}", got)
+        self.assertIn(f"modelType={built['modelType']}", got)
+
     def test_download_model_raises_eiclienterror_on_http_failure(self):
         self.fake.add(404, b"not found")
         with self.assertRaises(ei_client.EIClientError):

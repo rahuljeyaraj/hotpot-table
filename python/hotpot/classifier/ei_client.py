@@ -28,12 +28,19 @@ already linked; wiring up the impulse blocks the first time is a one-off
 manual Studio step, same as it already was for the existing
 `hotpot-ingredients` project (id 1087506).
 
-Every job-endpoint body below (`build_model()`'s `engine`/`modelType`
-fields especially) is this module's best-effort reading of EI's public API
-docs, **not confirmed against a live account** — same caveat the sibling
-project's own Round B carries for its train/build endpoints. The first
-thing to check if a build job fails is whether EI's response disagrees
-with the field names assumed here.
+`build_model()`'s `engine`/`modelType` body fields were this module's
+best-effort reading of EI's public API docs and carried a "not confirmed
+against a live account" caveat here until **2026-08-24, when a live run
+against project 1095598 confirmed all three**: EI's own job-status
+metadata came back `{"deploymentType": "zip", "engine": "tflite-eon",
+"modelType": "int8", "impulseId": 1}`, i.e. it accepted and used exactly
+what was sent.
+
+What that same run also showed is that the triple is a *key*, not just a
+request: EI files the built deployment under (deploymentType, engine,
+modelType), and `download_model()` was fetching with only two thirds of
+it. See its docstring — the failure mode is worth knowing about, because
+it reads as "the build never ran" when the build in fact succeeded.
 """
 
 from __future__ import annotations
@@ -427,7 +434,8 @@ def wait_for_job(api_key: str, project_id: int, job_id: int,
 
 
 def download_model(api_key: str, project_id: int, *,
-                    engine: str = DEPLOY_ENGINE) -> bytes:
+                    engine: str = DEPLOY_ENGINE,
+                    model_type: str = DEPLOY_MODEL_TYPE) -> bytes:
     """Downloads the deployment ZIP built by build_model() (must already
     be finished -- wait_for_job() first). Returns the raw ZIP bytes,
     exactly the "Studio -> Deployment -> C++ library -> Download" file an
@@ -435,9 +443,37 @@ def download_model(api_key: str, project_id: int, *,
     "hotpot-ingredients" entry) -- unzip it over tools/eim_cpp/vendor/ and
     rebuild, same as that manual step; this module does not do either,
     since consuming the export is `tools/eim_cpp/`'s concern, not the
-    fetch's."""
+    fetch's.
+
+    `model_type` MUST match what build_model() built, and defaults to the
+    same DEPLOY_MODEL_TYPE for that reason: EI keys a stored deployment by
+    (type, engine, modelType), so asking for one triple and building
+    another finds nothing. This is not theory -- it is what the first live
+    run of this function did on 2026-08-24 against project 1095598, and
+    the failure is thoroughly misleading: the build job finishes
+    SUCCESSFULLY (39s), then the download 500s with EI's own
+    "No deployment exists, did you build yet?", which reads as "the build
+    never ran". It had. `modelType` was simply missing from this query,
+    so EI looked in the default (float32) slot while build_model() had
+    filled the int8 one. Probed live, same project, same finished build:
+
+        type=zip&engine=tflite-eon                  -> 500 no deployment
+        type=zip&engine=tflite-eon&modelType=int8   -> 200, 7372366 bytes
+        type=zip&modelType=int8                     -> 200, 7372366 bytes
+        type=zip                                    -> 500 no deployment
+
+    (`engine` turns out not to matter on THIS endpoint -- `modelType` is
+    what selects the slot -- but it is still sent, since matching every
+    param build_model() used is the rule that keeps the two in step, and
+    the sibling project's own download_model() sends it too.)
+
+    The sibling project never hit this: its build_model() posts
+    `{"engine": engine}` with no modelType at all, so both halves land on
+    EI's default and agree by accident. The int8 requirement is this
+    project's own (models/README.md's locked "quantized (int8)"), which is
+    what made the mismatch possible here and not there."""
     url = (f"{STUDIO_BASE}/api/{project_id}/deployment/download"
-           f"?type={DEPLOY_TYPE}&engine={engine}")
+           f"?type={DEPLOY_TYPE}&engine={engine}&modelType={model_type}")
 
     def do() -> Tuple[int, bytes]:
         req = urllib.request.Request(url, headers={"x-api-key": api_key}, method="GET")

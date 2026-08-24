@@ -147,7 +147,32 @@ loading a `.eim` at runtime.
 | Confusion matrix | (unrecorded) |
 | Dataset session ranges | One capture session, 2026-08-13 — see `tools/export_edgeimpulse.py`'s own dry-run output for exact per-class counts. **Well short of doc §19.2's ≥150 images/class across ≥4 sessions; treat this deploy as a toolchain check, not a trained model.** |
 | Downloaded | 2026-08-13, `models/hotpot-table-cpp-mcu-v2-impulse-#1.zip` (gitignored, `models/*.zip`) |
+| Current | no — superseded by project `1095598` below |
+
+### Entry 2 — project `1095598`, 13 classes (2026-08-24)
+
+A different Studio project, not a retrain of `1087506`. Four projects on
+this account are now called `hotpot-ingredients` (`1087506`, the two empty
+duplicates `1095239`/`1095356` that the panel's "Create new project"
+button made, and this one) — **the id is the only thing that tells them
+apart**, which is why the staff view's "Linked to ..." line now prints it.
+
+| | |
+|---|---|
+| EI project | `hotpot-ingredients`, id `1095598`, owner `rahuljeyaraj` |
+| EI deploy version | 1 (job `53034211` metadata, impulse #1) |
+| Deployment target | C++ library, EON Compiler, quantized (int8) — unchanged |
+| Input | 224×224 RGB (**not** 160×160: doc §19.2 specifies 160×160 and entry 1 used it, so this impulse was configured by hand at a different size. Not a problem in itself — `tools/eim_cpp/` reads the size out of the export — but doc §19.2 and this row now disagree, and one of them should be corrected on purpose rather than left to be discovered.) |
+| Classes (13) | `button_mushrooms`, `chicken_eggs`, `dried_mango_strips`, `empty_tray`, `flat_round_cookies`, `instant_noodle_block`, `loose_straight_noodles`, `lotus_root_slices`, `no_tray`, `small_round_rusk`, `soya_chunks`, `white_rusk`, `yellow_rusk` — read out of the export's own `model-parameters/model_variables.h`, and an exact match for the 13 `datasets/captures/` folders |
+| Validation accuracy | (unrecorded) — read it off the Studio training page and fill this in |
+| Confusion matrix | (unrecorded) |
+| Dataset session ranges | 2034 local captures, 150–192 per class (`datasets/captures/`), every class at or above doc §19.2's ≥150 images/class. The ≥4-sessions-on-different-days half of that target is (unrecorded). Closes entry 1's `dried_mango_strips` / `flat_round_cookies` / `yellow_rusk` gap; `dried_small_shrimps` is still absent, now alongside the rest of the 12-item catalogue's untouched entries. |
+| Downloaded | 2026-08-24, `models/hotpot-ingredients.zip`, 7,372,368 bytes (gitignored, `models/*.zip`) |
 | Current | **yes** |
+
+Not yet unzipped over `tools/eim_cpp/vendor/` and not yet rebuilt, so
+nothing in the running app uses it yet — that half is still the manual
+step described below.
 
 **Known gap, not yet closed: `dried_small_shrimps` is not one of the 8
 classes.** The catalogue has 12 items; only 9 have any captures at all
