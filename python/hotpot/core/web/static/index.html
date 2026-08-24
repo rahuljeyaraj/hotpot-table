@@ -3585,7 +3585,10 @@
     setStatus(eiStatus, msg.message, msg.ok ? "good" : "bad");
   }
 
-  var EI_DOWNLOAD_STAGE_LABEL = { building: "Building…", downloading: "Downloading…" };
+  var EI_DOWNLOAD_STAGE_LABEL = {
+    building: "Building…", downloading: "Downloading…",
+    unzipping: "Unzipping…", compiling: "Compiling classify.exe…"
+  };
 
   function applyEiDownloadProgress(msg) {
     eiProgress.classList.remove("hide");

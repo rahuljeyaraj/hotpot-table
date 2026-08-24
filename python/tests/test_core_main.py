@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from websockets.sync.client import connect  # noqa: E402
 
-from hotpot.classifier import ei_client, ei_store  # noqa: E402
+from hotpot.classifier import ei_client, ei_deploy, ei_store  # noqa: E402
 from hotpot.common import atomicio  # noqa: E402
 from hotpot.common import cursorbus  # noqa: E402
 from hotpot.common import geometry  # noqa: E402
@@ -2348,6 +2348,34 @@ class FakeEiClient:
         return self.download_bytes
 
 
+class FakeEiDeploy:
+    """Stands in for classifier/ei_deploy.py, injected into Core as
+    `ei_deploy=` the same way `ei_client=` gives FakeEiClient above. The
+    real module shells out to an MSVC build (`rebuild()`) and wipes a real
+    directory (`unzip_over_vendor()`) — neither belongs in a test that is
+    only checking `_handle_ei_download`'s own wiring, same reasoning
+    FakeEiClient's own docstring gives for not touching the network.
+    """
+
+    def __init__(self):
+        self.unzip_calls = []
+        self.rebuild_calls = []
+        self.unzip_error = None
+        self.rebuild_error = None
+
+    def unzip_over_vendor(self, zip_bytes, vendor_dir):
+        self.unzip_calls.append((zip_bytes, vendor_dir))
+        if self.unzip_error:
+            raise self.unzip_error
+
+    def rebuild(self, eim_cpp_dir, *, on_output=None):
+        self.rebuild_calls.append(eim_cpp_dir)
+        if on_output:
+            on_output("rebuild.bat: OK\n")
+        if self.rebuild_error:
+            raise self.rebuild_error
+
+
 class TestEdgeImpulseTab(CoreCase):
     """Doc sections 19.2/19.5's Capture-tab Edge Impulse panel:
     `_handle_ei_link`/`_handle_ei_upload`/`_handle_ei_download`. A real
@@ -2359,6 +2387,7 @@ class TestEdgeImpulseTab(CoreCase):
 
     def setUp(self):
         self.fake_ei = FakeEiClient()
+        self.fake_deploy = FakeEiDeploy()
         self._ei_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._ei_dir.cleanup)
         self.ei_project_path = Path(self._ei_dir.name) / "ei_project.json"
@@ -2368,7 +2397,8 @@ class TestEdgeImpulseTab(CoreCase):
 
     def _extra_core_kwargs(self) -> dict:
         return {"ei_project_path": self.ei_project_path,
-                "models_dir": self.models_dir, "ei_client": self.fake_ei}
+                "models_dir": self.models_dir, "ei_client": self.fake_ei,
+                "ei_deploy": self.fake_deploy}
 
     def _ei_status(self):
         return self.recv_until(self.ws_, lambda m: m.get("t") == "ei_status")
@@ -2529,22 +2559,26 @@ class TestEdgeImpulseTab(CoreCase):
         self.assertFalse(reply["ok"])
         self.assertEqual(self.fake_ei.build_calls, [])
 
-    def test_download_builds_then_downloads_and_saves_the_zip(self):
+    def test_download_builds_downloads_unzips_and_rebuilds(self):
         ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
                               "hotpot-ingredients")
         self._ei_status()
         self.ws_.send(json.dumps({"t": "ei_download"}))
         # "building" is broadcast once before build_model() and again from
         # FakeEiClient.wait_for_job()'s single on_poll() tick (mimicking a
-        # real still-building poll) -- collected until "downloading"
-        # arrives rather than asserting an exact count.
+        # real still-building poll) -- collected until "compiling" (the
+        # last stage before the result) arrives rather than asserting an
+        # exact count of the repeated "building" ticks.
         stages = []
-        while "downloading" not in stages:
+        while "compiling" not in stages:
             msg = self.recv_json(self.ws_)
             if msg.get("t") == "ei_download_progress":
                 stages.append(msg["stage"])
         self.assertEqual(stages[0], "building")
-        self.assertEqual(stages[-1], "downloading")
+        # downloading/unzipping/compiling each happen exactly once, in
+        # order, after however many "building" polling ticks preceded them.
+        self.assertEqual([s for s in stages if s != "building"],
+                         ["downloading", "unzipping", "compiling"])
         result = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_download_result")
         self.assertTrue(result["ok"], result["message"])
         dest = self.models_dir / "hotpot-ingredients.zip"
@@ -2553,6 +2587,35 @@ class TestEdgeImpulseTab(CoreCase):
         self.assertEqual(self.fake_ei.build_calls, [("ei_xyz", 1087506)])
         self.assertEqual(self.fake_ei.wait_calls[0][:2], ("ei_xyz", 1087506))
         self.assertEqual(self.fake_ei.download_calls, [("ei_xyz", 1087506)])
+        # The whole point of this session's fix: the deploy half now runs
+        # automatically, unzipping the SAME bytes that got written to disk
+        # over the SAME tools/eim_cpp/ this Core instance would use, then
+        # rebuilding classify.exe from it.
+        self.assertEqual(len(self.fake_deploy.unzip_calls), 1)
+        unzip_bytes, vendor_dir = self.fake_deploy.unzip_calls[0]
+        self.assertEqual(unzip_bytes, self.fake_ei.download_bytes)
+        eim_cpp_dir = self.models_dir.parent / "tools" / "eim_cpp"
+        self.assertEqual(vendor_dir, eim_cpp_dir / "vendor")
+        self.assertEqual(self.fake_deploy.rebuild_calls, [eim_cpp_dir])
+
+    def test_a_deploy_failure_is_reported_distinctly_and_the_zip_stays_on_disk(self):
+        # Distinct from a download failure (test above): by this point the
+        # zip is already correctly saved to disk (models/README.md's
+        # documented redeploy is still possible by hand), so the message
+        # must not read like the download itself failed.
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self.fake_deploy.rebuild_error = ei_deploy.EiDeployError(
+            "rebuild.bat exited 1: C1083 cannot open source file")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_download"}))
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_download_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("cannot open source file", result["message"])
+        dest = self.models_dir / "hotpot-ingredients.zip"
+        self.assertTrue(dest.exists())
+        self.assertEqual(dest.read_bytes(), self.fake_ei.download_bytes)
+        self.assertTrue(wait_for(lambda: self.core._ei_active is None))
 
     def test_download_failure_is_reported_not_raised_and_nothing_is_saved(self):
         ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",

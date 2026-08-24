@@ -57,7 +57,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from hotpot.classifier import ei_client, ei_store
+from hotpot.classifier import ei_client, ei_deploy, ei_store
 from hotpot.common import atomicio, config, cursorbus, geometry, health, log, wire
 from hotpot.core import (bin_grid, binmap, calibrator, cart, fsm,
                          geometry_store, hover, i18n, loadcell_cal, pricing,
@@ -281,6 +281,7 @@ class Core:
         ei_project_path: Path = EI_PROJECT_PATH,
         models_dir: Path = MODELS_DIR,
         ei_client=ei_client,
+        ei_deploy=ei_deploy,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -414,10 +415,14 @@ class Core:
         # panel. `ei_client` is dependency-injected (default: the real
         # network-touching module) so tests can pass a fake with the same
         # function names and never touch the network, the same DI shape
-        # `scale_open_port` gives ScaleReader.
+        # `scale_open_port` gives ScaleReader. `ei_deploy` gets the same
+        # treatment for the same reason -- its real implementation shells
+        # out to an MSVC build (tools/eim_cpp/rebuild.bat, `EiDeployError`
+        # on failure) that a test must not actually invoke.
         self._ei_project_path = Path(ei_project_path)
         self._models_dir = Path(models_dir)
         self._ei_client = ei_client
+        self._ei_deploy = ei_deploy
         # "link"/"upload"/"download", or None -- in-memory only (like
         # `_cmd_waiters`), guards a double-click firing two of these at
         # once against the same project. Every _handle_ei_* call is
@@ -2142,9 +2147,20 @@ class Core:
         starts once this is clicked.
 
         Unzipping the download over `tools/eim_cpp/vendor/` and rebuilding
-        stays a manual step too, same as it already is today — this
-        replaces the "log into Studio, click Deployment, wait, click
-        Download" half of the workflow, not the "unzip and rebuild" half.
+        `classify.exe` (`ei_deploy.py`) now happen right here too, not as a
+        manual step after this returns — models/README.md's own provenance
+        log caught the gap this used to leave: 2026-08-24's 99.69%-accuracy
+        redeploy (project 1095598) sat downloaded and unzipped for hours
+        while the running app kept classifying with the previous model,
+        because "download" and "the running app actually uses it" were two
+        separate steps a human had to remember to do both of. Pressing
+        Download is now the whole redeploy; the very next live
+        classification pass after this broadcasts `ok: true` uses the new
+        model, no classifier process restart needed (backend_ei.py's
+        `_InputDims` re-reads model_metadata.h by mtime on every call).
+
+        Training itself is still NOT triggered here — doc section 19.2's
+        transfer learning stays a manual Studio step.
         """
         project = ei_store.load_project(self._ei_project_path)
         if project is None:
@@ -2167,6 +2183,10 @@ class Core:
                   project_id, project["project_name"],
                   ei_client.DEPLOY_TYPE, ei_client.DEPLOY_ENGINE,
                   ei_client.DEPLOY_MODEL_TYPE)
+        # _ei_active stays "download" through unzip+rebuild too (finally
+        # below), not just the network half — a second Download click
+        # landing mid-rebuild would race the same tools/eim_cpp/vendor/ and
+        # build/ directories this one is writing into.
         try:
             progress("building")
             job_id = self._ei_client.build_model(api_key, project_id)
@@ -2178,9 +2198,36 @@ class Core:
 
             progress("downloading")
             zip_bytes = self._ei_client.download_model(api_key, project_id)
+
+            dest = self._models_dir / f"{project['project_name']}.zip"
+            atomicio.write_bytes(dest, zip_bytes)
+            _log.info("core: ei_download -> project %s wrote %s (%d bytes)",
+                      project_id, dest, len(zip_bytes))
+
+            progress("unzipping")
+            eim_cpp_dir = self._models_dir.parent / "tools" / "eim_cpp"
+            vendor_dir = eim_cpp_dir / "vendor"
+            self._ei_deploy.unzip_over_vendor(zip_bytes, vendor_dir)
+            _log.info("core: ei_download -> project %s unzipped over %s",
+                      project_id, vendor_dir)
+
+            progress("compiling")
+            self._ei_deploy.rebuild(eim_cpp_dir,
+                                    on_output=lambda line: _log.info(
+                                        "core: ei_download -> rebuild.bat: %s",
+                                        line.rstrip()))
+            _log.info("core: ei_download -> project %s classify.exe rebuilt",
+                      project_id)
         except ei_client.EIClientError as e:
             self.web.broadcast({"t": "ei_download_result", "ok": False,
                                 "message": str(e)})
+            return
+        except ei_deploy.EiDeployError as e:
+            _log.error("core: ei_download -> deploy step failed: %s", e)
+            self.web.broadcast({
+                "t": "ei_download_result", "ok": False,
+                "message": (f"Downloaded the model but deploying it failed: "
+                            f"{e}")})
             return
         except Exception:      # noqa: BLE001 - see _handle_ei_link's own
                                 # catch-all for why this must exist too.
@@ -2192,17 +2239,11 @@ class Core:
         finally:
             self._ei_active = None
 
-        dest = self._models_dir / f"{project['project_name']}.zip"
-        atomicio.write_bytes(dest, zip_bytes)
-        _log.info("core: ei_download -> project %s wrote %s (%d bytes)",
-                  project_id, dest, len(zip_bytes))
-
         self.web.broadcast({
             "t": "ei_download_result", "ok": True, "path": str(dest),
-            "message": (f"Downloaded {dest.name} ({len(zip_bytes)} bytes) "
-                        f"from {project['project_name']!r} (id {project_id}). "
-                        f"Unzip it over tools/eim_cpp/vendor/ and rebuild "
-                        "(tools/eim_cpp/CMakeLists.txt) to deploy it.")})
+            "message": (f"Deployed {dest.name} ({len(zip_bytes)} bytes) "
+                        f"from {project['project_name']!r} (id {project_id}) "
+                        "— classify.exe rebuilt, live now.")})
 
     def _handle_ei_unlink(self, msg: Dict[str, Any]) -> None:
         """Drops the saved local project_id/api_key mapping

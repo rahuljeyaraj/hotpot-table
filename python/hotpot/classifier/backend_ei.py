@@ -49,25 +49,60 @@ _log = logging.getLogger("hotpot.classifier.backend_ei")
 # is one.
 _ROOT = Path(__file__).resolve().parents[3]
 
-# **Must match model-parameters/model_metadata.h's EI_CLASSIFIER_INPUT_
-# WIDTH/HEIGHT for whichever .zip tools/eim_cpp/vendor/ currently holds.**
-# Not read out of that header at runtime — this module has no C preprocessor
-# — so a retrained model with a different input size needs this constant
-# updated by hand alongside rebuilding tools/eim_cpp. Checked against the
-# current export (2026-08-13, hotpot-ingredients project, deploy v2): 160x160.
-#
-# **A newer export is already downloaded and NOT yet vendored:**
-# models/hotpot-ingredients.zip (2026-08-24, project 1095598, 13 classes)
-# is 224x224. These constants are right for what tools/eim_cpp/vendor/
-# holds TODAY (project 1087506, 160x160, 8 classes -- checked) and must
-# not be bumped on their own: unzipping that ZIP over vendor/, changing
-# these two numbers to 224, and rebuilding tools/eim_cpp are one change,
-# not three. Doing any of them alone gives a binary whose preprocessing
-# silently disagrees with its own model.
-INPUT_WIDTH = 160
-INPUT_HEIGHT = 160
+# Input size is read out of model-parameters/model_metadata.h at classify()
+# time instead of hardcoded here (see _InputDims below) — a hand-maintained
+# constant was exactly the bug that let 2026-08-24's redeploy (project
+# 1095598, 224x224, 13 classes) sit downloaded and unzipped while this file
+# kept resizing crops to the PREVIOUS model's 160x160, three separate
+# things (unzip vendor/, bump these numbers, rebuild classify.exe) that had
+# to be done together by hand and silently weren't. classify.exe itself
+# already refuses a size mismatch loudly (tools/eim_cpp/main.cpp's own
+# EI_CLASSIFIER_RAW_SAMPLE_COUNT check) — reading the header here removes
+# the one place a mismatch could happen without either side noticing.
 
 DEFAULT_TIMEOUT_S = 3.0
+
+
+class _InputDims:
+    """Caches (width, height) parsed from vendor/model-parameters/
+    model_metadata.h, re-reading only when that file's mtime changes — so a
+    classifier process that has been running since before a redeploy picks
+    up the new model's input size on its very next classify() call, with no
+    restart, the moment tools/eim_cpp/rebuild.bat finishes (ei_deploy.py).
+    """
+
+    def __init__(self, metadata_path: Path) -> None:
+        self._path = metadata_path
+        self._mtime: Optional[float] = None
+        self._dims: Optional[Tuple[int, int]] = None
+
+    def get(self) -> Tuple[int, int]:
+        try:
+            mtime = self._path.stat().st_mtime
+        except OSError as e:
+            raise ClassifierBackendError(
+                f"{self._path} does not exist — unzip an Edge Impulse "
+                "export over tools/eim_cpp/vendor/ first") from e
+        if self._dims is None or mtime != self._mtime:
+            self._dims = self._parse()
+            self._mtime = mtime
+        return self._dims
+
+    def _parse(self) -> Tuple[int, int]:
+        text = self._path.read_text(encoding="utf-8", errors="replace")
+        width = _find_define(text, "EI_CLASSIFIER_INPUT_WIDTH", self._path)
+        height = _find_define(text, "EI_CLASSIFIER_INPUT_HEIGHT", self._path)
+        return width, height
+
+
+def _find_define(text: str, macro: str, path: Path) -> int:
+    import re  # noqa: WPS433 — local, only needed for this one-shot parse
+    m = re.search(rf"#define\s+{re.escape(macro)}\s+(\d+)", text)
+    if not m:
+        raise ClassifierBackendError(
+            f"{path} has no '#define {macro} <n>' line — not a valid "
+            "Edge Impulse model_metadata.h")
+    return int(m.group(1))
 
 
 def _default_binary_path() -> Path:
@@ -79,6 +114,11 @@ def _default_binary_path() -> Path:
     """
     name = "classify.exe" if platform.system() == "Windows" else "classify"
     return _ROOT / "tools" / "eim_cpp" / "build" / name
+
+
+def _default_metadata_path() -> Path:
+    return (_ROOT / "tools" / "eim_cpp" / "vendor" / "model-parameters"
+            / "model_metadata.h")
 
 
 class ClassifierBackendError(RuntimeError):
@@ -101,10 +141,13 @@ class EiCppBackend:
     """
 
     def __init__(self, *, binary_path: Optional[Path] = None,
+                 metadata_path: Optional[Path] = None,
                  timeout_s: float = DEFAULT_TIMEOUT_S,
                  run: Optional[callable] = None) -> None:
         self.binary_path = Path(binary_path) if binary_path else _default_binary_path()
         self.timeout_s = timeout_s
+        self._dims = _InputDims(
+            Path(metadata_path) if metadata_path else _default_metadata_path())
         # Test seam: a fake standing in for subprocess.run, the same role
         # `video_capture_factory` plays for WindowsCapture — a test must be
         # able to drive this with no compiled binary on disk at all.
@@ -120,13 +163,15 @@ class EiCppBackend:
                 "(tools/eim_cpp/CMakeLists.txt's top comment has the "
                 "MSVC/nmake steps this was built with)")
 
+        width, height = self._dims.get()
+
         # Squash resize (EI_CLASSIFIER_RESIZE_MODE, doc section 19.2) — a
         # plain resize to the model's exact input size, not a crop-
         # preserving one, because the crop this method receives already
         # IS the bin rect (§19.2's first bullet: "the bin rect already
         # localises the food"); there is no extra frame around it to crop
         # into a square from.
-        resized = cv2.resize(bgr_crop, (INPUT_WIDTH, INPUT_HEIGHT),
+        resized = cv2.resize(bgr_crop, (width, height),
                              interpolation=cv2.INTER_LINEAR)
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
         rgb = np.ascontiguousarray(rgb, dtype=np.uint8)
@@ -134,7 +179,7 @@ class EiCppBackend:
         with tempfile.NamedTemporaryFile(
                 suffix=".raw", delete=False) as tmp:
             tmp_path = Path(tmp.name)
-            tmp.write(struct.pack("<ii", INPUT_WIDTH, INPUT_HEIGHT))
+            tmp.write(struct.pack("<ii", width, height))
             tmp.write(rgb.tobytes())
 
         try:

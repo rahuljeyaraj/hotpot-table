@@ -171,9 +171,19 @@ apart**, which is why the staff view's "Linked to ..." line now prints it.
 | Downloaded | 2026-08-24 17:52:38 local, `models/hotpot-ingredients.zip`, 7,372,368 bytes (gitignored, `models/*.zip`). Fetched by the staff view's own Download path (`ei_client.download_model()`), from build job `53034211`; EI reports this project's `zip`/`int8` deployment at version 2. |
 | Current | **yes** |
 
-Not yet unzipped over `tools/eim_cpp/vendor/` and not yet rebuilt, so
-nothing in the running app uses it yet — that half is still the manual
-step described below.
+**2026-08-24, later the same day:** was sitting downloaded-but-not-deployed
+for hours before this was noticed — the staff view's Download button wrote
+the zip and stopped there, and unzipping it over `tools/eim_cpp/vendor/` +
+rebuilding `classify.exe` was a separate manual step nothing prompted for.
+`_handle_ei_download` (`core/main.py`) now does both automatically as part
+of the same click (`classifier/ei_deploy.py`); see that module's docstring.
+`backend_ei.py` also stopped hardcoding the model's input size as a Python
+constant that had to be bumped by hand alongside the rebuild — it now reads
+`EI_CLASSIFIER_INPUT_WIDTH`/`HEIGHT` out of the freshly-unzipped
+`model_metadata.h` on every classify() call, so a classifier process
+already running when a redeploy finishes picks up the new model on its
+very next live pass, no restart required. Pressing Download is now the
+whole redeploy, not half of it.
 
 **Known gap, not yet closed: `dried_small_shrimps` is not one of the 8
 classes.** The catalogue has 12 items; only 9 have any captures at all
@@ -192,10 +202,11 @@ panel (doc §19.2/19.5) that does the login/link, image upload, and
 build+download steps below over EI's REST API — see
 `python/hotpot/classifier/ei_client.py`/`ei_store.py` and
 `core/main.py`'s `_handle_ei_link`/`_handle_ei_upload`/
-`_handle_ei_download`. It stops at saving `models/<project name>.zip`;
-unzipping it over `tools/eim_cpp/vendor/` and rebuilding
-(`tools/eim_cpp/CMakeLists.txt`'s MSVC/nmake steps) is still a manual
-step, same as before. Training itself also stays manual in Studio — the
+`_handle_ei_download`. It no longer stops at saving `models/<project
+name>.zip` — unzipping over `tools/eim_cpp/vendor/` and rebuilding
+`classify.exe` happen automatically as part of the same click
+(`classifier/ei_deploy.py`, added 2026-08-24). Training itself still stays
+manual in Studio — the
 panel does not configure the impulse's image input/DSP/MobileNetV2
 transfer-learning blocks (a fresh Link creates a bare project; wire up
 the impulse once by hand, same as `hotpot-ingredients` already is,
