@@ -28,9 +28,11 @@ if TYPE_CHECKING:
 log = logging.getLogger("hotpot.pricing")
 
 # 4 -> 5, 2026-08-24: every item gained `diet`/`kcalPer100g`/`description`
-# for VISUAL_LAYER.md section 8's info box. Bumped because the file's
-# shape changed, this repo's standing practice on any catalogue change.
-CATALOGUE_SCHEMA = 5
+# for VISUAL_LAYER.md section 8's info box. 5 -> 6, same day: `fact`, after
+# the developer saw the box on the table — "it is not giving any
+# interesting facts." Bumped both times because the file's shape changed,
+# this repo's standing practice on any catalogue change.
+CATALOGUE_SCHEMA = 6
 
 # The three answers `Item.diet` may hold. Three rather than two: an egg is
 # neither veg nor non-veg in most of the world this table is aimed at, and
@@ -92,9 +94,18 @@ class Item:
     # is an approximate published value for the REAL ingredient the plate
     # names, not a lab measurement of what is in the bin — see
     # data/catalogue.json's own entries and CLAUDE.md for the sourcing.
+    #
+    # `fact` is one researched sentence about the REAL ingredient — where
+    # it comes from, how it is made, why it behaves the way it does. Same
+    # basis as `kcal_per_100g`: published, approximate, about the food the
+    # plate NAMES rather than the substitute prop in the bin
+    # (docs/INGREDIENT_SUBSTITUTES.md). It is the one line on the info box
+    # a diner reads for pleasure rather than for information, which is
+    # exactly why it is data and not something oF composes.
     diet: str = ""
     kcal_per_100g: float = 0.0
     description: str = ""
+    fact: str = ""
 
     def display_name(self, locale: Optional[str] = None) -> str:
         """The label the table prints. **Cannot return `id` or
@@ -178,11 +189,14 @@ class Catalogue:
                     f"one of {sorted(VALID_DIETS)}. This is the one field a "
                     f"diner may act on, so it is never guessed or derived "
                     f"from `tags`.")
-            if "kcalPer100g" not in it or not str(it.get("description", "")).strip():
+            if ("kcalPer100g" not in it
+                    or not str(it.get("description", "")).strip()
+                    or not str(it.get("fact", "")).strip()):
                 raise ValueError(
-                    f"{path}: item {it['id']!r} needs kcalPer100g and a "
-                    f"description — VISUAL_LAYER.md section 8's info box "
-                    f"shows both, and a blank one reads as a broken table.")
+                    f"{path}: item {it['id']!r} needs kcalPer100g, a "
+                    f"description and a fact — VISUAL_LAYER.md section 8's "
+                    f"info box shows all three, and a blank one reads as a "
+                    f"broken table.")
             items.append(Item(
                 id=it["id"],
                 price_per_100g=float(it["pricePer100g"]),
@@ -193,6 +207,7 @@ class Catalogue:
                 diet=diet,
                 kcal_per_100g=float(it["kcalPer100g"]),
                 description=str(it["description"]).strip(),
+                fact=str(it["fact"]).strip(),
             ))
         return cls(items)
 

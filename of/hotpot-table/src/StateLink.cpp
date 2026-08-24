@@ -346,6 +346,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 				b.diet = ij.value("diet", "");
 				b.kcal = ij.value("kcal", "");
 				b.desc = ij.value("desc", "");
+				b.fact = ij.value("fact", "");
 			}
 			// Four finite numbers or nothing. A partially-parsed rect is
 			// worse than none: it would move the light-pass cutout off

@@ -1,5 +1,5 @@
 {
-  "schema": 5,
+  "schema": 6,
   "base_currency": "USD",
   "items": [
     {
@@ -11,7 +11,8 @@
       "class_name": "instant_noodle_block",
       "diet": "veg",
       "kcalPer100g": 450,
-      "description": "Springy fried wheat. Ready in 2 min."
+      "description": "Springy fried wheat. Ready in 2 min.",
+      "fact": "Momofuku Ando flash-fried the first instant noodles in 1958, copying his wife's tempura."
     },
     {
       "id": "loose_straight_noodles",
@@ -22,7 +23,8 @@
       "class_name": "loose_straight_noodles",
       "diet": "veg",
       "kcalPer100g": 280,
-      "description": "Fresh wheat noodles. Soak up broth."
+      "description": "Fresh wheat noodles. Soak up broth.",
+      "fact": "Lanzhou lamian is judged by five colours: clear soup, white radish, green herb, red chilli."
     },
     {
       "id": "white_rusk",
@@ -33,7 +35,8 @@
       "class_name": "white_rusk",
       "diet": "veg",
       "kcalPer100g": 400,
-      "description": "Crisp beancurd skin. Drinks the soup."
+      "description": "Crisp beancurd skin. Drinks the soup.",
+      "fact": "Yuba is the skin lifted off simmering soy milk. Its Chinese name means tofu bamboo."
     },
     {
       "id": "soya_chunks",
@@ -44,7 +47,8 @@
       "class_name": "soya_chunks",
       "diet": "nonveg",
       "kcalPer100g": 117,
-      "description": "Bouncy minced fish. Mild, springy."
+      "description": "Bouncy minced fish. Mild, springy.",
+      "fact": "Fuzhou is China's official Fish Ball City. The classic ones hide a pork filling."
     },
     {
       "id": "dried_small_shrimps",
@@ -55,7 +59,8 @@
       "class_name": "dried_small_shrimps",
       "diet": "nonveg",
       "kcalPer100g": 253,
-      "description": "Sun-dried prawns. Deep savoury hit."
+      "description": "Sun-dried prawns. Deep savoury hit.",
+      "fact": "Drying concentrates the glutamates, which is why one spoonful deepens a whole pot."
     },
     {
       "id": "small_round_rusk",
@@ -66,7 +71,8 @@
       "class_name": "small_round_rusk",
       "diet": "nonveg",
       "kcalPer100g": 202,
-      "description": "Hand-beaten beef. Firm, rich bite."
+      "description": "Hand-beaten beef. Firm, rich bite.",
+      "fact": "Chaoshan beef is beaten with iron rods some 3,000 times. A good ball bounces on the table."
     },
     {
       "id": "chicken_eggs",
@@ -77,7 +83,8 @@
       "class_name": "chicken_eggs",
       "diet": "egg",
       "kcalPer100g": 143,
-      "description": "Whole egg. Poach it in the broth."
+      "description": "Whole egg. Poach it in the broth.",
+      "fact": "One of the few foods carrying all nine essential amino acids inside a single shell."
     },
     {
       "id": "button_mushrooms",
@@ -88,7 +95,8 @@
       "class_name": "button_mushrooms",
       "diet": "veg",
       "kcalPer100g": 22,
-      "description": "Juicy and mild. Lightest in the pot."
+      "description": "Juicy and mild. Lightest in the pot.",
+      "fact": "Grown since the 1600s in the limestone quarries under Paris, hence champignon de Paris."
     },
     {
       "id": "dried_mango_strips",
@@ -99,7 +107,8 @@
       "class_name": "dried_mango_strips",
       "diet": "nonveg",
       "kcalPer100g": 300,
-      "description": "Chewy sweet-savoury eel. Big flavour."
+      "description": "Chewy sweet-savoury eel. Big flavour.",
+      "fact": "Japan eats most of its eel on one midsummer day, a stunt dreamed up by an Edo scholar."
     },
     {
       "id": "flat_round_cookies",
@@ -110,7 +119,8 @@
       "class_name": "flat_round_cookies",
       "diet": "nonveg",
       "kcalPer100g": 101,
-      "description": "Pressed shrimp paste. Sweet, tender."
+      "description": "Pressed shrimp paste. Sweet, tender.",
+      "fact": "Surimi, washed and minced fish paste, has been made in Japan since at least the 1100s."
     },
     {
       "id": "yellow_rusk",
@@ -121,7 +131,8 @@
       "class_name": "yellow_rusk",
       "diet": "veg",
       "kcalPer100g": 77,
-      "description": "Starchy and quick. Thickens the broth."
+      "description": "Starchy and quick. Thickens the broth.",
+      "fact": "China grows more potatoes than any other country, roughly a quarter of the world crop."
     },
     {
       "id": "lotus_root_slices",
@@ -132,7 +143,8 @@
       "class_name": "lotus_root_slices",
       "diet": "veg",
       "kcalPer100g": 74,
-      "description": "Stays crunchy. Give it 3-4 min."
+      "description": "Stays crunchy. Give it 3-4 min.",
+      "fact": "The nine-holed kind stays crunchy however long you cook it. The holes carry air down."
     }
   ]
 }

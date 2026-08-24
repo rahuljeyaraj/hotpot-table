@@ -2788,6 +2788,7 @@ class Core:
                 "kcal": f"{round(item.kcal_per_100g)} "
                         f"{self.locales.translate('kcal_per_100g', self.locale)}",
                 "desc": item.description,
+                "fact": item.fact,
             }
         else:
             label, sub, price = "", "", 0.0
@@ -2796,7 +2797,7 @@ class Core:
             # box at all for this (UiLayer::drawInfoBox), which is doc
             # section 8's "Idle: invisible. No fill, no border. Not an
             # empty bordered box."
-            info = {"diet": "", "kcal": "", "desc": ""}
+            info = {"diet": "", "kcal": "", "desc": "", "fact": ""}
         # Doc section 5.3: "core pushes … stage-space rects to oF" — from
         # `self.projector_grid` (M4n), never `self.camera_grid`: that one
         # feeds the classifier and core's own hand hit test, and the two

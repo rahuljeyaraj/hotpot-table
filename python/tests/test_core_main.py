@@ -344,6 +344,7 @@ class TestStateBroadcast(CoreCase):
                 # oF prints the string and appends nothing.
                 self.assertIn("kcal", b["info"]["kcal"])
                 self.assertTrue(b["info"]["desc"].strip())
+                self.assertTrue(b["info"]["fact"].strip())
 
     def test_an_unresolved_bin_says_nothing_about_what_is_in_it(self):
         # Doc section 8: "Idle: invisible. No fill, no border. Not an empty
@@ -356,7 +357,8 @@ class TestStateBroadcast(CoreCase):
         with lock:
             b = msgs[-1]["bins"][4]
         self.assertFalse(b["resolved"])
-        self.assertEqual(b["info"], {"diet": "", "kcal": "", "desc": ""})
+        self.assertEqual(b["info"],
+                         {"diet": "", "kcal": "", "desc": "", "fact": ""})
 
     def test_bin_labels_never_fall_back_to_the_hidden_id(self):
         """The regression guard for the leak at core/main.py's `label =`.

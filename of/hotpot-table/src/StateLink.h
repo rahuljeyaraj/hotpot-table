@@ -81,6 +81,7 @@ public:
 		std::string diet;   // veg|nonveg|egg, or "" for an unresolved bin
 		std::string kcal;   // e.g. "74 kcal / 100g", resolved
 		std::string desc;   // one short sentence, resolved
+		std::string fact;   // one researched sentence about the real ingredient
 	};
 
 	// doc §4.3's `widgets`, and §9.4's dwell fraction (M5 build item 3).
