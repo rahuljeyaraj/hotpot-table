@@ -161,10 +161,27 @@ trusting a shrimp bin's label. `dried_mango_strips`, `flat_round_cookies`
 and `yellow_rusk` (3 more catalogue items) have no captures at all yet and
 have the same gap.
 
-**Re-download:** Studio → `hotpot-ingredients` project → Deployment →
-`C++ library`, same EON/int8 settings as above, then unzip over
+**Re-download:** the staff view's Capture tab now has an "Edge Impulse"
+panel (doc §19.2/19.5) that does the login/link, image upload, and
+build+download steps below over EI's REST API — see
+`python/hotpot/classifier/ei_client.py`/`ei_store.py` and
+`core/main.py`'s `_handle_ei_link`/`_handle_ei_upload`/
+`_handle_ei_download`. It stops at saving `models/<project name>.zip`;
+unzipping it over `tools/eim_cpp/vendor/` and rebuilding
+(`tools/eim_cpp/CMakeLists.txt`'s MSVC/nmake steps) is still a manual
+step, same as before. Training itself also stays manual in Studio — the
+panel does not configure the impulse's image input/DSP/MobileNetV2
+transfer-learning blocks (a fresh Link creates a bare project; wire up
+the impulse once by hand, same as `hotpot-ingredients` already is,
+before the first Upload trains anything useful) or click Train.
+
+Equivalently, by hand: Studio → `hotpot-ingredients` project → Deployment
+→ `C++ library`, same EON/int8 settings as above, then unzip over
 `tools/eim_cpp/vendor/` and rebuild (that directory's own CMakeLists.txt
-has the MSVC/nmake steps this was last built with).
+has the MSVC/nmake steps this was last built with). `tools/export_edgeimpulse.py`
++ `tools/upload_edgeimpulse.ps1` (the Node `edge-impulse-uploader` CLI
+path) still work too and are unchanged — the staff-view panel is a second
+way to do the same upload, not a replacement that removes the first.
 
 ## Known next step
 

@@ -25,11 +25,13 @@ import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from websockets.sync.client import connect  # noqa: E402
 
+from hotpot.classifier import ei_client, ei_store  # noqa: E402
 from hotpot.common import atomicio  # noqa: E402
 from hotpot.common import cursorbus  # noqa: E402
 from hotpot.common import geometry  # noqa: E402
@@ -151,9 +153,20 @@ class CoreCase(unittest.TestCase):
             # this machine, and — worse — would quietly receive a real
             # tracker's hands and start hovering bins mid-test.
             cursor_port=0,
-            scale_open_port=_no_serial_port)
+            scale_open_port=_no_serial_port,
+            **self._extra_core_kwargs())
         self._wire_clients = []
         self._ws_clients = []
+
+    def _extra_core_kwargs(self) -> dict:
+        """Hook for a subclass that needs extra Core(...) constructor
+        arguments beyond the fixed set every CoreCase already passes --
+        TestEdgeImpulseTab's `ei_project_path`/`models_dir`/`ei_client`
+        injection, same shape `calibrated_fixture`/`classify_enabled`
+        already give the handful of fields that vary per test class,
+        just for arguments too numerous/specific to earn their own class
+        attribute."""
+        return {}
 
     def tearDown(self):
         for c in self._wire_clients:
@@ -2252,6 +2265,253 @@ class TestCaptureTab(CoreCase):
                 continue
             self.assertEqual(label, item.class_name)
             self.assertNotEqual(label, item.display_name("en"))
+
+
+class FakeEiClient:
+    """Stands in for classifier/ei_client.py — same DI shape backend_ei.
+    EiCppBackend's `run` seam gives subprocess.run, injected into Core as
+    `ei_client=` (Core.__init__'s own docstring). Every method records its
+    call and raises whichever *_error is set, using the REAL
+    ei_client.EIClientError/EITotpRequiredError classes — core/main.py's
+    `_handle_ei_*` handlers catch those exact classes, not anything this
+    fake defines itself.
+    """
+
+    def __init__(self):
+        self.login_calls = []
+        self.create_project_calls = []
+        self.upload_calls = []
+        self.build_calls = []
+        self.wait_calls = []
+        self.download_calls = []
+
+        self.login_result = "jwt-fake"
+        self.login_error = None
+        self.create_project_result = (1087506, "ei_xyz")
+        self.create_project_error = None
+        self.upload_progress_ticks = []
+        self.upload_result = {"uploaded": {"mushroom": 2}, "failures": []}
+        self.upload_error = None
+        self.build_job_id = 7
+        self.build_error = None
+        self.wait_error = None
+        self.download_bytes = b"PK\x03\x04-fake-zip"
+        self.download_error = None
+
+    def login(self, username, password, totp=None):
+        self.login_calls.append((username, password, totp))
+        if self.login_error:
+            raise self.login_error
+        return self.login_result
+
+    def create_project(self, jwt_token, project_name):
+        self.create_project_calls.append((jwt_token, project_name))
+        if self.create_project_error:
+            raise self.create_project_error
+        return self.create_project_result
+
+    def upload_captures(self, api_key, captures_dir, on_progress=None):
+        self.upload_calls.append((api_key, captures_dir))
+        for tick in self.upload_progress_ticks:
+            if on_progress:
+                on_progress(**tick)
+        if self.upload_error:
+            raise self.upload_error
+        return self.upload_result
+
+    def build_model(self, api_key, project_id):
+        self.build_calls.append((api_key, project_id))
+        if self.build_error:
+            raise self.build_error
+        return self.build_job_id
+
+    def wait_for_job(self, api_key, project_id, job_id, on_poll=None):
+        self.wait_calls.append((api_key, project_id, job_id))
+        if on_poll:
+            on_poll()
+        if self.wait_error:
+            raise self.wait_error
+
+    def download_model(self, api_key, project_id):
+        self.download_calls.append((api_key, project_id))
+        if self.download_error:
+            raise self.download_error
+        return self.download_bytes
+
+
+class TestEdgeImpulseTab(CoreCase):
+    """Doc sections 19.2/19.5's Capture-tab Edge Impulse panel:
+    `_handle_ei_link`/`_handle_ei_upload`/`_handle_ei_download`. A real
+    network call is never exercised here — `ei_client.py`'s own HTTP
+    logic is test_ei_client.py's job; this class is about the wiring:
+    which handler calls which fake method with which arguments, what gets
+    saved to `ei_store.py`, and what gets broadcast back.
+    """
+
+    def setUp(self):
+        self.fake_ei = FakeEiClient()
+        self._ei_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._ei_dir.cleanup)
+        self.ei_project_path = Path(self._ei_dir.name) / "ei_project.json"
+        self.models_dir = Path(self._ei_dir.name) / "models"
+        super().setUp()
+        self.ws_ = self.ws()
+
+    def _extra_core_kwargs(self) -> dict:
+        return {"ei_project_path": self.ei_project_path,
+                "models_dir": self.models_dir, "ei_client": self.fake_ei}
+
+    def _ei_status(self):
+        return self.recv_until(self.ws_, lambda m: m.get("t") == "ei_status")
+
+    def test_join_seed_reports_unlinked_by_default(self):
+        status = self._ei_status()
+        self.assertFalse(status["linked"])
+        self.assertIsNone(status["project_id"])
+        self.assertIsNone(status["active"])
+
+    def test_link_logs_in_creates_and_saves_the_project(self):
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "username": "me@example.com",
+                                  "password": "hunter2"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertEqual(reply["project_id"], 1087506)
+        self.assertEqual(reply["project_name"], "hotpot-ingredients")
+        self.assertEqual(self.fake_ei.login_calls, [("me@example.com", "hunter2", None)])
+        self.assertEqual(self.fake_ei.create_project_calls,
+                         [("jwt-fake", "hotpot-ingredients")])
+        saved = ei_store.load_project(self.ei_project_path)
+        self.assertEqual(saved["project_id"], 1087506)
+        self.assertEqual(saved["api_key"], "ei_xyz")
+
+    def test_link_is_a_no_op_once_already_linked(self):
+        ei_store.save_project(self.ei_project_path, 1, "ei_a", "already-linked")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "username": "me@example.com",
+                                  "password": "hunter2"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertTrue(reply["ok"])
+        self.assertIn("Already linked", reply["message"])
+        self.assertEqual(self.fake_ei.login_calls, [])
+
+    def test_link_without_credentials_is_refused_before_any_network_call(self):
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(self.fake_ei.login_calls, [])
+
+    def test_link_totp_required_is_reported_distinctly(self):
+        self.fake_ei.login_error = ei_client.EITotpRequiredError(
+            "ERR_TOTP_TOKEN_IS_REQUIRED")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "username": "me@example.com",
+                                  "password": "hunter2"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertTrue(reply.get("totp_required"))
+        self.assertIsNone(ei_store.load_project(self.ei_project_path))
+
+    def test_link_failure_surfaces_eis_own_message(self):
+        self.fake_ei.create_project_error = ei_client.EIClientError(
+            "Private projects quota exceeded")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_link", "username": "me@example.com",
+                                  "password": "hunter2"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("quota exceeded", reply["message"])
+        self.assertIsNone(ei_store.load_project(self.ei_project_path))
+
+    def test_upload_without_a_link_is_refused(self):
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_upload"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_upload_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("Link", reply["message"])
+        self.assertEqual(self.fake_ei.upload_calls, [])
+
+    def test_upload_pushes_captures_dir_and_reports_progress_then_result(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self.fake_ei.upload_progress_ticks = [
+            {"uploaded": 0, "total": 2, "failures": []},
+            {"uploaded": 2, "total": 2, "failures": []}]
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_upload"}))
+        progress = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_upload_progress")
+        self.assertEqual(progress["total"], 2)
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_upload_result")
+        self.assertTrue(result["ok"], result["message"])
+        self.assertEqual(result["uploaded"], {"mushroom": 2})
+        api_key, captures_dir = self.fake_ei.upload_calls[0]
+        self.assertEqual(api_key, "ei_xyz")
+        self.assertEqual(Path(captures_dir), coremain.CAPTURES_DIR)
+
+    def test_upload_failure_is_reported_not_raised(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self.fake_ei.upload_error = ei_client.EIClientError("no captured images")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_upload"}))
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_upload_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("no captured images", result["message"])
+
+    def test_download_without_a_link_is_refused(self):
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_download"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_download_result")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(self.fake_ei.build_calls, [])
+
+    def test_download_builds_then_downloads_and_saves_the_zip(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_download"}))
+        # "building" is broadcast once before build_model() and again from
+        # FakeEiClient.wait_for_job()'s single on_poll() tick (mimicking a
+        # real still-building poll) -- collected until "downloading"
+        # arrives rather than asserting an exact count.
+        stages = []
+        while "downloading" not in stages:
+            msg = self.recv_json(self.ws_)
+            if msg.get("t") == "ei_download_progress":
+                stages.append(msg["stage"])
+        self.assertEqual(stages[0], "building")
+        self.assertEqual(stages[-1], "downloading")
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_download_result")
+        self.assertTrue(result["ok"], result["message"])
+        dest = self.models_dir / "hotpot-ingredients.zip"
+        self.assertEqual(result["path"], str(dest))
+        self.assertEqual(dest.read_bytes(), self.fake_ei.download_bytes)
+        self.assertEqual(self.fake_ei.build_calls, [("ei_xyz", 1087506)])
+        self.assertEqual(self.fake_ei.wait_calls[0][:2], ("ei_xyz", 1087506))
+        self.assertEqual(self.fake_ei.download_calls, [("ei_xyz", 1087506)])
+
+    def test_download_failure_is_reported_not_raised_and_nothing_is_saved(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self.fake_ei.wait_error = ei_client.EIClientError("build job failed")
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_download"}))
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_download_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("build job failed", result["message"])
+        self.assertFalse((self.models_dir / "hotpot-ingredients.zip").exists())
+
+    def test_an_overlapping_job_is_refused_not_queued(self):
+        ei_store.save_project(self.ei_project_path, 1087506, "ei_xyz",
+                              "hotpot-ingredients")
+        self.core._ei_active = "upload"
+        self._ei_status()
+        self.ws_.send(json.dumps({"t": "ei_download"}))
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "ei_download_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("upload", result["message"])
+        self.assertEqual(self.fake_ei.build_calls, [])
 
 
 class TestClassifyLive(CoreCase):

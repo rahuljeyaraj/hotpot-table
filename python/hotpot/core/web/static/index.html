@@ -431,6 +431,26 @@
     color: var(--muted); font-variant-numeric: tabular-nums;
   }
 
+  /* --- Edge Impulse panel (doc sections 19.2, 19.5) — Capture tab -------
+     Link once (username/password -> a Studio project + API key, saved
+     server-side, never re-shown), then Upload/Download reuse the saved
+     link. Same .setup-card/.setup-btn/.setup-status vocabulary as the
+     rest of this tab, not a bespoke look. */
+  .ei-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .ei-row input[type="text"], .ei-row input[type="password"] {
+    min-height: 44px; padding: 0 10px; flex: 1 1 160px; min-width: 140px;
+    border: 1px solid #3a3d47; border-radius: 6px;
+    background: #22252b; color: var(--text); font-size: 15px;
+  }
+  .ei-linked { font-size: 14px; color: var(--text); margin-bottom: 10px; }
+  .ei-linked a { color: var(--green); }
+  .ei-progress {
+    font-size: 13px; color: var(--muted); margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ei-progress.hide { display: none; }
+  #eiUnlinked.hide, #eiLinked.hide { display: none; }
+
   /* --- projector grid card (M4n): select-a-line, nudge with arrow keys,
      no camera and no typing ------------------------------------------- */
   .pg-line-list {
@@ -814,6 +834,33 @@
           <div class="setup-status" id="captureStatus"></div>
         </div>
         <div class="crop-grid" id="cropGrid"></div>
+      </div>
+      <!-- Doc §19.2/19.5: link the Studio project once, then Upload the
+           images above (or Download the trained deployment) reuse that
+           saved link. -->
+      <div class="setup-card" id="eiCard">
+        <h2>Edge Impulse</h2>
+        <p>Link a Studio project once, then push the captured images to it
+           and, once you have trained there, fetch the built model back.</p>
+        <div id="eiUnlinked">
+          <div class="ei-row">
+            <input id="eiUser" type="text" placeholder="Edge Impulse email" autocomplete="username">
+            <input id="eiPass" type="password" placeholder="password" autocomplete="current-password">
+            <input id="eiTotp" type="text" placeholder="2FA code (if asked)" style="flex: 0 1 140px;">
+          </div>
+          <div class="ei-row" style="margin-top: 10px;">
+            <button id="eiLinkBtn" class="setup-btn primary">Link Edge Impulse</button>
+          </div>
+        </div>
+        <div id="eiLinked" class="hide">
+          <div class="ei-linked">Linked to <a id="eiProjectLink" href="#" target="_blank" rel="noopener"></a></div>
+          <div class="ei-row">
+            <button id="eiUploadBtn" class="setup-btn">Upload captures to Edge Impulse</button>
+            <button id="eiDownloadBtn" class="setup-btn">Download trained model</button>
+          </div>
+        </div>
+        <div class="ei-progress hide" id="eiProgress"></div>
+        <div class="setup-status" id="eiStatus"></div>
       </div>
     </section>
     <section class="tab-panel" data-tab="developer">
@@ -3308,6 +3355,120 @@
 
   applyCaptureGating();
 
+  // --- Edge Impulse panel (doc sections 19.2, 19.5) ----------------------
+  // Link once (username/password -> a saved project + API key server-
+  // side, never re-shown here), then Upload/Download reuse the saved
+  // link. `eiBusy` mirrors core's own `_ei_active` guard so a second tap
+  // cannot fire an overlapping job from THIS tablet while a reply is in
+  // flight; core still rejects an overlap from a SECOND tablet on its own
+  // (core/main.py's `_handle_ei_link`/`_handle_ei_upload`/
+  // `_handle_ei_download`), this is just an instant local echo of that.
+
+  var eiUnlinked = document.getElementById("eiUnlinked");
+  var eiLinked = document.getElementById("eiLinked");
+  var eiUser = document.getElementById("eiUser");
+  var eiPass = document.getElementById("eiPass");
+  var eiTotp = document.getElementById("eiTotp");
+  var eiLinkBtn = document.getElementById("eiLinkBtn");
+  var eiUploadBtn = document.getElementById("eiUploadBtn");
+  var eiDownloadBtn = document.getElementById("eiDownloadBtn");
+  var eiProjectLink = document.getElementById("eiProjectLink");
+  var eiProgress = document.getElementById("eiProgress");
+  var eiStatus = document.getElementById("eiStatus");
+  var eiBusy = false;
+
+  function applyEiGating() {
+    eiLinkBtn.disabled = eiBusy;
+    eiUploadBtn.disabled = eiBusy;
+    eiDownloadBtn.disabled = eiBusy;
+  }
+
+  function applyEiStatus(msg) {
+    eiBusy = !!msg.active;
+    if (msg.linked) {
+      eiUnlinked.classList.add("hide");
+      eiLinked.classList.remove("hide");
+      eiProjectLink.textContent = msg.project_name;
+      eiProjectLink.href = "https://studio.edgeimpulse.com/studio/" + msg.project_id;
+    } else {
+      eiUnlinked.classList.remove("hide");
+      eiLinked.classList.add("hide");
+    }
+    applyEiGating();
+  }
+
+  eiLinkBtn.addEventListener("click", function () {
+    if (eiLinkBtn.disabled) return;
+    if (!eiUser.value || !eiPass.value) {
+      setStatus(eiStatus, "Enter your Edge Impulse email and password first.", "bad");
+      return;
+    }
+    eiBusy = true;
+    applyEiGating();
+    setStatus(eiStatus, "Linking…", "busy");
+    sendSetup({ t: "ei_link", username: eiUser.value, password: eiPass.value,
+               totp: eiTotp.value || undefined });
+  });
+
+  eiUploadBtn.addEventListener("click", function () {
+    if (eiUploadBtn.disabled) return;
+    eiBusy = true;
+    applyEiGating();
+    eiProgress.classList.remove("hide");
+    eiProgress.textContent = "Uploading…";
+    setStatus(eiStatus, "", null);
+    sendSetup({ t: "ei_upload" });
+  });
+
+  eiDownloadBtn.addEventListener("click", function () {
+    if (eiDownloadBtn.disabled) return;
+    eiBusy = true;
+    applyEiGating();
+    eiProgress.classList.remove("hide");
+    eiProgress.textContent = "Building…";
+    setStatus(eiStatus, "", null);
+    sendSetup({ t: "ei_download" });
+  });
+
+  function applyEiLinkResult(msg) {
+    eiBusy = false;
+    applyEiGating();
+    setStatus(eiStatus, msg.message, msg.ok ? "good" : "bad");
+    if (msg.ok) {
+      eiPass.value = "";   // never held onto once the link exists
+      applyEiStatus({ linked: true, project_id: msg.project_id,
+                      project_name: msg.project_name, active: null });
+    }
+  }
+
+  function applyEiUploadProgress(msg) {
+    eiProgress.classList.remove("hide");
+    eiProgress.textContent = "Uploaded " + msg.uploaded + " of " + msg.total
+      + (msg.failures && msg.failures.length
+         ? " (" + msg.failures.length + " batch failure(s))" : "");
+  }
+
+  function applyEiUploadResult(msg) {
+    eiBusy = false;
+    applyEiGating();
+    eiProgress.classList.add("hide");
+    setStatus(eiStatus, msg.message, msg.ok ? "good" : "bad");
+  }
+
+  var EI_DOWNLOAD_STAGE_LABEL = { building: "Building…", downloading: "Downloading…" };
+
+  function applyEiDownloadProgress(msg) {
+    eiProgress.classList.remove("hide");
+    eiProgress.textContent = EI_DOWNLOAD_STAGE_LABEL[msg.stage] || msg.stage;
+  }
+
+  function applyEiDownloadResult(msg) {
+    eiBusy = false;
+    applyEiGating();
+    eiProgress.classList.add("hide");
+    setStatus(eiStatus, msg.message, msg.ok ? "good" : "bad");
+  }
+
   // --- action bar and the mode (doc sections 12.2, 9.1 — M2.6) ---------
 
   var modeSwitch = document.getElementById("modeSwitch");
@@ -3497,6 +3658,12 @@
       else if (msg.t === "capture_progress") applyCaptureProgress(msg);
       else if (msg.t === "landmarks") applyLandmarks(msg);
       else if (msg.t === "classify") applyClassify(msg);
+      else if (msg.t === "ei_status") applyEiStatus(msg);
+      else if (msg.t === "ei_link_result") applyEiLinkResult(msg);
+      else if (msg.t === "ei_upload_progress") applyEiUploadProgress(msg);
+      else if (msg.t === "ei_upload_result") applyEiUploadResult(msg);
+      else if (msg.t === "ei_download_progress") applyEiDownloadProgress(msg);
+      else if (msg.t === "ei_download_result") applyEiDownloadResult(msg);
     };
     ws.onclose = function () {
       // A set_mode whose reply will now never arrive. Left true, the

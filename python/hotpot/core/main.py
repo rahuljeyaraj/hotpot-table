@@ -57,7 +57,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from hotpot.common import config, cursorbus, geometry, health, log, wire
+from hotpot.classifier import ei_client, ei_store
+from hotpot.common import atomicio, config, cursorbus, geometry, health, log, wire
 from hotpot.core import (bin_grid, binmap, calibrator, cart, fsm,
                          geometry_store, hover, i18n, loadcell_cal, pricing,
                          scale)
@@ -124,6 +125,16 @@ CAMERA_PORT = 8081
 # classifier does, because core never touches a frame (I3) — but core
 # counts what is in it for the tab's per-label session counter.
 CAPTURES_DIR = Path(__file__).resolve().parents[3] / "datasets" / "captures"
+
+# Doc section 19.2/19.5's Edge Impulse link + fetched deployment — the
+# Capture tab's "Edge Impulse" panel below drives ei_client.py/ei_store.py
+# against these. EI_PROJECT_NAME is only used the first time `ei_link`
+# creates a brand new Studio project; an already-linked project (today,
+# `hotpot-ingredients`, id 1087506 — models/README.md) keeps whatever name
+# it was created with, read back from ei_store.py.
+EI_PROJECT_PATH = ei_store.DEFAULT_PATH
+EI_PROJECT_NAME = "hotpot-ingredients"
+MODELS_DIR = Path(__file__).resolve().parents[3] / "models"
 
 # Capture-tab label choices with no catalogue entry — these are never
 # billable (no price, never `resolved()` by BinMap) and so must never
@@ -267,6 +278,9 @@ class Core:
         dwell_ms: float = hover.DEFAULT_DWELL_MS,
         classify_hz: float = CLASSIFIER_LIVE_HZ,
         classify_enabled: bool = True,
+        ei_project_path: Path = EI_PROJECT_PATH,
+        models_dir: Path = MODELS_DIR,
+        ei_client=ei_client,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -395,6 +409,22 @@ class Core:
         self._cmd_lock = threading.Lock()
         self._cmd_seq = 0
         self._cmd_waiters: Dict[int, list] = {}
+
+        # Doc section 19.2/19.5: the Edge Impulse link + upload/download
+        # panel. `ei_client` is dependency-injected (default: the real
+        # network-touching module) so tests can pass a fake with the same
+        # function names and never touch the network, the same DI shape
+        # `scale_open_port` gives ScaleReader.
+        self._ei_project_path = Path(ei_project_path)
+        self._models_dir = Path(models_dir)
+        self._ei_client = ei_client
+        # "link"/"upload"/"download", or None -- in-memory only (like
+        # `_cmd_waiters`), guards a double-click firing two of these at
+        # once against the same project. Every _handle_ei_* call is
+        # already blocking on the tablet's own WebSocket thread, so this
+        # is the one thing stopping a SECOND tablet, or a second click
+        # from the same one, from starting an overlapping job.
+        self._ei_active: Optional[str] = None
 
         # M2 build item 5: which bins have ever had a real scale reading
         # applied to Cart. False means still on the M1 mock seed (or a
@@ -748,7 +778,7 @@ class Core:
         """
         return [self._pips_msg(), self._mode_msg(), self._camera_msg(),
                 self._geometry_msg(), self._projector_grid_msg(),
-                self._capture_msg()]
+                self._capture_msg(), self._ei_msg()]
 
     # -- the Live tab's MJPEG source (doc §12.3, §5.4 — M3 build item 3) ----
 
@@ -859,6 +889,15 @@ class Core:
             return
         if t == "capture":
             self._handle_capture(msg)
+            return
+        if t == "ei_link":
+            self._handle_ei_link(msg)
+            return
+        if t == "ei_upload":
+            self._handle_ei_upload(msg)
+            return
+        if t == "ei_download":
+            self._handle_ei_download(msg)
             return
         _log.debug("web: unhandled message type %r from a tablet", t)
 
@@ -1848,6 +1887,195 @@ class Core:
         except OSError:
             _log.exception("core: could not count the captured images")
         return out
+
+    # -- Edge Impulse link/upload/download (doc sections 19.2, 19.5) -------
+
+    def _ei_msg(self) -> Dict[str, Any]:
+        """What the Capture tab's Edge Impulse panel needs on join: whether
+        a project is linked yet, and which one -- `active` lets a tablet
+        that (re)joins mid-upload/mid-download show the right disabled
+        state instead of a stale "idle" one."""
+        project = ei_store.load_project(self._ei_project_path)
+        return {
+            "t": "ei_status",
+            "linked": project is not None,
+            "project_id": project["project_id"] if project else None,
+            "project_name": project["project_name"] if project else None,
+            "active": self._ei_active,
+        }
+
+    def _handle_ei_link(self, msg: Dict[str, Any]) -> None:
+        """Doc section 19.2's project link, done once per fresh clone (or
+        once ever, since the real `hotpot-ingredients` project already
+        exists — see `_handle_ei_link`'s reply message for how to adopt an
+        existing project instead of creating a new one).
+
+        Idempotent: an already-linked project is a no-op reporting the
+        existing link, same contract the ported-from project's
+        `EIController.link()` gives per device_type — here there is only
+        ever the one project. The username/password/TOTP the tablet sends
+        are used for exactly this one login() call and never stored — see
+        `ei_client.py`'s and `ei_store.py`'s module docstrings.
+        """
+        existing = ei_store.load_project(self._ei_project_path)
+        if existing is not None:
+            self.web.broadcast({
+                "t": "ei_link_result", "ok": True, "linked": True,
+                "project_id": existing["project_id"],
+                "project_name": existing["project_name"],
+                "message": f"Already linked to {existing['project_name']!r}."})
+            return
+        if self._ei_active is not None:
+            self.web.broadcast({
+                "t": "ei_link_result", "ok": False,
+                "message": f"a {self._ei_active!r} job is already running"})
+            return
+        username = msg.get("username")
+        password = msg.get("password")
+        if not username or not password:
+            self.web.broadcast({
+                "t": "ei_link_result", "ok": False,
+                "message": "Edge Impulse username and password are required."})
+            return
+        totp = msg.get("totp") or None
+        project_name = msg.get("project_name") or EI_PROJECT_NAME
+
+        self._ei_active = "link"
+        try:
+            jwt = self._ei_client.login(username, password, totp)
+            project_id, api_key = self._ei_client.create_project(jwt, project_name)
+        except ei_client.EITotpRequiredError:
+            self.web.broadcast({
+                "t": "ei_link_result", "ok": False, "totp_required": True,
+                "message": "Edge Impulse needs a two-factor code — enter it "
+                           "and try again."})
+            return
+        except ei_client.EIClientError as e:
+            self.web.broadcast({"t": "ei_link_result", "ok": False,
+                                "message": str(e)})
+            return
+        finally:
+            self._ei_active = None
+
+        ei_store.save_project(self._ei_project_path, project_id, api_key,
+                              project_name)
+        self.web.broadcast({
+            "t": "ei_link_result", "ok": True, "linked": True,
+            "project_id": project_id, "project_name": project_name,
+            "message": (f"Created and linked {project_name!r}. Open it in "
+                        "Edge Impulse Studio to configure the impulse "
+                        "(image input, image DSP block, MobileNetV2 "
+                        "transfer learning — doc §19.2) before the first "
+                        "upload.")})
+
+    def _handle_ei_upload(self, msg: Dict[str, Any]) -> None:
+        """Doc section 19.2's dataset push -- every image under
+        `datasets/captures/<label>/` (doc section 12.7's Capture tab
+        output), sent straight to Edge Impulse's ingestion API with
+        `category="split"` (EI's own auto 80/20, the same split
+        `tools/upload_edgeimpulse.ps1`'s CLI-based path already asks for).
+        Progress is broadcast per batch so the tablet can show a running
+        uploaded/total count, the same shape `capture_progress` gives a
+        multi-shot capture burst.
+        """
+        project = ei_store.load_project(self._ei_project_path)
+        if project is None:
+            self.web.broadcast({
+                "t": "ei_upload_result", "ok": False,
+                "message": "Link to Edge Impulse first."})
+            return
+        if self._ei_active is not None:
+            self.web.broadcast({
+                "t": "ei_upload_result", "ok": False,
+                "message": f"a {self._ei_active!r} job is already running"})
+            return
+
+        def progress(**fields) -> None:
+            self.web.broadcast({"t": "ei_upload_progress", **fields})
+
+        self._ei_active = "upload"
+        try:
+            result = self._ei_client.upload_captures(
+                project["api_key"], CAPTURES_DIR, on_progress=progress)
+        except ei_client.EIClientError as e:
+            self.web.broadcast({"t": "ei_upload_result", "ok": False,
+                                "message": str(e)})
+            return
+        finally:
+            self._ei_active = None
+
+        uploaded_total = sum(result["uploaded"].values())
+        self.web.broadcast({
+            "t": "ei_upload_result", "ok": True,
+            "uploaded": result["uploaded"], "failures": result["failures"],
+            "message": (f"Uploaded {uploaded_total} image(s) to "
+                        f"{project['project_name']!r}."
+                        + (f" {len(result['failures'])} batch(es) failed — "
+                           "local files are untouched, re-run Upload to "
+                           "retry." if result["failures"] else ""))})
+
+    def _handle_ei_download(self, msg: Dict[str, Any]) -> None:
+        """Doc section 19.5's model fetch: build the locked C++ library /
+        EON / int8 deployment (`ei_client.DEPLOY_ENGINE`/`DEPLOY_MODEL_TYPE`
+        -- models/README.md's "hotpot-ingredients" entry) for whatever is
+        currently trained in Studio, then download the ZIP to
+        `models/<project_name>.zip`, overwriting any previous download --
+        same "single current file, nothing versioned locally" convention
+        `models/README.md` already documents by hand.
+
+        Training itself is NOT triggered here — doc section 19.2's transfer
+        learning stays a manual Studio step (module docstrings on why), so
+        this assumes the operator has already clicked Train there. It is
+        just a button, not a poll for "has training finished yet": build
+        job's own wait_for_job() below only waits on the BUILD, which only
+        starts once this is clicked.
+
+        Unzipping the download over `tools/eim_cpp/vendor/` and rebuilding
+        stays a manual step too, same as it already is today — this
+        replaces the "log into Studio, click Deployment, wait, click
+        Download" half of the workflow, not the "unzip and rebuild" half.
+        """
+        project = ei_store.load_project(self._ei_project_path)
+        if project is None:
+            self.web.broadcast({
+                "t": "ei_download_result", "ok": False,
+                "message": "Link to Edge Impulse first."})
+            return
+        if self._ei_active is not None:
+            self.web.broadcast({
+                "t": "ei_download_result", "ok": False,
+                "message": f"a {self._ei_active!r} job is already running"})
+            return
+        api_key, project_id = project["api_key"], project["project_id"]
+
+        def progress(stage: str) -> None:
+            self.web.broadcast({"t": "ei_download_progress", "stage": stage})
+
+        self._ei_active = "download"
+        try:
+            progress("building")
+            job_id = self._ei_client.build_model(api_key, project_id)
+            self._ei_client.wait_for_job(
+                api_key, project_id, job_id,
+                on_poll=lambda: progress("building"))
+
+            progress("downloading")
+            zip_bytes = self._ei_client.download_model(api_key, project_id)
+        except ei_client.EIClientError as e:
+            self.web.broadcast({"t": "ei_download_result", "ok": False,
+                                "message": str(e)})
+            return
+        finally:
+            self._ei_active = None
+
+        dest = self._models_dir / f"{project['project_name']}.zip"
+        atomicio.write_bytes(dest, zip_bytes)
+
+        self.web.broadcast({
+            "t": "ei_download_result", "ok": True, "path": str(dest),
+            "message": (f"Downloaded {dest.name} ({len(zip_bytes)} bytes). "
+                        f"Unzip it over tools/eim_cpp/vendor/ and rebuild "
+                        "(tools/eim_cpp/CMakeLists.txt) to deploy it.")})
 
     def _check_calibration_complete(self) -> None:
         """Doc section 9.1's UNCALIBRATED -> IDLE, taken the moment both
