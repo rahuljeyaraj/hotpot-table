@@ -4007,6 +4007,53 @@ ring draws in one blue — flip to `false` to restore the 8-hue palette,
 `kFireRingColours` is untouched) and the `'f'` all-bins-lit toggle, which
 the developer reported unusable ("the flames are all getting mixed up").
 
+## 2026-08-24 — session notes: display.txt, missing Python deps, rectified-
+## preview distortion diagnosed (not fixed)
+
+**`display.txt` was `0,0`**, landing `of` on the 2560x1440 monitor while the
+stage is 1920x1080 — oF logged its own mismatch warning
+("plates and the keystone quad will NOT line up with the table"). Developer
+confirmed the projector is the LEFT 1920x1080 monitor
+(GLFW origin `(-1920,144)`, logged as `[2]` this boot — index drifts, per
+this doc's own `main.cpp` comment, so always match by physical
+position/resolution, never by index). `display.txt` set to `-1920,144`;
+`run.py --replace` picked it up, framebuffer now matches stage 1:1.
+
+**This machine's active Python (`C:\pio-core\penv`, a PlatformIO venv, not
+a hotpot-specific one) had none of `python/requirements.txt` installed** —
+`camera` crashed in a restart loop on `ModuleNotFoundError: No module
+named 'cv2'`. Installed `websockets`, `pyserial`, `opencv-python-headless`,
+and `mediapipe` (the last isn't in `requirements.txt` at all — tracker's
+`backend_mediapipe.py` imports it lazily and nothing has ever pinned it).
+**`requirements.txt` should probably gain a `mediapipe` line** — flagged,
+not done. Full stack then reached HOTPOT-READY on all six processes.
+
+**Rectified-preview diagonal distortion, reported live in the Setup tab —
+diagnosed, not fixed, per developer's own "next session" call.**
+Screenshot showed visible warping along the diagonal cutting through bins
+2 and 5. `state/homography.json`'s `computed_at` was ~11 minutes old at
+report time — the developer had just confirmed a fresh 4-corner
+calibration — but **the developer confirmed the corners are correctly
+placed on the real table corners**, ruling out a bad drag. Root cause is
+therefore exactly the limitation M4l's own note already named and chose
+to live with: `drawRectifiedPreview` (`index.html`, `warpTriangle`/
+`affineFrom3Points`) is a **2-triangle AFFINE approximation** of a real
+PROJECTIVE transform, exact only at the 4 corners and along the
+near-left↔far-right diagonal it splits on — everywhere else, if the true
+quad has real perspective (this rig's saved corners form a genuine
+trapezoid in raw camera space, consistent with the known 180° mount and a
+non-overhead camera angle), the two triangles disagree, and the
+mismatch is worst right along that diagonal, which is where bins 2/5
+happen to sit. This preview is display-only (Setup/Live/Capture tabs) —
+the classifier's real crop still goes through an actual `cv2.warpPerspective`
+server-side, so this does not affect billing or tracking, only what the
+operator sees while dragging the bin grid.
+**Two candidate fixes discussed, neither built — developer's call for next
+session:** (a) a real perspective warp via CSS `matrix3d` on the `<img>`
+element, hardware-accelerated and exact, no seam at all; (b) a finer
+triangle mesh (more, smaller affine patches) — simpler, still an
+approximation with a fainter seam. Start here.
+
 ## FIXED (2026-08-10) — run.py pidfile race, and Ctrl-C not stopping it
 Two bugs found running M0's acceptance test for real the first time
 (earlier attempts never reached this code path — core kept failing to
