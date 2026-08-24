@@ -80,8 +80,12 @@ public:
 		// No fill, no border. Not an empty bordered box."
 		std::string diet;   // veg|nonveg|egg, or "" for an unresolved bin
 		std::string kcal;   // e.g. "74 kcal / 100g", resolved
-		std::string desc;   // one short sentence, resolved
-		std::string fact;   // one researched sentence about the real ingredient
+		// One sentence on what the ingredient is LIKE, so a diner can
+		// choose it. Never an instruction — the kitchen cooks this food,
+		// not the table. See pricing.Item.description for the full rule.
+		// A second `fact` field carried trivia until 2026-08-24; it is
+		// gone from the wire, not blanked.
+		std::string desc;
 	};
 
 	// doc §4.3's `widgets`, and §9.4's dwell fraction (M5 build item 3).

@@ -172,6 +172,22 @@ private:
 		const ofColor & colour);
 	static void drawGlow(const ofRectangle & r, float cornerRadiusPx,
 		float reachPx, int bands, const ofColor & colour, int peakAlpha);
+	// A horizontal rule that is THICK AT THE CENTRE and tapers to nothing
+	// at both ends, rather than a bar of constant thickness.
+	//
+	// Developer, 2026-08-24, on the flat version that briefly replaced it:
+	// "the previous line in option a was thich at center and tapered
+	// towards the side, no it is a simply a straight line." Built from
+	// vertical slices with a quadratic falloff on BOTH alpha and height —
+	// the same falloff shape drawHalo/drawGlow use, so the rule belongs to
+	// the same family of light as everything else on this table.
+	//
+	// Two passes per rule: a wide, low-alpha bloom in `bloomColour` and a
+	// thin core in `coreColour`. That split is what makes a gold rule
+	// readable on a near-white field at all — see kCartRuleCoreColor.
+	static void drawTaperedRule(float x, float y, float widthPx,
+		float coreThickPx, const ofColor & coreColour, int coreAlpha,
+		float bloomThickPx, const ofColor & bloomColour, int bloomAlpha);
 	void drawHalo(int i) const;
 	void drawWidgets(const StateLink::State & state) const;
 	void drawWidget(const StateLink::Widget & w) const;
@@ -267,6 +283,12 @@ private:
 	// nothing to do with this box.
 	ofTrueTypeFont _infoNameFont;   // 32px, the item's name
 	ofTrueTypeFont _infoFont;       // 20px, info box body
+	// Its own face purely so it can be BIGGER than the body text.
+	// Developer, 2026-08-24: "i think the kcal/100g is too thin to read in
+	// option a implement it." It shared _infoFont until then, so the one
+	// number on the box a diner might weigh a choice against was set at
+	// body size next to a 30px name.
+	ofTrueTypeFont _infoKcalFont;   // info box, the kcal figure
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
 

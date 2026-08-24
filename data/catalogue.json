@@ -1,150 +1,209 @@
 {
-  "schema": 6,
+  "schema": 7,
   "base_currency": "USD",
   "items": [
     {
       "id": "instant_noodle_block",
-      "pricePer100g": 1.50,
-      "names": {"en": "Instant Noodles", "zh": "方便面"},
+      "pricePer100g": 1.5,
+      "names": {
+        "en": "Instant Noodles",
+        "zh": "方便面"
+      },
       "pinyin": "Fāngbiànmiàn",
-      "tags": ["vegetarian", "vegan", "noodle"],
+      "tags": [
+        "vegetarian",
+        "vegan",
+        "noodle"
+      ],
       "class_name": "instant_noodle_block",
       "diet": "veg",
       "kcalPer100g": 450,
-      "description": "Springy fried wheat. Ready in 2 min.",
-      "fact": "Momofuku Ando flash-fried the first instant noodles in 1958, copying his wife's tempura."
+      "description": "Chewy and light. Soaks up more of the broth than any other noodle here."
     },
     {
       "id": "loose_straight_noodles",
-      "pricePer100g": 1.80,
-      "names": {"en": "Wheat Noodles", "zh": "拉面"},
+      "pricePer100g": 1.8,
+      "names": {
+        "en": "Wheat Noodles",
+        "zh": "拉面"
+      },
       "pinyin": "Lāmiàn",
-      "tags": ["vegetarian", "vegan", "noodle"],
+      "tags": [
+        "vegetarian",
+        "vegan",
+        "noodle"
+      ],
       "class_name": "loose_straight_noodles",
       "diet": "veg",
       "kcalPer100g": 280,
-      "description": "Fresh wheat noodles. Soak up broth.",
-      "fact": "Lanzhou lamian is judged by five colours: clear soup, white radish, green herb, red chilli."
+      "description": "Thick and properly chewy. The most filling thing on the table."
     },
     {
       "id": "white_rusk",
-      "pricePer100g": 2.50,
-      "names": {"en": "Fried Tofu Roll", "zh": "响铃卷"},
+      "pricePer100g": 2.5,
+      "names": {
+        "en": "Fried Tofu Roll",
+        "zh": "响铃卷"
+      },
       "pinyin": "Xiǎnglíngjuǎn",
-      "tags": ["vegetarian", "vegan", "tofu"],
+      "tags": [
+        "vegetarian",
+        "vegan",
+        "tofu"
+      ],
       "class_name": "white_rusk",
       "diet": "veg",
       "kcalPer100g": 400,
-      "description": "Crisp beancurd skin. Drinks the soup.",
-      "fact": "Yuba is the skin lifted off simmering soy milk. Its Chinese name means tofu bamboo."
+      "description": "Soft and airy. Drinks up the broth, so it arrives full of flavour."
     },
     {
       "id": "soya_chunks",
-      "pricePer100g": 3.50,
-      "names": {"en": "Fish Balls", "zh": "鱼丸"},
+      "pricePer100g": 3.5,
+      "names": {
+        "en": "Fish Balls",
+        "zh": "鱼丸"
+      },
       "pinyin": "Yúwán",
-      "tags": ["seafood"],
+      "tags": [
+        "seafood"
+      ],
       "class_name": "soya_chunks",
       "diet": "nonveg",
       "kcalPer100g": 117,
-      "description": "Bouncy minced fish. Mild, springy.",
-      "fact": "Fuzhou is China's official Fish Ball City. The classic ones hide a pork filling."
+      "description": "Bouncy and mild. A safe pick if you would rather not chase strong flavours."
     },
     {
       "id": "dried_small_shrimps",
-      "pricePer100g": 4.50,
-      "names": {"en": "Dried Shrimp", "zh": "虾米"},
+      "pricePer100g": 4.5,
+      "names": {
+        "en": "Dried Shrimp",
+        "zh": "虾米"
+      },
       "pinyin": "Xiāmǐ",
-      "tags": ["seafood"],
+      "tags": [
+        "seafood"
+      ],
       "class_name": "dried_small_shrimps",
       "diet": "nonveg",
       "kcalPer100g": 253,
-      "description": "Sun-dried prawns. Deep savoury hit.",
-      "fact": "Drying concentrates the glutamates, which is why one spoonful deepens a whole pot."
+      "description": "Small but intense. Deeply savoury, so a little goes a long way."
     },
     {
       "id": "small_round_rusk",
-      "pricePer100g": 4.00,
-      "names": {"en": "Beef Balls", "zh": "牛肉丸"},
+      "pricePer100g": 4.0,
+      "names": {
+        "en": "Beef Balls",
+        "zh": "牛肉丸"
+      },
       "pinyin": "Niúròuwán",
-      "tags": ["meat"],
+      "tags": [
+        "meat"
+      ],
       "class_name": "small_round_rusk",
       "diet": "nonveg",
       "kcalPer100g": 202,
-      "description": "Hand-beaten beef. Firm, rich bite.",
-      "fact": "Chaoshan beef is beaten with iron rods some 3,000 times. A good ball bounces on the table."
+      "description": "Dense and springy, with a real beefy bite. Filling."
     },
     {
       "id": "chicken_eggs",
-      "pricePer100g": 1.20,
-      "names": {"en": "Egg", "zh": "鸡蛋"},
+      "pricePer100g": 1.2,
+      "names": {
+        "en": "Egg",
+        "zh": "鸡蛋"
+      },
       "pinyin": "Jīdàn",
-      "tags": ["vegetarian", "egg"],
+      "tags": [
+        "vegetarian",
+        "egg"
+      ],
       "class_name": "chicken_eggs",
       "diet": "egg",
       "kcalPer100g": 143,
-      "description": "Whole egg. Poach it in the broth.",
-      "fact": "One of the few foods carrying all nine essential amino acids inside a single shell."
+      "description": "Rich and mild. Cuts through a spicy broth nicely."
     },
     {
       "id": "button_mushrooms",
-      "pricePer100g": 2.20,
-      "names": {"en": "Button Mushrooms", "zh": "口蘑"},
+      "pricePer100g": 2.2,
+      "names": {
+        "en": "Button Mushrooms",
+        "zh": "口蘑"
+      },
       "pinyin": "Kǒumó",
-      "tags": ["vegetarian", "vegan", "mushroom"],
+      "tags": [
+        "vegetarian",
+        "vegan",
+        "mushroom"
+      ],
       "class_name": "button_mushrooms",
       "diet": "veg",
       "kcalPer100g": 22,
-      "description": "Juicy and mild. Lightest in the pot.",
-      "fact": "Grown since the 1600s in the limestone quarries under Paris, hence champignon de Paris."
+      "description": "Earthy and light. By far the lightest thing on the table."
     },
     {
       "id": "dried_mango_strips",
-      "pricePer100g": 5.00,
-      "names": {"en": "Dried Eel Strips", "zh": "鳝鱼条"},
+      "pricePer100g": 5.0,
+      "names": {
+        "en": "Dried Eel Strips",
+        "zh": "鳝鱼条"
+      },
       "pinyin": "Shànyú Tiáo",
-      "tags": ["seafood"],
+      "tags": [
+        "seafood"
+      ],
       "class_name": "dried_mango_strips",
       "diet": "nonveg",
       "kcalPer100g": 300,
-      "description": "Chewy sweet-savoury eel. Big flavour.",
-      "fact": "Japan eats most of its eel on one midsummer day, a stunt dreamed up by an Edo scholar."
+      "description": "Smoky and salty with a firm chew. Strong, so take a little."
     },
     {
       "id": "flat_round_cookies",
-      "pricePer100g": 3.80,
-      "names": {"en": "Shrimp Cake", "zh": "虾饼"},
+      "pricePer100g": 3.8,
+      "names": {
+        "en": "Shrimp Cake",
+        "zh": "虾饼"
+      },
       "pinyin": "Xiābǐng",
-      "tags": ["seafood"],
+      "tags": [
+        "seafood"
+      ],
       "class_name": "flat_round_cookies",
       "diet": "nonveg",
       "kcalPer100g": 101,
-      "description": "Pressed shrimp paste. Sweet, tender.",
-      "fact": "Surimi, washed and minced fish paste, has been made in Japan since at least the 1100s."
+      "description": "Sweet and delicate. Light on the stomach."
     },
     {
       "id": "yellow_rusk",
-      "pricePer100g": 1.00,
-      "names": {"en": "Potato Slices", "zh": "土豆片"},
+      "pricePer100g": 1.0,
+      "names": {
+        "en": "Potato Slices",
+        "zh": "土豆片"
+      },
       "pinyin": "Tǔdòu Piàn",
-      "tags": ["vegetarian", "vegan"],
+      "tags": [
+        "vegetarian",
+        "vegan"
+      ],
       "class_name": "yellow_rusk",
       "diet": "veg",
       "kcalPer100g": 77,
-      "description": "Starchy and quick. Thickens the broth.",
-      "fact": "China grows more potatoes than any other country, roughly a quarter of the world crop."
+      "description": "Soft and starchy. Thickens the broth around it a little."
     },
     {
       "id": "lotus_root_slices",
-      "pricePer100g": 1.40,
-      "names": {"en": "Lotus Root Slices", "zh": "藕片"},
+      "pricePer100g": 1.4,
+      "names": {
+        "en": "Lotus Root Slices",
+        "zh": "藕片"
+      },
       "pinyin": "Ǒupiàn",
-      "tags": ["vegetarian", "vegan"],
+      "tags": [
+        "vegetarian",
+        "vegan"
+      ],
       "class_name": "lotus_root_slices",
       "diet": "veg",
       "kcalPer100g": 74,
-      "description": "Stays crunchy. Give it 3-4 min.",
-      "fact": "The nine-holed kind stays crunchy however long you cook it. The holes carry air down."
+      "description": "Stays crunchy even after cooking. Mild, faintly sweet, never goes soft."
     }
   ]
 }

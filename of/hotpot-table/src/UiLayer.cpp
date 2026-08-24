@@ -265,14 +265,52 @@ namespace {
 	// in a receipt, not a container around it.
 	const ofColor kCartBorderColor(0xC9, 0xC5, 0xBC);    // #C9C5BC
 	const ofColor kCartRowDetailColor(0x6E, 0x6A, 0x62); // #6E6A62
-	// #B8781A — the doc's original "Total value" hex. Deliberately NOT
-	// reusing kPlateRateColor: that constant has already been corrected
-	// twice this session (green, then blue, then orange) chasing how
-	// amber/gold reads on THIS rig's projector, and none of those photos
-	// were of this hex in this position. Keeping the total's colour
-	// independent means a future correction to one does not silently
-	// drag the other along for a reason nobody checked.
-	const ofColor kCartTotalValueColor(0xB8, 0x78, 0x1A);
+
+	// --- the one gold on this table, and why it is not the halo's hex ----
+	// Developer, 2026-08-24: "the total you are showing in gold colour is
+	// coming as red. if you need gold use the bin's hallow's colour."
+	//
+	// The instruction is followed on HUE, which is where the fault was.
+	// #B8781A sits at hue ~35 degrees (orange), and this rig's projector
+	// has now warm-shifted a 35-degree ink into "red" twice — the plate
+	// rate line first, then this. kHaloIdleColor is hue ~55, and these
+	// constants are that same hue, so a warm shift lands them on gold
+	// rather than dragging them into red.
+	//
+	// **It is NOT literally 0xFFEB00, and that is arithmetic, not taste.**
+	// Relative luminance of #FFEB00 is ~0.808 against the table
+	// background's ~0.792 (I9's near-white field, Stage's
+	// kTableBackground) — a contrast ratio of about 1.02. Halo yellow
+	// AS A GLYPH is invisible on this table. It works on a bin because a
+	// halo is light spilling onto the field, not text read against it.
+	//
+	// So: glyphs and rule cores take kGoldInk, a dark ink of the halo's
+	// own hue (contrast ~3.3, which large bold text needs), and the halo's
+	// literal yellow appears where it does work — as the bloom around
+	// them (kGoldBloom). Both unverified on the rig, like every colour in
+	// this file before its first photo.
+	const ofColor kGoldInk(0x8F, 0x7D, 0x00);
+	const ofColor kGoldBloom = kHaloIdleColor;
+	// Was #B8781A (the doc's original "Total value" hex) until 2026-08-24,
+	// when the developer read it on the table: "the total you are showing
+	// in gold colour is coming as red." It is kGoldInk now — see that
+	// constant for why the fix is a hue change and why it is not literally
+	// the halo's own 0xFFEB00. The bloom behind the numeral is.
+	const ofColor kCartTotalValueColor = kGoldInk;
+	// The total's own glow. Deliberately modest: on a near-white field a
+	// yellow bloom does far less than it does on the dark mockup this was
+	// designed against, so it is a lift rather than the mechanism — the
+	// numeral has to read from its own ink alone, and does.
+	const float kTotalGlowReachPx = 22.0f;
+	const int kTotalGlowBands = 8;
+	const int kTotalGlowAlpha = 60;
+
+	// The rule above the total, and the one inside the info box. Both are
+	// tapered bands now (drawTaperedRule), not constant-thickness bars.
+	const float kRuleCoreThickPx = 3.0f;
+	const float kRuleBloomThickPx = 13.0f;
+	const int kRuleCoreAlpha = 210;
+	const int kRuleBloomAlpha = 70;
 	// §3's palette says 26px for both cart-row columns. **Corrected to
 	// 22px, 2026-08-24, from the developer's first look at a filled cart:
 	// "the full name of item is not coming, that is unacceptable."** At
@@ -379,25 +417,34 @@ namespace {
 	// far end of a 1.5m table from the reader.
 	const int kInfoBoxNamePx = 30;
 	const int kInfoBoxTextPx = 19;    // was 24 — "u can reduce the font size"
+	// The kcal figure, deliberately larger than the body text — see
+	// UiLayer.h's _infoKcalFont for the report that moved it.
+	const int kInfoBoxKcalPx = 24;
 	const float kInfoBoxPadXPx = 24.0f;
 	const float kInfoBoxPadYPx = 14.0f;
 	const float kInfoBoxLineGapPx = 6.0f;
-	const float kInfoBoxRulePx = 1.0f;
-	// **Rounded and glowing, not a bordered rectangle.** Developer: "the
-	// info box is shity design, it looks like a stupid text box" and, for
-	// the buttons in the same message, "u need to see that this whole
-	// design is like a fluid, the flames the glowing hallow and so on."
-	// So the box is built out of the same primitive the bin halos are
-	// (`drawRoundedBand`, nested contours with a quadratic alpha falloff)
-	// instead of §3's own 2px hard border — same visual family as the
-	// thing already on the table, rather than a second one.
-	const float kInfoBoxCornerPx = 28.0f;
-	const float kInfoBoxGlowReachPx = 26.0f;
-	const int kInfoBoxGlowBands = 10;
-	const ofColor kInfoBoxFill(0xF7, 0xE4, 0xDC);        // §3 "Info box fill"
-	const ofColor kInfoBoxGlow(0xC7, 0x4A, 0x34);        // §3's fire core
-	const ofColor kInfoBoxTextColor(0x8A, 0x35, 0x24);   // §3 "Info box text"
+	// **No fill, no border, no panel.** The pink-fill + fire-glow rounded
+	// card that lived here until 2026-08-24 is gone: the developer picked
+	// Direction A off the design canvas, which is the text-forward one —
+	// the box is type on the table background, exactly as doc §4 already
+	// requires of the plate ("no fill and no border. Text sits directly on
+	// the table background") and as the cart itself was changed to be
+	// earlier the same day. It is also doc §8's own words for this
+	// element: "Idle: invisible. No fill, no border."
+	//
+	// What groups it instead is the tapered gold rule and the shared left
+	// margin with the cart below it. kInfoBoxFill/kInfoBoxGlow/
+	// kInfoBoxCornerPx and their glow-band counts are deleted outright,
+	// this file's usual rule, rather than left dormant at alpha 0.
+	const ofColor kInfoBoxTextColor(0x4A, 0x42, 0x38);   // the note line
 	const ofColor kInfoBoxNameColor(0x2B, 0x21, 0x18);   // the plate's own ink
+	const ofColor kInfoBoxKcalColor(0x56, 0x4D, 0x3A);
+	// The note wraps to at most this many lines. Three, against content
+	// that measures two — "no text should get truncated" (developer,
+	// 2026-08-24), so the cap is headroom and `wrapToLines`' own ellipsis
+	// must never actually fire. setup() measures the real worst case
+	// against the real face and warns if that stops being true.
+	const int kInfoBoxNoteMaxLines = 3;
 	// The veg/non-veg dot. Green and red are the same two the cart's own
 	// buttons use (kWidgetPrimary/kWidgetDanger) rather than a third
 	// pair — one green and one red on this table, not several. Egg is
@@ -606,15 +653,16 @@ namespace {
 	}
 
 	// The same greedy word-wrap, with a caller-chosen line cap instead of
-	// a hard 2 — the info box's `fact` needs three. Kept separate from
+	// a hard 2 — the info box's note takes three. Kept separate from
 	// wrapNameToTwoLines rather than replacing it, because the two differ
 	// in what they do when they run out of lines: that one dumps every
 	// remaining word onto line 2 (a bin label is short and overflowing is
 	// louder than truncating), this one truncates the last line with an
-	// ellipsis so a long fact cannot run out of its box. Every catalogue
-	// fact fits in 3 lines at kInfoBoxTextPx today (measured, PIL/FreeType
-	// against the real .ttf), so the truncation is a net, not the
-	// mechanism.
+	// ellipsis so a long note cannot run out of its band. Every catalogue
+	// note fits in 2 lines at kInfoBoxTextPx today against a 3-line cap
+	// (measured, PIL/FreeType against the real .ttf), so the truncation
+	// is a net that should never fire, not the mechanism — the developer's
+	// standing rule on this table is "no text should get truncated."
 	std::vector<std::string> wrapToLines(const ofTrueTypeFont & font,
 		const std::string & text, float maxWidthPx, size_t maxLines){
 		std::vector<std::string> lines;
@@ -707,6 +755,7 @@ void UiLayer::setup(){
 	ok = loadUiFont(_cartRowFont, kFontFile, kCartRowPx) && ok;
 	ok = loadUiFont(_infoNameFont, kFontFile, kInfoBoxNamePx) && ok;
 	ok = loadUiFont(_infoFont, kFontFile, kInfoBoxTextPx) && ok;
+	ok = loadUiFont(_infoKcalFont, kFontFile, kInfoBoxKcalPx) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
 	_fontsLoaded = ok;
 	if(!_fontsLoaded){
@@ -776,19 +825,25 @@ void UiLayer::setup(){
 		}
 		// And the info box's own band, for the same reason: its content is
 		// laid out from real font metrics but its height is derived from
-		// constants, so a font change could silently overflow it.
+		// constants, so a font change could silently overflow it. The
+		// shape mirrors drawInfoBox's own steps exactly — name line, the
+		// tapered rule, the diet line, then kInfoBoxNoteMaxLines of note.
+		const float infoBodyLineH = _infoFont.getAscenderHeight()
+			+ fabsf(_infoFont.getDescenderHeight()) + kInfoBoxLineGapPx;
 		const float infoContent = kInfoBoxPadYPx * 2.0f
 			+ _infoNameFont.getAscenderHeight()
 			+ fabsf(_infoNameFont.getDescenderHeight()) + kInfoBoxLineGapPx
-			+ _infoFont.getAscenderHeight()
-			+ fabsf(_infoFont.getDescenderHeight()) + kInfoBoxLineGapPx
-			+ kInfoBoxRulePx + kInfoBoxLineGapPx * 2.0f
-			+ (_infoFont.getAscenderHeight()
-				+ fabsf(_infoFont.getDescenderHeight()) + kInfoBoxLineGapPx) * 4.0f;
+			+ kRuleCoreThickPx + kInfoBoxLineGapPx * 2.0f
+			+ std::max(_infoFont.getAscenderHeight()
+					+ fabsf(_infoFont.getDescenderHeight()),
+				_infoKcalFont.getAscenderHeight()
+					+ fabsf(_infoKcalFont.getDescenderHeight()))
+			+ kInfoBoxLineGapPx * 1.5f
+			+ infoBodyLineH * (float)kInfoBoxNoteMaxLines;
 		if(infoContent > kInfoBoxHeightPx){
-			ofLogWarning(kTag) << "info box content (1 name + 1 detail + 1 desc"
-				<< " + 3 fact lines) measures " << infoContent << "px in a "
-				<< kInfoBoxHeightPx << "px band — it will overflow";
+			ofLogWarning(kTag) << "info box content (name + rule + diet + "
+				<< kInfoBoxNoteMaxLines << " note lines) measures " << infoContent
+				<< "px in a " << kInfoBoxHeightPx << "px band — it will overflow";
 		}
 	}
 
@@ -1009,6 +1064,53 @@ void UiLayer::drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
 	path.rectRounded(outer, rOuter);
 	path.rectRounded(inner, rInner);
 	path.draw();
+}
+
+void UiLayer::drawTaperedRule(float x, float y, float widthPx,
+	float coreThickPx, const ofColor & coreColour, int coreAlpha,
+	float bloomThickPx, const ofColor & bloomColour, int bloomAlpha){
+	// Thick at the centre, tapering to nothing at both ends. See the
+	// declaration in UiLayer.h for the report that asked for this back.
+	//
+	// Sliced vertically rather than drawn as a path, because BOTH the
+	// height and the alpha taper and a filled polygon can only do the
+	// first. `t` runs 0 at the centre to 1 at either end and the falloff
+	// is (1 - t*t) — quadratic, the same shape drawHalo's own bands use,
+	// so this rule and the bin halos are visibly the same kind of light.
+	//
+	// 2px slices: at the cart's 500px width that is 250 quads for the
+	// core and 250 for the bloom, twice per frame. Cheap enough not to
+	// matter, fine enough that no stepping is visible at 1080p.
+	const float kSlicePx = 2.0f;
+	const int slices = std::max(1, (int)ceilf(widthPx / kSlicePx));
+	for(int pass = 0; pass < 2; pass++){
+		const bool bloom = (pass == 0);   // bloom first, core over it
+		const float thick = bloom ? bloomThickPx : coreThickPx;
+		const int peak = bloom ? bloomAlpha : coreAlpha;
+		const ofColor & c = bloom ? bloomColour : coreColour;
+		if(peak <= 0 || thick <= 0.0f){
+			continue;
+		}
+		for(int i = 0; i < slices; i++){
+			const float u = ((float)i + 0.5f) / (float)slices;   // 0..1
+			const float t = fabsf(2.0f * u - 1.0f);              // 0 centre, 1 ends
+			const float taper = 1.0f - t * t;
+			if(taper <= 0.0f){
+				continue;
+			}
+			// The bloom keeps its full height and fades; the core narrows
+			// AND fades, which is what gives the rule its lens shape.
+			const float h = bloom ? thick : std::max(1.0f, thick * taper);
+			const int a = (int)((float)peak * (bloom ? taper * taper : taper));
+			if(a <= 0){
+				continue;
+			}
+			ofSetColor(c, a);
+			ofDrawRectangle(x + (float)i * kSlicePx, y + (coreThickPx - h) * 0.5f,
+				kSlicePx, h);
+		}
+	}
+	ofSetColor(255);
 }
 
 void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
@@ -1370,8 +1472,18 @@ void UiLayer::drawTotal(const StateLink::Total & total, float baselineY) const {
 	std::string text = formatCurrency(_totalAmount.get(), _currencyPrefix, _currencyDecimals);
 	if(_totalNumFont.isLoaded()){
 		ofRectangle bb = _totalNumFont.getStringBoundingBox(text, 0, 0);
+		const float tx = rightX - bb.width - bb.x;
+		// A halo-yellow bloom behind the numeral, then the numeral in
+		// kGoldInk over it — the two halves of "use the bin's halo's
+		// colour" on a surface where the literal hex cannot be read as
+		// text. See kGoldInk for the luminance arithmetic.
+		drawGlow(ofRectangle(tx, baselineY - _totalNumFont.getAscenderHeight(),
+				bb.width, _totalNumFont.getAscenderHeight()
+					+ fabsf(_totalNumFont.getDescenderHeight())),
+			10.0f, kTotalGlowReachPx, kTotalGlowBands, kGoldBloom,
+			kTotalGlowAlpha);
 		ofSetColor(kCartTotalValueColor);
-		_totalNumFont.drawString(text, rightX - bb.width - bb.x, baselineY);
+		_totalNumFont.drawString(text, tx, baselineY);
 	}
 	ofSetColor(255);
 }
@@ -1381,25 +1493,23 @@ void UiLayer::drawInfoBox(const StateLink::State & state) const {
 	// fixed height, does not push the cart down. Idle: invisible. No fill,
 	// no border. Not an empty bordered box."
 	//
-	// **Rebuilt 2026-08-24 from the first rig look.** Developer, verbatim:
-	// "the info box is shity design, it looks like a stupid text box with
-	// the content over lapping, it is not telling the food items name in
-	// it. it is not giving any interesting facts, u can reduce the font
-	// size and improve a well designed box and content, and there is ton
-	// of space above the box and below the logo unused." Four separate
-	// answers, all here:
-	//   - the NAME leads the box (nothing else near the reader says which
-	//     bin this is about);
-	//   - a researched `fact` per item is on the wire now (catalogue
-	//     schema 6) and gets three lines of its own;
-	//   - the band starts at the banner's own top instead of below it, so
-	//     the empty space under the brand mark is used;
-	//   - it is a rounded, glowing shape built from the halo's own
-	//     primitive, not a bordered rectangle.
-	// The overlap was the old 136px band trying to hold a 24px header plus
-	// two 24px description lines with 14px of padding; every line here is
-	// laid out from the last one's own metrics and the total is checked
-	// against the band in setup().
+	// **Direction A, chosen by the developer off the design canvas
+	// 2026-08-24** — the text-forward one, after five directions were put
+	// on a table-simulating canvas together. What that settled, and what
+	// changed here from the rounded pink card this replaced:
+	//   - no fill, no border, no panel: type on the table background, the
+	//     same as the plate labels and the cart (see kInfoBoxTextColor's
+	//     block above);
+	//   - the item's NAME still leads, with kcal RIGHT-ALIGNED on the same
+	//     line and set larger than the body — "i think the kcal/100g is
+	//     too thin to read in option a implement it";
+	//   - one tapered gold rule under that pair, not a constant-thickness
+	//     bar (drawTaperedRule, and the report in its declaration);
+	//   - the trivia line is gone from the wire entirely. What is left is
+	//     one note about what the ingredient is LIKE, because the diner
+	//     picks here and the kitchen cooks — see pricing.Item.description.
+	// Every vertical step is laid out from the previous line's own font
+	// metrics, and setup() measures the total against the band.
 	//
 	// The band is reserved unconditionally by kCartTopPx' own arithmetic,
 	// so "does not push the cart down" is true by construction rather than
@@ -1429,16 +1539,14 @@ void UiLayer::drawInfoBox(const StateLink::State & state) const {
 	const ofRectangle box(cx - kCartWidthPx * 0.5f, kInfoBoxTopPx,
 		kCartWidthPx, kInfoBoxHeightPx);
 
-	// One alpha for the glow, the fill and every glyph — §8 fades the box
-	// as one thing, and staggering them would read as a rendering fault
-	// rather than as a transition.
+	// One alpha for the rule and every glyph — §8 fades the box as one
+	// thing, and staggering them would read as a rendering fault rather
+	// than as a transition. There is no fill or panel to fade any more.
 	const float a01 = ofClamp(fade, 0.0f, 1.0f);
 	const int a = (int)(255.0f * a01);
-	drawGlow(box, kInfoBoxCornerPx, kInfoBoxGlowReachPx, kInfoBoxGlowBands,
-		kInfoBoxGlow, (int)(70.0f * a01));
-	drawRoundedRectFill(box, kInfoBoxCornerPx, ofColor(kInfoBoxFill, a));
 
-	if(!_infoFont.isLoaded() || !_infoNameFont.isLoaded()){
+	if(!_infoFont.isLoaded() || !_infoNameFont.isLoaded()
+		|| !_infoKcalFont.isLoaded()){
 		ofSetColor(255);
 		return;
 	}
@@ -1455,18 +1563,40 @@ void UiLayer::drawInfoBox(const StateLink::State & state) const {
 		+ fabsf(_infoFont.getDescenderHeight()) + kInfoBoxLineGapPx;
 	float y = box.y + kInfoBoxPadYPx;   // the TOP of the next block, never a baseline
 
-	// Line 1 — the item's name, in the plate's own ink so the two read as
-	// the same label seen twice rather than as two different facts.
+	// Line 1 — the item's name, ALONE on its own full-width line, in the
+	// plate's own ink so the two read as the same label seen twice.
+	//
+	// **The chosen mockup put kcal on this line, right-aligned, and it
+	// does not survive the real font.** Measured (PIL/FreeType, the real
+	// .ttf and the real catalogue): the widest name, "Button Mushrooms",
+	// is 320px of the 452px available at 30px — and kcal, once set large
+	// enough to answer "too thin to read", takes 206px of it. No pairing
+	// of readable sizes fits both on one line; at 24px name + 21px kcal
+	// it still overflows. So the number moved down to the diet line,
+	// where it has 104px to spare, rather than the name being shrunk or
+	// clipped to make room. Truncating was not an option — see
+	// kInfoBoxNoteMaxLines.
+	const float nameBaseline = y + _infoNameFont.getAscenderHeight();
 	ofSetColor(kInfoBoxNameColor, a);
-	_infoNameFont.drawString(b.label, leftX, y + _infoNameFont.getAscenderHeight());
+	_infoNameFont.drawString(truncateToWidth(_infoNameFont, b.label, textWidth),
+		leftX, nameBaseline);
 	y += _infoNameFont.getAscenderHeight()
 		+ fabsf(_infoNameFont.getDescenderHeight()) + kInfoBoxLineGapPx;
 
-	// Line 2 — the diet dot and word on the left, kcal right-aligned. The
-	// dot is not decoration and is not alone: it is paired with the word
-	// for the same reason I8 says a state is never carried by colour by
-	// itself, and this is the one line on the table somebody may act on.
-	const float line2Baseline = y + _infoFont.getAscenderHeight();
+	// The rule, tapered — thick at the centre, gone at both ends. Filled
+	// slices, never a stroke: `ofPath::setStrokeWidth()` IS
+	// `ofSetLineWidth()` on this renderer and is driver-capped at 1px
+	// (this file's halo and plate-ring comments both carry the finding).
+	drawTaperedRule(leftX, y, textWidth,
+		kRuleCoreThickPx, kGoldInk, (int)(kRuleCoreAlpha * a01),
+		kRuleBloomThickPx, kGoldBloom, (int)(kRuleBloomAlpha * a01));
+	y += kRuleCoreThickPx + kInfoBoxLineGapPx * 2.0f;
+
+	// The diet dot and word. The dot is not decoration and is never
+	// alone: it is paired with the word for the same reason I8 says a
+	// state is never carried by colour by itself, and this is the one
+	// line on the table somebody may actually act on.
+	const float dietBaseline = y + _infoFont.getAscenderHeight();
 	ofColor dietColour = kInfoDietEggColor;
 	std::string dietWord = "EGG";
 	if(b.diet == "veg"){
@@ -1479,37 +1609,38 @@ void UiLayer::drawInfoBox(const StateLink::State & state) const {
 	}
 	const float dotCx = leftX + kInfoDietDotRadiusPx;
 	ofSetColor(dietColour, a);
-	ofDrawCircle(dotCx, line2Baseline - _infoFont.getAscenderHeight() * 0.35f,
+	ofDrawCircle(dotCx, dietBaseline - _infoFont.getAscenderHeight() * 0.35f,
 		kInfoDietDotRadiusPx);
+	ofSetColor(dietColour, a);
 	_infoFont.drawString(dietWord,
-		dotCx + kInfoDietDotRadiusPx + kInfoDietDotGapPx, line2Baseline);
+		dotCx + kInfoDietDotRadiusPx + kInfoDietDotGapPx, dietBaseline);
 
+	// kcal, right-aligned against the diet mark — the two things a diner
+	// weighs a choice against, on one line. Set larger than the note
+	// below it (kInfoBoxKcalPx): "i think the kcal/100g is too thin to
+	// read in option a implement it." It keeps the diet line's own
+	// baseline rather than getting a line of its own, so the box is still
+	// four lines tall and the band's arithmetic is unchanged.
 	if(!b.kcal.empty()){
-		ofRectangle kb = _infoFont.getStringBoundingBox(b.kcal, 0, 0);
-		ofSetColor(kInfoBoxTextColor, a);
-		_infoFont.drawString(b.kcal, rightX - kb.width - kb.x, line2Baseline);
+		ofRectangle kb = _infoKcalFont.getStringBoundingBox(b.kcal, 0, 0);
+		ofSetColor(kInfoBoxKcalColor, a);
+		_infoKcalFont.drawString(b.kcal, rightX - kb.width - kb.x, dietBaseline);
 	}
-	y += _infoFont.getAscenderHeight() + fabsf(_infoFont.getDescenderHeight())
-		+ kInfoBoxLineGapPx;
+	// The taller of the two faces on this line drives the step, so a
+	// future size change to either cannot silently overlap the note.
+	y += std::max(_infoFont.getAscenderHeight()
+			+ fabsf(_infoFont.getDescenderHeight()),
+		_infoKcalFont.getAscenderHeight()
+			+ fabsf(_infoKcalFont.getDescenderHeight()))
+		+ kInfoBoxLineGapPx * 1.5f;
 
-	// A hairline rule between what the diner may ACT on (diet, kcal) and
-	// what is there to read (the description, the fact). Filled, never a
-	// stroke — see the note where drawRectBorder used to live for why a
-	// stroke width is unusable on this rig.
-	ofSetColor(kInfoBoxGlow, (int)(a * 0.35f));
-	ofDrawRectangle(leftX, y, textWidth, kInfoBoxRulePx);
-	y += kInfoBoxRulePx + kInfoBoxLineGapPx * 1.5f;
-
-	// The description — how to cook it — then the fact, in a lighter ink
-	// so the eye can take the two as separate without a second heading.
+	// The note: what this ingredient is LIKE, so the diner can choose it.
+	// Wrapped, never clipped — "no text should get truncated" — with the
+	// line cap set as headroom over the real worst case rather than as
+	// the mechanism. See kInfoBoxNoteMaxLines.
 	ofSetColor(kInfoBoxTextColor, a);
-	for(const std::string & line : wrapToLines(_infoFont, b.desc, textWidth, 2)){
-		_infoFont.drawString(line, leftX, y + _infoFont.getAscenderHeight());
-		y += bodyLineH;
-	}
-	y += kInfoBoxLineGapPx * 0.5f;
-	ofSetColor(kInfoBoxTextColor, (int)(a * 0.78f));
-	for(const std::string & line : wrapToLines(_infoFont, b.fact, textWidth, 3)){
+	for(const std::string & line
+			: wrapToLines(_infoFont, b.desc, textWidth, kInfoBoxNoteMaxLines)){
 		_infoFont.drawString(line, leftX, y + _infoFont.getAscenderHeight());
 		y += bodyLineH;
 	}
@@ -1598,8 +1729,11 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 			x + kCartWidthPx - kCartPadXPx - detailBb.width - detailBb.x, baselineY);
 	}
 
-	ofSetColor(kCartBorderColor);
-	ofDrawRectangle(x, dividerY, kCartWidthPx, kCartBorderWidthPx);
+	// Tapered, matching the info box's own rule — one kind of divider on
+	// this table, not two. Was a flat grey #C9C5BC bar until 2026-08-24.
+	drawTaperedRule(x + kCartPadXPx, dividerY, kCartWidthPx - 2.0f * kCartPadXPx,
+		kRuleCoreThickPx, kGoldInk, kRuleCoreAlpha,
+		kRuleBloomThickPx, kGoldBloom, kRuleBloomAlpha);
 	drawTotal(state.total, totalBaselineY);
 	ofSetColor(255);
 

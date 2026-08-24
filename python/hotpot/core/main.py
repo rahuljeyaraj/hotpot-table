@@ -2771,11 +2771,16 @@ class Core:
                 pricing.bin_price(shown, item.price_per_100g),
                 self.locale,
             )["amount"]
-            # VISUAL_LAYER.md section 8's info box (build item 10). Three
+            # VISUAL_LAYER.md section 8's info box (build item 10). Two
             # already-resolved strings and one number, same rule as `label`
             # and `sub` above — oF looks nothing up (I2) and formats no
             # unit: "kcal" is a word, and the day a locale needs a
             # different one it changes here, not in C++.
+            #
+            # `fact` was a third string until 2026-08-24 and is gone, not
+            # blanked: the developer read both lines on the table and cut
+            # the trivia one outright. `desc` is the survivor and it
+            # changed meaning at the same time — see `Item.description`.
             #
             # Sent on EVERY bin, not only the hovered one. The bin the box
             # is about is `hl == "hover"`, which is already on this same
@@ -2788,7 +2793,6 @@ class Core:
                 "kcal": f"{round(item.kcal_per_100g)} "
                         f"{self.locales.translate('kcal_per_100g', self.locale)}",
                 "desc": item.description,
-                "fact": item.fact,
             }
         else:
             label, sub, price = "", "", 0.0
@@ -2797,7 +2801,7 @@ class Core:
             # box at all for this (UiLayer::drawInfoBox), which is doc
             # section 8's "Idle: invisible. No fill, no border. Not an
             # empty bordered box."
-            info = {"diet": "", "kcal": "", "desc": "", "fact": ""}
+            info = {"diet": "", "kcal": "", "desc": ""}
         # Doc section 5.3: "core pushes … stage-space rects to oF" — from
         # `self.projector_grid` (M4n), never `self.camera_grid`: that one
         # feeds the classifier and core's own hand hit test, and the two

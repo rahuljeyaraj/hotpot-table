@@ -30,9 +30,14 @@ log = logging.getLogger("hotpot.pricing")
 # 4 -> 5, 2026-08-24: every item gained `diet`/`kcalPer100g`/`description`
 # for VISUAL_LAYER.md section 8's info box. 5 -> 6, same day: `fact`, after
 # the developer saw the box on the table — "it is not giving any
-# interesting facts." Bumped both times because the file's shape changed,
-# this repo's standing practice on any catalogue change.
-CATALOGUE_SCHEMA = 6
+# interesting facts." 6 -> 7, same day: `fact` REMOVED again and
+# `description` rewritten, after the developer read what both fields
+# actually said on the table — "remove the interesting fact about food,
+# and give better guidance to the diner on the ingredient." One line per
+# item now, not two, and it is about choosing rather than about trivia
+# or cooking. See `Item.description`. Bumped every time because the
+# file's shape changed, this repo's standing practice.
+CATALOGUE_SCHEMA = 7
 
 # The three answers `Item.diet` may hold. Three rather than two: an egg is
 # neither veg nor non-veg in most of the world this table is aimed at, and
@@ -95,17 +100,28 @@ class Item:
     # names, not a lab measurement of what is in the bin — see
     # data/catalogue.json's own entries and CLAUDE.md for the sourcing.
     #
-    # `fact` is one researched sentence about the REAL ingredient — where
-    # it comes from, how it is made, why it behaves the way it does. Same
-    # basis as `kcal_per_100g`: published, approximate, about the food the
-    # plate NAMES rather than the substitute prop in the bin
-    # (docs/INGREDIENT_SUBSTITUTES.md). It is the one line on the info box
-    # a diner reads for pleasure rather than for information, which is
-    # exactly why it is data and not something oF composes.
+    # `description` is one sentence answering the only question a diner
+    # has standing at the bin with tongs in hand: what is this like, and
+    # do I want it? Texture first, then how strong the flavour is.
+    #
+    # **It is never an instruction, and that is a fact about this
+    # restaurant, not a style rule.** The kitchen cooks these ingredients;
+    # the diner only chooses them. An earlier version of this field
+    # carried cook times and doneness cues ("simmer 4-5 min, ready when
+    # they float"), which described a table nobody is sitting at — the
+    # developer caught it on sight. Anything phrased as something to DO
+    # is wrong here by construction.
+    #
+    # Same sourcing basis as `kcal_per_100g`: about the food the plate
+    # NAMES, not the substitute prop actually in the bin
+    # (docs/INGREDIENT_SUBSTITUTES.md).
+    #
+    # ASCII only. UiLayer loads its faces with Latin1Supplement +
+    # CurrencySymbols; an em-dash is General Punctuation and silently
+    # does not render on the table.
     diet: str = ""
     kcal_per_100g: float = 0.0
     description: str = ""
-    fact: str = ""
 
     def display_name(self, locale: Optional[str] = None) -> str:
         """The label the table prints. **Cannot return `id` or
@@ -190,13 +206,11 @@ class Catalogue:
                     f"diner may act on, so it is never guessed or derived "
                     f"from `tags`.")
             if ("kcalPer100g" not in it
-                    or not str(it.get("description", "")).strip()
-                    or not str(it.get("fact", "")).strip()):
+                    or not str(it.get("description", "")).strip()):
                 raise ValueError(
-                    f"{path}: item {it['id']!r} needs kcalPer100g, a "
-                    f"description and a fact — VISUAL_LAYER.md section 8's "
-                    f"info box shows all three, and a blank one reads as a "
-                    f"broken table.")
+                    f"{path}: item {it['id']!r} needs kcalPer100g and a "
+                    f"description — VISUAL_LAYER.md section 8's info box "
+                    f"shows both, and a blank one reads as a broken table.")
             items.append(Item(
                 id=it["id"],
                 price_per_100g=float(it["pricePer100g"]),
@@ -207,7 +221,6 @@ class Catalogue:
                 diet=diet,
                 kcal_per_100g=float(it["kcalPer100g"]),
                 description=str(it["description"]).strip(),
-                fact=str(it["fact"]).strip(),
             ))
         return cls(items)
 
