@@ -521,20 +521,32 @@ OPTION_GAP_PX = 16.0
 # the same point `kInfoBoxTopPx` marks in oF, i.e. immediately below the
 # brand mark, which is exactly the space broth cards now reclaim from the
 # (no longer drawn, on this screen) shared info box.
-_BRAND_TOP_MARGIN_PX = 12.0    # UiLayer kBrandTopMarginPx
+_BRAND_TOP_MARGIN_PX = 20.0    # UiLayer kBrandTopMarginPx
 _BRAND_HEIGHT_PX = 170.0       # UiLayer kBrandHeightPx
-_BRAND_BANNER_GAP_PX = 14.0    # UiLayer kBrandBannerGapPx
+_BRAND_BANNER_GAP_PX = 26.0    # UiLayer kBrandBannerGapPx
 _INFO_BOX_TOP_PX = (_BRAND_TOP_MARGIN_PX + _BRAND_HEIGHT_PX
                     + _BRAND_BANNER_GAP_PX)
 # The page header's height (title + step dots) is measured at RUNTIME from
 # the loaded font in oF (`UiLayer::_pageHeaderPx`) — this module has no font
-# metrics to measure it with. 72px is a rounded-up safety margin over the
-# 68.35px this exact title/font combination measured on a real boot
-# (2026-08-25 session log); a few px of slack costs nothing here since
-# `broth_card_rects` is bottom-anchored at `OPTIONS_BOTTOM_PX` regardless —
-# guessing a little short only trims a little height off the top of every
-# card, it can never push one into the header or the button row.
-_PAGE_HEADER_PX_ESTIMATE = 72.0
+# metrics to measure it with. 82px is a rounded-up safety margin over the
+# 73.70px this title/font/gap combination measured on a real boot
+# (2026-08-25 session log, after the header's breathing-room pass).
+#
+# **Guessing SHORT is not free after all, 2026-08-25.** The comment here
+# used to say a few px of slack costs nothing because the cards are
+# bottom-anchored — that is true of the cards' height but not of their
+# TOP, and when the header grew (kBrandTopMarginPx/kBrandBannerGapPx/
+# kStepDotsRowGapPx all went up) this estimate stayed at 72 and the step
+# dots ended up drawn on top of the first card. Developer, photographed on
+# the rig: "now the 5 dots are on top of the first box, u need to make the
+# boxes smaller to give better breathing space at the top." Every one of
+# these four numbers mirrors a UiLayer constant, so all four move together
+# or this happens again.
+_PAGE_HEADER_PX_ESTIMATE = 82.0
+# Visible air between the step dots and the first card, on top of the
+# header's own measured height. Same instruction as above: the dots
+# clearing the card by a hairline is not "breathing space".
+_HEADER_CLEARANCE_PX = 14.0
 
 # The shortest a broth card can be and still hold its own content: one
 # name line plus one diet/meta line (`UiLayer::drawOptionPlate`'s
@@ -560,7 +572,7 @@ def broth_card_rects(count: int) -> List[Rect]:
     """
     if count <= 0:
         return []
-    top = _INFO_BOX_TOP_PX + _PAGE_HEADER_PX_ESTIMATE
+    top = _INFO_BOX_TOP_PX + _PAGE_HEADER_PX_ESTIMATE + _HEADER_CLEARANCE_PX
     bottom = OPTIONS_BOTTOM_PX
     band_h = bottom - top
     total_gap = OPTION_GAP_PX * (count - 1)

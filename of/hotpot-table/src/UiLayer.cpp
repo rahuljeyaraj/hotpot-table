@@ -882,11 +882,14 @@ namespace {
 	// one mechanism.
 	const ofColor kOptionSweepEdgeColor(200, 120, 0);
 	const float kOptionSweepEdgePx = 4.0f;
-	// How long a full sweep is held after `dwell` drops — the anti-flicker
-	// latch, see `sweep01For`. A quarter second is far longer than the
-	// one-or-two-frame gap it exists to cover and far shorter than a diner
-	// can move a hand off a control and back onto it.
-	const float kSweepHoldS = 0.25f;
+	// The sweep's own fall clock — see `sweep01For`. The sweep rises with
+	// the wire value but falls only on this renderer's time: nothing for
+	// `kSweepFallDelayS` (long enough to swallow a tracker dropout or a
+	// state-message gap, short enough that a diner who moved off does not
+	// think the table is still counting), then an ease to the new value
+	// over `kSweepFallS` rather than a jump.
+	const float kSweepFallDelayS = 0.30f;
+	const float kSweepFallS = 0.22f;
 	// **Broth and spice share one card shape now, 2026-08-25, later
 	// still.** The chili-strip cell (a separate, narrower layout) is gone
 	// with the vertical-slider redesign it belonged to — see
@@ -2594,13 +2597,9 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	const float corner = std::min(kWidgetCornerPx,
 		std::min(box.width, box.height) * 0.5f);
 	const bool primary = w.enabled && w.style == "primary";
-	const int glowPeak = primary ? kWidgetPrimaryGlowAlpha : kWidgetGlowAlpha;
 	const int fillPeak = primary ? kWidgetPrimaryFillAlpha : kWidgetFillAlpha;
 
-	if(glow01 > 0.0f){
-		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands,
-			glowTint(ink), (int)(glowPeak * glow01));
-	}
+	// The halo is `drawWidgets`' first pass — see there.
 	drawRoundedRectFill(box, corner,
 		ofColor(ink, w.enabled ? (int)(fillPeak * (0.55f + 0.45f * glow01))
 			: kWidgetFillAlpha / 2));
@@ -2689,11 +2688,9 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	// branch — and only the GLOW reaches for `kWidgetPrimary`, so a
 	// locked-in choice reads as "this one is glowing teal" rather than
 	// "this whole card turned blue."
-	const ofColor haloInk = sel ? kWidgetPrimary : ink;
-	if(glow01 > 0.0f){
-		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands, glowTint(haloInk),
-			(int)((sel ? kOptionSelectedGlowAlpha : kWidgetGlowAlpha) * glow01));
-	}
+	// The halo itself is drawn in `drawWidgets`' FIRST pass, not here —
+	// see that function's own comment on why every glow has to land under
+	// every card rather than over the neighbouring ones.
 	drawRoundedRectFill(box, corner,
 		ofColor(ink, w.enabled
 			? (int)(kWidgetFillAlpha * (0.55f + 0.45f * glow01))
@@ -2910,37 +2907,55 @@ float UiLayer::sweep01For(const StateLink::Widget & w) const {
 	// finished and stayed. That is what makes a full-dark card the
 	// READABLE state rather than the unreadable one.
 	//
-	// **The latch is the flicker fix, 2026-08-25.** Developer: "there is a
-	// flickering sometimes in the button selection, it will fill black and
-	// suddenly it flicker white before tuning black." Core clears `dwell`
-	// on the tick a choice fires, but `selected` only reaches oF on the
-	// NEXT state it sends — so for a frame or two the widget reports dwell
-	// 0 AND selected false, and the sweep collapsed to nothing before
-	// coming straight back. Rather than have oF guess at core's timing (or
-	// have core send a field for it), a widget whose sweep reaches full is
-	// held full for `kSweepHoldS`, which comfortably outlasts one state
-	// round-trip at any frame rate the table runs at. If the choice really
-	// was abandoned at 99% the hold simply expires and the sweep clears.
+	// **The sweep is TIED TO TIME, 2026-08-25 (second attempt).**
+	// Developer, after a 250ms hold-at-full latch did not fix it: "the
+	// flicker still comes. tie to time." The first attempt only covered
+	// one cause — core clearing `dwell` a tick before it sends `selected`
+	// — and missed the commoner one: the tracker drops the hand for a
+	// frame or two mid-dwell, core sees no hover, and `dwell` arrives as
+	// 0 in the middle of a fill. Either way the wire value falls off a
+	// cliff and the sweep snapped white with it.
+	//
+	// So oF no longer renders the wire value directly. It renders its own
+	// per-widget value that RISES instantly (progress must feel immediate
+	// under the hand) but can only FALL on this renderer's own clock:
+	// nothing happens for `kSweepFallDelayS`, which outlasts any dropout
+	// or state-message gap, and only then does it ease to the new target
+	// over `kSweepFallS`. A genuinely abandoned dwell still clears — it
+	// just takes a fifth of a second and slides instead of blinking.
+	//
+	// This does not make oF time the DWELL (doc §9.4 — core still owns
+	// that, and `w.dwell` is still the only input). It times the
+	// animation of a value core already decided, which is the same thing
+	// `BinTween` has always done for the bins.
 	if(!w.enabled){
+		_sweepAnim.erase(w.id);
 		return 0.0f;
 	}
-	if(w.selected){
-		return 1.0f;
-	}
-	const float raw = ofClamp(w.dwell, 0.0f, 1.0f);
+	const float target = w.selected ? 1.0f : ofClamp(w.dwell, 0.0f, 1.0f);
 	const float now = ofGetElapsedTimef();
-	if(raw >= 0.995f){
-		_sweepHoldUntil[w.id] = now + kSweepHoldS;
-		return 1.0f;
+	SweepAnim & a = _sweepAnim[w.id];
+	if(a.t0 <= 0.0f){                 // first sight of this widget
+		a.value = target;
+		a.fallFrom = target;
+		a.t0 = now;
+		return a.value;
 	}
-	const auto it = _sweepHoldUntil.find(w.id);
-	if(it != _sweepHoldUntil.end()){
-		if(now < it->second){
-			return 1.0f;
-		}
-		_sweepHoldUntil.erase(it);
+	if(target >= a.value){
+		a.value = target;
+		a.fallFrom = target;
+		a.t0 = now;                   // resets the fall clock on any rise
+		return a.value;
 	}
-	return raw;
+	// Falling. `t0` is when the value last rose, so this is how long the
+	// target has been below it.
+	const float held = now - a.t0;
+	if(held < kSweepFallDelayS){
+		return a.value;               // the dropout window — hold, do not blink
+	}
+	const float k = ofClamp((held - kSweepFallDelayS) / kSweepFallS, 0.0f, 1.0f);
+	a.value = ofLerp(a.fallFrom, target, k);
+	return a.value;
 }
 
 void UiLayer::drawSweep(const ofRectangle & box, float corner, float sweep01){
@@ -2950,12 +2965,21 @@ void UiLayer::drawSweep(const ofRectangle & box, float corner, float sweep01){
 		// a rounded rect of the SAME corner radius and then squaring off its
 		// right edge with a plain rect — an intersection would need a
 		// stencil, and the sweep's right edge is a straight cut by design.
+		//
+		// **The squaring rect spans the FULL height**, 2026-08-25.
+		// Developer: "the black infill progress has a rounded edges instead
+		// of a straignt line." It was inset by `corner` top and bottom,
+		// which squared the middle of the leading edge and left the sweep's
+		// own top-right and bottom-right corners still curved — so a
+		// half-filled card read as a black lozenge sliding across rather
+		// than as a bar filling. Only the LEFT corners should ever be
+		// round, and those come from the rounded rect underneath.
 		drawRoundedRectFill(ofRectangle(box.x, box.y, sweepW, box.height),
 			corner, kOptionSweepColor);
 		if(sweepW > corner){
 			ofSetColor(kOptionSweepColor);
-			ofDrawRectangle(box.x + sweepW - corner, box.y + corner,
-				corner, box.height - 2.0f * corner);
+			ofDrawRectangle(box.x + sweepW - corner, box.y,
+				corner, box.height);
 		}
 	}
 	// The leading edge, in the dwell amber — so "how far along am I" is
@@ -2972,9 +2996,63 @@ void UiLayer::drawSweep(const ofRectangle & box, float corner, float sweep01){
 }
 
 void UiLayer::drawWidgets(const StateLink::State & state) const {
+	// **Two passes: every halo first, then every widget, 2026-08-25.**
+	// Developer: "hallo of any button should not come over any other
+	// button selected on not." A halo reaches `kWidgetGlowReachPx` past
+	// its own frame, which on the stacked option cards is far enough to
+	// land on the neighbour above and below — and drawn in one pass, card
+	// N's halo painted OVER card N-1's fill and text, so a selected card
+	// smeared teal across the card next to it.
+	//
+	// Splitting the loop fixes it without shrinking the reach, which is
+	// the reason the glow reads from three metres at all: the halos still
+	// spill exactly as far, they just all land underneath every card
+	// instead of on top of some of them. Between the cards — the gap the
+	// glow is actually for — nothing changes.
+	for(const StateLink::Widget & w : state.widgets){
+		drawWidgetGlow(w);
+	}
 	for(const StateLink::Widget & w : state.widgets){
 		drawWidget(w);
 	}
+}
+
+void UiLayer::drawWidgetGlow(const StateLink::Widget & w) const {
+	// Pass one of `drawWidgets` — see its own comment. Deliberately
+	// recomputes `ink`/`glow01`/`corner` the same way `drawWidget` does
+	// rather than caching them across the two loops: they are three cheap
+	// expressions off the widget, and a cache would be a second place
+	// that has to agree with `drawWidget` about what a widget looks like.
+	if(!w.enabled){
+		return;
+	}
+	const float glow01 = (w.hover || w.selected) ? 1.0f
+		: breath(kWidgetBreathFloor);
+	if(glow01 <= 0.0f){
+		return;
+	}
+	const ofRectangle box(w.x, w.y, w.w, w.h);
+	const float corner = std::min(kWidgetCornerPx,
+		std::min(box.width, box.height) * 0.5f);
+	if(w.kind == "option"){
+		// The option plates' own rule: only the GLOW carries selection, and
+		// it carries it in the accent hue — see `drawOptionPlate`.
+		const bool sel = w.selected;
+		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands,
+			glowTint(sel ? kWidgetPrimary : kInkColor),
+			(int)((sel ? kOptionSelectedGlowAlpha : kWidgetGlowAlpha) * glow01));
+		return;
+	}
+	ofColor ink = kWidgetSecondary;
+	if(w.style == "primary"){
+		ink = kWidgetPrimary;
+	}
+	else if(w.style == "danger"){
+		ink = kWidgetDanger;
+	}
+	const bool primary = w.style == "primary";
+	drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands, glowTint(ink),
+		(int)((primary ? kWidgetPrimaryGlowAlpha : kWidgetGlowAlpha) * glow01));
 }
 
 void UiLayer::drawCheckout(const StateLink::State & state) const {

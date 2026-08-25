@@ -187,6 +187,10 @@ private:
 	static float breath(float floor01, float phase = 0.0f);
 	void drawHalo(int i) const;
 	void drawWidgets(const StateLink::State & state) const;
+	// Pass one of `drawWidgets`: this widget's halo and nothing else, so
+	// that every halo lands under every widget rather than over its
+	// neighbours. `drawWidget` draws everything except the halo.
+	void drawWidgetGlow(const StateLink::Widget & w) const;
 	void drawWidget(const StateLink::Widget & w) const;
 	// An `option` widget — a broth or a spice plate. Split out of
 	// drawWidget because the two shapes share only their frame: a button
@@ -348,15 +352,19 @@ private:
 	// the warning is one line per name rather than one per frame at 60Hz.
 	// Mutable because drawCart is const and this is diagnostics, not state.
 	mutable std::set<std::string> _truncatedNames;
-	// **The anti-flicker latch** (see `sweep01For`). Widget id -> the
-	// elapsed time until which that widget's sweep is pinned full. Core
-	// clears `dwell` on the tick a choice fires and only marks `selected`
-	// on the NEXT state it sends, so for one or two frames a widget that
-	// just filled reports dwell 0 and selected false — which flashed the
-	// card back to white before it settled black. Cleared lazily: an entry
-	// is only read for a widget that is on screen, and the map is a
-	// handful of ids.
-	mutable std::map<std::string, float> _sweepHoldUntil;
+	// **The time-driven dwell sweep** (see `sweep01For`). One entry per
+	// widget id: `value` is what actually draws, `fallFrom` is where a
+	// fall started, and `t0` is when the value last ROSE — which is what
+	// the fall delay is measured against. `t0 <= 0` marks a fresh entry,
+	// so the first frame a widget is seen snaps to its wire value rather
+	// than animating up from nothing. The map holds a handful of ids and
+	// an entry is dropped as soon as its widget goes disabled.
+	struct SweepAnim {
+		float value = 0.0f;
+		float fallFrom = 0.0f;
+		float t0 = 0.0f;
+	};
+	mutable std::map<std::string, SweepAnim> _sweepAnim;
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
 
