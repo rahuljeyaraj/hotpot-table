@@ -194,6 +194,14 @@ private:
 	// `if(kind == "option")` branches interleaved through it.
 	void drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		float glow01) const;
+	// One string in two inks, split at `splitX` — the dwell sweep's
+	// leading edge. Everything left of the edge lands on the swept dark
+	// band and is drawn in `lit`; everything right of it stays `dark` on
+	// the plain card. See the definition for why it overdraws rather than
+	// drawing two substrings.
+	static void drawStringLitTo(const ofTrueTypeFont & f, const std::string & s,
+		float x, float baseline, float splitX, const ofColor & dark,
+		const ofColor & lit);
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
 	// VISUAL_LAYER.md §8/§9 build item 9: the running total now draws as
 	// one receipt-style line (label left, value right) inside the cart

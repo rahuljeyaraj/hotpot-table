@@ -837,9 +837,34 @@ namespace {
 	// ONLY the glow with `kWidgetPrimary` on selection — the fill, the
 	// ring and the name ink all stay the plate's ordinary neutral colour
 	// whether it is selected or not.
-	const int kOptionSelectedFillAlpha = 140;
 	const int kOptionSelectedGlowAlpha = 210;
 	const float kOptionSelectedRingMM = 9.0f;
+
+	// **The dwell sweep, and the inverted ink behind it, 2026-08-25
+	// (final).** The 140/255 selected fill this block used to define was
+	// photographed on the rig and rejected: "the selected button is now
+	// almost blacked out with very little readability." The fix the
+	// developer chose is not a lighter fill but a darker one that BRINGS
+	// THE TEXT WITH IT — "as that shade comes up the text in the darker
+	// area gets colour inverted. so the progress will be actuall usefull."
+	//
+	// So the sweep is near-solid (235, not 140 — the residue of the card's
+	// own fill underneath keeps it from reading as a printed black box on
+	// a projected surface) and `drawStringLitTo` redraws every string in
+	// the lit inks up to the sweep's edge. Those inks are off-white rather
+	// than #FFFFFF for the same reason the table ground is #E8E6E1 and not
+	// white: a pure-white glyph on a projector blooms into its own
+	// neighbours. The note ink stays a step below the name ink, preserving
+	// exactly the hierarchy `kInfoBoxNameColor`/`kInfoBoxTextColor` set on
+	// the light side.
+	const ofColor kOptionSweepColor(20, 20, 20, 235);
+	const ofColor kOptionNameLitColor(0xFB, 0xF9, 0xF5);
+	const ofColor kOptionNoteLitColor(0xDC, 0xD6, 0xCC);
+	// The moving edge, in the same amber `kWidgetDwellFill` uses on the
+	// plain buttons, so a filling card and a filling button still read as
+	// one mechanism.
+	const ofColor kOptionSweepEdgeColor(200, 120, 0);
+	const float kOptionSweepEdgePx = 4.0f;
 	// **Broth and spice share one card shape now, 2026-08-25, later
 	// still.** The chili-strip cell (a separate, narrower layout) is gone
 	// with the vertical-slider redesign it belonged to — see
@@ -2630,22 +2655,52 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands, glowTint(haloInk),
 			(int)((sel ? kOptionSelectedGlowAlpha : kWidgetGlowAlpha) * glow01));
 	}
-	// A selected plate is FILLED, not merely outlined. Developer,
-	// 2026-08-25: "when the progress fills the the selection is locked
-	// even without hover." A lock has to be readable across the table
-	// with no hand near it, and a slightly brighter outline is not.
 	drawRoundedRectFill(box, corner,
 		ofColor(ink, w.enabled
-			? (int)((sel ? kOptionSelectedFillAlpha : kWidgetFillAlpha)
-				* (0.55f + 0.45f * glow01))
+			? (int)(kWidgetFillAlpha * (0.55f + 0.45f * glow01))
 			: kWidgetFillAlpha / 2));
 
-	if(w.enabled && w.dwell > 0.0f){
-		const float fillW = box.width * ofClamp(w.dwell, 0.0f, 1.0f);
-		if(fillW > 1.0f){
-			drawRoundedRectFill(ofRectangle(box.x, box.y, fillW, box.height),
-				corner, kWidgetDwellFill);
+	// **The dwell sweep INVERTS the text it crosses, 2026-08-25 (final).**
+	// Developer: "when we hover we load a darker shade right. so as that
+	// shade comes up the text in the darker area gets colour inverted. so
+	// the progress will be actuall usefull." The previous pass filled a
+	// selected card with ink at 140/255 and left the text at its dark
+	// inks, which on the projector read as a black hole with the words
+	// dissolved inside it (photographed on the rig). Now the sweep goes
+	// nearly SOLID and the text comes with it: everything left of the
+	// leading edge is redrawn in the lit inks below, so contrast is
+	// preserved the whole way across instead of collapsing at the end.
+	//
+	// `sweep01` is the diner's dwell while they are hovering, and pinned
+	// to 1 once the choice is locked — a locked card is simply a card
+	// whose sweep finished and stayed. That is what makes a full-dark
+	// card the READABLE state rather than the unreadable one.
+	const float sweep01 = w.enabled
+		? (sel ? 1.0f : ofClamp(w.dwell, 0.0f, 1.0f)) : 0.0f;
+	const float sweepW = box.width * sweep01;
+	if(sweepW > 1.0f){
+		// Clipped to the card's own rounded rect by drawing the sweep as a
+		// rounded rect of the SAME corner radius and then squaring off its
+		// right edge with a plain rect — an intersection would need a
+		// stencil, and the sweep's right edge is a straight cut by design.
+		drawRoundedRectFill(ofRectangle(box.x, box.y, sweepW, box.height),
+			corner, kOptionSweepColor);
+		if(sweepW > corner){
+			ofSetColor(kOptionSweepColor);
+			ofDrawRectangle(box.x + sweepW - corner, box.y + corner,
+				corner, box.height - 2.0f * corner);
 		}
+	}
+	// The leading edge, in the dwell amber — so "how far along am I" is
+	// legible even where the sweep happens to be crossing blank card
+	// rather than a letter. Drawn only while the sweep is actually
+	// moving: at rest (0) and at lock (1) there is no progress to report,
+	// and a stray amber bar down a locked card's right edge would read as
+	// a second, unexplained state.
+	if(sweep01 > 0.01f && sweep01 < 0.99f){
+		ofSetColor(kOptionSweepEdgeColor);
+		ofDrawRectangle(box.x + sweepW - kOptionSweepEdgePx, box.y,
+			kOptionSweepEdgePx, box.height);
 	}
 
 	// The border THICKNESS is the other half of the selection signal —
@@ -2715,16 +2770,28 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		}
 	}
 	// The name's own ink no longer switches on `sel` either — see this
-	// function's own comment on `haloInk` above.
-	ofSetColor(w.enabled ? kInfoBoxNameColor : kWidgetDisabled);
-	nameFace.drawString(name, leftX, nameBaseline);
+	// function's own comment on `haloInk` above. What it DOES switch on is
+	// the sweep: `splitX` is the leading edge, and every string below is
+	// drawn dark first and then overdrawn in its lit ink up to that edge.
+	const float splitX = box.x + sweepW;
+	drawStringLitTo(nameFace, name, leftX, nameBaseline, splitX,
+		w.enabled ? kInfoBoxNameColor : kWidgetDisabled, kOptionNameLitColor);
 	y += nameFace.getAscenderHeight() + fabsf(nameFace.getDescenderHeight())
 		+ kInfoBoxLineGapPx;
 
 	// Diet dot + word — the exact pair `drawInfoBox` draws and the exact
 	// reason (I8: never a state by colour alone).
-	const float dietBaseline = y + _infoFont.getAscenderHeight();
+	//
+	// **The row's HEIGHT is only reserved when there is a row**, since
+	// 2026-08-25. Developer: "in spicy there is a huge gap between the
+	// heading and info which is filled as veg non veg in the broth boxes.
+	// i guess that space is unnatural in spice boxes." A spice level has
+	// no diet (`hover.spice_widgets` sends `diet: ""` — a heat level is
+	// not food), so the advance below used to open a blank band on every
+	// spice card where a broth card carries VEG/NON-VEG. The `y +=` moved
+	// inside the branch; nothing about the broth cards changes.
 	if(!w.diet.empty()){
+		const float dietBaseline = y + _infoFont.getAscenderHeight();
 		ofColor dietColour = kInfoDietEggColor;
 		std::string dietWord = "EGG";
 		if(w.diet == "veg"){
@@ -2736,31 +2803,77 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 			dietWord = "NON-VEG";
 		}
 		const float dotCx = leftX + kInfoDietDotRadiusPx;
+		// The dot keeps its own hue through the sweep — it is the one mark
+		// on the card that carries meaning BY colour, so inverting it
+		// would be inverting the information. It sits on near-black rather
+		// than near-white behind the edge, which all three diet hues have
+		// enough chroma to survive.
 		ofSetColor(dietColour);
 		ofDrawCircle(dotCx, dietBaseline - _infoFont.getAscenderHeight() * 0.35f,
 			kInfoDietDotRadiusPx);
-		_infoFont.drawString(dietWord,
-			dotCx + kInfoDietDotRadiusPx + kInfoDietDotGapPx, dietBaseline);
+		drawStringLitTo(_infoFont, dietWord,
+			dotCx + kInfoDietDotRadiusPx + kInfoDietDotGapPx, dietBaseline,
+			splitX, dietColour, kOptionNameLitColor);
+		y += _infoFont.getAscenderHeight() + fabsf(_infoFont.getDescenderHeight())
+			+ kBrothCardNoteLineGapPx;
 	}
 	// **No meta row any more, 2026-08-25, later still.** Developer:
 	// "completely remove the spice icon or words in the broth boxes." This
 	// used to draw either a chilli-gauge row (`spiceLevelFromMeta`) or the
 	// raw `w.meta` text right-aligned on the diet line — both deleted;
 	// `w.meta` is simply not read by this function any more.
-	y += _infoFont.getAscenderHeight() + fabsf(_infoFont.getDescenderHeight())
-		+ kBrothCardNoteLineGapPx;
 
 	// The note fills whatever is left of the card.
 	const float remaining = (box.y + box.height - kBrothCardPadYPx) - y;
 	const size_t maxLines = remaining >= bodyLineH
 		? (size_t)(remaining / bodyLineH) : 0;
-	ofSetColor(kInfoBoxTextColor);
 	for(const std::string & line
 			: wrapToLines(_infoFont, w.desc, textWidth, maxLines)){
-		_infoFont.drawString(line, leftX, y + _infoFont.getAscenderHeight());
+		drawStringLitTo(_infoFont, line, leftX, y + _infoFont.getAscenderHeight(),
+			splitX, kInfoBoxTextColor, kOptionNoteLitColor);
 		y += bodyLineH;
 	}
 	ofSetColor(255);
+}
+
+void UiLayer::drawStringLitTo(const ofTrueTypeFont & f, const std::string & s,
+	float x, float baseline, float splitX, const ofColor & dark,
+	const ofColor & lit){
+	// One string, two inks, split at `splitX` — the dwell sweep's leading
+	// edge. Drawn as "the whole string dark, then the part behind the edge
+	// again in the lit ink ON TOP", rather than as two substrings laid
+	// side by side: a substring drawn at a computed offset would drift
+	// from the full string's own glyph advances, and the drift would show
+	// as the edge crossed a word. Overdrawing cannot drift, because the
+	// lit pass starts at the same `x` with the same font and therefore
+	// lands on exactly the same glyph positions.
+	//
+	// Splits on a CHARACTER boundary, not a pixel one — a half-inverted
+	// letter reads as a rendering fault at three metres, where a letter
+	// that flips whole reads as the edge passing it. UTF-8 continuation
+	// bytes are skipped so a multi-byte codepoint is never cut in half.
+	ofSetColor(dark);
+	f.drawString(s, x, baseline);
+	if(splitX <= x || s.empty()){
+		return;
+	}
+	const float budget = splitX - x;
+	std::string prefix;
+	for(size_t i = 1; i <= s.size(); ++i){
+		if(i < s.size() && (s[i] & 0xC0) == 0x80){
+			continue;   // mid-codepoint, not a legal cut
+		}
+		const std::string cand = s.substr(0, i);
+		if(f.getStringBoundingBox(cand, 0, 0).width > budget){
+			break;
+		}
+		prefix = cand;
+	}
+	if(prefix.empty()){
+		return;
+	}
+	ofSetColor(lit);
+	f.drawString(prefix, x, baseline);
 }
 
 void UiLayer::drawWidgets(const StateLink::State & state) const {

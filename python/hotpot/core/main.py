@@ -420,14 +420,22 @@ class Core:
         # blank broth plate at a diner three screens into an order.
         self.menu = menu.Menu.load(menu_path)
         self.orders = orders.OrderStore(orders_path)
-        # 2026-08-25's chili-strip: the picker (`hover.spice_widgets`)
-        # drops level 0 ("No Spice") as an orderable choice, and the
-        # default a diner gets without touching anything is the LOWEST
-        # level the picker actually offers — today, Mild — not 0. Doc
+        # The picker (`hover.spice_widgets`) drops level 0 ("No Spice") as
+        # an orderable choice, so the lowest level it offers — today, Mild
+        # — is the fallback a session carries until the diner picks. Doc
         # section 17's "no spice is a genuine choice" guarantee is about
         # the DATA still existing (`menu.Menu.load` still requires level
         # 0), not about it being the default; see `hover.spice_widgets`'s
         # own docstring for the developer's call on why it is excluded.
+        #
+        # **It is a fallback, NOT a pre-selection, since 2026-08-25.**
+        # Developer: "spicy button has the mild as default. it should not
+        # be the case." Mild briefly arrived pre-ticked, which meant a
+        # diner who never looked at the spice screen shipped Mild without
+        # deciding, and the screen opened with one card already locked
+        # dark. `_spice_chosen` below now starts False, so nothing is
+        # marked until a dwell completes — this value only settles what
+        # `_spice_level` holds in the meantime.
         self._default_spice_level: int = min(
             (s.level for s in self.menu.spice_levels if s.level > 0),
             default=0)
@@ -440,9 +448,9 @@ class Core:
         # section 17 makes "no spice" a genuine choice rather than an
         # absence, so the int cannot also mean "not chosen yet" — and Pay
         # is gated on a choice having been made. See `_choose_spice`.
-        # Starts True (Mild pre-selected) rather than False — see
-        # `_default_spice_level` above.
-        self._spice_chosen: bool = self._default_spice_level > 0
+        # Starts False: no card is pre-selected — see
+        # `_default_spice_level` above for the developer's call.
+        self._spice_chosen: bool = False
         # The previous tick's widget ids+rects, for the "the buttons just
         # changed under a resting hand" guard in `_apply_cursor`. Starts
         # as a sentinel rather than `()` so the very first tick counts as
@@ -1842,10 +1850,10 @@ class Core:
         # payment landing minutes later reset a table a new diner is
         # already using.
         self._broth_id = ""
-        # Mild pre-selected, not "nothing chosen" — see
+        # Nothing chosen, same as a fresh boot — see
         # `_default_spice_level`'s own comment in `__init__`.
         self._spice_level = self._default_spice_level
-        self._spice_chosen = self._default_spice_level > 0
+        self._spice_chosen = False
         self._order = None
         self._order_qr = []
         self._checkout_since = None
