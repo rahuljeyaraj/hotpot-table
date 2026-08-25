@@ -911,18 +911,33 @@ namespace {
 	// only carries the proportions. That also means the peppers track the
 	// name font if it is ever resized again, instead of silently drifting
 	// out of step with it the way a hard-coded px would.
-	const float kChilliAspect = 2.0f;      // width / height, before rotation
-	const float kChilliRotationDeg = -38.0f;
-	// The horizontal room one rotated pepper actually takes, as a multiple
-	// of its height — the rotated body's own extent, not the axis-aligned
-	// box of an unrotated one. Used for the strip's width and its pitch,
-	// so a name's truncation budget and the peppers' spacing come off the
-	// same number.
-	const float kChilliWidthFactor = 1.62f;
+	//
+	// **The pepper is the developer's own artwork now, 2026-08-25, latest
+	// pass.** "use this image as chilli. it is not refeerence image to
+	// draw from, use this exact image, scale if u like." So `drawChilli`
+	// draws `_chilliIcon` (img/chilli.png) and nothing else: the flat
+	// silhouette it used to build out of two ofPaths is gone, and with it
+	// `kChilliAspect`, `kChilliRotationDeg` and the three colour
+	// constants that shape needed. The image carries its own reds, its
+	// own green stem and its own black outline, and it is already tipped
+	// the way the -38 degree rotation was faking.
+	//
+	// **The one number the layout still needs is measured off the file,
+	// not guessed.** In the 512x512 artwork the opaque pixels run y 0..511
+	// — the FULL height — and x 34..477, so the pepper is centred in the
+	// square with equal transparent margins left and right and none at
+	// all top or bottom. Two things follow, and both matter:
+	//   - drawing the square H tall makes the VISIBLE pepper exactly H
+	//     tall, which is what "the height of chilli is exactly same as
+	//     the text in the same line" asks for. Sizing to the file's box
+	//     would be sizing to a margin that is not there.
+	//   - the pepper is only 444/512 of the square WIDE, so the strip
+	//     arithmetic below has to reserve the ink width and not the draw
+	//     width, or the last pepper would float a transparent 8% of its
+	//     height short of the card's right pad and the three cards would
+	//     stop reading as one right-aligned scale.
+	const float kChilliWidthFactor = 444.0f / 512.0f;
 	const float kChilliGapFactor = 0.26f;  // between peppers, x height
-	const ofColor kChilliColor(0xE8, 0x23, 0x2A);
-	const ofColor kChilliEdgeColor(0xC4, 0x1E, 0x27);
-	const ofColor kChilliStemColor(0x1B, 0x6B, 0x3A);
 	// The sweep's own fall clock — see `sweep01For`. The sweep rises with
 	// the wire value but falls only on this renderer's time: nothing for
 	// `kSweepFallDelayS` (long enough to swallow a tracker dropout or a
@@ -1374,6 +1389,40 @@ void UiLayer::setup(){
 			<< " — no brand mark will draw";
 	}
 
+	// The spice cards' pepper — see the kChilliWidthFactor block for what
+	// the developer asked for and what the file measures.
+	_chilliIconLoaded = _chilliIcon.load("img/chilli.png");
+	if(!_chilliIconLoaded){
+		ofLogError(kTag) << "could not load img/chilli.png — the spice"
+			<< " cards will draw no peppers";
+	} else {
+		// **Pre-scaled on the CPU, because the GPU cannot do this one
+		// well.** The file is 512px tall and the pepper draws at the
+		// option label's cap height, about 14px on this table — a ~36x
+		// minification. oF hands textures to GL as ARB rectangle
+		// textures, which cannot carry mipmaps, so that would come out
+		// of a single bilinear tap over 4 of 512 texels: the artwork's
+		// thin black outline breaks into speckle, and the speckle
+		// crawls as the card breathes. ofImage::resize goes through
+		// FreeImage's filtered rescale instead — once, here, not per
+		// frame — which leaves GL a mild 4x minification it does handle.
+		// 4x the drawn height (rather than 1x) is headroom for a larger
+		// label font later without going soft; the 48px floor keeps the
+		// shape readable if `_optionFont` ever fails to load and the
+		// fallback face measures small.
+		const ofTrueTypeFont & labelFace =
+			_optionFont.isLoaded() ? _optionFont : _nameFont;
+		const float capPx = labelFace.isLoaded()
+			? labelFace.getStringBoundingBox("Hot", 0, 0).height
+			: (float)kOptionLabelPx;
+		const int target = std::max(48, (int)ceilf(capPx * 4.0f));
+		if(target < (int)_chilliIcon.getWidth()){
+			_chilliIcon.resize(target, (int)roundf(target
+				* (float)_chilliIcon.getHeight()
+				/ (float)_chilliIcon.getWidth()));
+		}
+	}
+
 	// VISUAL_LAYER.md §6's "phase-offset by a per-bin random seed" went
 	// through two revisions already (`ofRandom(TWO_PI)` per bin, then
 	// evenly-spaced-plus-jitter — both replaced entirely now, see this
@@ -1627,76 +1676,35 @@ float UiLayer::breath(float floor01, float phase){
 		* (1.0f + sinf(TWO_PI * ofGetElapsedTimef() / kWidgetBreathPeriodS + phase));
 }
 
-void UiLayer::drawChilli(float cx, float cy, float sizePx){
-	// One pepper, centred on (cx, cy), `sizePx` TALL and `kChilliAspect`
-	// times that wide — redrawn 2026-08-25 to the reference the developer
-	// supplied: a chilli lying on its side, tip at the lower left, the
-	// body sweeping up and right into a fat shoulder, and a green stem
-	// hooking up off that shoulder. The upright pepper this replaced read
-	// as a flame or a teardrop at card size, which is exactly the wrong
-	// thing to put on a spice card.
+void UiLayer::drawChilli(float cx, float cy, float sizePx) const {
+	// One pepper, centred on (cx, cy), `sizePx` TALL — the developer's own
+	// artwork, drawn as it came and only scaled. 2026-08-25: "use this
+	// image as chilli. it is not refeerence image to draw from, use this
+	// exact image, scale if u like." The two-ofPath silhouette that stood
+	// here (a flat body, a hooked stem, a -38 degree rotation to stop three
+	// of them eating the card's right half) is gone entirely, and there is
+	// deliberately NO vector fallback behind it: falling back to the shape
+	// the developer has just replaced would be worse than drawing nothing,
+	// and setup() logs the missing file loudly if it ever comes to that.
 	//
-	// Still a silhouette, not an illustration — two flat fills and a
-	// darker red edge, no highlight and no shading. At the size the
-	// developer asked for ("the height of the chili should be same as the
-	// height of the hot, medium mild letters") anything finer would be
-	// sub-pixel on the projector.
-	if(sizePx <= 0.0f){
+	// `sizePx` is the height of the PEPPER, not of the file. The artwork's
+	// opaque pixels run the full height of its square (see
+	// kChilliWidthFactor), so the drawn box and the visible pepper are one
+	// and the same height and the caller's "exactly the height of the
+	// letters on this line" survives the trip through here. It is centred
+	// in the square horizontally too, which is why this can centre the box
+	// on (cx, cy) and have the INK land centred on it.
+	if(!_chilliIconLoaded || sizePx <= 0.0f){
 		return;
 	}
 	const float h = sizePx;
-	const float w = sizePx * kChilliAspect;
-	// Built around the origin and ROTATED into place — developer, on the
-	// first flat version: "may be rotate the chilli bit to make it less
-	// wider." A pepper lying dead flat is `kChilliAspect` times as wide as
-	// it is tall, and three of them beside a name ate the card's whole
-	// right half; tipping it up trades some of that width for height the
-	// name line already has. It also just looks less like a diagram.
-	ofPushMatrix();
-	ofTranslate(cx, cy);
-	ofRotateDeg(kChilliRotationDeg);
-	const float left = -w * 0.5f;
-	const float top = -h * 0.5f;
-	const float bottom = h * 0.5f;
-	const float cy2 = 0.0f;
-
-	ofPath body;
-	body.setFilled(true);
-	body.setFillColor(kChilliColor);
-	// The darker edge from the reference — it is what keeps the shape
-	// legible where a pepper overlaps the swept black band behind it.
-	body.setStrokeColor(kChilliEdgeColor);
-	body.setStrokeWidth(std::max(1.0f, h * 0.06f));
-	body.setCircleResolution(64);
-	// The tip, at the far left, sitting just below the middle.
-	body.moveTo(left, cy2 + h * 0.16f);
-	// Upper edge: sweeps right and climbs to the shoulder.
-	body.bezierTo(left + w * 0.26f, cy2 - h * 0.10f,
-		left + w * 0.52f, top,
-		left + w * 0.82f, top + h * 0.06f);
-	// Around the fat right end.
-	body.bezierTo(left + w * 0.99f, top + h * 0.22f,
-		left + w * 0.98f, cy2 + h * 0.24f,
-		left + w * 0.78f, cy2 + h * 0.38f);
-	// Lower edge: back along the belly to the tip.
-	body.bezierTo(left + w * 0.52f, bottom,
-		left + w * 0.20f, bottom - h * 0.02f,
-		left, cy2 + h * 0.16f);
-	body.close();
-	body.draw();
-
-	// The stem, hooking up and right off the shoulder.
-	ofPath stem;
-	stem.setFilled(false);
-	stem.setStrokeColor(kChilliStemColor);
-	stem.setStrokeWidth(std::max(1.5f, h * 0.11f));
-	stem.setCircleResolution(24);
-	stem.moveTo(left + w * 0.80f, top + h * 0.10f);
-	stem.bezierTo(left + w * 0.90f, top - h * 0.14f,
-		left + w * 0.99f, top - h * 0.30f,
-		left + w * 0.94f, top - h * 0.42f);
-	stem.draw();
-	ofPopMatrix();
+	const float w = h * ((float)_chilliIcon.getWidth()
+		/ (float)_chilliIcon.getHeight());
+	// Full white, so the artwork's own reds and green come through
+	// untinted — the same reason drawOptionPlate's sweep leaves the
+	// peppers alone: the colour is the information.
+	ofSetColor(255);
+	_chilliIcon.draw(cx - w * 0.5f, cy - h * 0.5f, w, h);
 }
 
 void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
@@ -2958,6 +2966,13 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		// same height as the word sits level with the word rather than
 		// riding above or below it.
 		const float chilliCy = nameBaseline - chilliH * 0.5f;
+		// Right edge of the PEPPER — not of its image box — parked one
+		// `padX` off the card's border, so it clears the ring by the
+		// same margin the name clears it on the other side. Developer,
+		// 2026-08-25: "chilli should not touch the box borders." The
+		// half-width subtracted here is `kChilliWidthFactor` (the ink),
+		// which is why that factor is measured off the artwork's alpha
+		// rather than taken as 1.0 from its square.
 		const float rightCx = box.x + box.width - padX
 			- chilliH * kChilliWidthFactor * 0.5f;
 		for(int i = 0; i < chilliCount; i++){

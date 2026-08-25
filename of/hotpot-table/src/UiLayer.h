@@ -181,8 +181,10 @@ private:
 	static void drawFadedRule(float x, float y, float widthPx,
 		float thickPx, const ofColor & colour, int peakAlpha);
 	// One chilli pepper, centred on (cx, cy), `sizePx` tall — the spice
-	// card's count glyph. See kChilliHPx for the sizing report.
-	static void drawChilli(float cx, float cy, float sizePx);
+	// card's count glyph. Draws `_chilliIcon`, the artwork the developer
+	// supplied, so it is a member now rather than the `static` it was
+	// while the pepper was a hand-built ofPath.
+	void drawChilli(float cx, float cy, float sizePx) const;
 	// The breathing term the buttons and the bin halos share — one sine,
 	// one clock, one period, so the whole table breathes together rather
 	// than in two rhythms. `phase` offsets it (the bins use a per-island
@@ -386,6 +388,11 @@ private:
 
 	ofImage _brandLogo;   // "The Hotpottery" mark — see drawBrandMark
 	bool _brandLogoLoaded = false;
+	// The spice card's pepper — img/chilli.png, the developer's own
+	// artwork ("use this exact image"), pre-scaled once at load. See
+	// drawChilli and the load in setup().
+	ofImage _chilliIcon;
+	bool _chilliIconLoaded = false;
 
 	std::array<BinTween, 8> _bins;
 	Spring _totalAmount{0.15f};
