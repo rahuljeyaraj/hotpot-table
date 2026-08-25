@@ -3538,7 +3538,15 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 	// the rest of layer 5.
 	drawBrandMark();
 
-	if(hasState){
+	// 2026-08-26: the idle-table phantom hand. Developer: "whenever the
+	// device go idle, everything except the bin halo and the logo should
+	// go... so when they hide, I know it is idle state." Halo (layer 4,
+	// just above) and the brand mark (just above this) are drawn OUTSIDE
+	// this gate on purpose — they are the two things that must survive
+	// it. Everything else in layer 5 (plates, cart, widgets, banner, info
+	// box) is exactly this one block, so gating its entry is the whole
+	// change; nothing inside needed to learn about idle attract itself.
+	if(hasState && !state.idleAttract){
 		// Once per frame, ahead of the bins: drawBin's price line and
 		// drawTotal's numeral both format off this same prefix/decimals
 		// pair, pulled from the one locale-resolved string the wire gives

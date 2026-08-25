@@ -5270,13 +5270,61 @@ immediately, the safety property above). 1163 tests pass
 failures (`test_calibrator`'s flake, the spice-icon `TestCheckoutFlow`/
 `test_hover` cases already documented above) are unrelated and unchanged.
 
-**Not observed on the rig.** Nothing here needs an oF rebuild, so there
-is no build step blocking a look — this is purely a `run.py --stop` /
-`run.py` restart (to pick up the new Python) away from being watched:
-walk away from the table, wait `phantom.idle_s` (15s default), and watch
-whether the fireball starts wandering and lighting bins on its own, then
-confirm a hand landing on the table takes it back over instantly. The
+**Verified live on the rig, same day, second pass — see below.** The
 motion tuning (`LEG_TRAVEL_S`/`LEG_DWELL_S`/wobble amplitude in
-`common/phantom.py`) is an unmeasured first guess, same as every new
-visual constant in this file's history — expect it to want a look and a
-retune, not to be right first try.
+`common/phantom.py`) is still an unmeasured first guess, same as every
+new visual constant in this file's history — expect it to want a retune,
+not to be right first try.
+
+### Idle attract mode: hide everything but the halo and logo; 5s not 15s
+(2026-08-26, same day, developer looking at the first version)
+Two requests: **the idle threshold dropped 15s -> 5s** (`PHANTOM_IDLE_S`,
+`config/system.default.json`'s `phantom.idle_s`) for a fast demo loop,
+and — the bigger one — **"whenever the device go idle, everything except
+the bin halo and the logo should go and the phantom hand should move
+around. so when they hide, I know it is idle state."** The hidden UI is
+now the idle indicator itself, by design.
+
+`state` gained one field, `idle_attract` (bool, `= self._phantom_active`,
+computed inside `_apply_cursor`'s own lock so it is never one tick stale
+relative to the phantom decision it mirrors). `StateLink::State` gained
+the matching `idleAttract` (`j.value("idle_attract", false)`).
+`UiLayer::draw()`'s layer-4/5 split already put halo and the brand mark
+in their OWN block, ahead of everything else — so the entire change is
+one added condition, `if(hasState && !state.idleAttract)`, wrapping the
+rest of layer 5 (plates, cart, widgets, banner, info box). Halo and brand
+mark stay outside that block on purpose; nothing inside it needed to
+learn about idle attract at all.
+
+**Found and fixed the same session, from actually looking at the rig,
+not from the diff:** the first live check showed the full UI still up
+despite core reporting `phantom_active: true` moments earlier. Root
+cause: `fsm.state` was `SELECTING`, not `IDLE` — this rig's real webcam
+had tripped `hand_present()` at some point earlier in the session (or a
+prior test), and nothing had cancelled it since; `_apply_phantom` is
+deliberately `IDLE`-only (a real diner's session must never be
+interrupted), so it correctly never fired. Not a bug in the feature —
+sending `cancel_order` over the staff WebSocket returned the table to
+`IDLE`, and the attract loop kicked in exactly on schedule from there.
+**Worth knowing for next time this looks "stuck":** check `phase` on a
+`state` message before suspecting the phantom logic itself.
+
+**Also found, and worth a standing warning for future sessions:**
+connecting a throwaway diagnostic `wire.Client` under the name `"tracker"`
+or `"of"` — to peek at `welcome.cfg` or a live `state` message — collided
+with the REAL client of the same name and bounced the real `of` process
+through **100 restarts** in under half a minute (`pips`' own `restarts`
+counter caught it, not a crash log). **Never reuse `"tracker"`/`"of"`/
+`"core"`/etc. for an ad hoc probe against a live rig — pick a name
+nothing else is using** (the `cancel_order` fix above went through the
+staff WebSocket instead, which has no such collision risk, and is the
+safer probe path in general).
+
+`msbuild Debug x64`, 0 errors, the usual 2 pre-existing warnings.
+`run.py --stop` / rebuild / `run.py` — camera/core/tracker/classifier/
+voice all reached ready, `of` reconnected. **Confirmed on the projected
+surface via screenshot, this session**: cart, "Your Order" header, step
+dots and both buttons all hidden; the 8 bin halos and the brand mark
+both still drawn; the fireball visibly active and lighting a bin on the
+right island. First real photographic evidence anywhere in this
+feature's history, not reasoning from code.

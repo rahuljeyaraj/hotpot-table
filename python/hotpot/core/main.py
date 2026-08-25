@@ -185,12 +185,12 @@ TRACKER_EMIT_HZ = 60.0
 
 # How long the table may sit with no REAL pointer before the idle-table
 # phantom hand (common/phantom.py) takes over the fireball and starts
-# wandering the bins — developer's own number, chosen over 30/60s as
-# "responsive enough to read as an attract loop, not a diner who merely
-# stepped back for a second." Unlike POINTER_STALE_S just below, this is
-# measured against `_last_real_pointer_at`, which only a genuinely real
-# (non-phantom) pointer ever advances — see `_apply_phantom`.
-PHANTOM_IDLE_S = 15.0
+# wandering the bins — developer's own number, 5s, chosen for a fast demo
+# loop over the original 15s guess. Unlike POINTER_STALE_S just below,
+# this is measured against `_last_real_pointer_at`, which only a
+# genuinely real (non-phantom) pointer ever advances — see
+# `_apply_phantom`.
+PHANTOM_IDLE_S = 5.0
 
 # How long a cursor may go without a NEW datagram before core treats the
 # pointer as gone rather than merely between frames (doc section 21's M5
@@ -3618,6 +3618,11 @@ class Core:
                 # FSM state's own name, and oF uses it to decide whether
                 # it is drawing a cart or a list of options.
                 "phase": self.fsm.state.value,
+                # `_apply_phantom`'s idle-table attract loop. oF uses this
+                # to hide everything except the bin halos and the brand
+                # mark — the hidden UI is itself the "this table is idle"
+                # signal the developer asked for, 2026-08-26.
+                "idle_attract": self._phantom_active,
                 "screen": self._screen_msg(),
                 "locale": self.locale,
                 # M8 hasn't built the fluid renderer yet; the shape is correct

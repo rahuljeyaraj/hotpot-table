@@ -34,7 +34,7 @@
     "core_port": 8771
   },
   "phantom": {
-    "idle_s": 15.0
+    "idle_s": 5.0
   },
   "classifier": {
     "backend": "stub",

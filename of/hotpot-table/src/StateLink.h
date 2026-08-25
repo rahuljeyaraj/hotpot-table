@@ -242,6 +242,16 @@ public:
 		Total total;
 		std::string overlayKind = "none";
 		Qr qr;
+		// 2026-08-26: the idle-table phantom hand (python core/main.py's
+		// `_apply_phantom`) — true only while the table has sat idle long
+		// enough that core has handed the fireball to the attract loop.
+		// UiLayer::draw() uses this to hide everything except the bin
+		// halos and the brand mark, so the wandering fireball is the only
+		// thing left on the table to look at, and the hidden UI is itself
+		// the "yes, this is idle" signal. Defaults false: a line that
+		// arrived without it must not blank a table that is actually
+		// serving.
+		bool idleAttract = false;
 	};
 
 	// who="of" (doc §4.1 process names / health.py's PROCESSES tuple).

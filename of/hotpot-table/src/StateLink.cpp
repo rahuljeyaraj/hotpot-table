@@ -297,6 +297,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 	out.mode = j.value("mode", "serving");
 	out.phase = j.value("phase", "selecting");
 	out.locale = j.value("locale", "en");
+	out.idleAttract = j.value("idle_attract", false);
 
 	if(j.contains("fluid") && j["fluid"].is_object()){
 		const ofJson & f = j["fluid"];
