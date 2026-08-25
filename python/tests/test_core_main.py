@@ -3949,6 +3949,93 @@ class TestTrackerToldAboutSettingMode(CoreCase):
         self.assertEqual(pushed, [])
 
 
+class TestIdleTablePhantomHand(CoreCase):
+    """2026-08-25: the idle-table phantom hand (`common/phantom.py`,
+    `Core._apply_phantom`) — a synthetic pointer the tracker emits in
+    place of an empty real result once `phantom_idle_s` has passed with
+    no real hand, so the fireball wanders the table and lights bins while
+    nobody is at it.
+
+    `phantom_idle_s` is overridden tiny here (`_extra_core_kwargs`) so
+    these tests do not need a real 15s wait — the mechanism this checks
+    is the transition logic in `_apply_phantom`, not the production
+    default's actual number.
+    """
+
+    def _extra_core_kwargs(self) -> dict:
+        return {"phantom_idle_s": 0.05}
+
+    def phantom_pushes(self):
+        pushed = []
+
+        def on_msg(m):
+            if m.get("t") == "cfg" and "phantom_active" in m.get("cfg", {}):
+                pushed.append(m["cfg"]["phantom_active"])
+        c = self.wire_client("tracker", on_message=on_msg)
+        self.assertTrue(c.wait_connected(DEADLINE))
+        return pushed
+
+    def cursor_sender(self):
+        tx = cursorbus.Sender(targets=[("127.0.0.1", self.core.cursor.port)])
+        self.addCleanup(tx.close)
+        return tx
+
+    def bin_centre(self, i):
+        rect = self.core.camera_grid.rects()[i]
+        return rect[0] + rect[2] / 2, rect[1] + rect[3] / 2
+
+    def test_idle_past_the_threshold_pushes_phantom_active(self):
+        pushed = self.phantom_pushes()
+        self.assertTrue(wait_for(lambda: True in pushed, timeout=DEADLINE))
+        # Idle is an IDLE-only affair — nothing about a wandering fireball
+        # may itself look like a diner arriving.
+        self.assertIs(self.core.fsm.state, fsm.State.IDLE)
+
+    def test_a_real_pointer_arriving_immediately_deactivates_it(self):
+        pushed = self.phantom_pushes()
+        self.assertTrue(wait_for(lambda: True in pushed, timeout=DEADLINE))
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(0)
+        end = time.monotonic() + DEADLINE
+        while (time.monotonic() < end
+               and self.core.fsm.state is not fsm.State.SELECTING):
+            tx.send([cursorbus.Hand(id=1, role=cursorbus.ROLE_POINTER,
+                                    x=x, y=y, conf=0.9)], ts=time.time())
+            time.sleep(0.02)
+        self.assertIs(self.core.fsm.state, fsm.State.SELECTING)
+        self.assertTrue(wait_for(lambda: pushed[-1] is False, timeout=DEADLINE))
+
+    def test_a_phantom_flagged_pointer_lights_a_bin_but_never_starts_a_session(self):
+        # The safety property this whole feature depends on: a hand the
+        # wire marks `phantom` must be able to light a bin's hover
+        # highlight (that IS the feature) and must NEVER be able to reach
+        # `fsm.hand_present()` or a widget dwell, no matter how long it
+        # sits there — see `_apply_cursor`'s own comment on why the two
+        # pointers are held separately.
+        c, msgs, lock = self.of_client()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(2)
+        for _ in range(40):
+            tx.send([cursorbus.Hand(id=-1, role=cursorbus.ROLE_POINTER,
+                                    x=x, y=y, conf=1.0, phantom=True)],
+                   ts=time.time())
+            time.sleep(0.02)
+        got = self.wait_for_state(
+            msgs, lock, lambda m: m["bins"][2]["hl"] == "hover")
+        self.assertIsNotNone(got, "bin 2 never went to hover for the phantom")
+        self.assertIs(self.core.fsm.state, fsm.State.IDLE)
+
+    def wait_for_state(self, msgs, lock, pred, timeout=DEADLINE):
+        end = time.time() + timeout
+        while time.time() < end:
+            with lock:
+                for m in reversed(msgs[-30:]):
+                    if pred(m):
+                        return m
+            time.sleep(0.02)
+        return None
+
+
 class TestCheckoutFlow(CoreCase):
     """M6, doc section 18.1: SELECTING -> BROTH -> SPICE -> CHECKOUT ->
     IDLE, and the payment mock that closes it.

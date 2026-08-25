@@ -154,15 +154,28 @@ class Hand:
     x: float
     y: float
     conf: float
+    # The idle-table attract loop (common/phantom.py), never set by the
+    # tracker's own MediaPipe path. Omitted from the wire entirely when
+    # False — see `to_json` — so every existing frame (and
+    # `test_the_wire_shape_is_doc_4_6s`, which pins the exact key set)
+    # is byte-for-byte unchanged. oF's CursorLink.cpp reads keys by name
+    # off a `hj.value(...)`/`hj.contains(...)` lookup, so an unknown key
+    # arriving on an older wire is silently ignored, not a parse error —
+    # oF needs no change to keep rendering it: a phantom hand moves the
+    # fireball exactly as a real one would.
+    phantom: bool = False
 
     @property
     def is_pointer(self) -> bool:
         return self.role == ROLE_POINTER
 
     def to_json(self) -> Dict[str, Any]:
-        return {"id": self.id, "role": self.role,
-                "x": round(self.x, 1), "y": round(self.y, 1),
-                "conf": round(self.conf, 2)}
+        out = {"id": self.id, "role": self.role,
+               "x": round(self.x, 1), "y": round(self.y, 1),
+               "conf": round(self.conf, 2)}
+        if self.phantom:
+            out["phantom"] = True
+        return out
 
     @classmethod
     def from_json(cls, raw: Any) -> Optional["Hand"]:
@@ -189,7 +202,9 @@ class Hand:
         conf = raw.get("conf", 0.0)
         if not isinstance(conf, (int, float)) or isinstance(conf, bool):
             conf = 0.0
-        return cls(id=hid, role=role, x=x, y=y, conf=float(conf))
+        phantom = raw.get("phantom", False) is True
+        return cls(id=hid, role=role, x=x, y=y, conf=float(conf),
+                   phantom=phantom)
 
 
 @dataclass

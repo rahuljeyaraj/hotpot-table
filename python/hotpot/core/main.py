@@ -183,6 +183,15 @@ NOT_IN_SETTING_MSG = ("Turn Serving off first — the table is still "
 # copy of its own.
 TRACKER_EMIT_HZ = 60.0
 
+# How long the table may sit with no REAL pointer before the idle-table
+# phantom hand (common/phantom.py) takes over the fireball and starts
+# wandering the bins — developer's own number, chosen over 30/60s as
+# "responsive enough to read as an attract loop, not a diner who merely
+# stepped back for a second." Unlike POINTER_STALE_S just below, this is
+# measured against `_last_real_pointer_at`, which only a genuinely real
+# (non-phantom) pointer ever advances — see `_apply_phantom`.
+PHANTOM_IDLE_S = 15.0
+
 # How long a cursor may go without a NEW datagram before core treats the
 # pointer as gone rather than merely between frames (doc section 21's M5
 # build item 4, found while verifying it on the rig — see _apply_cursor's
@@ -374,6 +383,7 @@ class Core:
         mirror_handedness: bool = False,
         emit_hz: float = TRACKER_EMIT_HZ,
         cursor_port: int = cursorbus.CORE_PORT,
+        phantom_idle_s: float = PHANTOM_IDLE_S,
         dwell_ms: float = hover.DEFAULT_DWELL_MS,
         deadband_g: float = cart.DEFAULT_DEADBAND_G,
         classify_hz: float = CLASSIFIER_LIVE_HZ,
@@ -649,6 +659,22 @@ class Core:
         self._hover_bin: Optional[int] = None
         self._widgets: list = []
 
+        # The idle-table phantom hand (common/phantom.py, `_apply_phantom`).
+        # `_phantom_pointer` is this tick's synthetic hand, if the tracker
+        # is currently emitting one — kept separate from `_pointer` so it
+        # can never reach `fsm.hand_present()` or `DwellTracker` (see
+        # `_apply_cursor`'s own comment on the split). `_last_real_pointer_
+        # at` starts at boot time, not `None` — a table that has never
+        # seen a diner at all is exactly the idle case this feature is
+        # for, and starting it at "now" gives a fresh boot the same
+        # `phantom_idle_s` warm-up a diner walking away gets, rather than
+        # firing the instant `start()` returns.
+        self._phantom_pointer: Optional[cursorbus.Hand] = None
+        self.phantom_idle_s = phantom_idle_s
+        self._last_real_pointer_at: float = time.monotonic()
+        self._phantom_active: bool = False
+        self._phantom_started_at: Optional[float] = None
+
         self._state_seq = 0
         self._state_stop = threading.Event()
         self._state_thread: Optional[threading.Thread] = None
@@ -796,6 +822,18 @@ class Core:
             # `mirror_handedness`, so the tracker does not wait for its
             # next reconnect to stop (or resume) detecting.
             "mediapipe_enabled": not self._in_setting(),
+            # `_apply_phantom`'s idle-table attract loop. Included
+            # unconditionally (`None`/`False`/`[]` when nothing is
+            # running), same as every other field here, so a tracker that
+            # has just reconnected picks up an in-progress attract cycle
+            # from `welcome` alone rather than waiting for the next
+            # transition edge — `phantom_started_at` being wall time (not
+            # this process's own monotonic clock) is what makes that
+            # resumption land on the SAME point in the path instead of
+            # restarting it.
+            "phantom_active": self._phantom_active,
+            "phantom_started_at": self._phantom_started_at,
+            "phantom_bin_centers": self._phantom_bin_centers(),
         }
 
     def _push_tracker_cfg(self) -> None:
@@ -1683,12 +1721,28 @@ class Core:
             # the distinction is "no new information" (frame is None, keep
             # the old pointer) versus "new information saying gone" (frame
             # exists and says no pointer, clear it).
-            self._pointer = frame.pointer()
+            #
+            # **A phantom-flagged pointer (common/phantom.py's idle-table
+            # attract loop, emitted by the tracker in place of an empty
+            # real result) is routed to `_phantom_pointer`, never to
+            # `_pointer`.** `_pointer` is what feeds `fsm.hand_present()`
+            # and `DwellTracker` below — a phantom hand must never be able
+            # to start a session or complete a dwell, only light a bin's
+            # hover highlight (see `_phantom_pointer`'s one use, a few
+            # lines down).
+            raw_pointer = frame.pointer()
+            if raw_pointer is not None and raw_pointer.phantom:
+                self._pointer = None
+                self._phantom_pointer = raw_pointer
+            else:
+                self._pointer = raw_pointer
+                self._phantom_pointer = None
             self._pointer_at = now
 
         pointer = self._pointer
-        if (pointer is not None and self._pointer_at is not None
-                and now - self._pointer_at > POINTER_STALE_S):
+        phantom_pointer = self._phantom_pointer
+        if self._pointer_at is not None \
+                and now - self._pointer_at > POINTER_STALE_S:
             # The stream has gone properly silent for a while — not just
             # "no new datagram this tick" but long enough that the tracker
             # itself is plausibly dead or the camera has gone stale (doc
@@ -1696,17 +1750,25 @@ class Core:
             # provably no longer being reported is worse than clearing it.
             # Matches oF's own `CursorLink::kCursorHoldSeconds` so the
             # table and core's own idea of "is a hand still here" agree.
+            # Clears BOTH pointers — a fully silent link says nothing
+            # about the table either way, real or phantom.
             pointer = None
             self._pointer = None
+            phantom_pointer = None
+            self._phantom_pointer = None
 
         # Doc section 9.1's IDLE -> SELECTING edge, which has had no driver
         # since M1 (`fsm.hand_present()` existed with nothing calling it —
         # CLAUDE.md's M2.6 notes say so outright, and `_handle_cancel_order`
         # carries a fallback that becomes unreachable the moment this line
-        # lands). Only a POINTER starts a session: a bowl set down on the
-        # table must not open an order.
+        # lands). Only a REAL POINTER starts a session: a bowl set down on
+        # the table must not open an order, and neither may the idle-table
+        # phantom hand waking itself back up.
         if pointer is not None:
+            self._last_real_pointer_at = now
             self.fsm.hand_present()
+
+        self._apply_phantom(now, pointer)
 
         # `cart_active` gates whether Cancel/Confirm are dwellable at all
         # (hover.widgets_for's own docstring). `cart.is_active()` reads
@@ -1753,8 +1815,19 @@ class Core:
         # docstring), so this runs unconditionally rather than duplicating
         # that check here — one place decides what "no pointer" means for
         # a hit test.
+        #
+        # **The idle-table phantom hand hovers bins too, cosmetically —
+        # that IS the feature (it lights the fire ring the same way a
+        # real hand does).** `pointer or phantom_pointer`: a real hand
+        # always wins the highlight the instant one exists (`pointer` is
+        # only non-None here when `_apply_phantom` has already confirmed
+        # no phantom can be active at the same time — see that method),
+        # and `dwell.update()` below still reads `pointer` alone, never
+        # `phantom_pointer` — hover is the only thing a phantom hand may
+        # ever drive.
         was = self._hover_bin
-        self._hover_bin = hover.bin_under(self.camera_grid.rects(), pointer)
+        self._hover_bin = hover.bin_under(self.camera_grid.rects(),
+                                          pointer or phantom_pointer)
         if self._hover_bin is not None and self._hover_bin != was:
             # Doc section 15.2's `hover`, "very soft tick, -18 dB". Sent
             # as a one-shot `evt` rather than riding `state`, because
@@ -1765,6 +1838,69 @@ class Core:
         fired = self.dwell.update(self._widgets, pointer, now)
         if fired is not None:
             self._fire_widget(fired)
+
+    def _phantom_bin_centers(self) -> list:
+        """The camera grid's own bin centres, stage-space — the same
+        coordinate space `hover.bin_under` already hit-tests a hand
+        against (`core/bin_grid.py`'s module docstring: this grid is what
+        MediaPipe, the classifier's crop, and core's own hit test all
+        read). Handed to the tracker so `common.phantom.PhantomHand` can
+        visit real bins rather than an arbitrary point — see
+        `_apply_phantom`.
+
+        An unset bin (`None`) is skipped, same as `hover.bin_under`'s own
+        rule; an empty list (no grid at all) is `PhantomHand`'s own
+        fallback to draw from, not this method's problem to solve.
+        """
+        centers = []
+        for rect in self.camera_grid.rects():
+            if rect is None:
+                continue
+            rx, ry, rw, rh = rect
+            centers.append([rx + rw / 2.0, ry + rh / 2.0])
+        return centers
+
+    def _apply_phantom(self, now: float,
+                       pointer: Optional[cursorbus.Hand]) -> None:
+        """Turn the table over to the idle-table phantom hand once nobody
+        real has touched it for `self.phantom_idle_s`, and take it back
+        the instant a real hand — or a staff-driven transition out of
+        IDLE — says otherwise.
+
+        **Only decides WHEN and WHERE (the bin set); never generates a
+        position itself.** `common/phantom.py`'s own module docstring has
+        the full reasoning for why the tracker is the one process that
+        actually emits it: one sender on the cursor socket, so "a real
+        hand always wins" is a property of `TrackerProcess.tick()`'s own
+        `if hands: ... elif self._phantom: ...`, not a race this method
+        has to referee.
+
+        Pushed as `cfg` **only on the transition edge**, the same
+        reasoning `_push_tracker_cfg`'s other live-push call sites already
+        give: this runs inside `_apply_cursor`, i.e. every state tick at
+        60Hz, and re-broadcasting an unchanged value that often would be
+        60Hz of control-link traffic for a fact that changes roughly once
+        an idle minute. A reconnecting tracker still gets the current
+        value regardless — `_tracker_cfg()` includes it unconditionally,
+        the same as every other field `welcome` seeds a fresh client with.
+
+        Caller holds `state_lock` (via `_apply_cursor`).
+        """
+        idle_for = now - self._last_real_pointer_at
+        want_phantom = (self.fsm.state is fsm.State.IDLE
+                        and pointer is None
+                        and idle_for >= self.phantom_idle_s
+                        and self.camera_grid.has_grid)
+        if want_phantom == self._phantom_active:
+            return
+        self._phantom_active = want_phantom
+        # Wall time (`time.time()`), not `time.monotonic()` — this crosses
+        # a process boundary (`_push_tracker_cfg` below), and cursorbus's
+        # own frame `ts` already assumes wall time is the shared clock the
+        # two processes agree on. Doubles as `PhantomHand`'s seed
+        # (`set_phantom`'s own docstring on the tracker side).
+        self._phantom_started_at = time.time() if want_phantom else None
+        self._push_tracker_cfg()
 
     def _widget_shape(self) -> tuple:
         """What `self._widgets` looks like, for change detection only.
@@ -3759,6 +3895,8 @@ def main() -> None:
         emit_hz=float(config.get(cfg, "tracker.emit_hz", TRACKER_EMIT_HZ)),
         cursor_port=int(config.get(cfg, "cursor.core_port",
                                    cursorbus.CORE_PORT)),
+        phantom_idle_s=float(config.get(cfg, "phantom.idle_s",
+                                        PHANTOM_IDLE_S)),
         dwell_ms=float(config.get(cfg, "core.dwell_ms",
                                   hover.DEFAULT_DWELL_MS)),
         deadband_g=float(config.get(cfg, "core.deadband_g",

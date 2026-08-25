@@ -16,6 +16,7 @@ second and came back" is three lines here rather than a rig session.
 
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -1032,6 +1033,88 @@ class TestProbe(ProcCase):
             proc.tick(now=now)
             now += 0.02
         self.assertIsNone(proc.measured_fps)
+
+
+class TestPhantomHand(ProcCase):
+    """core/main.py's idle-table attract loop (common/phantom.py),
+    `TrackerProcess.set_phantom`/`tick`'s own `elif` — see that method's
+    docstring for the full "one sender, no UDP race" reasoning.
+    """
+
+    def test_no_phantom_configured_sends_the_ordinary_empty_frame(self):
+        proc, _src, sender = self.make(script=[[]])
+        proc.tick(now=0.0)
+        self.assertEqual(sender.frames[-1].hands, [])
+
+    def test_an_active_phantom_fills_in_for_an_empty_real_result(self):
+        proc, _src, sender = self.make(script=[[]])
+        # A real `cfg` push always carries the FULL dict (`_tracker_cfg()`
+        # is not diffed) — `homography_cam_to_stage`/`stage` are included
+        # here for the same reason: a partial cfg with the homography
+        # simply absent is core's own signal to CLEAR it (see
+        # `TestTheHomographyGate.test_a_welcome_with_no_homography_clears_
+        # a_stale_one` above), which would make every test below fail
+        # before reaching the phantom logic at all.
+        proc.apply_welcome({
+            "homography_cam_to_stage": H_TEST, "stage": [1920, 1080],
+            "phantom_active": True,
+            "phantom_started_at": time.time(),
+            "phantom_bin_centers": [[500.0, 400.0], [1400.0, 700.0]],
+        })
+        proc.tick(now=0.0)
+        hands = sender.frames[-1].hands
+        self.assertEqual(len(hands), 1)
+        h = hands[0]
+        self.assertTrue(h.phantom)
+        self.assertEqual(h.role, cursorbus.ROLE_POINTER)
+        self.assertGreaterEqual(h.x, 0.0)
+        self.assertLessEqual(h.x, 1920.0)
+        self.assertGreaterEqual(h.y, 0.0)
+        self.assertLessEqual(h.y, 1080.0)
+
+    def test_a_real_hand_always_wins_over_an_active_phantom(self):
+        # The whole arbitration mechanism this feature relies on: one
+        # sender, so a real detection this tick simply never reaches the
+        # `elif` that would have sent a phantom one instead.
+        proc, _src, sender = self.make(script=[[det(10, 10)]])
+        proc.apply_welcome({
+            "homography_cam_to_stage": H_TEST, "stage": [1920, 1080],
+            "phantom_active": True,
+            "phantom_started_at": time.time(),
+            "phantom_bin_centers": [[500.0, 400.0]],
+        })
+        proc.tick(now=0.0)
+        hands = sender.frames[-1].hands
+        self.assertEqual(len(hands), 1)
+        self.assertFalse(hands[0].phantom)
+
+    def test_deactivating_stops_the_phantom_on_the_next_tick(self):
+        proc, _src, sender = self.make(script=[[], []], frames=2)
+        proc.apply_welcome({
+            "homography_cam_to_stage": H_TEST, "stage": [1920, 1080],
+            "phantom_active": True,
+            "phantom_started_at": time.time(),
+            "phantom_bin_centers": [[500.0, 400.0]],
+        })
+        proc.tick(now=0.0)
+        self.assertTrue(sender.frames[-1].hands[0].phantom)
+        proc.apply_welcome({
+            "homography_cam_to_stage": H_TEST, "stage": [1920, 1080],
+            "phantom_active": False,
+        })
+        proc.tick(now=0.1)
+        self.assertEqual(sender.frames[-1].hands, [])
+
+    def test_a_malformed_bin_centre_list_falls_back_rather_than_raising(self):
+        proc, _src, sender = self.make(script=[[]])
+        proc.apply_welcome({
+            "homography_cam_to_stage": H_TEST, "stage": [1920, 1080],
+            "phantom_active": True,
+            "phantom_started_at": time.time(),
+            "phantom_bin_centers": "not a list",
+        })
+        proc.tick(now=0.0)          # must not raise
+        self.assertTrue(sender.frames[-1].hands[0].phantom)
 
 
 if __name__ == "__main__":

@@ -5204,3 +5204,79 @@ same files on a clean stash before any of this landed.
 **Nothing here has been seen on the projected surface** — no rig was up,
 so the two-line hint's spacing under an 88px token and the centred Done's
 width against the cart are both unverified in person.
+
+## Idle-table phantom hand (2026-08-26, developer request — not a doc
+## build item)
+Developer: when no diner is present, a "phantom hand" should move the
+fireball around the table on its own and light bins up. **No oF changes
+at all** — oF has no concept of a real vs. phantom hand; it already
+renders whatever `role:"pointer"` datagram arrives on `CursorLink`'s UDP
+port, and a phantom hand is exactly that, indistinguishable to oF by
+design.
+
+**The real design problem was arbitration, not motion.** `tracker/main.py`
+is the only process that has ever written to the cursor socket, and it
+already sends a datagram every tick whether or not a hand was tracked
+(an empty one, ordinarily). A phantom sender in `core` writing to the
+same UDP port independently would race the tracker's own empty frames
+and flicker every other frame. Fixed by keeping ONE sender: `common/
+phantom.py`'s `PhantomHand` is a pure, deterministic function of elapsed
+time (`position(elapsed_s)`, given a stage size, a seed and a set of bin
+centres — no clock ownership, no camera), and `TrackerProcess.tick()`
+only ever calls it in an `elif` after an empty real result
+(`if hands: ... elif self._phantom: hands = [synthetic]`) — so a real
+hand always wins the instant it is tracked, by construction, not by a
+race two senders could lose.
+
+`core/main.py` owns the DECISION, not the motion: `_apply_phantom`
+(called from `_apply_cursor`, so it runs every state tick under
+`state_lock`) tracks `_last_real_pointer_at` — advanced only by a
+genuinely real, non-phantom pointer — and once the table has been
+`fsm.State.IDLE` with no real pointer for `phantom_idle_s` (config
+`phantom.idle_s`, default 15s), pushes `phantom_active`/
+`phantom_started_at` (wall time — the shared reference the two
+processes' independent clocks agree on)/`phantom_bin_centers` (the
+camera grid's own rect centres) down to the tracker as `cfg`, the same
+live-push shape `mediapipe_enabled` already uses — **only on the
+transition edge**, not every tick, so this is not 60Hz of control-link
+traffic. A reconnecting tracker still gets the in-progress state from
+`welcome` alone, since `_tracker_cfg()` includes it unconditionally.
+
+**The safety property this whole feature depends on, and it is a real
+bug class if got wrong: a phantom hand must never be able to start a
+diner's session or fire a widget dwell.** `cursorbus.Hand` gained a
+`phantom: bool` field (omitted from the wire when False, so no existing
+frame or oF's own parser changes shape). `core/main.py._apply_cursor`
+routes an incoming phantom-flagged pointer to a SEPARATE
+`_phantom_pointer`, never to `_pointer` — `_pointer` is the only thing
+that reaches `fsm.hand_present()` and `DwellTracker.update()`, so a
+phantom hand can light a bin's hover highlight (`hover.bin_under(rects,
+pointer or phantom_pointer)`) but is structurally unable to reach either
+of the other two, not merely gated off by a state check. `TestIdleTable
+PhantomHand.test_a_phantom_flagged_pointer_lights_a_bin_but_never_
+starts_a_session` pins this directly: 40 phantom-flagged frames sit over
+a bin, the bin lights, `fsm.state` stays `IDLE` throughout.
+
+18 new tests (`test_phantom.py` — the pure path math: deterministic
+given a seed, stays on stage, actually reaches a waypoint during its
+dwell, degrades gracefully with no bin centres; `test_cursorbus.py` — the
+field round-trips and is omitted for an ordinary hand; `test_tracker_
+main.py`'s `TestPhantomHand` — fills in only for an empty result, a real
+hand always wins, deactivating stops it, a malformed centre list doesn't
+raise; `test_core_main.py`'s `TestIdleTablePhantomHand` — idle activates
+it without leaving IDLE, a real pointer arriving deactivates it
+immediately, the safety property above). 1163 tests pass
+(`python -m unittest discover -s python/tests`) — the usual 9 pre-existing
+failures (`test_calibrator`'s flake, the spice-icon `TestCheckoutFlow`/
+`test_hover` cases already documented above) are unrelated and unchanged.
+
+**Not observed on the rig.** Nothing here needs an oF rebuild, so there
+is no build step blocking a look — this is purely a `run.py --stop` /
+`run.py` restart (to pick up the new Python) away from being watched:
+walk away from the table, wait `phantom.idle_s` (15s default), and watch
+whether the fireball starts wandering and lighting bins on its own, then
+confirm a hand landing on the table takes it back over instantly. The
+motion tuning (`LEG_TRAVEL_S`/`LEG_DWELL_S`/wobble amplitude in
+`common/phantom.py`) is an unmeasured first guess, same as every new
+visual constant in this file's history — expect it to want a look and a
+retune, not to be right first try.

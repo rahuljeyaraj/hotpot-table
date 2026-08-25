@@ -114,6 +114,21 @@ class TestEncodeDecode(unittest.TestCase):
         # it and the gate in recv_latest then compares booleans to ints.
         self.assertIsNone(cursorbus.decode(b'{"seq":true,"hands":[]}'))
 
+    def test_a_phantom_hand_carries_the_field_across_the_wire(self):
+        frame = cursorbus.CursorFrame(seq=1, ts=1.0, hands=[
+            hand(-1, cursorbus.ROLE_POINTER, 500.0, 400.0, 1.0),
+        ])
+        frame.hands[0].phantom = True
+        out = cursorbus.decode(cursorbus.encode(frame))
+        self.assertTrue(out.hands[0].phantom)
+
+    def test_an_ordinary_hand_omits_the_phantom_key_entirely(self):
+        # `phantom` is doc-new and every other test in this file (and oF's
+        # own parser) assumes the wire shape it pins is unchanged for a
+        # real hand — see test_the_wire_shape_is_doc_4_6s just above.
+        raw = hand().to_json()
+        self.assertNotIn("phantom", raw)
+
 
 class TestBadHandsAreDroppedNotDefaulted(unittest.TestCase):
     """A hand missing a coordinate must vanish, never arrive at (0,0).

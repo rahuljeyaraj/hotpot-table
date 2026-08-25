@@ -33,6 +33,9 @@
     "of_port": 8770,
     "core_port": 8771
   },
+  "phantom": {
+    "idle_s": 15.0
+  },
   "classifier": {
     "backend": "stub",
     "model": "models/ingredients-x86_64.eim",

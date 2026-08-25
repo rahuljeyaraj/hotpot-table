@@ -232,7 +232,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from hotpot.common import (config, cursorbus, framebus, geometry, health,
-                           log, skeletonbus, wire)
+                           log, phantom, skeletonbus, wire)
 from hotpot.tracker import backend_mediapipe, backend_stub, tracking
 from hotpot.tracker.backend import Backend, Detection
 
@@ -248,6 +248,14 @@ MODELS_DIR = _ROOT / "models"
 # uses. Past this the camera is dead or stalled and this process must go
 # quiet rather than repeat its last cursor.
 STALE_S = 0.5
+
+# The idle-table phantom hand's own id (tracking.py's POINTER_ID is 1, the
+# only id a real MediaPipe-tracked hand on this single-hand rig ever
+# carries) — distinct on purpose so a `hands` list containing both would
+# be visibly wrong rather than silently merged. Never actually reaches
+# the wire alongside a real hand: `tick()` only ever sends the phantom
+# hand when no real one was tracked this frame, one sender, one hand.
+PHANTOM_HAND_ID = -1
 
 # Doc section 6.5's downsample-before-MediaPipe step. **No longer reaches
 # hand detection** — see the module docstring's decision 7: a whole-frame
@@ -724,6 +732,14 @@ class TrackerProcess:
         # as a hand. Defaults true so a tracker that hasn't heard from core
         # yet behaves as it always has.
         self._mediapipe_enabled = True
+        # core/main.py's idle-table attract loop (common/phantom.py) — set
+        # together, cleared together, by `set_phantom` below. `None` means
+        # "not running one right now", which is every table most of the
+        # time: a diner present, or idle for less than core's own
+        # threshold. See `tick()` for where this only ever fires in place
+        # of an EMPTY real result, never instead of one.
+        self._phantom: Optional[phantom.PhantomHand] = None
+        self._phantom_started_at: Optional[float] = None
         self._last_emit: Optional[float] = None
         self._last_landmarks_send: Optional[float] = None
         # MediaPipe's VIDEO mode rejects a timestamp that does not
@@ -794,6 +810,54 @@ class TrackerProcess:
         enabled = cfg.get("mediapipe_enabled")
         if isinstance(enabled, bool):
             self.set_mediapipe_enabled(enabled)
+        active = cfg.get("phantom_active")
+        if isinstance(active, bool):
+            self.set_phantom(active, cfg.get("phantom_started_at"),
+                             cfg.get("phantom_bin_centers"))
+
+    def set_phantom(self, active: bool, started_at: Any,
+                     bin_centers: Any) -> None:
+        """core/main.py's idle-table attract loop, doc TBD.
+
+        Pushed as `cfg` on the transition edge only (`_push_tracker_cfg`'s
+        own reasoning — re-sending an unchanged value every state tick
+        would be 60Hz of control-link traffic for a value that changes
+        maybe once a minute), so this is applied unconditionally rather
+        than gated on "did anything change" the way `set_mediapipe_enabled`
+        gates on it: core already did that gating on its side, and this
+        method's job is just "hold whatever core last said."
+
+        `started_at` is WALL time (`time.time()`), not `time.monotonic()`
+        — the two processes' monotonic clocks are not guaranteed
+        comparable the way `cursorbus`'s own frame `ts` already assumes
+        wall time is. It doubles as `PhantomHand`'s seed: one number, one
+        meaning ("when this attract cycle began"), rather than a second
+        field two processes would have to agree carries the same value.
+
+        Deliberately tolerant of a malformed `bin_centers` (a stale
+        `cfg` from a core with an older/incompatible wire shape) —
+        `PhantomHand` itself falls back to the stage centre with none at
+        all, so this degrades to "wanders the middle of the table" rather
+        than raising out of a config-apply path with a camera thread on
+        the other end of it.
+        """
+        if not active or not isinstance(started_at, (int, float)) \
+                or isinstance(started_at, bool):
+            self._phantom = None
+            self._phantom_started_at = None
+            return
+        centers: List[Any] = []
+        if isinstance(bin_centers, list):
+            for c in bin_centers:
+                if (isinstance(c, (list, tuple)) and len(c) == 2
+                        and all(isinstance(v, (int, float))
+                                and not isinstance(v, bool) for v in c)):
+                    centers.append((float(c[0]), float(c[1])))
+        self._phantom_started_at = float(started_at)
+        with self._lock:
+            stage = self._stage
+        self._phantom = phantom.PhantomHand(
+            stage, centers, seed=self._phantom_started_at)
 
     def set_mediapipe_enabled(self, enabled: bool) -> None:
         """Doc section 4.2's `mediapipe_enabled` — core turns this off for
@@ -980,6 +1044,19 @@ class TrackerProcess:
 
         staged = self._to_stage(detections, scale, origin, h, stage)
         hands = self.tracker.update(staged, now)
+        # The idle-table attract loop: only ever a STAND-IN for an empty
+        # real result, never a second hand alongside one. This is also
+        # the whole arbitration mechanism for the shared cursor socket —
+        # `self.sender` is the only thing that has ever written to it, so
+        # "a real hand always wins the instant it is tracked" falls out
+        # of this being an `elif`, not a race between two senders.
+        if not hands and self._phantom is not None \
+                and self._phantom_started_at is not None:
+            wall_now = time.time()
+            px, py = self._phantom.position(wall_now - self._phantom_started_at)
+            hands = [cursorbus.Hand(id=PHANTOM_HAND_ID,
+                                    role=cursorbus.ROLE_POINTER,
+                                    x=px, y=py, conf=1.0, phantom=True)]
         self.sender.send(hands, ts=time.time())
         # RIG_FEEDBACK item 11 diagnostic: confirmed fixed on the rig,
         # 2026-08-13 — no longer called here, same call `classifier/
