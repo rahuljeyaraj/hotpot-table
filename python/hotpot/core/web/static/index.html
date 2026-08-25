@@ -1933,13 +1933,29 @@
   });
 
   function applyBins(msg) {
+    // THREE states, not two. 2026-08-25: the scales went offline
+    // mid-service and this line said "no connection", which sent the
+    // operator looking at a cable that was fine — the port was open the
+    // whole time and the XIAO had simply stopped sending. They are
+    // different faults (one is a cable, one is a power-cycle of the
+    // board) and the line now says which.
     var s = msg.serial || {};
-    if (s.open && !s.stale) {
+    var port = s.port ? " (" + s.port + ")" : "";
+    if (!s.open) {
+      serialStatusEl.textContent = "Load cells: no connection" + port;
+      serialStatusEl.classList.add("down");
+    } else if (s.stale) {
+      var quiet = (s.age === null || s.age === undefined)
+        ? "" : ", silent for " + Math.round(s.age) + "s";
+      var bad = s.bad_lines ? ", " + s.bad_lines + " bad lines" : "";
+      serialStatusEl.textContent =
+        "Load cells: " + port.replace(/^ /, "") +
+        " is open but sending nothing" + quiet + bad +
+        " — power-cycle the board";
+      serialStatusEl.classList.add("down");
+    } else {
       serialStatusEl.textContent = "Load cells: connected, " + (s.hz || 0).toFixed(1) + " Hz";
       serialStatusEl.classList.remove("down");
-    } else {
-      serialStatusEl.textContent = "Load cells: no connection";
-      serialStatusEl.classList.add("down");
     }
     var choices = msg.choices || [];
     var wantedChoices = choices.map(function (ch) { return ch.id; }).join(" ");

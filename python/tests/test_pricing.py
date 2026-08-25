@@ -245,7 +245,15 @@ class TestShownTotal(unittest.TestCase):
     """
 
     def setUp(self):
-        self.cart = Cart()                       # deadband 10g
+        # **Deadband pinned at 10 g, not left on the default**, the same
+        # way test_cart.py's own deadband class pins it: these cases are
+        # about the MECHANISM (shown and billed diverge under the
+        # deadband, and converge at finalize) and are written around doc
+        # section 21's 45g-then-6g M1 example with its own currency
+        # figures. The rig's chosen value moved 10 -> 5 on 2026-08-25 and
+        # would have turned "6 g is under it" into "6 g crosses it",
+        # quietly making three of these assert nothing.
+        self.cart = Cart(deadband_g=10.0)
         self.binmap = binmap.BinMap()
         self.binmap.set_bin(0, item_id="mushroom", conf=0.9, source="mock")
         self.cart.start_g[0] = 500.0

@@ -35,6 +35,7 @@ from websockets.sync.client import connect  # noqa: E402
 
 from hotpot.classifier import ei_client, ei_deploy, ei_store  # noqa: E402
 from hotpot.common import atomicio  # noqa: E402
+from hotpot.common import config  # noqa: E402
 from hotpot.common import cursorbus  # noqa: E402
 from hotpot.common import geometry  # noqa: E402
 from hotpot.common import health  # noqa: E402
@@ -440,22 +441,30 @@ class TestStateBroadcast(CoreCase):
     def test_a_sub_deadband_pick_does_not_move_the_wire_at_all(self):
         """I5 on the wire, not just in Cart.
 
-        45g then 6g: the second pick is inside the 10g deadband, so the
-        plate must keep saying 45g AND keep saying the price of 45g. The
-        check that can fail is the price — reading it off true removed
-        grams instead would put 5.51-worth of noodles on a plate labelled
-        45g, and would make the running total twitch on load-cell noise at
-        M2 while the grams beside it sat still.
+        45g then a nudge under the deadband: the plate must keep saying
+        45g AND keep saying the price of 45g. The check that can fail is
+        the price — reading it off true removed grams instead would put
+        more noodles' worth of money on a plate labelled 45g, and would
+        make the running total twitch on load-cell noise at M2 while the
+        grams beside it sat still.
+
+        The nudge is DERIVED from the cart's own deadband, not the 6g
+        literal it used to be: the rig's deadband moved 10 -> 5 on
+        2026-08-25 (developer's "my first scoop is not getting recorded"),
+        which turned that 6 into a pick that CROSSES the deadband and
+        made this test assert the opposite of its own name.
         """
         c, msgs, lock = self.of_client()
         self.wait_for_n(msgs, lock, 1)
 
+        nudge = self.core.cart.deadband_g - 1.0
+        self.assertGreater(nudge, 0.0, "deadband too small to nudge under")
         self.core.cart.mock_pick(0, 45)
-        self.core.cart.mock_pick(0, 6)          # 51g truly gone, 45g shown
+        self.core.cart.mock_pick(0, nudge)      # truly gone: 45+nudge; shown: 45
 
         item = self.core.catalogue.item(self.core.catalogue.ids()[0])
         shown_price = round(45 / 100.0 * item.price_per_100g, 2)
-        true_price = round(51 / 100.0 * item.price_per_100g, 2)
+        true_price = round((45 + nudge) / 100.0 * item.price_per_100g, 2)
         self.assertNotEqual(shown_price, true_price,
                             "fixture is useless if both grams price the same")
 
@@ -466,7 +475,9 @@ class TestStateBroadcast(CoreCase):
 
         with lock:
             last = msgs[-1]
-        self.assertEqual(last["bins"][0]["grams"], 449)     # live weight is truth
+        # live weight is truth
+        self.assertEqual(last["bins"][0]["grams"],
+                         round(coremain.MOCK_SEED_GRAMS - 45 - nudge))
         self.assertEqual(last["bins"][0]["picked"], 45)     # display is deadbanded
         self.assertEqual(last["bins"][0]["price"], shown_price)
         self.assertEqual(last["total"]["amount"], shown_price)
@@ -1514,26 +1525,34 @@ class TestMode(ScaleRig, CoreCase):
         item is touched all the old items get popped up."**
 
         This is that. Cancel used to be guarded by `cart.is_active()`,
-        which reads the DEADBANDED `shown_g` — so a 6g pick left the cart
-        reading empty, the guard read False, and `start_g` kept the old
-        baseline. The next diner taking 6g from the same bin crossed the
-        10g deadband on the sum of the two and saw the cancelled order's
-        grams inside their own. `_end_session()` is unconditional now.
+        which reads the DEADBANDED `shown_g` — so a sub-deadband pick left
+        the cart reading empty, the guard read False, and `start_g` kept
+        the old baseline. The next diner taking the same amount from the
+        same bin crossed the deadband on the SUM of the two and saw the
+        cancelled order's grams inside their own. `_end_session()` is
+        unconditional now.
 
         Capable of failing: put the `is_active()` guard back and the last
-        assertion reads 12, not 6.
+        assertion reads two picks' worth, not one.
+
+        The pick size is derived from the cart's own deadband — it was a
+        6g literal, which stopped being sub-deadband when the rig's
+        deadband moved 10 -> 5 on 2026-08-25.
         """
         w = self.ws()
         self.recv_json(w)
         self.recv_json(w)
-        w.send(json.dumps({"t": "mock_pick", "bin": 2, "grams": 6}))
+        g = self.core.cart.deadband_g - 1.0
+        self.assertGreater(g, 0.0, "deadband too small to pick under")
+        w.send(json.dumps({"t": "mock_pick", "bin": 2, "grams": g}))
         end = time.time() + DEADLINE
-        while time.time() < end and self.core.cart.removed_grams(2) < 6.0:
+        while time.time() < end and self.core.cart.removed_grams(2) < g:
             time.sleep(0.02)
         with self.core.state_lock:
-            self.assertAlmostEqual(self.core.cart.removed_grams(2), 6.0, places=3)
-            self.assertAlmostEqual(self.core.cart.shown_g[2], 0.0, places=3,
-                                   msg="6g should be under the display deadband")
+            self.assertAlmostEqual(self.core.cart.removed_grams(2), g, places=3)
+            self.assertAlmostEqual(
+                self.core.cart.shown_g[2], 0.0, places=3,
+                msg=f"{g}g should be under the display deadband")
 
         w.send(json.dumps({"t": "cancel_order"}))
         end = time.time() + DEADLINE
@@ -1542,8 +1561,8 @@ class TestMode(ScaleRig, CoreCase):
         with self.core.state_lock:
             self.assertAlmostEqual(self.core.cart.removed_grams(2), 0.0, places=3,
                                    msg="cancel left the old baseline in place")
-            self.core.cart.mock_pick(2, 6.0)
-            self.assertAlmostEqual(self.core.cart.removed_grams(2), 6.0, places=3)
+            self.core.cart.mock_pick(2, g)
+            self.assertAlmostEqual(self.core.cart.removed_grams(2), g, places=3)
 
     def test_cart_active_is_broadcast_without_being_asked(self):
         """The action bar pre-warns off this field, so it has to arrive on
@@ -1729,10 +1748,27 @@ class TestCameraJoinMessage(unittest.TestCase):
         """MUTATION CHECKED: change CAMERA_PORT and this goes red unless
         config/system.default.json's camera.mjpeg_port is edited to match —
         the two are meant to agree even though nothing enforces it in code.
+
+        **The PORT is compared against the file; the HOST deliberately is
+        not.** Since 2026-08-25 the file says `"auto"` there and `main()`
+        resolves it to this machine's LAN address before Core ever sees
+        it (`config.resolve_browser_host`), so the two are no longer the
+        same kind of value. `CAMERA_HOST` is what a Core built with no
+        host at all falls back to, which is a test-only path — and
+        `localhost` is the right answer for it, because a Core built by a
+        test must not go looking for a network.
         """
         core = self._core()
         msg = core._camera_msg()
         self.assertEqual(msg, {"t": "camera", "host": "localhost", "port": 8081})
+        # Read from the committed default, so the mutation the docstring
+        # promises actually has something to fail against.
+        default = json.loads(
+            (Path(coremain.__file__).resolve().parents[3]
+             / "config" / "system.default.json").read_text(encoding="utf-8"))
+        self.assertEqual(default["camera"]["mjpeg_port"], coremain.CAMERA_PORT)
+        self.assertIn(str(default["camera"]["host_for_browser"]).lower(),
+                      config.AUTO_HOSTS)
 
     def test_a_custom_host_and_port_reach_the_message(self):
         core = self._core(camera_host="odyssey.local", camera_port=9001)
@@ -4247,6 +4283,30 @@ class TestCheckoutFlow(CoreCase):
         self.assertTrue(ov["qr"], "no QR matrix — is `qrcode` installed?")
         self.assertEqual(len(ov["qr"]), len(ov["qr"][0]))
 
+    def test_the_qr_encodes_the_browser_host_not_this_machines_loopback(self):
+        """**Developer, 2026-08-25: "the qr code is showing some local
+        host url which is not reachable in my phone even if it is in same
+        wifi network."**
+
+        The URL is built from `camera_host`, which `main()` now resolves
+        through `config.resolve_browser_host` — `localhost` in
+        `config/system.json` becomes this machine's LAN address, because
+        the only reader of that string is a browser on a device that is
+        not this machine.
+
+        This half of the chain is what `Core` owns: whatever host it is
+        given ends up in the QR, unaltered. `test_config.py`'s
+        `TestResolveBrowserHost` owns the other half. Splitting them is
+        what keeps this test off the network — a Core built by a test
+        must never depend on `config/system.json` or on a route existing.
+        """
+        self.addCleanup(setattr, self.core, "camera_host",
+                        self.core.camera_host)
+        self.core.camera_host = "192.168.1.9"
+        self.assertEqual(self.core.receipt_url("A17"),
+                         "http://192.168.1.9:%d/r/A17" % self.core.web.port)
+        self.assertNotIn("localhost", self.core.receipt_url("A17"))
+
     def test_the_token_is_withheld_until_the_payment_lands(self):
         """**The trap, and the developer asked for it by name**
         (2026-08-25): "the token number should be given only after
@@ -4474,11 +4534,53 @@ class TestCheckoutFlow(CoreCase):
         with self.core.state_lock:
             scr = self.core._screen_msg()
         self.assertEqual(scr["title"], "Choose Your Broth")
-        self.assertEqual((scr["step"], scr["steps"]), (2, 3))
+        self.assertEqual((scr["step"], scr["steps"]), (2, 5))
 
         self._advance_to(fsm.State.SPICE)
         with self.core.state_lock:
             self.assertEqual(self.core._screen_msg()["step"], 3)
+
+    def test_the_dots_count_every_screen_the_diner_will_see(self):
+        """Developer, 2026-08-25: "shouldnt it be 5 dots including the
+        payment page and token number page."
+
+        Paying used to be step 3 of 3, i.e. the same dot as choosing a
+        spice level, on the reading that it was the END of the sequence
+        rather than a step in it. A diner counting dots is counting
+        screens, and there are five.
+
+        Walks the whole chain in order rather than checking one screen,
+        so a step that stops advancing — the failure this replaces —
+        cannot hide behind a correct `steps` total.
+        """
+        seen = []
+
+        def sample():
+            scr = self.core._screen_msg()
+            seen.append((scr["step"], scr["steps"]))
+
+        self._pick()
+        with self.core.state_lock:
+            sample()                                       # cart
+            self.core._fire_widget(hover.CONFIRM)
+            sample()                                       # broth
+            self.core._fire_widget(hover.broth_widget_id("mala"))
+            self.core._fire_widget(hover.CONFIRM)
+            sample()                                       # spice
+            self.core._fire_widget(hover.spice_widget_id(2))
+            self.core._fire_widget(hover.CONFIRM)
+            sample()                                       # pay
+            code = self.core._order.code
+
+        # The token screen is CHECKOUT again, once the money lands — paid
+        # through the real endpoint rather than by poking `paid_at`, so
+        # this walks the same route a diner's phone does.
+        urlopen("http://127.0.0.1:%d/pay/%s"
+                % (self.core.web.port, code), timeout=DEADLINE).read()
+        self.assertTrue(wait_for(lambda: self.core.orders.get(code).paid))
+        with self.core.state_lock:
+            sample()                                       # token
+        self.assertEqual(seen, [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)])
 
     def test_an_idle_table_gets_no_header_at_all(self):
         # A step counter on a table nobody is using would be furniture

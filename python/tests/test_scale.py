@@ -451,6 +451,52 @@ class TestSerialThread(unittest.TestCase):
         self.assertEqual(st["hz"], 0.0)
         self.assertFalse(st["open"])
 
+    def test_the_rate_falls_to_zero_when_the_device_goes_quiet(self):
+        """**2026-08-25, the scales-offline investigation.**
+
+        `_rate` is a deque of arrival timestamps that nothing prunes by
+        age, so a device that stops sending used to leave its last
+        healthy rate in there indefinitely — the staff view showed
+        `10.38 Hz` beside "no connection" for fourteen minutes, and that
+        frozen number is most of why the fault first read as a live link
+        rather than a silent board.
+
+        Capable of failing: drop the staleness gate from `hz()` and the
+        second assertion reads ~10.75.
+        """
+        r, _ = self.reader([])
+        for k in range(11):
+            r.feed([100] * 8, now=1000.0 + k * 0.093)
+        healthy = 1000.0 + 10 * 0.093
+        self.assertAlmostEqual(r.status(now=healthy)["hz"], 10.75, places=1)
+
+        # Nothing further arrives. Well past stale_s, and then far past
+        # it — the number must not merely decay, it must read zero.
+        for later in (healthy + 1.0, healthy + 60.0, healthy + 900.0):
+            with self.subTest(quiet_for=later - healthy):
+                st = r.status(now=later)
+                self.assertTrue(st["stale"])
+                self.assertEqual(st["hz"], 0.0)
+
+    def test_a_silent_device_is_distinguishable_from_an_absent_one(self):
+        """The distinction the Bins tab could not draw on 2026-08-25:
+        `open` says the port is there, `stale` says nothing is coming out
+        of it. Both true at once is a board that has stopped talking —
+        a different fault, and a different fix, from a cable that is out.
+        """
+        # One good line, then the port goes quiet with no error — which
+        # is exactly what a hung board looks like from this side.
+        r, _ = self.reader([line(*([100] * 8))])
+        r.start()
+        self.assertTrue(wait_for(lambda: r.samples >= 1))
+        self.assertTrue(wait_for(lambda: r.status()["stale"], 2.0))
+        st = r.status()
+        self.assertTrue(st["open"], "the port is still open")
+        self.assertTrue(st["stale"], "and nothing is arriving on it")
+        self.assertEqual(st["hz"], 0.0)
+        self.assertEqual(st["port"], "COM-TEST")
+        r.stop()
+
 
 class TestCaptureWindow(unittest.TestCase):
     """Doc section 9.6's `median(counts, 2s window)`, and doc section

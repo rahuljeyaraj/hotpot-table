@@ -265,9 +265,20 @@ namespace {
 	// Height is developer-tuned (not a doc value); top margin is
 	// clearance from the table's far edge; the gap is breathing room
 	// between the mark's bottom and the banner's top when both are up.
+	//
+	// **20 -> 12 and 24 -> 14 (2026-08-25), and the 18px that buys is
+	// spent, not saved.** Moving the step dots onto their own line under
+	// the title (drawPageHeader, developer's own instruction) grows
+	// `_pageHeaderPx` by exactly that much, and the info box's band —
+	// which `setup()` measures against real font metrics — had 6px of
+	// slack, not 18. Lowering `kInfoBoxTopPx` by 18 gives the band back
+	// what the header took, so the box is no tighter than before.
+	// Split across both gaps rather than taken out of one, so neither
+	// the mark's clearance from the table edge nor its breathing room
+	// above the banner collapses on its own.
 	const float kBrandHeightPx = 170.0f;
-	const float kBrandTopMarginPx = 20.0f;
-	const float kBrandBannerGapPx = 24.0f;
+	const float kBrandTopMarginPx = 12.0f;
+	const float kBrandBannerGapPx = 14.0f;
 
 	// --- VISUAL_LAYER.md §8/§9, build item 9: the cart panel ----------------
 	// Lives in the same centre column as the brand mark and the mode
@@ -841,13 +852,36 @@ namespace {
 	// height guessed ahead of the font metrics is the same class of
 	// mistake `kCartFooterHeightPx` already carries a warning for.
 	const float kPageHeaderGapPx = 10.0f;   // header block -> info box
-	// The dots sit BESIDE the title, not under it. Under it the header
-	// needed ~56px of the info box's band; beside it the header is one
-	// line tall and the band keeps the difference — which is the whole
-	// margin the three-line note needs.
+	// **The dots sit UNDER the title, on their own line** — developer,
+	// 2026-08-25: "also it is better to have itsown line instead of same
+	// line as the statement discribing the page."
+	//
+	// They were beside it, and the argument for that was space: stacked,
+	// the header takes ~18px more of a band the info box's three-line
+	// note already fills. That argument is answered rather than
+	// overruled — `kBrandTopMarginPx`/`kBrandBannerGapPx` gave the 18px
+	// back (see their own block), so this is a layout change and not a
+	// trade against the note.
+	//
+	// It also reads better than the inline version did: a progress
+	// indicator under a heading is what every checkout a diner has
+	// already used looks like, and beside it the pair had to be centred
+	// as a group, so the TITLE itself sat off-centre by half the dots'
+	// width — different amounts on different screens, because the titles
+	// are different lengths.
 	const float kStepDotRadiusPx = 5.0f;
 	const float kStepDotGapPx = 14.0f;
-	const float kStepDotsTitleGapPx = 20.0f;
+	// The title's DESCENDER line -> the dots' top edge. Measured off the
+	// descender rather than the baseline so a title with descenders
+	// ("Choose Your Spice") cannot reach into the dots — and the
+	// descender is a font metric, not a per-string one, so the dots
+	// still sit at the same height on every screen.
+	//
+	// 8px here is what makes the whole header exactly 18px taller than
+	// the inline version was, which is exactly what the brand margins
+	// above gave back. Both numbers move together or the info box's own
+	// band check (setup()) starts warning.
+	const float kStepDotsRowGapPx = 8.0f;
 	const ofColor kPageTitleColor(0x2B, 0x21, 0x18);   // the plate's own ink
 
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
@@ -1095,16 +1129,25 @@ void UiLayer::setup(){
 	}
 
 	// The page header's real height, from the face that draws it — one
-	// line of title plus the gap to the info box below. The step dots
-	// share that line (drawPageHeader), so they add nothing to it.
+	// line of title, then the step dots on their OWN line (2026-08-25,
+	// developer's instruction; see kStepDotsRowGapPx), then the gap to
+	// the info box below.
+	//
+	// **This is the one place the dots' height enters the layout**, and
+	// it has to agree term-for-term with drawPageHeader's own dotsY, or
+	// the box below is measured against a header that is not the one
+	// being drawn. Same terms, same order, both derived from the same
+	// two font metrics.
 	//
 	// Measured rather than declared, because everything below the header
 	// is derived from it: get this wrong high and the info box silently
-	// loses a line of the note; get it wrong low and the title's
-	// descenders run into the box's first line.
+	// loses a line of the note; get it wrong low and the dots run into
+	// the box's first line.
 	if(_pageTitleFont.isLoaded()){
 		_pageHeaderPx = _pageTitleFont.getAscenderHeight()
-			+ fabsf(_pageTitleFont.getDescenderHeight()) + kPageHeaderGapPx;
+			+ fabsf(_pageTitleFont.getDescenderHeight())
+			+ kStepDotsRowGapPx + kStepDotRadiusPx * 2.0f
+			+ kPageHeaderGapPx;
 	}
 
 	// The cart's reserved detail column, measured once from the worst case
@@ -1995,58 +2038,57 @@ void UiLayer::drawTotal(const StateLink::Total & total, float baselineY) const {
 }
 
 void UiLayer::drawPageHeader(const StateLink::Screen & screen) const {
-	// The title and the step dots, on ONE line. Both strings are core's
-	// (I2) — this draws whatever arrived and looks nothing up, so a
-	// second locale is a JSON edit and no C++.
+	// The title, then the step dots on their own line under it. Both are
+	// core's (I2) — this draws whatever arrived and looks nothing up, so
+	// a second locale is a JSON edit and no C++.
 	//
 	// An empty title draws nothing at all, which is how an idle table
 	// gets no header rather than an empty strip: core sends "" on every
 	// screen that is not part of the ordering sequence.
 	//
-	// **Beside the title, not under it, and that is a space decision.**
-	// Stacked, the header needed ~56px out of the info box's own band —
-	// and the band has to hold a three-line note (kInfoBoxNoteMaxLines).
-	// Inline, the header is one line tall and the box keeps the
-	// difference. It also reads better: one horizontal group saying
-	// "this screen, this far along" rather than two stacked statements.
+	// **Under the title, not beside it** — developer, 2026-08-25: "it is
+	// better to have itsown line instead of same line as the statement
+	// discribing the page." See kStepDotsRowGapPx for what that cost and
+	// where the space came from; the short version is that the title is
+	// now genuinely centred, where the inline version centred the
+	// title-plus-dots GROUP and so pushed the title itself off-centre by
+	// a different amount on every screen.
 	if(screen.title.empty() || !_pageTitleFont.isLoaded()){
 		return;
 	}
 	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
 	const float baseline = kInfoBoxTopPx + _pageTitleFont.getAscenderHeight();
 
-	// The title and the dots are centred AS A GROUP, so the pair sits on
-	// the column's centre line rather than the title being centred and
-	// the dots hanging off its right.
 	const ofRectangle tb = _pageTitleFont.getStringBoundingBox(screen.title, 0, 0);
-	const float pitch = kStepDotRadiusPx * 2.0f + kStepDotGapPx;
-	const float dotsW = screen.steps > 0
-		? pitch * (float)(screen.steps - 1) + kStepDotRadiusPx * 2.0f
-		: 0.0f;
-	const float groupW = tb.width
-		+ (screen.steps > 0 ? kStepDotsTitleGapPx + dotsW : 0.0f);
-	const float titleX = cx - groupW * 0.5f;
-
 	ofSetColor(kPageTitleColor);
-	_pageTitleFont.drawString(screen.title, titleX - tb.x, baseline);
+	_pageTitleFont.drawString(screen.title, cx - tb.width * 0.5f - tb.x, baseline);
 
 	// The dots: filled up to and including the current step, hollow
-	// after. A diner who can see there are three steps and that they are
-	// on the second one knows the table is not about to charge them —
-	// which is most of what makes a kiosk feel safe to poke at, and it is
-	// the thing kiosk guidance means by "logical flow and step
+	// after. A diner who can see how many steps there are and that they
+	// are on the second one knows the table is not about to charge them
+	// — which is most of what makes a kiosk feel safe to poke at, and it
+	// is the thing kiosk guidance means by "logical flow and step
 	// progression".
 	//
-	// Never a "2 / 3" numeral: this table is read at a distance and by
-	// people who are not necessarily reading English, and three dots
-	// carry the same fact with no reading at all.
+	// Never a "2 / 5" numeral: this table is read at a distance and by
+	// people who are not necessarily reading English, and the dots carry
+	// the same fact with no reading at all.
+	//
+	// `screen.steps` is core's, not a constant here — it went 3 -> 5 on
+	// 2026-08-25 (the payment and token screens are steps too) and this
+	// function needed no change for it, which is the point of sending it.
 	if(screen.steps > 0){
-		// Centred on the title's own x-height rather than its baseline,
-		// so the dots sit optically level with the letters instead of
-		// hanging off the bottom of them.
-		const float dotsY = baseline - _pageTitleFont.getAscenderHeight() * 0.35f;
-		const float first = titleX + tb.width + kStepDotsTitleGapPx
-			+ kStepDotRadiusPx;
+		const float pitch = kStepDotRadiusPx * 2.0f + kStepDotGapPx;
+		const float dotsW = pitch * (float)(screen.steps - 1)
+			+ kStepDotRadiusPx * 2.0f;
+		// Own line: clear of the title's descender by kStepDotsRowGapPx,
+		// then half a dot down to reach the centre. Same terms as
+		// setup()'s `_pageHeaderPx`, in the same order — they measure and
+		// draw the same block and must not drift apart.
+		const float dotsY = baseline
+			+ fabsf(_pageTitleFont.getDescenderHeight())
+			+ kStepDotsRowGapPx + kStepDotRadiusPx;
+		const float first = cx - dotsW * 0.5f + kStepDotRadiusPx;
 		for(int k = 0; k < screen.steps; k++){
 			const float x = first + pitch * (float)k;
 			if(k < screen.step){

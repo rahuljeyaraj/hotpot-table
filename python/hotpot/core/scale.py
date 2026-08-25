@@ -305,11 +305,34 @@ class ScaleReader:
     def stale(self) -> bool:
         return self.read().stale
 
-    @property
-    def hz(self) -> float:
-        """Measured sample rate. ~10.7 on this rig, not doc 4.9's ~78."""
+    def hz(self, now: Optional[float] = None) -> float:
+        """Measured sample rate. ~10.7 on this rig, not doc 4.9's ~78.
+
+        **0.0 once the samples are stale, and that is a fix, not a
+        rounding detail.** `_rate` holds the last RATE_WINDOW arrival
+        timestamps and nothing prunes it by age, so a device that stops
+        talking altogether leaves the last healthy rate frozen in there
+        forever. On 2026-08-25 the staff view read "Load cells: no
+        connection" beside `hz: 10.38` — a number that had not moved in
+        fourteen minutes — and that frozen number is what made the fault
+        look like a link that was still alive. RATE_WINDOW's own comment
+        promised this would "fall visibly when the link degrades", which
+        was true of a SLOWING link and false of a dead one.
+
+        Gated on the same `stale_s` clock the rest of this module bills
+        against, rather than on a second staleness rule of its own: one
+        definition of "the XIAO is gone", used everywhere.
+
+        A method rather than the property it was, so `status(now=...)`
+        can hand it the same clock it hands `read()` — a wall-clock read
+        in here would make every synthetic-timestamp test report 0.
+        """
+        now = time.time() if now is None else now
         with self._lock:
             stamps = list(self._rate)
+            last = self._ts
+        if last <= 0.0 or (now - last) > self.stale_s:
+            return 0.0
         if len(stamps) < 2:
             return 0.0
         span = stamps[-1] - stamps[0]
@@ -317,6 +340,7 @@ class ScaleReader:
 
     def status(self, now: Optional[float] = None) -> dict:
         """What the staff view's serial pip and Bins tab need to draw."""
+        now = time.time() if now is None else now
         r = self.read(now)
         with self._lock:
             port_open, error = self._port_open, self._error
@@ -325,7 +349,7 @@ class ScaleReader:
             "open": port_open,
             "stale": r.stale,
             "age": None if r.age == float("inf") else round(r.age, 3),
-            "hz": round(self.hz, 2),
+            "hz": round(self.hz(now), 2),
             "samples": self.samples,
             "bad_lines": self.bad_lines,
             "opens": self.opens,

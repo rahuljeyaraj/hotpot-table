@@ -14,7 +14,6 @@
   "paid": "Payment Received",
   "token": "Your Token",
   "token_hint": "Show this number at the counter",
-  "pay_hint": "Scan with your phone camera",
   "language": "Language",
   "per_100g": "/100g",
   "kcal_per_100g": "kcal / 100g"

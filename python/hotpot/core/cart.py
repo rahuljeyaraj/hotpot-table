@@ -32,10 +32,34 @@ from typing import List
 
 NUM_BINS = 8
 
-# Doc section 8.6 default. A constructor default rather than read from
-# config/system.json for the same reason as binmap.DEFAULT_CONF_FLOOR:
-# config loading is not built yet (see common/stub.py's docstring).
-DEFAULT_DEADBAND_G = 10.0
+# Doc section 8.6's default was 10.0. **5.0 since 2026-08-25**, on the
+# developer's own report from the rig: "my first scoop is not getting
+# recorded maybe because it is less than 10 gm, if so we need to reduce
+# it to 5gm."
+#
+# What that report is describing, exactly: shown_g stays at 0 until the
+# gap reaches the deadband, and a bin with shown_g == 0 has no cart row
+# at all (UiLayer's `_cartSlotBin` binds a slot the first frame `picked`
+# goes above 0). So a first pick under the deadband is not merely shown
+# late — the item is absent from the cart, which reads as the table not
+# noticing. The grams were never lost (they snap in whole as soon as the
+# threshold is crossed, I5's rule), but nothing on the table says so
+# while the diner is standing there.
+#
+# **The floor is load-cell noise, and this rig's own numbers are what
+# bound how far it can drop.** CLAUDE.md's per-channel table has four
+# bins at ~750-1500 counts rms; state/loadcell_cal.json's saved
+# `noise_grams` is what turns that into grams per bin, and `is_active()`
+# below is the predicate that goes permanently true if the deadband ever
+# falls under it — which would make setting mode unreachable, the exact
+# failure M2.6 chose 10 g to avoid. 5 g clears this rig's measured noise;
+# do not drop it further without re-measuring, and watch the Bins tab's
+# noise dots after any load-cell rework.
+#
+# Now a real config key (`core.deadband_g`, read in `main()` and threaded
+# through `Core.__init__`), not just a constant — it was in
+# config/system.json all along with nothing reading it.
+DEFAULT_DEADBAND_G = 5.0
 
 
 class Cart:
@@ -91,15 +115,20 @@ class Cart:
         that refuses entry.
 
         shown_g is deadband-gated (set_live_grams above), so it is 0 until
-        a real >=10 g pick lands, and it is also exactly what the diner
-        can see on the table — refusing to enter setting mode because of
-        something visible is explicable to an operator; refusing because
-        of invisible noise is not.
+        a real pick of `deadband_g` or more lands, and it is also exactly
+        what the diner can see on the table — refusing to enter setting
+        mode because of something visible is explicable to an operator;
+        refusing because of invisible noise is not.
 
-        Accepted cost: a sub-deadband pick (say 5 g) reads as inactive and
-        is discarded by exit's re-baseline. That is about Rs 0.60 and
-        invisible on the table, against a mode that could not be entered
-        at all.
+        Accepted cost: a sub-deadband pick (under 5 g since 2026-08-25)
+        reads as inactive and is discarded by exit's re-baseline. That is
+        a few cents and invisible on the table, against a mode that could
+        not be entered at all.
+
+        **This is the predicate that bounds how far `deadband_g` can
+        fall** — see DEFAULT_DEADBAND_G's own block. Below the load
+        cells' own noise this is true on an untouched table and setting
+        mode becomes unreachable.
         """
         return any(g > 0.0 for g in self.shown_g)
 

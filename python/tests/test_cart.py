@@ -16,7 +16,13 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from hotpot.core.cart import NUM_BINS, Cart  # noqa: E402
+from hotpot.core.cart import DEFAULT_DEADBAND_G, NUM_BINS, Cart  # noqa: E402
+
+# Half a deadband: the largest pick this rig's own default still hides.
+# Derived, never a literal — the constant moved 10 -> 5 on 2026-08-25 and
+# every test that had "5 g is sub-deadband" written into it stopped
+# testing what its own name claimed.
+SUB_DEADBAND_G = DEFAULT_DEADBAND_G / 2.0
 
 
 class TestFreshCart(unittest.TestCase):
@@ -243,7 +249,7 @@ class TestIsActive(unittest.TestCase):
         self.assertTrue(c.is_active())
 
     def test_a_sub_deadband_pick_does_not(self):
-        """5 g is under doc section 9.2's display deadband: nothing on the
+        """A pick under doc section 9.2's display deadband: nothing on the
         table moved, so there is nothing an operator could be shown as
         the reason their mode change was refused.
 
@@ -251,8 +257,9 @@ class TestIsActive(unittest.TestCase):
         goes red.
         """
         c = self.seeded()
-        c.mock_pick(3, 5.0)
-        self.assertEqual(c.removed_grams(3), 5.0)   # raw weight did move
+        c.mock_pick(3, SUB_DEADBAND_G)
+        # raw weight did move
+        self.assertEqual(c.removed_grams(3), SUB_DEADBAND_G)
         self.assertFalse(c.is_active())
 
     def test_putting_it_all_back_makes_it_inactive_again(self):

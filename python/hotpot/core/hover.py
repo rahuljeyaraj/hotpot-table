@@ -300,28 +300,46 @@ def _centred(width: float, height: float, y: float) -> Rect:
 
 
 # **THREE FIXED SLOTS, on every screen, whether or not all three are
-# used.** Back is always slot 0, Cancel always slot 1, the forward action
-# always slot 2 — so no button on this table ever changes position, and
-# an unused slot is left empty rather than closed up.
+# used.** The grid never re-centres and never closes a gap: a row with
+# two buttons leaves the middle slot EMPTY and fills the two ends, so
+# every button on this table sits on one of three x positions and the
+# row reads as the same row from screen to screen.
 #
-# **This is a safety property, not a style one, and the alternative is a
-# real way to destroy a diner's order.** Dwell selection means a hand is
-# resting on a button at the instant that button fires — and firing is
-# exactly what changes the screen. If the row re-centred itself to fit
-# however many buttons the next screen has, the hand that just pressed
-# Pay (right of a two-wide row) would come to rest on Cancel (middle of a
-# three-wide row) with the accumulator re-arming underneath it. The
-# `DwellTracker` re-arm latch does not save that case: the latch is keyed
-# by widget id, and the id under the hand genuinely changed.
+# Developer, 2026-08-25, giving the row per screen outright:
 #
-# Worked through for the worst crossing before this was fixed: the spice
-# screen's Pay spans 1065..1220, and the payment screen's Cancel spanned
-# 974..1220 — so *every* pixel of the button the diner had just pressed
-# sat on top of Cancel, 1.2 seconds from voiding the order they had just
-# placed. With fixed slots the forward slot simply becomes empty and the
-# hand rests on nothing.
+#     cart      Cancel · —      · Next
+#     broth     Back   · Cancel · Next
+#     spice     Back   · Cancel · Pay
+#     payment   Back   · —      · Cancel
+#     paid      —      · —      · Done
+#
+# **A two-button row filling the ends is the developer's call and it
+# costs something real — read this before "simplifying" any row back.**
+# Dwell selection means a hand is resting on a button at the instant that
+# button fires, and firing is what changes the screen. The three slots
+# used to be role-fixed as well as position-fixed (Back 0, Cancel 1,
+# forward 2), which made the crossing safe by geometry: the spice
+# screen's Pay sat in slot 2 and the payment screen left slot 2 empty, so
+# the hand came to rest on nothing. With Cancel in slot 2 on the payment
+# screen, that hand now rests on Cancel instead — 1.2s from voiding the
+# order it just placed. The cart screen has the mirror of it: Back sits
+# in slot 0 on broth, and pressing it lands the hand on the cart screen's
+# Cancel, also slot 0.
+#
+# **What stops both is `DwellTracker.suppress_until_exit`, and it is the
+# only thing that does.** `core/main.py` calls it whenever the widget
+# SHAPE changes — ids and rects, not just on a transition — which is
+# exactly what both crossings are, so whatever is under the hand is
+# disarmed until the hand actually leaves and comes back. That call is
+# load-bearing now in a way it was not when the geometry also covered
+# this; do not weaken its trigger to "a transition fired".
 BUTTON_SLOTS = 3
-SLOT_BACK, SLOT_CANCEL, SLOT_FORWARD = 0, 1, 2
+SLOT_LEFT, SLOT_MIDDLE, SLOT_RIGHT = 0, 1, 2
+# The old role names, kept because most rows still use the roles they
+# describe (Back left, Cancel middle, the forward action right) and every
+# reader of this module already knows them. They are POSITIONS, not
+# promises about which button lands there — see the table above.
+SLOT_BACK, SLOT_CANCEL, SLOT_FORWARD = SLOT_LEFT, SLOT_MIDDLE, SLOT_RIGHT
 
 
 def button_slot_rects() -> List[Rect]:
@@ -346,6 +364,10 @@ def button_row(ids: Sequence[Optional[str]]) -> Dict[str, Rect]:
     reads Back | Cancel | Next: the two ways out on the left, the one way
     forward on the right, which is where every checkout a diner has
     already used puts it.
+
+    A row with two buttons passes `None` for the MIDDLE slot, never for
+    an end one — see `BUTTON_SLOTS` for the developer's own table and for
+    what that costs.
     """
     if len(ids) != BUTTON_SLOTS:
         raise ValueError(
@@ -358,11 +380,13 @@ def button_row(ids: Sequence[Optional[str]]) -> Dict[str, Rect]:
 def layout() -> Dict[str, Rect]:
     """The cart screen's own two button rects: Cancel, then Next.
 
-    Slots 1 and 2 of three — the Back slot is left EMPTY rather than the
-    pair being centred, because there is nothing behind the cart screen
-    and because closing the gap would move Cancel (see `BUTTON_SLOTS`).
-    The empty slot is also where Back appears on the very next screen,
-    which teaches the row's shape before the diner needs it.
+    **The ENDS of the row, with the middle slot empty** (developer,
+    2026-08-25: "the button should be always fill the left and right slot
+    if there is only 2 buttons"). Cancel was in the middle slot until
+    then, with the Back slot empty on the argument that Back appears
+    there on the very next screen — that argument is gone: a two-button
+    row that leaves a hole on one side reads as a row missing a button
+    rather than as a row of two.
 
     Kept as a named function (rather than callers reaching for
     `button_row` directly) because it is the pair `UiLayer::setup()`'s
@@ -375,7 +399,7 @@ def layout() -> Dict[str, Rect]:
     they record what was measured on the rig about that band — see
     `BAND_BOTTOM_PX`'s own comment, which is a finding, not a leftover.
     """
-    return button_row([None, CANCEL, CONFIRM])
+    return button_row([CANCEL, None, CONFIRM])
 
 
 # --- M6: the option list the BROTH and SPICE screens share ----------------
@@ -561,11 +585,14 @@ def checkout_widgets(*, paid: bool = False) -> List[Widget]:
     Cancel voids it and ends the session. Both of those are core's to do
     (`core/main.py._fire_back` and `_dispatch_widget`).
 
-    **The forward slot being EMPTY is also the crossing the fixed grid
-    was designed for**: the diner's hand is resting on the spice screen's
-    Pay button at the instant this screen replaces it, and an empty slot
-    means it comes to rest on nothing rather than on Cancel. See
-    `BUTTON_SLOTS`.
+    **The two of them fill the ENDS, so Cancel sits where the spice
+    screen's Pay just was** (developer, 2026-08-25 — see `BUTTON_SLOTS`
+    for the row table). This is the one crossing the old role-fixed grid
+    was explicitly designed to make impossible, and it is now handled by
+    `DwellTracker.suppress_until_exit` instead of by geometry: the hand
+    resting on Cancel at the instant this screen arrives is disarmed
+    until it leaves and comes back. Nothing else stands between a
+    stationary hand and a voided order here.
 
     PAID: **Done, alone.** Back is meaningless (nobody re-chooses a spice
     level for an order they have paid for) and Cancel would be worse than
@@ -582,7 +609,7 @@ def checkout_widgets(*, paid: bool = False) -> List[Widget]:
         rects = button_row([None, None, CONFIRM])
         return [Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="done",
                        style="primary", enabled=True)]
-    rects = button_row([BACK, CANCEL, None])
+    rects = button_row([BACK, None, CANCEL])
     return [
         Widget(id=BACK, rect=rects[BACK], label_key="back",
                style="secondary", enabled=True),

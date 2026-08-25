@@ -4,7 +4,7 @@
     "web_port": 8090,
     "locale": "en",
     "conf_floor": 0.65,
-    "deadband_g": 10.0,
+    "deadband_g": 5.0,
     "settle_ms": 300,
     "dwell_ms": 1200
   },
@@ -15,7 +15,7 @@
     "mjpeg_port": 8081,
     "mjpeg_width": 1920,
     "mjpeg_fps": 8,
-    "host_for_browser": "localhost"
+    "host_for_browser": "auto"
   },
   "tracker": {
     "model_complexity": 1,

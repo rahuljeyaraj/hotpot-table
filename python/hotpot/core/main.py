@@ -315,12 +315,19 @@ def _seed_binmap(catalogue: pricing.Catalogue) -> binmap.BinMap:
     return bm
 
 
-def _seed_cart() -> cart.Cart:
+def _seed_cart(deadband_g: float = cart.DEFAULT_DEADBAND_G) -> cart.Cart:
     """Every bin starts at MOCK_SEED_GRAMS, then reset_session() (I6's
     re-baseline) sets start_g to match — so removed grams is 0 at boot,
     not a negative clamp from an empty tray. See MOCK_SEED_GRAMS above.
+
+    `deadband_g` is doc section 8.6's `core.deadband_g`, threaded in from
+    `main()` rather than left on `Cart`'s own default — the key has been
+    in `config/system.json` since M3.2 with nothing reading it, so an
+    operator editing it got no effect and no warning. See
+    `cart.DEFAULT_DEADBAND_G` for what the number does and what bounds
+    how far it can drop.
     """
-    c = cart.Cart()
+    c = cart.Cart(deadband_g=deadband_g)
     for i in range(cart.NUM_BINS):
         c.set_live_grams(i, MOCK_SEED_GRAMS)
     c.reset_session()
@@ -368,6 +375,7 @@ class Core:
         emit_hz: float = TRACKER_EMIT_HZ,
         cursor_port: int = cursorbus.CORE_PORT,
         dwell_ms: float = hover.DEFAULT_DWELL_MS,
+        deadband_g: float = cart.DEFAULT_DEADBAND_G,
         classify_hz: float = CLASSIFIER_LIVE_HZ,
         classify_enabled: bool = True,
         ei_project_path: Path = EI_PROJECT_PATH,
@@ -437,7 +445,7 @@ class Core:
         # staff view; **not a deadline** — the 90s timeout that used to
         # read it is deleted (see CHECKOUT_TIMEOUT_S' block above).
         self._checkout_since: Optional[float] = None
-        self.cart = _seed_cart()
+        self.cart = _seed_cart(deadband_g)
         # binmap and refresh_weights are both here so that fsm.py owns all
         # three of doc section 9.1's setting-exit steps — refresh, then
         # re-baseline, then lock — rather than leaving any of them to a
@@ -3362,8 +3370,18 @@ class Core:
             })
         return {
             "t": "bins",
+            # **`port`/`age`/`bad_lines` are here because of 2026-08-25**:
+            # the scales went offline mid-service and the three fields on
+            # this message could not tell "the XIAO is unplugged" from
+            # "the XIAO is plugged in, enumerated, and has stopped
+            # sending" — which are different faults with different fixes,
+            # and the second one is the one that happened. Diagnosing it
+            # took a hand-written WebSocket probe; it should have taken a
+            # glance at this line. `scale.status()` has carried all three
+            # since M2.2, so this is wiring, not new data.
             "serial": {"open": status["open"], "stale": status["stale"],
-                      "hz": status["hz"]},
+                      "hz": status["hz"], "port": status["port"],
+                      "age": status["age"], "bad_lines": status["bad_lines"]},
             # Every catalogue item, for the override select — doc §8.1's
             # SHOWN half (display_name), since this is a staff-facing
             # surface, not the Capture tab's hidden class_name.
@@ -3459,12 +3477,22 @@ class Core:
         one ("Choose your size", "Add a drink?"). Without it the broth
         page is four unlabelled plates and a Next button.
 
-        `step`/`steps` drive the dots oF draws beside the title: a diner
-        who can see there are three steps and they are on the second one
+        `step`/`steps` drive the dots oF draws under the title: a diner
+        who can see how many steps there are and which one they are on
         knows the table is not about to charge them, which is most of what
-        makes a kiosk feel safe to poke at. The payment screen is step 3
-        of 3 rather than a fourth — it is the END of the sequence, not
-        another decision to make.
+        makes a kiosk feel safe to poke at.
+
+        **FIVE steps, not three** — developer, 2026-08-25: "the three dots
+        showing which page is active, shouldnt it be 5 dots including the
+        payment page and token number page." It was three because paying
+        was read as the END of the sequence rather than a step in it; but
+        a diner counting dots is counting SCREENS THEY WILL SEE, and they
+        see five. Three dots on a table that then shows two more screens
+        understates how far there is to go at exactly the moment being
+        honest about it matters — which is the whole reason the dots are
+        there.
+
+            1 cart · 2 broth · 3 spice · 4 pay · 5 token
 
         Every string is resolved here, per I2 — oF does no lookup, so a
         second locale changes `data/locales/*.json` and no C++.
@@ -3478,7 +3506,7 @@ class Core:
             key, step = "step_spice", 3
         elif st is fsm.State.CHECKOUT:
             paid = self._order is not None and self._order.paid
-            key, step = ("paid" if paid else "step_pay"), 3
+            key, step = ("paid", 5) if paid else ("step_pay", 4)
         elif st is fsm.State.SELECTING:
             key, step = "step_cart", 1
         else:
@@ -3490,12 +3518,24 @@ class Core:
         hint = ""
         if st is fsm.State.CHECKOUT:
             paid = self._order is not None and self._order.paid
-            hint = self.locales.translate(
-                "token_hint" if paid else "pay_hint", self.locale)
+            # **The unpaid screen has no hint at all** — developer,
+            # 2026-08-25: "in payment no need to say scan with ur phone
+            # camera, it is very clear, remove that line." A QR code
+            # under a title that already reads "Scan To Pay" does not
+            # need a third line explaining what a QR code is; the locale
+            # key `pay_hint` is deleted, not blanked, so nothing can put
+            # it back by accident.
+            #
+            # The PAID screen keeps its hint. A token number is not
+            # self-explanatory the way a QR is — "Show this number at the
+            # counter" is the only thing on the table saying what to do
+            # with it.
+            hint = (self.locales.translate("token_hint", self.locale)
+                    if paid else "")
         return {
             "title": self.locales.translate(key, self.locale),
             "step": step,
-            "steps": 3,
+            "steps": 5,
             "hint": hint,
         }
 
@@ -3654,7 +3694,13 @@ def main() -> None:
     cfg = config.load()
     cam_cfg = config.get(cfg, "camera", {})
     core = start(
-        camera_host=cam_cfg.get("host_for_browser", CAMERA_HOST),
+        # Resolved, not read straight through — see
+        # `config.resolve_browser_host`. This one string is both the Live
+        # tab's `<img>` host and (via `Core.receipt_url`) the host inside
+        # the projected QR, and a diner's phone is the strictest reader of
+        # the two.
+        camera_host=config.resolve_browser_host(
+            cam_cfg.get("host_for_browser", CAMERA_HOST)),
         camera_port=cam_cfg.get("mjpeg_port", CAMERA_PORT),
         # Doc section 8.6's tracker block, read here rather than by the
         # tracker itself: doc section 4.2 makes core the one holder of
@@ -3666,6 +3712,8 @@ def main() -> None:
                                    cursorbus.CORE_PORT)),
         dwell_ms=float(config.get(cfg, "core.dwell_ms",
                                   hover.DEFAULT_DWELL_MS)),
+        deadband_g=float(config.get(cfg, "core.deadband_g",
+                                    cart.DEFAULT_DEADBAND_G)),
         classify_hz=float(config.get(cfg, "classifier.live_hz",
                                      CLASSIFIER_LIVE_HZ)),
         classify_enabled=bool(config.get(cfg, "classifier.enabled", True)),

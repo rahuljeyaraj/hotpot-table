@@ -16,7 +16,11 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from hotpot.core.binmap import BinMap  # noqa: E402
-from hotpot.core.cart import Cart  # noqa: E402
+from hotpot.core.cart import DEFAULT_DEADBAND_G, Cart  # noqa: E402
+
+# Half a deadband — derived, never a literal. See test_cart.py's own copy
+# of this constant for the 2026-08-25 change that made it necessary.
+SUB_DEADBAND_G = DEFAULT_DEADBAND_G / 2.0
 from hotpot.core.fsm import Fsm, State  # noqa: E402
 
 
@@ -156,9 +160,9 @@ class TestCanEnterSetting(unittest.TestCase):
         """The `shown_g` decision (cart.is_active's docstring), pinned as
         a test because the alternative reading is silently catastrophic.
 
-        5 g is under doc section 9.2's 10 g display deadband, so nothing
-        on the table has moved and `shown_g` is still 0 — but
-        `removed_grams()` is 5.0. If is_active() read the raw number,
+        Half a deadband is under doc section 9.2's display deadband, so
+        nothing on the table has moved and `shown_g` is still 0 — but
+        `removed_grams()` is not. If is_active() read the raw number,
         ordinary load-cell noise (CLAUDE.md's per-channel table: four
         bins at 500-1500 counts rms) would hold this true permanently and
         **setting mode would be unreachable on the rig.**
@@ -169,9 +173,10 @@ class TestCanEnterSetting(unittest.TestCase):
         cart = Cart()
         cart.set_live_grams(0, 500.0)
         cart.reset_session()
-        cart.mock_pick(0, 5.0)
+        cart.mock_pick(0, SUB_DEADBAND_G)
         self.assertEqual(cart.shown_g[0], 0.0)      # nothing visible moved
-        self.assertEqual(cart.removed_grams(0), 5.0)  # but raw weight did
+        # but raw weight did
+        self.assertEqual(cart.removed_grams(0), SUB_DEADBAND_G)
         f = Fsm(cart, BinMap())
         f.boot_complete()
         self.assertIsNone(f.can_enter_setting())
@@ -335,8 +340,8 @@ class TestExitSetting(unittest.TestCase):
 
     def test_exit_discards_the_sub_deadband_pick_entry_let_through(self):
         """The accepted cost of is_active() reading shown_g: a pick under
-        the 10 g deadband does not refuse entry, so it is still sitting
-        there at exit. reset_session() is what discards it.
+        the deadband does not refuse entry, so it is still sitting there
+        at exit. reset_session() is what discards it.
 
         Deliberately a bin the refresh callback cannot weigh (no reading
         at all here), because for a weighable bin seed_live_grams() would
@@ -344,18 +349,19 @@ class TestExitSetting(unittest.TestCase):
         reset_session() ever being called.
 
         MUTATION CHECKED: drop `self.cart.reset_session()` from
-        exit_setting() and this goes red (start_g stays 500, 5 g still
-        owing).
+        exit_setting() and this goes red (start_g stays 500, the pick
+        still owing).
         """
         cart = Cart()
         cart.set_live_grams(1, 500.0)
         cart.reset_session()
-        cart.mock_pick(1, 5.0)
+        cart.mock_pick(1, SUB_DEADBAND_G)
         f = Fsm(cart, BinMap())
         f.boot_complete()
         self.assertTrue(f.enter_setting(), "a sub-deadband pick refused entry")
         self.assertTrue(f.exit_setting())
-        self.assertEqual(cart.start_g[1], 495.0)    # re-baselined, not zeroed
+        # re-baselined, not zeroed
+        self.assertEqual(cart.start_g[1], 500.0 - SUB_DEADBAND_G)
         self.assertEqual(cart.removed_grams(1), 0.0)
         self.assertEqual(cart.shown_g[1], 0.0)
 
@@ -368,8 +374,8 @@ class TestExitSetting(unittest.TestCase):
         for i in range(2):
             cart.set_live_grams(i, 500.0)
         cart.reset_session()
-        cart.mock_pick(0, 5.0)
-        cart.mock_pick(1, 5.0)
+        cart.mock_pick(0, SUB_DEADBAND_G)
+        cart.mock_pick(1, SUB_DEADBAND_G)
 
         def refresh():
             cart.seed_live_grams(0, 300.0)      # bin 0 is weighable
@@ -380,7 +386,7 @@ class TestExitSetting(unittest.TestCase):
         self.assertTrue(f.enter_setting())
         f.exit_setting()
         self.assertEqual(cart.start_g[0], 300.0)
-        self.assertEqual(cart.start_g[1], 495.0)
+        self.assertEqual(cart.start_g[1], 500.0 - SUB_DEADBAND_G)
         self.assertEqual(cart.removed_grams(1), 0.0)
 
     def test_transition_callback_fires_after_all_three_steps(self):

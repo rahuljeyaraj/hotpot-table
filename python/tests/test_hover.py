@@ -144,19 +144,23 @@ class TestWidgetLayout(unittest.TestCase):
         # on the table and invisible in a diff.
         #
         # Measured on the SLOT GRID, not on whichever buttons a given
-        # screen happens to use: since 2026-08-25 the cart screen leaves
-        # the Back slot empty rather than centring its pair (see
-        # `hover.BUTTON_SLOTS` for why that is a safety property).
+        # screen happens to use: a screen with two buttons fills the two
+        # ends and leaves the middle slot empty rather than closing up
+        # (see `hover.BUTTON_SLOTS` for the developer's own row table).
         slots = hover.button_slot_rects()
         self.assertEqual(len(slots), hover.BUTTON_SLOTS)
         span = slots[-1][0] + slots[-1][2] - slots[0][0]
         self.assertAlmostEqual(span, hover.CART_WIDTH_PX)
 
-    def test_the_cart_screen_leaves_the_back_slot_empty(self):
+    def test_the_cart_screen_fills_both_ends_and_leaves_the_middle_empty(self):
+        """Developer, 2026-08-25: "the button should be always fill the
+        left and right slot if there is only 2 buttons." Cancel used to
+        sit in the middle slot with the left one empty.
+        """
         slots = hover.button_slot_rects()
         ws = {w.id: w for w in build_widgets()}
-        self.assertEqual(ws[hover.CANCEL].rect, slots[hover.SLOT_CANCEL])
-        self.assertEqual(ws[hover.CONFIRM].rect, slots[hover.SLOT_FORWARD])
+        self.assertEqual(ws[hover.CANCEL].rect, slots[hover.SLOT_LEFT])
+        self.assertEqual(ws[hover.CONFIRM].rect, slots[hover.SLOT_RIGHT])
 
     def test_the_buttons_stay_on_the_table(self):
         # 1080px is the stage's near edge. A dwell target hanging off it is
@@ -506,52 +510,106 @@ class TestTheNavRow(unittest.TestCase):
         xs = [w.rect[0] for w in row]
         self.assertEqual(xs, sorted(xs))
 
-    def test_no_button_ever_moves_between_screens(self):
-        """**The one that matters, and it is a safety property.**
+    def test_every_button_lands_on_one_of_the_three_slots(self):
+        """The grid never re-centres and never closes a gap.
 
-        Dwell means the hand is resting on a button at the instant it
-        fires, and firing is what changes the screen. If a button moved
-        between screens, the hand that just pressed Pay would come to rest
-        on whatever slid under it — and on the payment screen that was
-        Cancel, 1.2 seconds from voiding the order just placed.
-
-        So: every id keeps the same rect on every screen it appears on,
-        and an unused slot is left empty rather than the row closing up.
-        See `hover.BUTTON_SLOTS`.
+        This is what survives of the old "no button ever moves" test.
+        Since 2026-08-25 a two-button row fills the two ENDS, so a given
+        id no longer keeps one rect across every screen — but every
+        button on every screen still sits on one of exactly three x
+        positions, which is the part a diner learns.
         """
-        seen = {}
+        slots = hover.button_slot_rects()
         for name, ws in (("cart", build_widgets()),
                          ("broth", hover.broth_widgets(BROTHS)),
                          ("spice", hover.spice_widgets(SPICES)),
-                         ("checkout", hover.checkout_widgets())):
+                         ("payment", hover.checkout_widgets()),
+                         ("paid", hover.checkout_widgets(paid=True))):
             for w in self._row(ws):
-                if w.id in seen:
-                    self.assertEqual(
-                        w.rect, seen[w.id][1],
-                        f"{w.id} moved between {seen[w.id][0]} and {name}")
-                seen[w.id] = (name, w.rect)
-        self.assertEqual(sorted(seen), sorted([hover.BACK, hover.CANCEL,
-                                               hover.CONFIRM]))
+                with self.subTest(screen=name, widget=w.id):
+                    self.assertIn(w.rect, slots)
 
-    def test_each_action_owns_its_own_slot(self):
+    def test_the_row_on_every_screen_is_the_one_the_developer_asked_for(self):
+        """Developer, 2026-08-25, verbatim (— is an empty slot):
+
+            cart      Cancel · —      · Next
+            broth     Back   · Cancel · Next
+            spice     Back   · Cancel · Pay
+            payment   Back   · —      · Cancel
+            paid      —      · —      · Done
+        """
+        slots = hover.button_slot_rects()
+        expected = {
+            "cart": [hover.CANCEL, None, hover.CONFIRM],
+            "broth": [hover.BACK, hover.CANCEL, hover.CONFIRM],
+            "spice": [hover.BACK, hover.CANCEL, hover.CONFIRM],
+            "payment": [hover.BACK, None, hover.CANCEL],
+            "paid": [None, None, hover.CONFIRM],
+        }
+        rows = {
+            "cart": build_widgets(),
+            "broth": hover.broth_widgets(BROTHS),
+            "spice": hover.spice_widgets(SPICES),
+            "payment": hover.checkout_widgets(),
+            "paid": hover.checkout_widgets(paid=True),
+        }
+        for name, want in expected.items():
+            by_rect = {w.rect: w.id for w in self._row(rows[name])}
+            got = [by_rect.get(slot) for slot in slots]
+            self.assertEqual(got, want, f"{name}'s row")
+
+    def test_a_two_button_row_never_leaves_an_end_empty(self):
+        """The rule behind the table above, stated on its own so a new
+        screen cannot quietly break it: with two buttons, the empty slot
+        is the MIDDLE one.
+        """
+        slots = hover.button_slot_rects()
+        for name, ws in (("cart", build_widgets()),
+                         ("payment", hover.checkout_widgets())):
+            row = self._row(ws)
+            with self.subTest(screen=name):
+                self.assertEqual(len(row), 2)
+                self.assertEqual(sorted(w.rect for w in row),
+                                 sorted([slots[hover.SLOT_LEFT],
+                                         slots[hover.SLOT_RIGHT]]))
+
+    def test_each_action_owns_its_own_slot_on_a_three_button_row(self):
         slots = hover.button_slot_rects()
         spice = {w.id: w for w in hover.spice_widgets(SPICES)}
         self.assertEqual(spice[hover.BACK].rect, slots[hover.SLOT_BACK])
         self.assertEqual(spice[hover.CANCEL].rect, slots[hover.SLOT_CANCEL])
         self.assertEqual(spice[hover.CONFIRM].rect, slots[hover.SLOT_FORWARD])
 
-    def test_nothing_replaces_pay_when_the_payment_screen_opens(self):
-        """The exact crossing that forced the fixed grid: the hand is on
-        Pay when the payment screen arrives, and the slot it is over must
-        be EMPTY there, not occupied by a different action.
+    def test_cancel_lands_under_pay_and_is_disarmed_by_the_screen_change(self):
+        """**The crossing the fixed roles used to prevent by geometry, and
+        the one thing that prevents it now.**
+
+        The payment screen's Cancel occupies the slot the spice screen's
+        Pay just fired from, so a hand that has not moved is sitting on
+        Cancel. `DwellTracker.suppress_until_exit` — which `core/main.py`
+        calls whenever the widget shape changes — is what stops that hand
+        from voiding the order 1.2s later.
+
+        Both halves are asserted: that the overlap is real (so this test
+        cannot pass by the layout quietly reverting) and that a full
+        dwell's worth of time on it fires nothing.
         """
-        pay = {w.id: w for w in hover.spice_widgets(SPICES)}[hover.CONFIRM]
-        cx = pay.rect[0] + pay.rect[2] / 2
-        cy = pay.rect[1] + pay.rect[3] / 2
-        for w in hover.checkout_widgets():
-            with self.subTest(widget=w.id):
-                self.assertFalse(w.contains(cx, cy),
-                                 f"{w.id} sits under the Pay button")
+        spice = hover.spice_widgets(SPICES, selected_level=1)
+        pay = {w.id: w for w in spice}[hover.CONFIRM]
+        hand = pointer(pay.rect[0] + pay.rect[2] / 2,
+                       pay.rect[1] + pay.rect[3] / 2)
+        payment = hover.checkout_widgets()
+        cancel = {w.id: w for w in payment}[hover.CANCEL]
+        self.assertTrue(cancel.contains(hand.x, hand.y),
+                        "the crossing this test exists for is not happening")
+
+        d = hover.DwellTracker(dwell_ms=1200.0)
+        self.assertEqual(d.update(spice, hand, 0.0), None)
+        self.assertEqual(d.update(spice, hand, 1.3), hover.CONFIRM)
+        d.suppress_until_exit(payment, hand)
+        for t in (1.4, 2.0, 3.0, 5.0):
+            self.assertIsNone(d.update(payment, hand, t),
+                              "a hand that never moved fired Cancel")
 
     def test_a_row_that_is_not_the_slot_count_is_refused(self):
         # Positional slots: a short list would silently shift Cancel into

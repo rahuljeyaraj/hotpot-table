@@ -18,12 +18,95 @@ first process that reads it.
 from __future__ import annotations
 
 import copy
+import logging
+import socket
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 from hotpot.common import atomicio
 
+log = logging.getLogger("hotpot.config")
+
 PathLike = Union[str, "Path"]
+
+# Doc section 8.6's `camera.host_for_browser`, and the values that mean
+# "work it out" rather than naming a host.
+#
+# **Loopback counts as `auto`, and that is the point of this list.** The
+# key's whole job is to name the host a browser on SOMEBODY ELSE'S device
+# types — a tablet, a diner's phone scanning the projected QR — and that
+# browser is never on this machine, so `localhost` there cannot be a
+# deliberate choice; it is the placeholder that shipped in
+# `config/system.default.json` and then sat in every live `system.json`
+# unnoticed. Developer, 2026-08-25: "the qr code is showing some local
+# host url which is not reachable in my phone even if it is in same wifi
+# network."
+#
+# A real hostname or IP is still honoured verbatim — that is how a rig
+# with a DNS name or a pinned static address opts out of the guess.
+AUTO_HOSTS = ("", "auto", "localhost", "127.0.0.1", "::1")
+
+# TEST-NET-1 (RFC 5737): reserved, never routed, and nothing is listening
+# on it. A UDP `connect()` sends no packet — it only asks the kernel to
+# pick the source address it WOULD use — so this resolves the default
+# route's own interface with no traffic, no DNS, and no timeout.
+_ROUTE_PROBE = ("192.0.2.1", 9)
+
+
+def lan_ip() -> Optional[str]:
+    """This machine's address on the network a phone would reach it from,
+    or None if that cannot be worked out.
+
+    `socket.gethostbyname(gethostname())` is NOT the first choice: on
+    Windows it commonly answers `127.0.0.1`, and on a multi-homed box it
+    answers whichever address the resolver likes rather than the one the
+    default route uses. Asking the routing table directly is the only
+    version that answers the question actually being asked.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(_ROUTE_PROBE)
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError as e:               # no route at all, e.g. cable out
+        log.debug("config: no default route to probe for a LAN ip: %s", e)
+        ip = ""
+    if not ip or ip.startswith("127."):
+        # Last resort, and it is allowed to fail: a machine genuinely off
+        # the network has no answer to give, and inventing one would put
+        # an unreachable address in a QR just as confidently as
+        # `localhost` did.
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+        except OSError:
+            return None
+    return ip if ip and not ip.startswith("127.") else None
+
+
+def resolve_browser_host(configured: Any) -> str:
+    """`camera.host_for_browser` as something a phone can actually reach.
+
+    Returns the configured value untouched unless it is one of
+    `AUTO_HOSTS`, in which case this machine's LAN address is
+    substituted. Falls back to `"localhost"` — loudly — when there is no
+    LAN address to substitute, because a wrong-but-visible answer beats a
+    silent one: the log line is what tells an operator why the QR on the
+    table is the one that does not work.
+    """
+    host = str(configured or "").strip()
+    if host.lower() not in AUTO_HOSTS:
+        return host
+    found = lan_ip()
+    if found is None:
+        log.warning(
+            "config: host_for_browser is %r and this machine has no LAN "
+            "address — falling back to localhost, so the projected QR and "
+            "the Live tab will only work on this machine", configured)
+        return "localhost"
+    log.info("config: host_for_browser %r resolved to %s", configured, found)
+    return found
 
 # python/hotpot/common/config.py -> repo root is four `.parent`s up.
 _ROOT = Path(__file__).resolve().parents[3]

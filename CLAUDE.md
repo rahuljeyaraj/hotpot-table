@@ -4859,3 +4859,166 @@ THE NAMES (mala is traditionally beef tallow, bone broth is bone) and
 are flagged in the file itself — confirm with the restaurant before a
 real diner reads them. Doc sections 4.3/9.1/18 are not updated to match
 the `phase` field or the Cancel edges — flagged, not done.
+
+### M6 rig report 2 (2026-08-25): six items, and the scales going quiet
+The second look at the checkout chain on the table. Five fixes plus one
+investigation that ends in a question, not a commit.
+
+**1. "the button should be always fill the left and right slot if there
+is only 2 buttons."** With the row given per screen:
+
+    cart      Cancel · —      · Next
+    broth     Back   · Cancel · Next
+    spice     Back   · Cancel · Pay
+    payment   Back   · —      · Cancel
+    paid      —      · —      · Done
+
+Two rows moved (`core/hover.py`): the cart's Cancel from the middle slot
+to the left one, and the payment screen's Cancel from the middle to the
+right. The other three were already this shape.
+
+**This gives up a safety property that was bought deliberately, and it is
+worth knowing which one.** The three slots used to be role-fixed as well
+as position-fixed — Back 0, Cancel 1, forward 2 — so the spice screen's
+Pay (slot 2) always fired onto an EMPTY slot 2 on the payment screen, and
+the hand that had just pressed Pay came to rest on nothing. With Cancel
+in slot 2 it now comes to rest on Cancel, 1.2s from voiding the order it
+just placed. The cart screen has the mirror of it: broth's Back (slot 0)
+now fires onto the cart's Cancel.
+
+What stops both is `DwellTracker.suppress_until_exit`, which
+`core/main.py` calls whenever the widget SHAPE changes — ids and rects,
+not "a transition fired" — so whatever is under the hand is disarmed
+until the hand leaves and comes back. That call was a belt-and-braces
+generalisation of a guarantee the geometry already gave; it is now the
+only thing giving it. **Do not weaken its trigger.** `test_hover.py`'s
+`test_cancel_lands_under_pay_and_is_disarmed_by_the_screen_change`
+asserts both halves — that the overlap is real, so it cannot pass by the
+layout quietly reverting, and that a hand which never moves fires
+nothing. `test_no_button_ever_moves_between_screens` is replaced by
+`test_every_button_lands_on_one_of_the_three_slots` (weaker, and
+honestly so) plus a test of the row table above, verbatim.
+
+**2. "my first scoop is not getting recorded maybe because it is less
+than 10 gm, if so we need to reduce it to 5gm."** `cart.DEFAULT_DEADBAND_G`
+10 -> 5. What the report describes exactly: a bin with `shown_g == 0` has
+no cart ROW at all (`UiLayer`'s `_cartSlotBin` binds the first frame
+`picked` goes above 0), so a first pick under the deadband is not shown
+late — the item is absent, which reads as the table not noticing. The
+grams were never lost; they snap in whole once the threshold is crossed.
+**The floor is load-cell noise**: `cart.is_active()` reads `shown_g`, and
+a deadband under the channels' own noise makes that permanently true and
+setting mode unreachable — the exact failure M2.6 chose 10 g to avoid. 5 g
+clears this rig's measured `noise_grams`; re-measure before going lower.
+Also plumbed `core.deadband_g` for real — the key has sat in
+`config/system.json` since M3.2 with **nothing reading it**, so an
+operator editing it got no effect and no warning.
+Six tests hardcoded "5 g / 6 g is sub-deadband" against the old default
+and would have quietly started asserting the opposite; they derive the
+amount from the constant now, except `test_pricing.py`'s, which pins
+`Cart(deadband_g=10.0)` because those cases are about the mechanism and
+are written around doc section 21's own 45g-then-6g example.
+
+**3. "in payment no need to say scan with ur phone camera, it is very
+clear, remove that line."** Locale key `pay_hint` deleted, not blanked.
+The PAID screen keeps `token_hint` — a token number is not
+self-explanatory the way a QR under a "Scan To Pay" title is.
+
+**4. "the qr code is showing some local host url which is not reachable
+in my phone even if it is in same wifi network."** It encoded
+`http://localhost:8090/r/<code>` because `camera.host_for_browser` is
+`"localhost"` and `receipt_url` reads it straight through.
+`config.resolve_browser_host()` now resolves it, and **loopback counts as
+"work it out"**, not as a choice: the only reader of that string is a
+browser on somebody else's device, so `localhost` there cannot be
+deliberate. `config.lan_ip()` asks the ROUTING TABLE (a UDP `connect()`
+to TEST-NET-1 — no packet, no DNS, no timeout) rather than
+`gethostbyname(gethostname())`, which answers `127.0.0.1` on Windows and
+picks arbitrarily on a multi-homed box. A real hostname or IP is still
+honoured verbatim; a machine with no LAN address falls back to
+`localhost` **with a warning**, because an invented address in a QR is
+wrong the same way and harder to notice. Both config files now say
+`"auto"`. Resolved to `192.168.1.9` on this machine, and
+`http://192.168.1.9:8090/` was fetched successfully — the web server has
+always bound `0.0.0.0`, and this box's active network profile is Public,
+which is the profile its `python.exe` firewall rules cover.
+**Nobody has scanned the projected QR with a phone.** That is the check.
+
+**5. "the three dots... shouldnt it be 5 dots including the payment page
+and token number page. also it is better to have itsown line."**
+`steps` 3 -> 5 (cart, broth, spice, pay, token) — it was 3 because paying
+was read as the END of the sequence rather than a step in it, and a diner
+counting dots is counting screens they will see. oF needed no change for
+the count; `screen.steps` is core's, which is the point of sending it.
+The dots moved onto their own line under the title, which costs 18px of
+`_pageHeaderPx`, which is 12px more than the info box's band had spare —
+`setup()`'s own band check would have caught it. `kBrandTopMarginPx`
+20 -> 12 and `kBrandBannerGapPx` 24 -> 14 give back exactly 18, so the
+band measures the same 230.1px it did before and the three-line note is
+no tighter. `kStepDotsRowGapPx` is measured off the title's DESCENDER,
+not its baseline, so a title with descenders cannot reach the dots.
+Side benefit: the title is genuinely centred now — the inline version
+centred the title-plus-dots GROUP, so the title itself sat off-centre by
+a different amount on every screen.
+
+**6. "suddenly the scales became offline. investigate. no hw was
+touched."** Diagnosed on the live rig, not reasoned about. See the
+section below.
+
+oF: msbuild **Release** x64, 0 errors — the rig was up and holds
+`hotpot-table_debug.exe` open, so Debug cannot link; the developer has to
+stop the rig and rebuild Debug to see any of item 5.
+**Nothing in items 1-5 has been seen on the projected surface.**
+
+### The scales going quiet: the XIAO is hung, not disconnected
+**Measured on the live rig at 10:03, against a stack started 09:33.**
+
+- `bins.serial` read `{open: true, stale: true, hz: 10.38}` and all eight
+  `grams` were `null`.
+- Sampled twice, 12s apart: **`hz` was byte-identical (10.38) both
+  times**, so `_rate` had not been appended to at all — no sample had
+  arrived in that window, and by the log's own evidence none had arrived
+  since about 09:47 (orders written at 09:37 and 09:45 carried real
+  totals, 6.34 and 0.36, so the scale was delivering then).
+- `logs/hotpot-2026-08-25.log` has `scale: COM5 open at 115200 baud` at
+  09:33:09 and **no `read failed` line after it**, so `_read_forever`
+  never raised — it is still looping, with `readline()` returning `b""`
+  on the 200ms timeout, forever.
+- `Win32_PnPEntity` shows `USB Serial Device (COM5)`, `VID_303A&PID_1001`
+  (Espressif native USB CDC), Status OK. So the board has **not** reset:
+  a reboot re-enumerates the CDC, which would have raised in `readline()`
+  and logged, and would have restarted the stream.
+
+**Conclusion: the ESP32-S3 is powered and its USB stack is alive (that is
+an ISR/peripheral, independent of `loop()`), and `loop()` is stuck.** The
+only unbounded wait in the whole firmware path is
+`HX711MULTI::readRaw`'s `while (!is_ready());` — a busy-wait with no
+timeout that spins until **all eight** DOUT lines read LOW. One HX711
+with DOUT stuck HIGH silently takes down all eight bins, with no error
+anywhere in the system and nothing to say which cell did it. That is
+consistent with "no hw was touched": a marginal contact or a chip
+glitching into a bad state needs nobody to touch anything.
+
+**Not fixed, and deliberately not.** The fix is in `firmware/loadcells/`,
+which this file's BUILD section says outright not to touch, and it needs
+a flash and a person at the rig. The shape of it would be: bound the
+wait, print the line anyway with a sentinel for whichever cell did not
+answer, so a single dead channel costs one bin instead of the whole
+table. **Waiting on the developer's call.**
+
+**What DID change, host-side, because the instruments lied:**
+- `scale.hz` returned the last measured rate forever once samples
+  stopped — `_rate` is a deque of arrival timestamps and nothing prunes
+  it by age. The staff view therefore showed `10.38 Hz` beside "no
+  connection" for fourteen minutes, and that frozen number is most of
+  why the fault first read as a live link. `hz(now)` is gated on the same
+  `stale_s` clock the rest of the module bills against, and is a method
+  rather than a property so `status(now=...)` can hand it the same clock
+  it hands `read()`.
+- The Bins tab said **"Load cells: no connection"**, which sent the
+  operator to look at a cable that was fine. Three states now, not two:
+  port closed, port open but silent (with how long it has been silent and
+  the bad-line count), and healthy. `port`/`age`/`bad_lines` are on the
+  `bins` message — `scale.status()` has carried all three since M2.2 and
+  nothing forwarded them, which is why diagnosing this took a
+  hand-written WebSocket probe instead of a glance.
