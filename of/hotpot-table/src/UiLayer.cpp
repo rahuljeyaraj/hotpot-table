@@ -506,15 +506,25 @@ namespace {
 	// says which bin the box is about — the plate's own label is at the
 	// far end of a 1.5m table from the reader.
 	const int kInfoBoxNamePx = 30;
-	const int kInfoBoxTextPx = 19;    // was 24 — "u can reduce the font size"
+	// 24 -> 19 ("u can reduce the font size") -> 18, 2026-08-25. The last
+	// point came off the option screens: the box's band is shorter there
+	// by the page header, and the broth/spice notes need all three of
+	// kInfoBoxNoteMaxLines' lines (measured — see that constant).
+	const int kInfoBoxTextPx = 18;
 	// The kcal figure, deliberately larger than the body text — see
 	// UiLayer.h's _infoKcalFont for the report that moved it.
 	const int kInfoBoxKcalPx = 22;   // mono now, which reads larger than
 	                                  // the same nominal size in the sans
 	const int kInfoDietPx = 17;
 	const float kInfoBoxPadXPx = 24.0f;
-	const float kInfoBoxPadYPx = 14.0f;
-	const float kInfoBoxLineGapPx = 6.0f;
+	// 14 -> 10 and 6 -> 5, 2026-08-25. Both came off the same measurement
+	// as kInfoBoxTextPx above: the line gap appears seven and a half times
+	// in the box's height sum (once after the name, twice around the rule,
+	// one and a half after the diet line, three inside the note), so a
+	// single point off it is worth more here than anywhere else on the
+	// table.
+	const float kInfoBoxPadYPx = 10.0f;
+	const float kInfoBoxLineGapPx = 5.0f;
 	// **No fill, no border, no panel.** The pink-fill + fire-glow rounded
 	// card that lived here until 2026-08-24 is gone: the developer picked
 	// Direction A off the design canvas, which is the text-forward one —
@@ -531,11 +541,23 @@ namespace {
 	const ofColor kInfoBoxTextColor(0x4A, 0x42, 0x38);   // the note line
 	const ofColor kInfoBoxNameColor(0x2B, 0x21, 0x18);   // the plate's own ink
 	const ofColor kInfoBoxKcalColor(0x56, 0x4D, 0x3A);
-	// The note wraps to at most this many lines. Three, against content
-	// that measures two — "no text should get truncated" (developer,
-	// 2026-08-24), so the cap is headroom and `wrapToLines`' own ellipsis
-	// must never actually fire. setup() measures the real worst case
-	// against the real face and warns if that stops being true.
+	// The note wraps to at most this many lines.
+	//
+	// **This stopped being headroom when M6 landed, and nothing noticed
+	// until 2026-08-25.** It was written as "three, against content that
+	// measures two" — true of the ingredient notes in `catalogue.json`,
+	// which is all there was then. The broth and spice notes in
+	// `menu.json` are longer sentences, and measured against the real face
+	// at the real width the worst of them ("Numbing and fiery, built on
+	// Sichuan pepper and chilli. The boldest broth here.") takes all
+	// three, at 18px and at 19px alike. So the cap is now exactly the
+	// requirement, and the box's band has to fit three lines rather than
+	// two-plus-slack — which is what the padding, line gap and text size
+	// above were retuned for.
+	//
+	// "No text should get truncated" (developer, 2026-08-24) still holds:
+	// `wrapToLines`' ellipsis is the net, and setup()'s own check is what
+	// says whether the net is about to be needed.
 	const int kInfoBoxNoteMaxLines = 3;
 
 	// --- doc §18.1's CHECKOUT screen -------------------------------------
@@ -811,9 +833,21 @@ namespace {
 	// measure it — 165px of margin. The title is centred and free of the
 	// cart's 520px, so the column is what bounds it, not the cart.
 	const int kPageTitlePx = 26;
-	const float kPageHeaderHeightPx = 52.0f;
-	const float kStepDotRadiusPx = 6.0f;
-	const float kStepDotGapPx = 16.0f;
+	// **The header's HEIGHT is measured at setup(), not fixed here** — see
+	// `_pageHeaderPx`. It was a 52px constant for one build and the info
+	// box's own check caught what that cost: the band below it came out
+	// 228.5px against 244.2px of content, and the box would have
+	// overflowed on exactly the two screens the header exists for. A
+	// height guessed ahead of the font metrics is the same class of
+	// mistake `kCartFooterHeightPx` already carries a warning for.
+	const float kPageHeaderGapPx = 10.0f;   // header block -> info box
+	// The dots sit BESIDE the title, not under it. Under it the header
+	// needed ~56px of the info box's band; beside it the header is one
+	// line tall and the band keeps the difference — which is the whole
+	// margin the three-line note needs.
+	const float kStepDotRadiusPx = 5.0f;
+	const float kStepDotGapPx = 14.0f;
+	const float kStepDotsTitleGapPx = 20.0f;
 	const ofColor kPageTitleColor(0x2B, 0x21, 0x18);   // the plate's own ink
 
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
@@ -1060,6 +1094,19 @@ void UiLayer::setup(){
 			<< " at one or more sizes — labels will not draw";
 	}
 
+	// The page header's real height, from the face that draws it — one
+	// line of title plus the gap to the info box below. The step dots
+	// share that line (drawPageHeader), so they add nothing to it.
+	//
+	// Measured rather than declared, because everything below the header
+	// is derived from it: get this wrong high and the info box silently
+	// loses a line of the note; get it wrong low and the title's
+	// descenders run into the box's first line.
+	if(_pageTitleFont.isLoaded()){
+		_pageHeaderPx = _pageTitleFont.getAscenderHeight()
+			+ fabsf(_pageTitleFont.getDescenderHeight()) + kPageHeaderGapPx;
+	}
+
 	// The cart's reserved detail column, measured once from the worst case
 	// rather than per row — see kCartDetailWorstCase for why the per-row
 	// version was the truncation bug.
@@ -1162,17 +1209,21 @@ void UiLayer::setup(){
 					+ fabsf(_infoKcalFont.getDescenderHeight()))
 			+ kInfoBoxLineGapPx * 1.5f
 			+ infoBodyLineH * (float)kInfoBoxNoteMaxLines;
-		// **Measured against the TIGHTER of the two bands** — the option
-		// screens put a page header above the box, so they get
-		// kPageHeaderHeightPx less than the cart screen does. Checking the
-		// roomy one would pass while the broth screen overflowed.
-		const float tightest = kInfoBoxHeightPx - kPageHeaderHeightPx;
+		// **Measured against the TIGHTER of the two bands** — every screen
+		// in the ordering sequence puts a page header above the box, so
+		// they get `_pageHeaderPx` less than a bare table does. Checking
+		// the roomy one would pass while the broth screen overflowed,
+		// which is exactly what happened for one build.
+		const float tightest = kInfoBoxHeightPx - _pageHeaderPx;
+		ofLogNotice(kTag) << "info box: header " << _pageHeaderPx
+			<< "px, content " << infoContent << "px, band " << tightest << "px";
 		if(infoContent > tightest){
 			ofLogWarning(kTag) << "info box content (name + rule + diet + "
 				<< kInfoBoxNoteMaxLines << " note lines) measures " << infoContent
-				<< "px in a " << tightest << "px band (the option screens', "
-				<< "which is " << kPageHeaderHeightPx << "px shorter than the "
-				<< "cart screen's) — it will overflow";
+				<< "px in a " << tightest << "px band (the header takes "
+				<< _pageHeaderPx << "px of " << kInfoBoxHeightPx
+				<< "px) — it will overflow; shrink kInfoBoxTextPx, "
+				<< "kInfoBoxLineGapPx or kInfoBoxPadYPx";
 		}
 	}
 
@@ -1944,22 +1995,40 @@ void UiLayer::drawTotal(const StateLink::Total & total, float baselineY) const {
 }
 
 void UiLayer::drawPageHeader(const StateLink::Screen & screen) const {
-	// The title and the step dots. Both are core's (I2) — this draws
-	// whatever arrived and looks nothing up, so a second locale is a JSON
-	// edit and no C++.
+	// The title and the step dots, on ONE line. Both strings are core's
+	// (I2) — this draws whatever arrived and looks nothing up, so a
+	// second locale is a JSON edit and no C++.
 	//
 	// An empty title draws nothing at all, which is how an idle table
 	// gets no header rather than an empty strip: core sends "" on every
 	// screen that is not part of the ordering sequence.
+	//
+	// **Beside the title, not under it, and that is a space decision.**
+	// Stacked, the header needed ~56px out of the info box's own band —
+	// and the band has to hold a three-line note (kInfoBoxNoteMaxLines).
+	// Inline, the header is one line tall and the box keeps the
+	// difference. It also reads better: one horizontal group saying
+	// "this screen, this far along" rather than two stacked statements.
 	if(screen.title.empty() || !_pageTitleFont.isLoaded()){
 		return;
 	}
 	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
-	const float top = kInfoBoxTopPx;
+	const float baseline = kInfoBoxTopPx + _pageTitleFont.getAscenderHeight();
+
+	// The title and the dots are centred AS A GROUP, so the pair sits on
+	// the column's centre line rather than the title being centred and
+	// the dots hanging off its right.
+	const ofRectangle tb = _pageTitleFont.getStringBoundingBox(screen.title, 0, 0);
+	const float pitch = kStepDotRadiusPx * 2.0f + kStepDotGapPx;
+	const float dotsW = screen.steps > 0
+		? pitch * (float)(screen.steps - 1) + kStepDotRadiusPx * 2.0f
+		: 0.0f;
+	const float groupW = tb.width
+		+ (screen.steps > 0 ? kStepDotsTitleGapPx + dotsW : 0.0f);
+	const float titleX = cx - groupW * 0.5f;
 
 	ofSetColor(kPageTitleColor);
-	drawCentered(_pageTitleFont, screen.title, cx,
-		top + _pageTitleFont.getAscenderHeight());
+	_pageTitleFont.drawString(screen.title, titleX - tb.x, baseline);
 
 	// The dots: filled up to and including the current step, hollow
 	// after. A diner who can see there are three steps and that they are
@@ -1972,12 +2041,14 @@ void UiLayer::drawPageHeader(const StateLink::Screen & screen) const {
 	// people who are not necessarily reading English, and three dots
 	// carry the same fact with no reading at all.
 	if(screen.steps > 0){
-		const float dotsY = top + _pageTitleFont.getAscenderHeight()
-			+ fabsf(_pageTitleFont.getDescenderHeight()) + 12.0f;
-		const float pitch = kStepDotRadiusPx * 2.0f + kStepDotGapPx;
-		const float span = pitch * (float)(screen.steps - 1);
+		// Centred on the title's own x-height rather than its baseline,
+		// so the dots sit optically level with the letters instead of
+		// hanging off the bottom of them.
+		const float dotsY = baseline - _pageTitleFont.getAscenderHeight() * 0.35f;
+		const float first = titleX + tb.width + kStepDotsTitleGapPx
+			+ kStepDotRadiusPx;
 		for(int k = 0; k < screen.steps; k++){
-			const float x = cx - span * 0.5f + pitch * (float)k;
+			const float x = first + pitch * (float)k;
 			if(k < screen.step){
 				ofSetColor(kAccentInk);
 				ofDrawCircle(x, dotsY, kStepDotRadiusPx);
@@ -2720,7 +2791,7 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 	// The band the cart would have occupied. The page header
 	// (drawPageHeader) has already had the strip above it, so this screen
 	// starts where the info box would.
-	const float bandTop = kInfoBoxTopPx + kPageHeaderHeightPx;
+	const float bandTop = kInfoBoxTopPx + _pageHeaderPx;
 	const float bandBottom = kCartRowsBottomPx + kCartFooterHeightPx;
 
 	if(!qr.token.empty()){
@@ -3044,10 +3115,9 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 			// on top of the code they are trying to scan. (drawInfoBox
 			// refuses on `overlayKind == "qr"` too; this is the same
 			// answer stated at the call site rather than left to that.)
-			const float infoTop = kInfoBoxTopPx
-				+ (headed ? kPageHeaderHeightPx : 0.0f);
-			drawInfoBox(state, infoTop,
-				kInfoBoxHeightPx - (headed ? kPageHeaderHeightPx : 0.0f));
+			const float header = headed ? _pageHeaderPx : 0.0f;
+			drawInfoBox(state, kInfoBoxTopPx + header,
+				kInfoBoxHeightPx - header);
 		}
 
 		if(payPage){

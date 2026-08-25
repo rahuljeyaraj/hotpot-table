@@ -350,6 +350,15 @@ private:
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
 
+	// How tall the page header actually is, measured from the loaded title
+	// face in setup() rather than fixed as a constant. The info box's band
+	// on the option and payment screens is `kInfoBoxHeightPx` minus this,
+	// so a header guessed too generously silently squeezes the note out of
+	// the box — which is exactly what a 52px constant did for one build
+	// (setup()'s own check caught it: 244.2px of content in a 228.5px
+	// band). 0 until setup() runs; nothing draws before then.
+	float _pageHeaderPx = 0.0f;
+
 	ofImage _brandLogo;   // "The Hotpottery" mark — see drawBrandMark
 	bool _brandLogoLoaded = false;
 
