@@ -234,6 +234,7 @@
 		<ClCompile Include="src\Stage.cpp" />
 		<ClCompile Include="src\UiLayer.cpp" />
 		<ClCompile Include="src\FluidLayer.cpp" />
+		<ClCompile Include="src\AudioBus.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPClient.cpp" />
 		<ClCompile Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPManager.cpp" />
@@ -278,6 +279,7 @@
 		<ClInclude Include="src\Stage.h" />
 		<ClInclude Include="src\UiLayer.h" />
 		<ClInclude Include="src\FluidLayer.h" />
+		<ClInclude Include="src\AudioBus.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetwork.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxNetworkUtils.h" />
 		<ClInclude Include="..\..\..\..\..\addons\ofxNetwork\src\ofxTCPClient.h" />

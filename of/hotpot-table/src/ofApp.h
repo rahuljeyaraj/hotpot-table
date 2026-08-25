@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
+#include "AudioBus.h"
 #include "CursorLink.h"
 #include "FluidLayer.h"
 #include "SkeletonLink.h"
@@ -41,6 +42,7 @@ private:
 	StateLink _link;
 	CursorLink _cursor;
 	FluidLayer _fluid;
+	AudioBus _audio;   // doc §15/§21, M8 build item 8
 	// RIG_FEEDBACK item 11 diagnostic (SkeletonLink.h's own docstring) —
 	// the raw, unsmoothed MediaPipe skeleton, drawn on the projected table
 	// alongside the real cursor for a side-by-side comparison. Not part

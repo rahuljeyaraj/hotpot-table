@@ -28,7 +28,7 @@ after that.
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 NUM_BINS = 8
 
@@ -132,7 +132,7 @@ class Cart:
         """
         return any(g > 0.0 for g in self.shown_g)
 
-    def set_live_grams(self, i: int, grams: float) -> None:
+    def set_live_grams(self, i: int, grams: float) -> Optional[float]:
         """The one entry point for 'the scale (or its mock) now reads
         this'. Applies the doc section 9.2 display deadband: shown_g
         SNAPS to the true removed grams once the gap reaches deadband_g —
@@ -140,12 +140,23 @@ class Cart:
         that gap. Small picks accumulate silently and are shown in one
         jump. This is I5's snap version; do not shrink it to "ignore
         events under the deadband", which throws picks away.
+
+        Returns the signed change in `shown_g` (positive: more removed,
+        i.e. a pick; negative: less removed, i.e. a put-back) the instant
+        it snaps, or None on a tick that moved nothing visible. This is
+        doc section 15.2's `pick_confirm`/`putback` trigger — main.py
+        plays the sound off this return value rather than diffing
+        shown_g itself at the call site, so there is exactly one place
+        that decides what "the weight just settled" means.
         """
         self._check_bin(i)
         self.live_g[i] = max(0.0, grams)
         removed = self.removed_grams(i)
-        if abs(removed - self.shown_g[i]) >= self.deadband_g:
+        prev_shown = self.shown_g[i]
+        if abs(removed - prev_shown) >= self.deadband_g:
             self.shown_g[i] = removed
+            return removed - prev_shown
+        return None
 
     def seed_live_grams(self, i: int, grams: float) -> None:
         """M2 build item 5: the one-time hand-off from a mock/placeholder
@@ -165,18 +176,18 @@ class Cart:
         self.live_g[i] = g
         self.shown_g[i] = 0.0
 
-    def mock_pick(self, i: int, grams: float) -> None:
+    def mock_pick(self, i: int, grams: float) -> Optional[float]:
         """Developer-panel mock (doc section 12.8): `grams` leave bin i."""
         self._check_bin(i)
-        self.set_live_grams(i, self.live_g[i] - grams)
+        return self.set_live_grams(i, self.live_g[i] - grams)
 
-    def mock_putback(self, i: int, grams: float) -> None:
+    def mock_putback(self, i: int, grams: float) -> Optional[float]:
         """Developer-panel mock, reversed. No refund branch anywhere (I4)
         — this raises live_g back, and the lower price falls out of the
         same subtraction that produced the higher one.
         """
         self._check_bin(i)
-        self.set_live_grams(i, self.live_g[i] + grams)
+        return self.set_live_grams(i, self.live_g[i] + grams)
 
     def finalize(self) -> None:
         """Order finalisation: shown_g snaps to the true removed grams for

@@ -77,6 +77,13 @@ StateLink::State StateLink::getState() const {
 	return _latest;
 }
 
+std::vector<StateLink::Event> StateLink::drainEvents(){
+	std::vector<Event> out;
+	std::lock_guard<std::mutex> lock(_evtMx);
+	out.swap(_incomingEvents);
+	return out;
+}
+
 float StateLink::secondsSinceLastState() const {
 	std::lock_guard<std::mutex> lock(_stateMx);
 	if(!_hasState){
@@ -159,10 +166,22 @@ void StateLink::pollIncoming(ofxTCPClient & tcp, std::string & recvBuf){
 				}
 				continue;
 			}
-			// `evt` (doc §4.4) is AudioBus/FluidLayer's cue — neither exists
-			// yet (M1.4 build item scope). Fire-and-forget by design, so
-			// dropping it here on the floor is exactly the documented
-			// behaviour for a receiver that isn't ready for it.
+			if(t == "evt"){
+				// doc §4.4: AudioBus's cue (M8 build item 8). Queued rather
+				// than acted on here — this is the link thread, and
+				// AudioBus/ofApp live on the render thread, same reason
+				// `state` goes through `_latest` instead of being drawn
+				// from here directly. Dropped once the queue is full
+				// rather than grown without bound: fire-and-forget by
+				// design (doc §4.4's own "if oF misses one... nothing
+				// breaks"), so a stalled render thread loses the newest
+				// events, not memory.
+				std::lock_guard<std::mutex> lock(_evtMx);
+				if(_incomingEvents.size() < kMaxQueuedEvents){
+					_incomingEvents.push_back({j.value("kind", ""), std::move(j)});
+				}
+				continue;
+			}
 		}
 
 		if(recvBuf.size() > kMaxLineBytes){

@@ -177,6 +177,13 @@ MODE_SETTING = "setting"
 NOT_IN_SETTING_MSG = ("Turn Serving off first — the table is still "
                       "serving.")
 
+# Doc section 15.2's `dwell_tick`: "every 300ms during a dwell, rising
+# pitch ladder, 4 steps." Independent of `hover.DEFAULT_DWELL_MS` as a
+# constant (a dwell configured to a non-default length still ticks on a
+# plain 300ms grid), but the doc's own 4-step count assumes the default
+# 1200ms dwell.
+DWELL_TICK_MS = 300.0
+
 # Doc section 8.6's `tracker.emit_hz`. Core's default rather than the
 # tracker's, because doc section 4.2 makes core the one place a client's
 # configuration lives — the tracker is told this in `welcome` and holds no
@@ -645,6 +652,9 @@ class Core:
         # would look identical to a dead tracker.
         self.cursor = cursorbus.Receiver("127.0.0.1", cursor_port)
         self.dwell = hover.DwellTracker(dwell_ms=dwell_ms)
+        # Doc section 15.2's `dwell_tick` ladder — see the emission site in
+        # `_apply_cursor` for what this tracks.
+        self._dwell_tick_ms = 0.0
         # The last cursor frame acted on, kept for the staff view's hand
         # markers (doc section 12.3). Not the raw datagram — `None` once
         # the hands have gone quiet, so a tablet does not draw a marker for
@@ -1126,6 +1136,7 @@ class Core:
                 refused = self.fsm.can_enter_setting()
                 if refused is None:
                     self.fsm.enter_setting()
+                    self._send_evt({"t": "evt", "kind": "sound", "id": "mode_setting"})
             else:
                 # Doc section 9.3: exit is blocked with a confirm while any
                 # bin is unresolved — same shape as can_enter_setting()
@@ -1146,6 +1157,7 @@ class Core:
                         "charged. Exit anyway?")
                 else:
                     self.fsm.exit_setting()
+                    self._send_evt({"t": "evt", "kind": "sound", "id": "mode_serving"})
                     # `exit_setting` sets `binmap.locked` (its own step 3,
                     # doc section 8.2: locked is true in serving mode).
                     # Persisted here rather than inside Fsm, which owns no
@@ -1153,6 +1165,11 @@ class Core:
                     # "whoever changed the map writes it" rule the override
                     # handler and the classify pass follow.
                     self._save_binmap()
+        if refused is not None:
+            # Doc section 15.2's `error`, "refused action... soft double
+            # thud, never a harsh buzzer" — the operator asked for a mode
+            # change the table would not honour.
+            self._send_evt({"t": "evt", "kind": "sound", "id": "error"})
         self._publish_mode(refused=refused)
         # A refused set_mode changed nothing, so nothing to re-push. On a
         # real transition, `_tracker_cfg()`'s `mediapipe_enabled` already
@@ -1211,9 +1228,9 @@ class Core:
             return
         with self.state_lock:
             if t == "mock_pick":
-                self.cart.mock_pick(i, float(grams))
+                self._sound_for_snap(self.cart.mock_pick(i, float(grams)))
             else:
-                self.cart.mock_putback(i, float(grams))
+                self._sound_for_snap(self.cart.mock_putback(i, float(grams)))
 
     def _in_setting(self) -> bool:
         with self.state_lock:
@@ -1526,7 +1543,7 @@ class Core:
             if g is None:
                 continue
             if self._scale_baselined[i]:
-                self.cart.set_live_grams(i, g)
+                self._sound_for_snap(self.cart.set_live_grams(i, g))
             else:
                 # First real reading this bin has ever had: seed, not
                 # set, so the gap to the M1 mock seed never prices as a
@@ -1835,7 +1852,29 @@ class Core:
             # sixty times a second (doc section 4.4's whole rationale).
             self._send_evt({"t": "evt", "kind": "sound", "id": "hover"})
 
+        dwell_target_before = self.dwell.active_id
         fired = self.dwell.update(self._widgets, pointer, now)
+        # Doc section 15.2's `dwell_tick`, "every 300ms during a dwell,
+        # rising pitch ladder, 4 steps" (DEFAULT_DWELL_MS is 1200ms, so
+        # four 300ms rungs land exactly on the chime `dwell_fire` plays at
+        # the top). Read AFTER `update()`, off its own accumulator, so
+        # this never re-derives dwell timing with a second clock — the
+        # one thing hover.py's own module docstring says not to do.
+        if self.dwell.active_id != dwell_target_before:
+            self._dwell_tick_ms = 0.0
+        if self.dwell.active_id is not None:
+            rung_now = int(self.dwell.accumulated_ms // DWELL_TICK_MS)
+            rung_before = int(self._dwell_tick_ms // DWELL_TICK_MS)
+            if rung_now > rung_before:
+                # `rung` (1-based) is what lets AudioBus play the same
+                # clip at a rising pitch per step — the "ladder" is a
+                # single file plus a per-play speed change, not four
+                # separate recordings.
+                self._send_evt({"t": "evt", "kind": "sound", "id": "dwell_tick",
+                                "rung": rung_now})
+            self._dwell_tick_ms = self.dwell.accumulated_ms
+        else:
+            self._dwell_tick_ms = 0.0
         if fired is not None:
             self._fire_widget(fired)
 
@@ -1976,6 +2015,26 @@ class Core:
         one because it just restarted, nothing breaks."
         """
         self.control.broadcast(msg, only=["of"])
+
+    def _sound_for_snap(self, delta: Optional[float]) -> None:
+        """Doc section 15.2's `pick_confirm`/`putback` — fired the instant
+        `cart.set_live_grams()` (or a mock pick/put-back riding the same
+        path) snaps `shown_g`, never on every scale tick. `delta` is that
+        method's own return value: positive is more removed (a pick),
+        negative is less removed (a put-back), None is "nothing snapped
+        this tick" and this is a no-op.
+
+        `gain` carries doc section 15.2's "pitch shifted by grams — small
+        pick high, big pick low" as a wire number rather than a decision
+        made here: AudioBus (oF) owns playback speed, this just hands it
+        the one number that decision needs.
+        """
+        if delta is None:
+            return
+        grams = abs(delta)
+        sound_id = "pick_confirm" if delta > 0 else "putback"
+        self._send_evt({"t": "evt", "kind": "sound", "id": sound_id,
+                        "grams": round(grams, 1)})
 
     def _end_session(self) -> None:
         """The order is over — re-baseline every bin onto what it weighs

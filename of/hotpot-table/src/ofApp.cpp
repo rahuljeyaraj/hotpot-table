@@ -115,6 +115,7 @@ void ofApp::setup(){
 	_stage.setup(PROJ_W_PX, PROJ_H_PX, "keystone.json");
 	_ui.setup();
 	_fluid.setup(PROJ_W_PX, PROJ_H_PX, kFluidSimScale);
+	_audio.setup();
 
 	// who="of" per doc §4.1's process names (health.py's PROCESSES tuple).
 	// Runs its own thread from here on — see StateLink's class comment for
@@ -192,6 +193,47 @@ void ofApp::update(){
 		state = _link.getState();
 		_ui.update(dt, true, state);
 	}
+
+	// doc §15: AudioBus's cue. Drained every frame regardless of
+	// `hasState` — an `evt` line (doc §4.4) can arrive independently of
+	// the 60Hz `state` stream, so this must not wait on that flag.
+	for(const auto & evt : _link.drainEvents()){
+		if(evt.kind != "sound"){
+			// `burst`/`stream` (doc §4.4) — FluidLayer takes hand/UI-
+			// driven input instead (§14.4's event-driven injections are
+			// UiLayer::fireEmitters() below, not this wire message), so
+			// nothing here consumes these today.
+			continue;
+		}
+		std::string id = evt.data.value("id", "");
+		if(id.empty()){
+			continue;
+		}
+		float gain = evt.data.value("gain", 1.0f);
+		float speed = 1.0f;
+		if(evt.data.contains("grams")){
+			// doc §15.2: "pick_confirm ... pitch shifted by grams — small
+			// pick high, big pick low." A straight-line map, clamped so
+			// an unusually large or tiny pick never inverts into an
+			// audibly wrong direction.
+			float grams = evt.data.value("grams", 0.0f);
+			speed = ofClamp(1.35f - grams / 150.0f, 0.75f, 1.35f);
+		}
+		if(evt.data.contains("rung")){
+			// doc §15.2's `dwell_tick`: "rising pitch ladder, 4 steps" —
+			// one clip, played faster each rung core reports.
+			int rung = evt.data.value("rung", 1);
+			speed = ofClamp(0.9f + 0.12f * (float)(rung - 1), 0.9f, 1.5f);
+		}
+		_audio.play(id, gain, speed);
+	}
+	// doc §15.2's `attract` loop, driven off the same idle flag the UI
+	// already blanks itself on (StateLink::State::idleAttract) rather
+	// than a discrete evt — see AudioBus::setAttractActive's own comment
+	// on why. `hasState` guards it the same way it guards `_ui.update`
+	// above: no link yet must not read as "confirmed idle".
+	_audio.setAttractActive(hasState && state.idleAttract);
+
 	// **The fluid simulation runs on EVERY page, 2026-08-25 (final).**
 	// It was briefly first-page-only ("after the first page is over, we no
 	// longer need fire simulation anywhere, it is a distraction"), and the

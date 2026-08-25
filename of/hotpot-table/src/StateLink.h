@@ -255,8 +255,23 @@ public:
 	};
 
 	// who="of" (doc §4.1 process names / health.py's PROCESSES tuple).
+	// doc §4.4's one-shot `evt` line, kept whole (`data`) rather than
+	// picked apart here — AudioBus only ever wants `kind == "sound"`'s
+	// `id`/`gain`/`grams`, but §4.4 also names `burst`/`stream`, and a
+	// future consumer of either should not need this class to learn a
+	// second shape first.
+	struct Event {
+		std::string kind;
+		ofJson data;
+	};
+
 	void setup(const std::string & host, int port, const std::string & who = "of");
 	void shutdown();
+
+	// Every `evt` line received since the last call, oldest first. Safe to
+	// call every frame even with nothing queued (returns empty) — ofApp's
+	// own update() loop shape, same as getState().
+	std::vector<Event> drainEvents();
 
 	// Thread-safe. False until the first `state` line has ever been parsed.
 	bool hasState() const;
@@ -304,6 +319,17 @@ private:
 	State _latest;
 	bool _hasState = false;
 	std::chrono::steady_clock::time_point _lastStateAt;
+
+	// `evt` lines, link thread -> render thread. Capped the same way
+	// `state` is implicitly capped (only ever one, the latest) but events
+	// cannot collapse to "the latest" — a missed pick_confirm is a missed
+	// sound, not a stale one — so this is a bounded queue instead. The cap
+	// exists only so a render thread that stalls for a long time cannot
+	// grow this without limit; doc §4.4 already accepts a dropped evt as
+	// harmless ("if oF misses one... nothing breaks").
+	static constexpr size_t kMaxQueuedEvents = 256;
+	std::mutex _evtMx;
+	std::vector<Event> _incomingEvents;
 
 	std::atomic<bool> _connected{false};
 
