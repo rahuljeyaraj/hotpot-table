@@ -635,37 +635,23 @@ namespace {
 	const float kBrothCardPadYPx = 7.0f;
 	const float kBrothCardNoteLineGapPx = 3.0f;
 
-	// --- M5: the pointer cursor and the dwell ring ------------------------
-	// Sizes in px because they are screen furniture, not table geometry —
-	// nothing about a cursor is measured in millimetres of plywood. The
-	// numbers are set against the one thing that does matter physically:
-	// a hand is not a mouse, so the cursor has to be visible under a hand
-	// that is partly covering it, from three metres, on a near-white field.
-	// **A flame, not concentric rings, 2026-08-25** — developer: "instead
-	// of the concentric circles as the pointer, can we have a small candle
-	// like flame?" `kCursorFlameHPx` is sized to roughly the same visual
-	// footprint the old ring pair (13-28px radius) had, so this swap did
-	// not also have to re-earn "visible under a hand, from three metres".
-	const float kCursorFlameHPx = 46.0f;
-	// The dwell ring sits OUTSIDE the flame rather than replacing it: the
-	// cursor must not change shape as the ring fills, or the diner reads
-	// it as the cursor breaking rather than as progress.
-	const float kDwellRingInner = 36.0f;
-	const float kDwellRingOuter = 52.0f;
-
-	// I8: hue at full chroma, never brightness — the field is near-white by
-	// requirement (I9) so a "dimmer" cursor would read as a rendering
-	// fault. Dark ink for the cursor itself (doc §13.4's rule for anything
-	// that has to be read on a light field) and the `picking` amber from
-	// highlightColour() for the dwell sweep, so a filling ring on the table
-	// is the same hue as a bin mid-pick.
-	const ofColor kCursorColor(24, 24, 24);
-	const ofColor kDwellTrackColor(150, 150, 150);
-	const ofColor kDwellFillColor(200, 120, 0);
+	// --- The pointer: none of it is drawn any more ------------------------
+	// This block used to hold the cursor's own furniture — first a dot and
+	// a concentric dwell-ring pair, then (2026-08-25) a candle-flame
+	// silhouette sized to the same footprint. Both are deleted. Developer,
+	// 2026-08-25, final: "remove the candle flame icon, no concentric
+	// progress, the progress will be shown in the button, not the pointer,"
+	// "make the normal fire we had few commits before as the default
+	// pointer everywhere." The pointer is now the ofxFlowTools fluid fire
+	// and nothing else, on every page — see ofApp::draw's `fluidActive` and
+	// `cursorForUi`. Dwell progress lives on the widget (drawWidget's dwell
+	// fill), which is the half of the pair a hand does not cover anyway.
+	// The one colour kept is the dwell amber, because the WIDGET fill still
+	// uses that hue — see kWidgetDwellColor's own comment.
 
 	// --- RIG_FEEDBACK item 11 diagnostic: the raw skeleton ----------------
-	// Deliberately NOT reusing kCursorColor — this must read as a different
-	// thing from the real cursor at a glance, since the whole point is
+	// Deliberately its own palette — this must read as a different thing
+	// from a real hand indicator at a glance, since the whole point is
 	// telling the two apart on the same table. Same lime/gold pairing the
 	// staff view's Developer tab already uses for this
 	// (index.html's drawLandmarks: "rgba(64,200,120,0.8)" lines,
@@ -755,10 +741,11 @@ namespace {
 	const ofColor kWidgetSecondary(0x6E, 0x6A, 0x62); // warm graphite
 	const ofColor kWidgetDanger(0xA8, 0x55, 0x45);    // muted clay
 	const ofColor kWidgetDisabled(0xB4, 0xB0, 0xA8);  // warm grey, not blue-grey
-	// The dwell sweep, drawn INSIDE a widget (see drawWidget). Same amber
-	// as the cursor's own dwell ring (kDwellFillColor) so a filling button
-	// and a filling ring read as one mechanism, at the low alpha a tint
-	// under dark text has to keep.
+	// The dwell sweep, drawn INSIDE a widget (see drawWidget). This is now
+	// the ONLY place dwell progress is shown — developer, 2026-08-25: "no
+	// concentric progress, the progress will be shown in the button, not
+	// the pointer." It keeps the amber the deleted cursor ring used, at the
+	// low alpha a tint under dark text has to keep.
 	const ofColor kWidgetDwellFill(200, 120, 0, 80);
 
 	// **A glow drawn in the same dark ink as a button's border reads as a
@@ -1540,45 +1527,6 @@ float UiLayer::breath(float floor01, float phase){
 	const float amp = 1.0f - ofClamp(floor01, 0.0f, 1.0f);
 	return ofClamp(floor01, 0.0f, 1.0f) + amp * 0.5f
 		* (1.0f + sinf(TWO_PI * ofGetElapsedTimef() / kWidgetBreathPeriodS + phase));
-}
-
-void UiLayer::drawFlame(float cx, float cy, float sizePx, const ofColor & body){
-	// doc §11.4's pointer, redrawn 2026-08-25 — see kCursorFlameHPx's own
-	// comment. A silhouette, not an illustration, same reasoning the old
-	// chilli glyph this file used to also draw (deleted 2026-08-25, same
-	// day — the spice screen no longer shows one, see drawOptionPlate's
-	// own comment) argued for at small sizes: a rounded base tapering to a
-	// tip that leans off-centre, one fill, no second tone. The lean is
-	// what keeps this reading as a flickering flame instead of an inert
-	// teardrop or a raindrop pointing the wrong way.
-	if(sizePx <= 0.0f){
-		return;
-	}
-	const float h = sizePx;
-	const float w = sizePx * 0.66f;
-	const float tipY = cy - h * 0.5f;
-	const float baseY = cy + h * 0.5f;
-
-	ofPath path;
-	path.setFilled(true);
-	path.setFillColor(body);
-	path.setCircleResolution(48);
-	// Left shoulder: tip down to the rounded base.
-	path.moveTo(cx + w * 0.06f, tipY);
-	path.bezierTo(cx - w * 0.40f, tipY + h * 0.34f,
-		cx - w * 0.50f, baseY - h * 0.34f,
-		cx - w * 0.18f, baseY);
-	// The rounded bottom.
-	path.bezierTo(cx, baseY + h * 0.10f,
-		cx + w * 0.22f, baseY + h * 0.06f,
-		cx + w * 0.30f, baseY - h * 0.06f);
-	// Right shoulder: bulges further than the left on its way back up to
-	// the tip, which is what pulls the tip off dead-centre.
-	path.bezierTo(cx + w * 0.46f, baseY - h * 0.30f,
-		cx + w * 0.30f, tipY + h * 0.40f,
-		cx + w * 0.06f, tipY);
-	path.close();
-	path.draw();
 }
 
 void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
@@ -2604,12 +2552,15 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 		ofColor(ink, w.enabled ? (int)(fillPeak * (0.55f + 0.45f * glow01))
 			: kWidgetFillAlpha / 2));
 
-	// Dwell progress, drawn INSIDE the button. The cursor's own ring
-	// (drawCursor) already shows the same fraction, but it sits under the
-	// diner's hand — which is exactly where a hand is while dwelling — so
-	// on the rig it read as no feedback at all (developer, 2026-08-24:
-	// "no progress of hover was shown"). `dwell` is core's 0..1 fraction;
-	// oF still times nothing (doc §9.4).
+	// Dwell progress, drawn INSIDE the button — and since 2026-08-25 the
+	// ONLY place it is drawn at all. The cursor used to carry a concentric
+	// ring showing the same fraction, but it sits under the diner's hand —
+	// which is exactly where a hand is while dwelling — so on the rig it
+	// read as no feedback at all (developer, 2026-08-24: "no progress of
+	// hover was shown"). The ring is now deleted outright (developer,
+	// 2026-08-25: "no concentric progress, the progress will be shown in
+	// the button, not the pointer"). `dwell` is core's 0..1 fraction; oF
+	// still times nothing (doc §9.4).
 	//
 	// **It fills LEFT to RIGHT**, which was forced by the old pill shape
 	// (a partial-height rounded rect on a pill's bottom edge pokes its
@@ -2961,70 +2912,6 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 	ofSetColor(255);
 }
 
-void UiLayer::drawCursor(const CursorLink::Hand & pointer, float dwell) const {
-	// doc §11.4: "oF draws NO cursor and NO dwell ring for [ambient hands]."
-	// The caller only ever passes the pointer, and that is where the
-	// isolation lives on this side — ofApp asks CursorLink for pointer()
-	// and never iterates hands looking for one.
-	const float cx = pointer.x;
-	const float cy = pointer.y;
-
-	// Dwell first, so the cursor itself is never drawn under its own ring.
-	if(dwell > 0.0f){
-		// The unfilled track, then the filled sweep on top of it. The track
-		// matters: without it a 5%-full ring is a tiny stub with nothing to
-		// read it against, and the diner cannot tell "the table has started
-		// counting" from "the table has not noticed me".
-		drawAnnulus(cx, cy, kDwellRingOuter, kDwellRingInner, kDwellTrackColor);
-		// -90 so the sweep starts at 12 o'clock rather than at 3 o'clock,
-		// which is what every progress ring a person has ever seen does.
-		const float start = -90.0f;
-		drawAnnulus(cx, cy, kDwellRingOuter, kDwellRingInner, kDwellFillColor,
-			start, start + 360.0f * dwell);
-	}
-
-	drawFlame(cx, cy, kCursorFlameHPx, kCursorColor);
-	ofSetColor(255);
-}
-
-float UiLayer::dwellFraction(const StateLink::State & state) const {
-	// The dwell fraction comes from CORE, per widget (doc §9.4: "oF does
-	// not time anything"). Looked up by the widget the pointer is inside
-	// rather than by remembering which one core said was active — there is
-	// no such field on the wire, and adding one would be a second source
-	// of truth for something already implied. Shared by `draw()`'s own
-	// cursor pass and `drawCursorAboveLightPass()` so the two never
-	// compute two different dwell fractions for the same frame.
-	float dwell = 0.0f;
-	for(const StateLink::Widget & w : state.widgets){
-		if(w.dwell > dwell){
-			dwell = w.dwell;
-		}
-	}
-	return dwell;
-}
-
-void UiLayer::drawCursorAboveLightPass(const StateLink::State & state,
-	const CursorLink::Hand * pointer) const {
-	// The ONLY place the cursor is drawn while serving — `draw()`'s own
-	// cursor block above explicitly skips it in that mode so the two call
-	// sites can never both fire for the same frame (a cursor drawn twice
-	// was tried and rejected: one draw site per mode, not two draws
-	// layered on top of each other).
-	//
-	// Safe specifically because ofApp only ever builds the
-	// `drawAboveLightPass` callback this feeds while `state.mode ==
-	// "serving"` (see Stage::compositeAndWarp's own comment) — the
-	// classifier can never be running then (doc §12.7's capture refusal
-	// requires setting mode), so nothing drawn here after the light pass
-	// can ever land in a photo the classifier takes. The null check below
-	// is the ordinary "no pointer this frame" case, same as `draw()`'s own.
-	if(pointer == nullptr){
-		return;
-	}
-	drawCursor(*pointer, dwellFraction(state));
-}
-
 void UiLayer::drawSkeleton(const std::vector<SkeletonLink::Hand> & hands) const {
 	// RIG_FEEDBACK item 11 diagnostic — see this method's own header
 	// comment. Deliberately the simplest possible draw: no tween, no
@@ -3205,26 +3092,17 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		drawTopBanner(state);
 	}
 
-	// The cursor goes on LAST of everything the diner reads, so it is never
-	// buried under a label or a button it is sitting on top of. Over a bin
-	// cutout specifically it is NOT drawn here at all while serving — see
-	// the condition below and `drawCursorAboveLightPass`'s own comment.
-	// Exactly one of those two call sites ever draws the cursor for a
-	// given frame; which one depends on mode, never both — a cursor drawn
-	// twice per frame was tried and rejected as the wrong design.
-	//
-	// Every mode OTHER than serving keeps the original, single-pass
-	// behaviour unchanged: drawn here, and erased by Stage's light pass if
-	// it lands on a cutout (I9, full strength — a bin cutout must stay
-	// unpatterned while the classifier could be running, which is exactly
-	// setting mode). Serving is the one mode the classifier can never be
-	// active in (doc §12.7's capture refusal), so it is the one mode where
-	// skipping this draw and doing it after the light pass instead is
-	// safe — see ofApp::draw's own comment on why it only ever builds the
-	// `aboveLightPass` callback when `state.mode == "serving"`.
-	if(pointer != nullptr && state.mode != "serving"){
-		drawCursor(*pointer, dwellFraction(state));
-	}
+	// **Nothing is drawn for the cursor any more, 2026-08-25 (final).** A
+	// dot-and-ring pair, then a candle-flame glyph, both used to go on last
+	// here. Developer: "remove the candle flame icon, no concentric
+	// progress, the progress will be shown in the button, not the pointer."
+	// The fluid fire (ofApp's `fluidActive`, now every page) is the pointer,
+	// and `pointer` arrives here as nullptr on purpose — the parameter is
+	// kept because ofApp's `_ui.draw(...)` signature and the serving-mode
+	// `drawCursorAboveLightPass` path both still carry it, and re-plumbing
+	// both to drop a cursor concept the fluid may yet want back is churn
+	// for nothing.
+	(void)pointer;
 
 	drawConnectionIndicator(connected, staleSeconds);
 	if(showDevOverlay){

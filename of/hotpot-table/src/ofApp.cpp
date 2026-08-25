@@ -192,18 +192,17 @@ void ofApp::update(){
 		state = _link.getState();
 		_ui.update(dt, true, state);
 	}
-	// **The fluid SIMULATION is the FIRST PAGE's only, since 2026-08-25.**
-	// Developer: "after the first page is over, we no longer need fire
-	// simulation anywhere, it is a distraction." "First page" is the
-	// bin-picking screen — idle (nobody has arrived yet) and selecting
-	// (a diner is filling the cart) — the only two phases where a bin can
-	// actually be hovered and lit. This gates only the PARTICLE sim, not
-	// the flame cursor glyph — `draw()`'s own `cursorForUi` draws that on
-	// every phase (2026-08-25, later still: "bring back fire as pointer
-	// to all pages") — so a diner off the first page still sees a flame
-	// under their hand, just with no fluid trailing it.
-	const bool fluidActive = kFluidEnabled
-		&& (state.phase == "idle" || state.phase == "selecting");
+	// **The fluid simulation runs on EVERY page, 2026-08-25 (final).**
+	// It was briefly first-page-only ("after the first page is over, we no
+	// longer need fire simulation anywhere, it is a distraction"), and the
+	// gap was then filled by drawing a small candle-flame GLYPH as the
+	// cursor on the other pages. Developer rejected that outright: "remove
+	// the candle flame icon... make the normal fire we had few commits
+	// before as the default pointer everywhere," "use fire everywhere, no
+	// exception." So the sim is ungated — the fire IS the pointer, on every
+	// phase — and the glyph and its dwell ring are gone from UiLayer
+	// entirely (see `cursorForUi` in draw()).
+	const bool fluidActive = kFluidEnabled;
 	// Driven by the real hand cursor(s), never the mouse (ofApp's mouse
 	// callbacks are all empty, deliberately — v3 §7.1's deleted OSC hand
 	// mock is not coming back as a fluid-testing shortcut). Every hand
@@ -222,14 +221,6 @@ void ofApp::update(){
 			fireRings.push_back({e.bin, e.cornerRadiusPx, e.innerOffsetPx, e.outerOffsetPx, e.intensity, e.binIndex});
 		}
 		_fluid.update(fluidDt, _cursor.hands(), fireRings);
-	}
-	else if(kFluidEnabled){
-		// No new injection off this page — an empty hands list, not the
-		// real cursor — but still stepped, so whatever is left over from
-		// the first page keeps dissipating in the background rather than
-		// freezing mid-frame and popping back unchanged the moment the
-		// diner returns to it.
-		_fluid.update(fluidDt, {});
 	}
 
 	_statTimer += dt;
@@ -322,25 +313,22 @@ void ofApp::draw(){
 		state = _link.getState();
 	}
 
-	// **First page only, since 2026-08-25** — see update()'s own comment
-	// on `fluidActive` (the same test, computed twice rather than carried
-	// across two functions, matching this file's existing pattern for
-	// `fluidDt`/dt-style per-frame locals).
-	const bool fluidActive = kFluidEnabled
-		&& (state.phase == "idle" || state.phase == "selecting");
+	// Every page — see update()'s own comment on `fluidActive` (the same
+	// test, computed twice rather than carried across two functions,
+	// matching this file's existing pattern for `fluidDt`/dt-style
+	// per-frame locals).
+	const bool fluidActive = kFluidEnabled;
 
-	// **The flame cursor is back on every page, 2026-08-25, later still**
-	// — developer: "bring back fire as pointer to all pages." It used to
-	// be suppressed here on the first page (idle/selecting) while the
-	// fluid sim was active, on the theory that the fluid itself was
-	// enough of a hand indicator. `cursorForUi` is now always the real
-	// pointer, first page included, so `UiLayer::drawFlame` (the flame
-	// glyph — see `kCursorFlameHPx`'s own comment) draws over the fluid
-	// exactly the way it already draws over every other page's UI. The
-	// fluid simulation itself is untouched — still gated to the first
-	// page by `fluidActive` below — this only changes which cursor draws
-	// on top of it.
-	const CursorLink::Hand * cursorForUi = _cursor.pointer();
+	// **No drawn cursor glyph at all, 2026-08-25 (final).** Developer:
+	// "remove the candle flame icon, no concentric progress, the progress
+	// will be shown in the button, not the pointer." The fluid fire above
+	// is the pointer now, everywhere, with nothing painted on top of it —
+	// so nothing is handed to UiLayer to draw, and its `drawFlame` /
+	// `drawCursor` / dwell-ring code is deleted rather than merely
+	// bypassed. Dwell progress still reads on the WIDGET (drawWidget's own
+	// dwell fill), which is where it was always legible from three metres
+	// anyway — a ring under a hand is the half a hand covers.
+	const CursorLink::Hand * cursorForUi = nullptr;
 
 	// VISUAL_LAYER.md §9 build item 5 ("Layer reorder") / §5's 5-layer
 	// order: layer 1 (table background) happens inside beginContent()
@@ -379,28 +367,13 @@ void ofApp::draw(){
 	}
 	_stage.endContent();
 
-	// 2026-08-12: the cursor is allowed to survive on top of a bin cutout
-	// during serving mode — see Stage::compositeAndWarp's own comment on
-	// `drawAboveLightPass` for why this does not weaken I9, and
-	// UiLayer::draw's own cursor block for the other half of this: it
-	// skips drawing the cursor itself under this exact condition, so
-	// there is exactly one draw site per frame, never two. Checked on
-	// `state.mode` alone, with no separate `hasState` guard — `state`
-	// defaults to mode "serving" (StateLink::State's own default) when
-	// there is no live link yet, and that default is exactly right here
-	// too: it is what keeps this condition and UiLayer::draw's the same
-	// single test, so the two can never disagree about which one of them
-	// is responsible for this frame's cursor. Uses the same `cursorForUi`
-	// as the call above (real on every phase now — see that variable's
-	// own comment), null only when the tracker itself has nothing to
-	// report.
+	// 2026-08-12 built an `aboveLightPass` callback here so the pointer
+	// cursor could survive on top of a bin cutout during serving mode.
+	// Deleted 2026-08-25 with the cursor glyph itself — there is no drawn
+	// cursor left to rescue from the light pass, so the hook has nothing to
+	// draw. Passing nullptr keeps I9 at full strength, unconditionally,
+	// which is the stricter of the two behaviours anyway.
 	std::function<void()> aboveLightPass = nullptr;
-	if(state.mode == "serving" && cursorForUi != nullptr){
-		const CursorLink::Hand * pointer = cursorForUi;
-		aboveLightPass = [this, &state, pointer](){
-			_ui.drawCursorAboveLightPass(state, pointer);
-		};
-	}
 	_stage.compositeAndWarp(_ui.cutoutRectsPx(),
 		mmToPxX(CUTOUT_CORNER_RADIUS_MM), false, aboveLightPass);
 

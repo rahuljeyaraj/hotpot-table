@@ -92,17 +92,11 @@ public:
 	void setForceAllBinsLit(bool on){ _forceAllBinsLit = on; }
 	bool forceAllBinsLit() const { return _forceAllBinsLit; }
 
-	// 2026-08-12: draws ONLY the pointer cursor + dwell ring, with no
-	// cutout it cannot reach. This is the ONE place the cursor is drawn
-	// while serving — `draw()` itself skips its own cursor block in that
-	// mode, specifically so the cursor is never drawn twice in a frame.
-	// Meant to be passed as `Stage::compositeAndWarp`'s
-	// `drawAboveLightPass` callback, and ONLY while `state.mode ==
-	// "serving"` (ofApp's call site decides that, this method does not
-	// check mode itself) — see that parameter's own comment for why this
-	// is safe. A no-op when `pointer` is null, same as `draw()`'s own.
-	void drawCursorAboveLightPass(const StateLink::State & state,
-		const CursorLink::Hand * pointer) const;
+	// (The serving-mode `drawCursorAboveLightPass` hook lived here until
+	// 2026-08-25. It existed only to redraw the pointer cursor on top of
+	// Stage's light pass; with no drawn cursor left — the fluid fire is the
+	// pointer now, on every page — there is nothing for it to draw, so it
+	// and ofApp's `drawAboveLightPass` callback both went with it.)
 
 	// RIG_FEEDBACK item 11 diagnostic (SkeletonLink.h's own docstring): the
 	// raw, unsmoothed MediaPipe skeleton, drawn plainly — no tween, no
@@ -185,12 +179,6 @@ private:
 	// the alpha, hold the height.
 	static void drawFadedRule(float x, float y, float widthPx,
 		float thickPx, const ofColor & colour, int peakAlpha);
-	// The pointer cursor's own glyph — a candle-flame silhouette, tip up,
-	// leaning slightly off-centre, `sizePx` tall, centred on (cx, cy).
-	// Replaced the old concentric-ring cursor, 2026-08-25 (see
-	// kCursorFlameHPx's own comment).
-	static void drawFlame(float cx, float cy, float sizePx,
-		const ofColor & body);
 	// The breathing term the buttons and the bin halos share — one sine,
 	// one clock, one period, so the whole table breathes together rather
 	// than in two rhythms. `phase` offsets it (the bins use a per-island
@@ -206,8 +194,6 @@ private:
 	// `if(kind == "option")` branches interleaved through it.
 	void drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		float glow01) const;
-	void drawCursor(const CursorLink::Hand & pointer, float dwell) const;
-	float dwellFraction(const StateLink::State & state) const;
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
 	// VISUAL_LAYER.md §8/§9 build item 9: the running total now draws as
 	// one receipt-style line (label left, value right) inside the cart
