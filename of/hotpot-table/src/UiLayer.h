@@ -185,9 +185,32 @@ private:
 	// the alpha, hold the height.
 	static void drawFadedRule(float x, float y, float widthPx,
 		float thickPx, const ofColor & colour, int peakAlpha);
+	// One chilli pepper, built from an ofPath — there is no pepper glyph
+	// in any font this app loads (StateLink::Widget::icon says why), and
+	// doc §18.1 asks the spice screen for "chilli glyphs". Drawn tip-down
+	// with a stem, at `sizePx` tall, centred on (cx, cy).
+	static void drawChilli(float cx, float cy, float sizePx,
+		const ofColor & body);
+	// The tick on a selected option plate. A stroke would be
+	// ofSetLineWidth in disguise (see drawAnnulus' comment on why that is
+	// unusable on this rig), so it is a filled 6-point polygon.
+	static void drawCheckMark(float cx, float cy, float radiusPx,
+		const ofColor & colour);
+	// The breathing term the buttons and the bin halos share — one sine,
+	// one clock, one period, so the whole table breathes together rather
+	// than in two rhythms. `phase` offsets it (the bins use a per-island
+	// rotation); the buttons pass 0.
+	static float breath(float floor01, float phase = 0.0f);
 	void drawHalo(int i) const;
 	void drawWidgets(const StateLink::State & state) const;
 	void drawWidget(const StateLink::Widget & w) const;
+	// An `option` widget — a broth or a spice plate. Split out of
+	// drawWidget because the two shapes share only their frame: a button
+	// is a centred word, a plate is an icon column, a left-aligned name
+	// and a tick, and folding both into one function meant three
+	// `if(kind == "option")` branches interleaved through it.
+	void drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
+		float glow01) const;
 	void drawCursor(const CursorLink::Hand & pointer, float dwell) const;
 	float dwellFraction(const StateLink::State & state) const;
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
@@ -211,10 +234,20 @@ private:
 	// (not an empty bordered box), and cannot move the cart: the band it
 	// sits in is reserved by kCartTopPx' own arithmetic whether anything
 	// is active or not.
-	void drawInfoBox(const StateLink::State & state) const;
-	// doc §18.1's CHECKOUT screen: the order code, the projected QR and
-	// the total. Replaces the cart for that one screen — see the call
-	// site in draw() for why the cart stays up until then.
+	//
+	// `topPx`/`heightPx` are passed in rather than read from a constant
+	// because the option screens put a page header above this band and
+	// the cart screen does not — the box is the same box, one step
+	// further down. See drawPageHeader.
+	void drawInfoBox(const StateLink::State & state,
+		float topPx, float heightPx) const;
+	// 2026-08-25: the title telling the diner what this screen is for,
+	// plus the step dots. Drawn on the option and payment screens, never
+	// on an idle table. See StateLink::Screen.
+	void drawPageHeader(const StateLink::Screen & screen) const;
+	// doc §18.1's CHECKOUT screen: the projected QR, the total, and — only
+	// once the payment has landed — the token. Replaces the cart for that
+	// one screen; see the call site in draw().
 	void drawCheckout(const StateLink::State & state) const;
 	// The lowest px the cart's own ink reaches. Exists so setup()'s
 	// cross-file check against core/hover.py's button band measures the
@@ -292,6 +325,24 @@ private:
 	ofTrueTypeFont _infoKcalFont;   // info box, the right-hand meta figure
 	ofTrueTypeFont _infoDietFont;   // info box, the VEG/NON-VEG label (bold)
 	ofTrueTypeFont _cartDetailFont; // cart, the grams/price column (mono)
+	// 2026-08-25's own three faces.
+	//
+	// `_buttonFont` exists because the buttons shrank (100px tall to 76px,
+	// core/hover.py's BUTTON_H_PX) and three of them now share the cart's
+	// width where two did — "Cancel" at the old 28px `_nameFont` no longer
+	// leaves a margin inside a 155px button. 24px bold: still a heading,
+	// still read first, but sized to the control it sits in.
+	ofTrueTypeFont _buttonFont;     // 22px bold, a button's label
+	ofTrueTypeFont _pageTitleFont;  // 26px bold, "Choose Your Broth"
+	// 20px bold, a broth/spice plate's name. Its own face rather than the
+	// title's, because the size is decided by the plate's label column
+	// (kOptionLabelPx' own arithmetic) and retitling a page must not be
+	// able to clip four menu names as a side effect.
+	ofTrueTypeFont _optionFont;
+	// The token, and it is mono for the reason every fixed number on this
+	// table is: a diner reads this one character by character to somebody
+	// at a counter, and proportional digits at this size run together.
+	ofTrueTypeFont _tokenFont;      // 88px mono bold, the paid token
 	// Names already reported as too wide for the cart's name column, so
 	// the warning is one line per name rather than one per frame at 60Hz.
 	// Mutable because drawCart is const and this is diagnostics, not state.

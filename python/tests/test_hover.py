@@ -137,15 +137,26 @@ class TestWidgetLayout(unittest.TestCase):
         ws = {w.id: w for w in build_widgets()}
         self.assertEqual(ws[hover.CANCEL].rect[2:], ws[hover.CONFIRM].rect[2:])
 
-    def test_the_buttons_span_the_carts_own_width(self):
-        # The pair plus the gap between them is exactly the cart's width —
+    def test_the_button_row_spans_the_carts_own_width(self):
+        # The three slots plus the two gaps are exactly the cart's width —
         # this is the number `UiLayer.cpp`'s `kCartWidthPx` mirrors, and a
         # button band wider or narrower than the cart above it is visible
         # on the table and invisible in a diff.
+        #
+        # Measured on the SLOT GRID, not on whichever buttons a given
+        # screen happens to use: since 2026-08-25 the cart screen leaves
+        # the Back slot empty rather than centring its pair (see
+        # `hover.BUTTON_SLOTS` for why that is a safety property).
+        slots = hover.button_slot_rects()
+        self.assertEqual(len(slots), hover.BUTTON_SLOTS)
+        span = slots[-1][0] + slots[-1][2] - slots[0][0]
+        self.assertAlmostEqual(span, hover.CART_WIDTH_PX)
+
+    def test_the_cart_screen_leaves_the_back_slot_empty(self):
+        slots = hover.button_slot_rects()
         ws = {w.id: w for w in build_widgets()}
-        left = ws[hover.CANCEL].rect[0]
-        right = ws[hover.CONFIRM].rect[0] + ws[hover.CONFIRM].rect[2]
-        self.assertAlmostEqual(right - left, hover.CART_WIDTH_PX)
+        self.assertEqual(ws[hover.CANCEL].rect, slots[hover.SLOT_CANCEL])
+        self.assertEqual(ws[hover.CONFIRM].rect, slots[hover.SLOT_FORWARD])
 
     def test_the_buttons_stay_on_the_table(self):
         # 1080px is the stage's near edge. A dwell target hanging off it is
@@ -362,6 +373,345 @@ class TestDwell(DwellCase):
         for _ in range(200):
             now += 0.016
             self.assertIsNone(d.update(self.widgets, pointer(5.0, 5.0), now))
+
+
+class TestSuppressUntilExit(unittest.TestCase):
+    """The screen-change guard. See `DwellTracker.suppress_until_exit`.
+
+    The fixed button grid means no button changes position, so in
+    practice `update`'s ordinary latch already covers every crossing this
+    table has today. This is the guarantee stated structurally instead of
+    resting on that geometry — a future screen with a different row would
+    otherwise reintroduce the way to void a diner's order by standing
+    still.
+    """
+
+    def _hold(self, d, widgets, hand, seconds):
+        now, fired = 0.0, []
+        while now < seconds:
+            now += 0.016
+            got = d.update(widgets, hand, now)
+            if got is not None:
+                fired.append(got)
+        return fired
+
+    def test_a_hand_left_on_a_new_screens_button_does_not_fire_it(self):
+        broths = hover.broth_widgets(BROTHS)
+        cancel = [w for w in broths if w.id == hover.CANCEL][0]
+        at = pointer(cancel.rect[0] + cancel.rect[2] / 2,
+                     cancel.rect[1] + cancel.rect[3] / 2)
+
+        d = hover.DwellTracker()
+        d.suppress_until_exit(broths, at)
+        # Four seconds of not moving — more than three dwell periods.
+        self.assertEqual(self._hold(d, broths, at, 4.0), [])
+        self.assertEqual(d.fraction(hover.CANCEL), 0.0)
+
+    def test_moving_away_and_back_re_arms_it_normally(self):
+        broths = hover.broth_widgets(BROTHS)
+        cancel = [w for w in broths if w.id == hover.CANCEL][0]
+        at = pointer(cancel.rect[0] + cancel.rect[2] / 2,
+                     cancel.rect[1] + cancel.rect[3] / 2)
+
+        d = hover.DwellTracker()
+        d.suppress_until_exit(broths, at)
+        self._hold(d, broths, at, 0.5)
+        self._hold(d, broths, pointer(5.0, 5.0), 0.5)     # left
+        self.assertEqual(self._hold(d, broths, at, 2.0), [hover.CANCEL])
+
+    def test_a_hand_over_nothing_suppresses_nothing(self):
+        broths = hover.broth_widgets(BROTHS)
+        cancel = [w for w in broths if w.id == hover.CANCEL][0]
+        at = pointer(cancel.rect[0] + cancel.rect[2] / 2,
+                     cancel.rect[1] + cancel.rect[3] / 2)
+
+        d = hover.DwellTracker()
+        d.suppress_until_exit(broths, pointer(5.0, 5.0))
+        self.assertEqual(self._hold(d, broths, at, 2.0), [hover.CANCEL])
+
+    def test_no_pointer_at_all_is_not_a_crash(self):
+        d = hover.DwellTracker()
+        d.suppress_until_exit(hover.broth_widgets(BROTHS), None)
+        self.assertIsNone(d.active_id)
+
+    def test_it_clears_a_dwell_that_was_already_part_way(self):
+        # A screen change mid-dwell must not leave banked time behind for
+        # whatever occupies that spot next.
+        broths = hover.broth_widgets(BROTHS)
+        cancel = [w for w in broths if w.id == hover.CANCEL][0]
+        at = pointer(cancel.rect[0] + cancel.rect[2] / 2,
+                     cancel.rect[1] + cancel.rect[3] / 2)
+        d = hover.DwellTracker()
+        self._hold(d, broths, at, 1.0)
+        self.assertGreater(d.fraction(hover.CANCEL), 0.5)
+        d.suppress_until_exit(broths, at)
+        self.assertEqual(d.fraction(hover.CANCEL), 0.0)
+
+
+class _FakeBroth:
+    def __init__(self, bid, name, swatch="#ABCDEF"):
+        self.id, self._name, self.swatch = bid, name, swatch
+        self.diet, self.meta, self.note = "veg", "Not spicy", "A note."
+
+    def display_name(self, locale=None):
+        return self._name
+
+
+class _FakeSpice:
+    def __init__(self, level, name):
+        self.level, self._name = level, name
+        self.meta, self.note = "Level %d" % level, "A note."
+
+    def display_name(self, locale=None):
+        return self._name
+
+
+BROTHS = [_FakeBroth("mala", "Classic Mala Broth"),
+          _FakeBroth("mushroom", "Mushroom Vegan Broth"),
+          _FakeBroth("collagen", "Collagen Bone Broth"),
+          _FakeBroth("miso", "Miso Broth")]
+SPICES = [_FakeSpice(0, "No Spice"), _FakeSpice(1, "Mild"),
+          _FakeSpice(2, "Medium"), _FakeSpice(3, "Hot")]
+
+
+class TestTheNavRow(unittest.TestCase):
+    """2026-08-25: every screen after the cart offers Back, Cancel and one
+    forward action, in that reading order and always in the same band.
+
+    Developer: "so the user can really navigate to and fro without any
+    issues." What these pin is the part a diner learns once and then
+    relies on — that the row does not move, reorder or change size
+    between screens.
+    """
+
+    def _row(self, widgets):
+        return [w for w in widgets if w.kind == "button"]
+
+    def test_every_screen_after_the_cart_offers_back(self):
+        for name, ws in (("broth", hover.broth_widgets(BROTHS)),
+                         ("spice", hover.spice_widgets(SPICES)),
+                         ("checkout", hover.checkout_widgets())):
+            with self.subTest(screen=name):
+                self.assertIn(hover.BACK, [w.id for w in ws])
+
+    def test_the_cart_screen_has_no_back_because_nothing_is_behind_it(self):
+        self.assertNotIn(hover.BACK, [w.id for w in build_widgets()])
+
+    def test_the_row_reads_back_cancel_forward(self):
+        # Reversible actions first, the committing one last — the order
+        # every checkout a diner has already used puts them in.
+        row = self._row(hover.spice_widgets(SPICES))
+        self.assertEqual([w.id for w in row],
+                         [hover.BACK, hover.CANCEL, hover.CONFIRM])
+        xs = [w.rect[0] for w in row]
+        self.assertEqual(xs, sorted(xs))
+
+    def test_no_button_ever_moves_between_screens(self):
+        """**The one that matters, and it is a safety property.**
+
+        Dwell means the hand is resting on a button at the instant it
+        fires, and firing is what changes the screen. If a button moved
+        between screens, the hand that just pressed Pay would come to rest
+        on whatever slid under it — and on the payment screen that was
+        Cancel, 1.2 seconds from voiding the order just placed.
+
+        So: every id keeps the same rect on every screen it appears on,
+        and an unused slot is left empty rather than the row closing up.
+        See `hover.BUTTON_SLOTS`.
+        """
+        seen = {}
+        for name, ws in (("cart", build_widgets()),
+                         ("broth", hover.broth_widgets(BROTHS)),
+                         ("spice", hover.spice_widgets(SPICES)),
+                         ("checkout", hover.checkout_widgets())):
+            for w in self._row(ws):
+                if w.id in seen:
+                    self.assertEqual(
+                        w.rect, seen[w.id][1],
+                        f"{w.id} moved between {seen[w.id][0]} and {name}")
+                seen[w.id] = (name, w.rect)
+        self.assertEqual(sorted(seen), sorted([hover.BACK, hover.CANCEL,
+                                               hover.CONFIRM]))
+
+    def test_each_action_owns_its_own_slot(self):
+        slots = hover.button_slot_rects()
+        spice = {w.id: w for w in hover.spice_widgets(SPICES)}
+        self.assertEqual(spice[hover.BACK].rect, slots[hover.SLOT_BACK])
+        self.assertEqual(spice[hover.CANCEL].rect, slots[hover.SLOT_CANCEL])
+        self.assertEqual(spice[hover.CONFIRM].rect, slots[hover.SLOT_FORWARD])
+
+    def test_nothing_replaces_pay_when_the_payment_screen_opens(self):
+        """The exact crossing that forced the fixed grid: the hand is on
+        Pay when the payment screen arrives, and the slot it is over must
+        be EMPTY there, not occupied by a different action.
+        """
+        pay = {w.id: w for w in hover.spice_widgets(SPICES)}[hover.CONFIRM]
+        cx = pay.rect[0] + pay.rect[2] / 2
+        cy = pay.rect[1] + pay.rect[3] / 2
+        for w in hover.checkout_widgets():
+            with self.subTest(widget=w.id):
+                self.assertFalse(w.contains(cx, cy),
+                                 f"{w.id} sits under the Pay button")
+
+    def test_a_row_that_is_not_the_slot_count_is_refused(self):
+        # Positional slots: a short list would silently shift Cancel into
+        # the forward position.
+        with self.assertRaises(ValueError):
+            hover.button_row([hover.CANCEL, hover.CONFIRM])
+
+    def test_the_forward_button_is_labelled_per_screen_not_per_id(self):
+        # One id (CONFIRM) so `_fire_confirm` can dispatch on the FSM
+        # state; different label keys so the diner is told what it does.
+        broth = {w.id: w for w in hover.broth_widgets(BROTHS)}
+        spice = {w.id: w for w in hover.spice_widgets(SPICES)}
+        cart = {w.id: w for w in build_widgets()}
+        self.assertEqual(cart[hover.CONFIRM].label_key, "next")
+        self.assertEqual(broth[hover.CONFIRM].label_key, "next")
+        self.assertEqual(spice[hover.CONFIRM].label_key, "pay")
+
+    def test_the_payment_screen_offers_no_way_forward(self):
+        # A "Done" there would be a way to clear the table without paying.
+        ids = [w.id for w in hover.checkout_widgets()]
+        self.assertEqual(ids, [hover.BACK, hover.CANCEL])
+
+
+class TestSelectionIsNotAPageTurn(unittest.TestCase):
+    """Developer, 2026-08-25: "each option button doesnt select and move to
+    the next page... only when the button progress completes the previous
+    button gets unselected and this button get selected."
+    """
+
+    def test_nothing_chosen_means_no_way_forward(self):
+        ws = {w.id: w for w in hover.broth_widgets(BROTHS, selected_id="")}
+        self.assertFalse(ws[hover.CONFIRM].enabled)
+        ws = {w.id: w for w in hover.spice_widgets(SPICES, selected_level=None)}
+        self.assertFalse(ws[hover.CONFIRM].enabled)
+
+    def test_a_choice_opens_the_way_forward(self):
+        ws = {w.id: w for w in hover.broth_widgets(BROTHS, selected_id="miso")}
+        self.assertTrue(ws[hover.CONFIRM].enabled)
+
+    def test_exactly_one_option_is_ever_marked_selected(self):
+        ws = hover.broth_widgets(BROTHS, selected_id="collagen")
+        sel = [w.id for w in ws if w.selected]
+        self.assertEqual(sel, [hover.broth_widget_id("collagen")])
+
+    def test_back_and_cancel_never_carry_a_selection(self):
+        ws = hover.spice_widgets(SPICES, selected_level=3)
+        for w in ws:
+            if w.kind == "button":
+                with self.subTest(widget=w.id):
+                    self.assertFalse(w.selected)
+
+    def test_level_zero_is_selectable_and_is_not_no_selection(self):
+        # **The trap.** Doc section 17 makes level 0 a genuine choice, so
+        # `selected_level=0` must mark it and must enable Pay — a falsy
+        # check anywhere on this path turns "no spice, please" into "you
+        # have not chosen yet" and the diner can never leave the screen.
+        ws = {w.id: w for w in hover.spice_widgets(SPICES, selected_level=0)}
+        self.assertTrue(ws[hover.spice_widget_id(0)].selected)
+        self.assertTrue(ws[hover.CONFIRM].enabled)
+
+    def test_an_option_never_stops_being_dwellable(self):
+        # Switching choices means dwelling a DIFFERENT plate, so every
+        # plate stays a live target including the one already chosen.
+        for w in hover.broth_widgets(BROTHS, selected_id="mala"):
+            if w.kind == "option":
+                with self.subTest(widget=w.id):
+                    self.assertTrue(w.enabled)
+
+
+class TestTheSpiceScreen(unittest.TestCase):
+
+    def test_the_hottest_level_is_at_the_top(self):
+        # Developer, 2026-08-25: "the spicy list should be in opposite
+        # order hot should come at top."
+        ws = [w for w in hover.spice_widgets(SPICES) if w.kind == "option"]
+        levels = [hover.parse_spice_level(w.id) for w in ws]
+        self.assertEqual(levels, [3, 2, 1, 0])
+        ys = [w.rect[1] for w in ws]
+        self.assertEqual(ys, sorted(ys), "top to bottom is not descending heat")
+
+    def test_the_source_order_is_not_mutated(self):
+        # `menu.Menu.load` sorts ascending and the staff view reads that
+        # order; reversing in place here would silently reorder it.
+        before = [s.level for s in SPICES]
+        hover.spice_widgets(SPICES)
+        self.assertEqual([s.level for s in SPICES], before)
+
+    def test_each_level_carries_its_own_number_of_chillies(self):
+        for w in hover.spice_widgets(SPICES):
+            if w.kind != "option":
+                continue
+            level = hover.parse_spice_level(w.id)
+            with self.subTest(level=level):
+                self.assertEqual(w.icon, "chilli")
+                self.assertEqual(w.icon_count, level)
+
+    def test_a_broth_carries_a_swatch_and_no_chillies(self):
+        for w in hover.broth_widgets(BROTHS):
+            if w.kind != "option":
+                continue
+            with self.subTest(widget=w.id):
+                self.assertTrue(w.swatch.startswith("#"))
+                self.assertEqual(w.icon, "")
+
+
+class TestTheOptionsSitWhereTheCartWas(unittest.TestCase):
+    """Developer, 2026-08-25: "the buttons should only take the space which
+    was previously once consumedby the cart are, the top info area should
+    be left to there for broth info."
+
+    The old band straddled the info box AND the cart, which is why the
+    broth plates landed on top of a cart that was still being drawn.
+    """
+
+    def test_the_options_stay_inside_the_carts_own_band(self):
+        for r in hover.option_rects(4):
+            with self.subTest(rect=r):
+                self.assertGreaterEqual(r[1], hover.OPTIONS_TOP_PX)
+                self.assertLessEqual(r[1] + r[3], hover.OPTIONS_BOTTOM_PX)
+
+    def test_the_options_never_reach_the_info_band(self):
+        # UiLayer's kInfoBoxTopPx: brand top margin + brand height + gap.
+        info_box_top = 20.0 + 170.0 + 24.0
+        for r in hover.option_rects(4):
+            self.assertGreater(r[1], info_box_top)
+
+    def test_the_options_never_reach_the_button_row(self):
+        # A plate overlapping Next would mean a hand reaching for the
+        # button chose a broth instead.
+        for r in hover.option_rects(4):
+            self.assertLessEqual(r[1] + r[3], hover.BUTTONS_TOP_PX)
+
+    def test_no_option_overlaps_a_bin(self):
+        from hotpot.core import bin_grid
+        cad = bin_grid.cad_bin_grid_stage().rects()
+        for w in hover.broth_widgets(BROTHS) + hover.spice_widgets(SPICES):
+            wx, wy, ww, wh = w.rect
+            for i, (bx, by, bw, bh) in enumerate(cad):
+                overlaps = (wx < bx + bw and bx < wx + ww
+                            and wy < by + bh and by < wy + wh)
+                self.assertFalse(overlaps, f"widget {w.id} overlaps bin {i}")
+
+    def test_no_two_widgets_on_a_screen_overlap(self):
+        for name, ws in (("broth", hover.broth_widgets(BROTHS)),
+                         ("spice", hover.spice_widgets(SPICES)),
+                         ("checkout", hover.checkout_widgets())):
+            for i, a in enumerate(ws):
+                for b in ws[i + 1:]:
+                    ax, ay, aw, ah = a.rect
+                    bx, by, bw, bh = b.rect
+                    overlaps = (ax < bx + bw and bx < ax + aw
+                                and ay < by + bh and by < ay + ah)
+                    self.assertFalse(
+                        overlaps, f"{name}: {a.id} overlaps {b.id}")
+
+    def test_a_fifth_option_fails_loudly_rather_than_overflowing(self):
+        # A silent overflow would put a dwellable plate under the button
+        # row — obvious on the table, invisible in a diff.
+        with self.assertRaises(ValueError):
+            hover.option_rects(6)
 
 
 class TestBinHover(unittest.TestCase):

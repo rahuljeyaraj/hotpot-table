@@ -1,10 +1,26 @@
 """core/fsm.py — the table's state machine (doc section 9.1).
 
 BOOT, IDLE, SELECTING (M1 build item 2), SETTING (M2.6), UNCALIBRATED
-(M4 build item 6) and, since M6, the whole checkout chain: BROTH, SPICE,
-RECAP, CHECKOUT. Adding a state means adding both a State member and a
+(M4 build item 6) and, since M6, the checkout chain: BROTH, SPICE,
+CHECKOUT. Adding a state means adding both a State member and a
 transition method below; nothing about the shape here is provisional
 scaffolding to be replaced later.
+
+**RECAP is gone, 2026-08-25.** It was a fifth state between SPICE and
+CHECKOUT whose whole screen was "the cart again, with Confirm". The
+developer's own page list for the table is four screens — cart, broth,
+spice, payment — and a diner who has just been shown the cart on screen
+one does not need it re-shown on screen four before the QR. What RECAP
+actually carried was the *commit*, and that moved onto `confirm()`'s
+SPICE -> CHECKOUT edge unchanged: the order is still written on exactly
+one transition, and `weighing` still freezes the cart for every screen
+after SELECTING. Deleted outright rather than left unreachable, this
+codebase's usual rule.
+
+**Every screen in the chain can now go BACKWARD as well as out**, which
+is `back()` below and is new in the same change. Cancel was the only
+edge out before, so a diner who picked the wrong broth had to throw the
+whole order away to fix it.
 
 **Two predicates, not one, since M6: `serving` and `weighing`.** They had
 the same answer while IDLE and SELECTING were the only serving states,
@@ -53,21 +69,38 @@ class State(enum.Enum):
     UNCALIBRATED = "uncalibrated"
     IDLE = "idle"
     SELECTING = "selecting"
-    # Doc section 9.1's checkout chain, M6. SELECTING -> BROTH -> SPICE ->
-    # RECAP -> CHECKOUT -> IDLE.
+    # Doc section 9.1's checkout chain, M6, minus RECAP (see the module
+    # docstring). SELECTING -> BROTH -> SPICE -> CHECKOUT -> IDLE, with a
+    # `back()` edge along every arrow in it.
     BROTH = "broth"
     SPICE = "spice"
-    RECAP = "recap"
     CHECKOUT = "checkout"
     SETTING = "setting"
 
 
-# The four states between "the diner stopped picking" and "the order is
+# The states between "the diner stopped picking" and "the order is
 # done". Grouped because three separate places need exactly this set and
 # spelling it out at each would let them drift: the scale gate below, the
 # widget layout in `core/hover.py`, and the cart-freeze in
 # `core/main.py._apply_scale_to_cart`.
-CHECKOUT_STATES = (State.BROTH, State.SPICE, State.RECAP, State.CHECKOUT)
+CHECKOUT_STATES = (State.BROTH, State.SPICE, State.CHECKOUT)
+
+# Where `back()` goes from each screen — one table, so a screen cannot
+# end up with a Back button that does nothing, and so the reverse chain
+# is readable in one place next to the forward one. CHECKOUT goes back to
+# SPICE rather than to a screen of its own: the diner's last decision was
+# the spice level, and that is where "no, wait" should land them.
+#
+# **CHECKOUT -> SPICE voids the order that was already written.** That is
+# core's job, not this module's (fsm.py owns no database, the same reason
+# it owns neither the cart nor the bin map) — see
+# `core/main.py._fire_back`, which is the only caller allowed to take
+# this particular edge.
+_BACK_EDGES = {
+    State.BROTH: State.SELECTING,
+    State.SPICE: State.BROTH,
+    State.CHECKOUT: State.SPICE,
+}
 
 
 class Fsm:
@@ -106,9 +139,9 @@ class Fsm:
 
         **This is no longer the scale gate.** It was, up to M6, when IDLE
         and SELECTING were the only serving states and the two questions
-        had the same answer. They do not any more: a table in RECAP is
-        very much serving a diner, and must not be weighing. See
-        `weighing`.
+        had the same answer. They do not any more: a table on the broth
+        screen is very much serving a diner, and must not be weighing.
+        See `weighing`.
         """
         return self.state in (State.IDLE, State.SELECTING) or \
             self.state in CHECKOUT_STATES
@@ -117,13 +150,17 @@ class Fsm:
     def weighing(self) -> bool:
         """Whether the scale may still move the cart.
 
-        **The cart freezes the moment the diner presses Done, and this is
-        the predicate that freezes it.** Everything from BROTH onward
-        shows the diner numbers they are being asked to approve — a hand
-        brushing a tray while they read the recap, or the load cells
-        drifting a gram over the 90 seconds the QR is up, must not change
-        what they already agreed to. RECAP would otherwise be a total
-        that moves while somebody reads it.
+        **The cart freezes the moment the diner presses Next on the cart
+        screen, and this is the predicate that freezes it.** Everything
+        from BROTH onward shows the diner numbers they are being asked to
+        approve — a hand brushing a tray while they choose a broth, or
+        the load cells drifting a gram while the QR is up, must not
+        change what they already agreed to.
+
+        **Going BACK to SELECTING un-freezes it, deliberately.** `back()`
+        from BROTH lands on SELECTING, which is in this tuple, so the
+        scale drives the cart again — that is the whole point of the edge:
+        the diner returned to the cart to change what is in it.
 
         A predicate rather than `state is SELECTING` for the same reason
         `serving` is one: a state added later cannot start billing by
@@ -187,13 +224,15 @@ class Fsm:
         Re-baselines and clears the cart (I6) through the one shared
         reset_session() — never inline that logic here, per doc 9.1.
 
-        **Reachable from BROTH/SPICE/RECAP/CHECKOUT too, which doc
-        section 9.1's diagram does not draw.** The diagram has no edge out
-        of those four but the last one, and that cannot be right in a
-        restaurant: a diner three screens into a checkout they did not
-        mean to start would have no way back except waiting out
-        CHECKOUT's 90s timeout. Cancel is offered on every one of those
-        screens (`core/hover.py`), so the FSM has to accept it there.
+        **Reachable from BROTH/SPICE/CHECKOUT too, which doc section
+        9.1's diagram does not draw.** The diagram has no edge out of
+        those but the last one, and that cannot be right in a restaurant:
+        a diner three screens into a checkout they did not mean to start
+        would have no way out at all now that CHECKOUT no longer times
+        itself out (see `core/main.py` — the developer asked for the QR
+        to stay up until a person acts). Cancel is offered on every one
+        of those screens (`core/hover.py`), so the FSM has to accept it
+        there.
         """
         if self.state is not State.SELECTING and self.state not in CHECKOUT_STATES:
             return False
@@ -206,10 +245,11 @@ class Fsm:
     # -- the checkout chain (doc section 9.1, section 18.1 — M6) -----------
 
     def done(self) -> bool:
-        """SELECTING -> BROTH, doc section 9.1's `dwell "done"` edge.
+        """SELECTING -> BROTH, doc section 9.1's `dwell "done"` edge —
+        the cart screen's own Next button.
 
         Refuses on an empty cart. Nothing else in the chain checks it, so
-        this is the one gate between "a hand rested on Confirm" and a
+        this is the one gate between "a hand rested on Next" and a
         zero-total order written to the database with a code a diner
         would then be asked to pay.
         """
@@ -218,29 +258,68 @@ class Fsm:
         return self._go(State.SELECTING, State.BROTH)
 
     def broth_chosen(self) -> bool:
-        """BROTH -> SPICE. Which broth was chosen is core's to remember —
-        this module owns the state, not the order's contents, the same
-        way it owns neither the cart nor the bin map.
+        """BROTH -> SPICE — the broth screen's Next button.
+
+        **Named for the fact, not for the button, and that distinction
+        moved in 2026-08-25's redesign.** Choosing a broth used to BE this
+        transition: dwelling a plate both recorded the choice and jumped
+        to the next screen, so a diner could not see what they had picked
+        or change their mind. Selection is now core's own scratch state
+        (`core/main.py._choose_broth`) and this edge fires only when the
+        diner presses Next, which is what makes "hover a different plate
+        to switch" possible at all.
+
+        Which broth was chosen stays core's to remember — this module
+        owns the state, not the order's contents, the same way it owns
+        neither the cart nor the bin map.
         """
         return self._go(State.BROTH, State.SPICE)
 
-    def spice_chosen(self) -> bool:
-        """SPICE -> RECAP."""
-        return self._go(State.SPICE, State.RECAP)
-
     def confirm(self) -> bool:
-        """RECAP -> CHECKOUT, doc section 9.1's `dwell "confirm"` edge.
+        """SPICE -> CHECKOUT, doc section 9.1's `dwell "confirm"` edge —
+        the spice screen's Pay button, and the commit.
 
-        The order is written by core on this transition. Deliberately
-        NOT here: writing a row to SQLite from inside a state machine
-        that is unit-tested with no filesystem would drag a database into
-        every FSM test, the same reason `refresh_weights` is a callback.
+        Was RECAP -> CHECKOUT until 2026-08-25; RECAP is deleted and this
+        edge absorbed it whole (see the module docstring). The order is
+        still written by core on exactly this one transition.
+
+        Writing that row is deliberately NOT done here: writing to SQLite
+        from inside a state machine that is unit-tested with no
+        filesystem would drag a database into every FSM test, the same
+        reason `refresh_weights` is a callback.
         """
-        return self._go(State.RECAP, State.CHECKOUT)
+        return self._go(State.SPICE, State.CHECKOUT)
+
+    def back(self) -> bool:
+        """One screen backward along the chain, per `_BACK_EDGES`.
+
+        A single method with a table rather than three `back_to_x()`
+        methods, for the reason the reverse chain exists at all: a Back
+        button is offered on every screen after the first, so the set of
+        legal reverse edges has to be readable in one place or a screen
+        will eventually get a button with no edge behind it.
+
+        No-ops (returns False) from SELECTING, IDLE and everywhere else —
+        there is nothing behind the cart screen, and the cart screen's own
+        button row offers no Back for exactly that reason.
+        """
+        target = _BACK_EDGES.get(self.state)
+        if target is None:
+            return False
+        old = self.state
+        self.state = target
+        self._fire(old, target)
+        return True
 
     def checkout_complete(self) -> bool:
-        """CHECKOUT -> IDLE, doc section 9.1's "(receipt fetched OR timeout
-        90s)" edge, with its "[re-baseline, clear cart]".
+        """CHECKOUT -> IDLE, doc section 9.1's "(receipt fetched)" edge,
+        with its "[re-baseline, clear cart]".
+
+        **The "OR timeout 90s" half of that edge is gone.** Developer,
+        2026-08-25: "i see the qr code dissaperared when it was left idel
+        for sometime, that should not happen, no time out. onc can cancell
+        or go back, but not self disappear." A diner reaching for their
+        phone is exactly the person that timer was firing on.
 
         This is the third of doc section 9.1's three `reset_session()`
         callers ("cancel, checkout completion, and setting-mode exit") and

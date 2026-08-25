@@ -72,6 +72,15 @@ DONE = "done"
 CANCEL = "cancel"
 LANGUAGE = "language"
 
+# 2026-08-25. The reverse edge, offered on every screen after the cart —
+# `fsm.back()` is what it fires and `fsm._BACK_EDGES` is where it goes.
+#
+# It has an id of its own rather than being "Cancel with a different
+# label" because the two do opposite things: Back keeps the order and
+# moves one screen, Cancel throws the order away. A diner who mixed those
+# up would lose a cart they spent two minutes filling.
+BACK = "back"
+
 # VISUAL_LAYER.md section 8's own pair, 2026-08-24: "Two buttons below the
 # cart: Confirm, Cancel." `CONFIRM` is deliberately a NEW id rather than a
 # relabelled `DONE`: doc section 9.1's SELECTING -> BROTH edge is M6's, and
@@ -145,6 +154,35 @@ class Widget:
     # Doc section 18.1's "colour swatch each", hex, "" for no swatch.
     swatch: str = ""
 
+    # --- 2026-08-25: selection is a STATE now, not a page turn -----------
+    #
+    # Developer, verbatim: "each option button doesnt select and move to
+    # the next page, instead hovering over it shows the info and when the
+    # progress fills the the selection is locked even without hover. then
+    # the info als remains locked. the user can still switch his option by
+    # hovering on a different button, only when the button progress
+    # completes the previous button gets unselected and this button get
+    # selected."
+    #
+    # So a completed dwell on an option no longer advances anything — it
+    # sets core's scratch choice, and core marks the chosen widget here on
+    # the next tick. oF draws a selected plate differently and, crucially,
+    # keeps the info box pinned to it once the hand moves away, which is
+    # what "the info als remains locked" asks for.
+    selected: bool = False
+    # A glyph oF draws itself, repeated `icon_count` times. "chilli" is the
+    # only one today (doc section 18.1's "four plates, 0-3, with chilli
+    # glyphs" — unbuilt until now).
+    #
+    # A NAME and a COUNT rather than a pre-rendered string, because there
+    # is no chilli in any font this repo ships: UiLayer loads DejaVu with
+    # Latin + Latin1Supplement + CurrencySymbols, and U+1F336 is in none of
+    # them, so a literal glyph would silently draw nothing (the exact
+    # failure mode `pricing.Item.description`'s ASCII-only rule exists to
+    # avoid). oF draws the pepper as a path instead.
+    icon: str = ""
+    icon_count: int = 0
+
     def contains(self, x: float, y: float) -> bool:
         rx, ry, rw, rh = self.rect
         return rx <= x <= rx + rw and ry <= y <= ry + rh
@@ -212,8 +250,22 @@ BAND_BOTTOM_PX = 820.0
 # on why the two cannot share a constant, and UiLayer::setup()'s own check
 # on what breaks if they drift.
 CART_WIDTH_PX = 520.0
-BUTTON_H_PX = 100.0
-BUTTON_GAP_PX = 16.0
+
+# **100 -> 76 tall, 16 -> 28 apart (2026-08-25).** Developer: "also make
+# the buttons smallaer and increase the sapce between them, it feels
+# crammed." Both numbers moved together on purpose — shrinking the button
+# without widening the gap just leaves the same crowded row with more
+# background around it, and the row has to hold THREE buttons now (Back,
+# Cancel, Next) where it held two.
+#
+# 76px is about 64mm of plywood, and the narrowest a three-button row gets
+# is (520 - 2*28) / 3 = 154.7px, i.e. ~123 x 64 mm. That is still far
+# above the "a hand is not a mouse" floor the sizes below were written
+# against — a MediaPipe landmark's frame-to-frame wander is a few px — and
+# it is roughly a credit card, which is the smallest thing anyone reaches
+# for with confidence.
+BUTTON_H_PX = 76.0
+BUTTON_GAP_PX = 28.0
 
 
 def _near_margin_px() -> Tuple[float, float]:
@@ -247,13 +299,74 @@ def _centred(width: float, height: float, y: float) -> Rect:
     return (x0 + (col_w - width) * 0.5, y, width, height)
 
 
-def layout() -> Dict[str, Rect]:
-    """The cart's two button rects, side by side directly under the cart.
+# **THREE FIXED SLOTS, on every screen, whether or not all three are
+# used.** Back is always slot 0, Cancel always slot 1, the forward action
+# always slot 2 — so no button on this table ever changes position, and
+# an unused slot is left empty rather than closed up.
+#
+# **This is a safety property, not a style one, and the alternative is a
+# real way to destroy a diner's order.** Dwell selection means a hand is
+# resting on a button at the instant that button fires — and firing is
+# exactly what changes the screen. If the row re-centred itself to fit
+# however many buttons the next screen has, the hand that just pressed
+# Pay (right of a two-wide row) would come to rest on Cancel (middle of a
+# three-wide row) with the accumulator re-arming underneath it. The
+# `DwellTracker` re-arm latch does not save that case: the latch is keyed
+# by widget id, and the id under the hand genuinely changed.
+#
+# Worked through for the worst crossing before this was fixed: the spice
+# screen's Pay spans 1065..1220, and the payment screen's Cancel spanned
+# 974..1220 — so *every* pixel of the button the diner had just pressed
+# sat on top of Cancel, 1.2 seconds from voiding the order they had just
+# placed. With fixed slots the forward slot simply becomes empty and the
+# hand rests on nothing.
+BUTTON_SLOTS = 3
+SLOT_BACK, SLOT_CANCEL, SLOT_FORWARD = 0, 1, 2
 
-    **CANCEL is on the LEFT, CONFIRM on the right** — developer, 2026-08-24:
-    "cancel button should come first." Read left-to-right that puts the
-    reversible action first and the committing one last, which is the
-    order every checkout a diner has already used puts them in.
+
+def button_slot_rects() -> List[Rect]:
+    """The three slots, left to right, filling the cart's width."""
+    x0, col_w = centre_column_px()
+    left = x0 + (col_w - CART_WIDTH_PX) * 0.5
+    btn_w = (CART_WIDTH_PX
+             - BUTTON_GAP_PX * (BUTTON_SLOTS - 1)) / BUTTON_SLOTS
+    return [(left + i * (btn_w + BUTTON_GAP_PX), BUTTONS_TOP_PX,
+             btn_w, BUTTON_H_PX) for i in range(BUTTON_SLOTS)]
+
+
+def button_row(ids: Sequence[Optional[str]]) -> Dict[str, Rect]:
+    """Assign widget ids to the fixed slots, `None` for an empty one.
+
+    `ids` is positional and must be `BUTTON_SLOTS` long: the index IS the
+    slot, so a caller cannot accidentally shuffle Cancel into the forward
+    position by passing a shorter list.
+
+    **Reading order is reversible-first, committing-last.** Developer,
+    2026-08-24: "cancel button should come first." With Back added that
+    reads Back | Cancel | Next: the two ways out on the left, the one way
+    forward on the right, which is where every checkout a diner has
+    already used puts it.
+    """
+    if len(ids) != BUTTON_SLOTS:
+        raise ValueError(
+            f"hover: button_row needs exactly {BUTTON_SLOTS} slots "
+            f"(use None for an empty one), got {len(ids)}")
+    rects = button_slot_rects()
+    return {wid: rects[i] for i, wid in enumerate(ids) if wid is not None}
+
+
+def layout() -> Dict[str, Rect]:
+    """The cart screen's own two button rects: Cancel, then Next.
+
+    Slots 1 and 2 of three — the Back slot is left EMPTY rather than the
+    pair being centred, because there is nothing behind the cart screen
+    and because closing the gap would move Cancel (see `BUTTON_SLOTS`).
+    The empty slot is also where Back appears on the very next screen,
+    which teaches the row's shape before the diner needs it.
+
+    Kept as a named function (rather than callers reaching for
+    `button_row` directly) because it is the pair `UiLayer::setup()`'s
+    cross-file check and this module's own tests measure against.
 
     Done/Language are NOT here. They were removed outright in 2026-08-13
     (RIG_FEEDBACK items 4-7) and nothing has brought them back; the band
@@ -262,13 +375,7 @@ def layout() -> Dict[str, Rect]:
     they record what was measured on the rig about that band — see
     `BAND_BOTTOM_PX`'s own comment, which is a finding, not a leftover.
     """
-    x0, col_w = centre_column_px()
-    left = x0 + (col_w - CART_WIDTH_PX) * 0.5
-    btn_w = (CART_WIDTH_PX - BUTTON_GAP_PX) * 0.5
-    return {
-        CANCEL: (left, BUTTONS_TOP_PX, btn_w, BUTTON_H_PX),
-        CONFIRM: (left + btn_w + BUTTON_GAP_PX, BUTTONS_TOP_PX, btn_w, BUTTON_H_PX),
-    }
+    return button_row([None, CANCEL, CONFIRM])
 
 
 # --- M6: the option list the BROTH and SPICE screens share ----------------
@@ -280,51 +387,113 @@ def layout() -> Dict[str, Rect]:
 # "large projected plates" without saying where, and the near/far margins
 # are where the plate labels already are.
 #
-# Sized to fit: the free band is BAND_TOP_PX..BAND_BOTTOM_PX = 470px, and
-# 4 * OPTION_H + 3 * OPTION_GAP = 448, leaving 22px of slack. A fifth
-# broth would not fit, and `option_rects` raises rather than silently
-# overflowing the band into the cart below it.
+# **They sit in the CART's band now, not in the free band above it, and
+# that is the whole of the "broth overlays the cart" report.** Developer,
+# 2026-08-25: "the broth should come like a second page of the selection
+# with an option to go back to cart. now it overlays the cart and it is
+# teribble... the buttons should only take the space which was previously
+# once consumedby the cart are, the top info area should be left to there
+# for broth info and in spicy page, spice info."
+#
+# The old band (BAND_TOP_PX..BAND_BOTTOM_PX = 350..820) straddled BOTH the
+# info box and the cart, so four option plates landed on top of a cart that
+# oF was still drawing underneath them. Moving them into exactly the cart's
+# own rows band makes broth a genuine second PAGE: oF stops drawing the cart
+# there (see `UiLayer::draw`) and the info band above is left free for the
+# hovered or selected option's own info, which is what makes the "hover to
+# read, dwell to lock" interaction legible at all.
+#
+# The band below mirrors `UiLayer.cpp`'s cart chain term for term —
+# kNearRowBottomPx, kCartBottomGapPx, kCartFooterHeightPx,
+# kCartRowHeightPx * 8 — for the same reason CART_WIDTH_PX is mirrored:
+# one is Python and one is C++, they cannot share a constant, and
+# `UiLayer::setup()` carries the check that warns when they drift.
+_CART_BOTTOM_GAP_PX = 16.0     # UiLayer kCartBottomGapPx
+_CART_FOOTER_H_PX = 92.0       # UiLayer kCartFooterHeightPx
+_CART_ROW_H_PX = 32.0          # UiLayer kCartRowHeightPx
+_CART_ROWS = 8
+
+
+def _cart_band_px() -> Tuple[float, float]:
+    """`(top, bottom)` in stage px of the space the cart occupies.
+
+    Derived from the near row's own bottom edge, exactly as
+    `UiLayer.cpp` derives `kCartTopPx` — so moving a bin moves the option
+    list with it, the same rule the buttons and the cart already follow.
+    """
+    near_bottom = gs.mm_to_stage(
+        0.0, gs.BIN_ORIGINS_MM[4][1] + gs.BIN_H_MM)[1]
+    bottom = near_bottom - _CART_BOTTOM_GAP_PX
+    top = bottom - _CART_FOOTER_H_PX - _CART_ROW_H_PX * _CART_ROWS
+    return top, bottom
+
+
+OPTIONS_TOP_PX, OPTIONS_BOTTOM_PX = _cart_band_px()
+
 OPTION_W_PX = CART_WIDTH_PX
-OPTION_H_PX = 100.0
+# 100 -> 74. Four plates plus three gaps have to fit the cart's ~348px
+# band now instead of the old 470px one: 4*74 + 3*16 = 344. `option_rects`
+# raises rather than overflowing, so this is checked at layout time on
+# every boot, not assumed here.
+OPTION_H_PX = 74.0
 OPTION_GAP_PX = 16.0
 
 
 def option_rects(count: int) -> List[Rect]:
-    """`count` stacked rects, centred in the free band.
+    """`count` stacked rects, centred in the cart's own band.
 
-    Raises if they will not fit. A silent overflow here would put a
-    dwellable button on top of the cart, i.e. a hand reaching for the
-    total would choose a broth — the kind of thing that is obvious on the
+    Raises if they will not fit. A silent overflow here would push a
+    dwellable plate down into the button row, i.e. a hand reaching for
+    Next would choose a broth — the kind of thing that is obvious on the
     table and invisible in a diff, so it fails loudly at layout time.
     """
     if count <= 0:
         return []
     total_h = count * OPTION_H_PX + (count - 1) * OPTION_GAP_PX
-    band_h = BAND_BOTTOM_PX - BAND_TOP_PX
+    band_h = OPTIONS_BOTTOM_PX - OPTIONS_TOP_PX
     if total_h > band_h:
         raise ValueError(
-            f"hover: {count} options need {total_h:.0f}px but the centre "
+            f"hover: {count} options need {total_h:.0f}px but the cart "
             f"band is only {band_h:.0f}px — shrink OPTION_H_PX or the menu")
     x0, col_w = centre_column_px()
     left = x0 + (col_w - OPTION_W_PX) * 0.5
-    top = BAND_TOP_PX + (band_h - total_h) * 0.5
+    top = OPTIONS_TOP_PX + (band_h - total_h) * 0.5
     return [(left, top + i * (OPTION_H_PX + OPTION_GAP_PX),
              OPTION_W_PX, OPTION_H_PX) for i in range(count)]
 
 
-def _cancel_only() -> Widget:
-    """Cancel, alone, on the button row.
+def _nav_row(*, forward_key: str, forward_enabled: bool) -> List[Widget]:
+    """The button row every screen after the cart shares.
 
-    The checkout screens put Cancel where Cancel has been the whole
-    session rather than moving it — a diner who has already used it once
-    on this table should not have to find it again.
+    Back | Cancel | <forward>, in the fixed slots (see `BUTTON_SLOTS`).
+    `forward_key` is the locale key for the primary button's label, which
+    is the ONLY thing that differs between screens: "next" on broth,
+    "pay" on spice. The id stays CONFIRM throughout so `_fire_confirm` can
+    keep dispatching on the FSM state rather than on which label the
+    button happened to be wearing.
     """
-    return Widget(id=CANCEL, rect=layout()[CANCEL], label_key="cancel",
-                  style="danger", enabled=True)
+    rects = button_row([BACK, CANCEL, CONFIRM])
+    return [
+        Widget(id=BACK, rect=rects[BACK], label_key="back",
+               style="secondary", enabled=True),
+        Widget(id=CANCEL, rect=rects[CANCEL], label_key="cancel",
+               style="danger", enabled=True),
+        Widget(id=CONFIRM, rect=rects[CONFIRM], label_key=forward_key,
+               style="primary", enabled=bool(forward_enabled)),
+    ]
 
 
-def broth_widgets(broths: Sequence[Any]) -> List[Widget]:
-    """Doc section 18.1's BROTH screen: one plate per broth, plus Cancel.
+def broth_widgets(broths: Sequence[Any], *,
+                  selected_id: str = "") -> List[Widget]:
+    """Doc section 18.1's BROTH screen: one plate per broth, plus the nav
+    row (Back, Cancel, Next).
+
+    **Next is disabled until a broth is locked in.** That is the visible
+    half of the new selection model: dwelling a plate marks it and does
+    nothing else, so the only thing that can move the diner forward is a
+    button whose own label says so. A Next that fired on nothing chosen
+    would either skip the question or need a silent default, and a broth
+    nobody picked is not a broth a kitchen should cook.
 
     `broths` are `menu.Broth`es; typed loosely so this module does not
     import `menu` (it imports nothing of core's but `geometry_store`, and
@@ -335,63 +504,97 @@ def broth_widgets(broths: Sequence[Any]) -> List[Widget]:
         Widget(id=broth_widget_id(b.id), rect=rect, label_key="",
                label=b.display_name(), kind="option", style="option",
                enabled=True, swatch=b.swatch,
+               selected=(b.id == selected_id),
                info={"diet": b.diet, "meta": b.meta, "desc": b.note})
         for b, rect in zip(broths, rects)
     ]
-    out.append(_cancel_only())
+    out.extend(_nav_row(forward_key="next",
+                        forward_enabled=bool(selected_id)))
     return out
 
 
-def spice_widgets(levels: Sequence[Any]) -> List[Widget]:
-    """Doc section 18.1's SPICE screen: one plate per level, plus Cancel.
+def spice_widgets(levels: Sequence[Any], *,
+                  selected_level: Optional[int] = None) -> List[Widget]:
+    """Doc section 18.1's SPICE screen: one plate per level, plus the nav
+    row (Back, Cancel, Pay).
+
+    **HOTTEST FIRST.** Developer, 2026-08-25: "the spicy list should be in
+    opposite order hot should come at top, also show it with number of
+    chili icons." `menu.Menu.load` sorts its levels ascending and other
+    readers (the staff view's Orders tab) rely on that, so the reversal is
+    here, at the one place that lays the plates out, rather than in the
+    data or the loader.
+
+    Each plate carries `icon="chilli"` and `icon_count = level`, and oF
+    draws that many peppers — see `Widget.icon` for why it is a count and
+    not a glyph. Level 0 gets zero peppers, which with the label "No
+    Spice" beside it is the whole statement; a greyed-out pepper there
+    would read as one pepper, and doc section 17 is explicit that level 0
+    is a real choice rather than an absence.
 
     No `diet` on a spice level — it is not food. The info box draws the
     diet mark only when there is one rather than drawing a blank dot.
     """
-    rects = option_rects(len(levels))
+    ordered = sorted(levels, key=lambda s: -int(s.level))
+    rects = option_rects(len(ordered))
     out = [
         Widget(id=spice_widget_id(s.level), rect=rect, label_key="",
                label=s.display_name(), kind="option", style="option",
-               enabled=True,
+               enabled=True, icon="chilli", icon_count=int(s.level),
+               selected=(selected_level is not None
+                         and int(s.level) == int(selected_level)),
                info={"diet": "", "meta": s.meta, "desc": s.note})
-        for s, rect in zip(levels, rects)
+        for s, rect in zip(ordered, rects)
     ]
-    out.append(_cancel_only())
+    out.extend(_nav_row(forward_key="pay",
+                        forward_enabled=selected_level is not None))
     return out
 
 
-def recap_widgets() -> List[Widget]:
-    """Doc section 18.1's RECAP: "dwell confirm". Same two buttons and the
-    same two rects as SELECTING — the diner has been looking at them all
-    session and this is the screen where Confirm finally commits.
+def checkout_widgets(*, paid: bool = False) -> List[Widget]:
+    """CHECKOUT — the payment screen, which is two screens in one.
+
+    UNPAID: **Back and Cancel, and no forward button.** A forward here
+    would be a way to clear the table without paying — pressed by mistake
+    it leaves an unpaid order in the kitchen's queue and a diner walking
+    off with food. Back voids the written order and returns to SPICE;
+    Cancel voids it and ends the session. Both of those are core's to do
+    (`core/main.py._fire_back` and `_dispatch_widget`).
+
+    **The forward slot being EMPTY is also the crossing the fixed grid
+    was designed for**: the diner's hand is resting on the spice screen's
+    Pay button at the instant this screen replaces it, and an empty slot
+    means it comes to rest on nothing rather than on Cancel. See
+    `BUTTON_SLOTS`.
+
+    PAID: **Done, alone.** Back is meaningless (nobody re-chooses a spice
+    level for an order they have paid for) and Cancel would be worse than
+    meaningless — it would offer to cancel money that has already
+    changed hands, which this table cannot do. What is on screen is the
+    token, and the only thing left is to take it.
+
+    **Neither half times out.** Developer, 2026-08-25: "i see the qr code
+    dissaperared when it was left idel for sometime, that should not
+    happen, no time out. onc can cancell or go back, but not self
+    disappear." The screen ends when a person presses one of these.
     """
-    rects = layout()
+    if paid:
+        rects = button_row([None, None, CONFIRM])
+        return [Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="done",
+                       style="primary", enabled=True)]
+    rects = button_row([BACK, CANCEL, None])
     return [
+        Widget(id=BACK, rect=rects[BACK], label_key="back",
+               style="secondary", enabled=True),
         Widget(id=CANCEL, rect=rects[CANCEL], label_key="cancel",
                style="danger", enabled=True),
-        Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="confirm",
-               style="primary", enabled=True),
     ]
-
-
-def checkout_widgets() -> List[Widget]:
-    """CHECKOUT. One button, and it is not Cancel.
-
-    The order is written and the code is assigned by the time this screen
-    is up, so there is nothing left to cancel — offering it would suggest
-    the diner could still call the order off, which is not true. Doc
-    section 18.3's 90s timeout ends this screen on its own; this is the
-    "I have finished reading the code" shortcut, and it does exactly what
-    the timeout does.
-    """
-    rects = layout()
-    return [Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="done",
-                   style="primary", enabled=True)]
 
 
 def widgets_for(*, selecting: bool, locales_available: int,
                 cart_active: bool = False) -> List[Widget]:
-    """The cart's Cancel and Confirm, always both, drawn in every state.
+    """The cart screen's Cancel and Next, always both, drawn in every
+    non-checkout state.
 
     **2026-08-24, developer: "the confirm and cancell button didnt work and
     no progress of hover was shown."** They did not work because this
@@ -400,19 +603,23 @@ def widgets_for(*, selecting: bool, locales_available: int,
     are real widgets, so core hit-tests them and `DwellTracker` fills them,
     through the same path that has been tested since M5.
 
-    That reverses part of RIG_FEEDBACK items 4-7 (2026-08-13), and only
-    that part, deliberately. Those three were removed because none had a
-    product decision behind it — but VISUAL_LAYER.md section 8 makes this
-    pair part of the cart itself, and the developer has now asked for them
-    to work. `DONE` and `LANGUAGE` stay removed: Done still has nowhere to
-    go until M6, and there is still only one locale file.
+    **The primary button is labelled "Next", not "Confirm" (2026-08-25).**
+    Its id is still CONFIRM (see `_nav_row`), but what it does from the
+    cart screen is open the broth page, and a button that says Confirm on
+    a screen that confirms nothing is the kind of thing that makes a
+    first-time diner hesitate. Nothing on this table commits an order
+    until the spice screen's Pay.
+
+    **No Back here**, deliberately: the cart is the first screen of the
+    chain and there is nothing behind it. `fsm.back()` returns False from
+    SELECTING for the same reason.
 
     **Always returned, never conditionally absent** — doc section 8's cart
     "never moves" and a button that vanishes when the cart empties is the
     same broken promise as a row that does. `enabled` carries the state
-    instead: with nothing picked there is nothing to confirm or cancel, so
-    both are disabled, which `DwellTracker` already refuses to accumulate
-    on and `UiLayer::drawWidget` already greys out.
+    instead: with nothing picked there is nothing to cancel or go forward
+    to, so both are disabled, which `DwellTracker` already refuses to
+    accumulate on and `UiLayer::drawWidget` already greys out.
 
     `selecting`/`locales_available` are unchanged in shape (callers and
     tests do not move); `cart_active` is new and defaulted, so a caller
@@ -423,7 +630,7 @@ def widgets_for(*, selecting: bool, locales_available: int,
     return [
         Widget(id=CANCEL, rect=rects[CANCEL], label_key="cancel",
                style="danger", enabled=enabled),
-        Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="confirm",
+        Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="next",
                style="primary", enabled=enabled),
     ]
 
@@ -569,6 +776,40 @@ class DwellTracker:
             self._fired_id = fired
             return fired
         return None
+
+    def suppress_until_exit(self, widgets: Sequence[Widget],
+                            hand: Optional[cursorbus.Hand]) -> None:
+        """Arm the re-arm latch on whatever the pointer is inside RIGHT
+        NOW, and clear the accumulator.
+
+        **Called when the SCREEN changes, and it is the general form of
+        the guarantee the fixed button grid gives by geometry.** A dwell
+        fires with the hand still on the button — that is what dwell
+        means — and firing is what changes the screen. So at the instant a
+        new widget set arrives, the hand is sitting on top of it, having
+        chosen none of it. Whatever is under that hand must not start
+        filling until the diner has actually moved and come back.
+
+        `update`'s ordinary latch covers this only while the id under the
+        hand is unchanged. This covers the case where it is not — a
+        different button now occupies that spot, or the same rect now
+        carries a different meaning — which is precisely the case that can
+        cost a diner their order (see `BUTTON_SLOTS` for the crossing
+        that made it concrete).
+
+        A no-op when the hand is outside everything, which is the common
+        case: nothing to suppress.
+        """
+        self.active_id = None
+        self.accumulated_ms = 0.0
+        self._left_at = None
+        self._fired_id = None
+        if hand is None:
+            return
+        for widget in widgets:
+            if widget.enabled and widget.contains(hand.x, hand.y):
+                self._fired_id = widget.id
+                return
 
     def fraction(self, widget_id: str) -> float:
         """Doc section 9.4's "0..1 fraction in `state.widgets[].dwell` so oF

@@ -406,6 +406,120 @@ class TestExitSetting(unittest.TestCase):
         self.assertEqual(seen, [(True, 100.0, 0.0)])
 
 
+def _selecting_with_a_cart():
+    """A table in SELECTING with something in the cart — `done()` refuses
+    an empty one, which is the gate every checkout test has to get past.
+    """
+    cart = Cart()
+    # Seed first: `set_live_grams` clamps live_g at 0, so a pick from a
+    # bin that has never had a weight is a no-op and `is_active()` stays
+    # False — which is exactly the gate `done()` refuses on.
+    cart.seed_live_grams(0, 500.0)
+    cart.mock_pick(0, 120.0)
+    f = Fsm(cart, BinMap())
+    f.boot_complete()
+    f.hand_present()
+    return f
+
+
+class TestTheCheckoutChain(unittest.TestCase):
+    """SELECTING -> BROTH -> SPICE -> CHECKOUT, and back along every
+    arrow. **RECAP is gone** (2026-08-25) — see fsm.py's module docstring.
+    """
+
+    def test_the_chain_walks_forward(self):
+        f = _selecting_with_a_cart()
+        self.assertTrue(f.done())
+        self.assertEqual(f.state, State.BROTH)
+        self.assertTrue(f.broth_chosen())
+        self.assertEqual(f.state, State.SPICE)
+        self.assertTrue(f.confirm())
+        self.assertEqual(f.state, State.CHECKOUT)
+
+    def test_recap_is_gone(self):
+        # A state nobody can reach is worse than no state: it would keep
+        # showing up in every `for state in ...` sweep as a screen that
+        # can never be tested against a real table.
+        self.assertFalse(hasattr(State, "RECAP"))
+
+    def test_an_empty_cart_cannot_leave_the_cart_screen(self):
+        f = Fsm(Cart(), BinMap())
+        f.boot_complete()
+        f.hand_present()
+        self.assertFalse(f.done())
+        self.assertEqual(f.state, State.SELECTING)
+
+    def test_back_walks_the_chain_in_reverse(self):
+        f = _selecting_with_a_cart()
+        f.done()
+        f.broth_chosen()
+        f.confirm()
+        self.assertEqual(f.state, State.CHECKOUT)
+        for expected in (State.SPICE, State.BROTH, State.SELECTING):
+            self.assertTrue(f.back())
+            self.assertEqual(f.state, expected)
+
+    def test_nothing_is_behind_the_cart_screen(self):
+        f = _selecting_with_a_cart()
+        self.assertFalse(f.back())
+        self.assertEqual(f.state, State.SELECTING)
+
+    def test_back_is_a_no_op_outside_the_chain(self):
+        # IDLE, BOOT, SETTING, UNCALIBRATED all have no Back button, and a
+        # `back()` that quietly moved one of them would be a state change
+        # nobody asked for.
+        for setup in (lambda f: None,
+                      lambda f: f.boot_complete(),
+                      lambda f: (f.boot_complete(), f.enter_setting())):
+            f = Fsm(Cart(), BinMap())
+            setup(f)
+            before = f.state
+            with self.subTest(state=before):
+                self.assertFalse(f.back())
+                self.assertEqual(f.state, before)
+
+    def test_back_fires_the_transition_callback(self):
+        # Core hangs work off transitions (logging, the staff broadcast);
+        # a reverse edge that moved the state silently would skip it.
+        seen = []
+        cart = Cart()
+        cart.seed_live_grams(0, 500.0)
+        cart.mock_pick(0, 120.0)
+        f = Fsm(cart, BinMap(),
+                on_transition=lambda a, b: seen.append((a, b)))
+        f.boot_complete()
+        f.hand_present()
+        f.done()
+        del seen[:]
+        f.back()
+        self.assertEqual(seen, [(State.BROTH, State.SELECTING)])
+
+    def test_the_cart_freezes_from_broth_onward_and_thaws_on_the_way_back(self):
+        # `weighing` is what stops a hand brushing a tray from changing an
+        # order the diner has already been shown — and un-freezing on the
+        # way back to the cart is the point of the Back button.
+        f = _selecting_with_a_cart()
+        self.assertTrue(f.weighing)
+        f.done()
+        self.assertFalse(f.weighing)
+        self.assertTrue(f.serving)
+        f.back()
+        self.assertTrue(f.weighing)
+
+    def test_cancel_reaches_idle_from_every_screen_in_the_chain(self):
+        for stop in (State.BROTH, State.SPICE, State.CHECKOUT):
+            with self.subTest(state=stop):
+                f = _selecting_with_a_cart()
+                f.done()
+                if stop is not State.BROTH:
+                    f.broth_chosen()
+                if stop is State.CHECKOUT:
+                    f.confirm()
+                self.assertEqual(f.state, stop)
+                self.assertTrue(f.cancel())
+                self.assertEqual(f.state, State.IDLE)
+
+
 class TestFullLoop(unittest.TestCase):
 
     def test_boot_idle_selecting_idle_selecting(self):

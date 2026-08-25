@@ -420,16 +420,38 @@ namespace {
 	// What the longest catalogue name needs, and **the number that broke
 	// two truncation fixes in a row.**
 	//
-	// PIL/FreeType against the real .ttf says "Button Mushrooms" is 206px
-	// at 21px regular. oF does NOT agree: its own
-	// `getStringBoundingBox` came back ~33% wider for the same string in
-	// the same face at the same size (measured, from this file's own boot
-	// log — the detail column reserved 192px where PIL predicted 144).
-	// Both previous attempts at this bug sized the columns from the PIL
-	// number and both left the name column too narrow on the actual
-	// table. So this is the PIL measurement scaled by oF's own observed
-	// ratio, with headroom, and setup() logs the real numbers at every
-	// boot so the next surprise is one grep away rather than a rebuild.
+	// PIL/FreeType against the real .ttf says "Button Mushrooms" is 197px
+	// at 21px regular. oF does NOT agree: its own `getStringBoundingBox`
+	// comes back substantially wider for the same string in the same face
+	// at the same size. Both previous attempts at this bug sized the
+	// columns from the PIL number and both left the name column too
+	// narrow on the actual table. So this is the PIL measurement scaled
+	// by oF's own observed ratio, with headroom, and setup() logs the
+	// real numbers at every boot so the next surprise is one grep away
+	// rather than a rebuild.
+	//
+	// **kOfWidthRatio: that ratio is 1.400, and it is now MEASURED rather
+	// than estimated (2026-08-25).** It was written here as "~33%" from a
+	// single half-remembered pair; the boot log has been printing the
+	// real number at every start since setup()'s check landed, and it
+	// settles it exactly:
+	//
+	//     kCartDetailWorstCase "999g  $99.99" at 17px DejaVuSansMono
+	//         PIL 120.0px      oF 168.0px (logged)      ratio 1.400
+	//
+	// Cross-checked against the other pair in the log — "Button
+	// Mushrooms" at 21px regular, PIL 197.0 x 1.400 = 275.8, against the
+	// 274-280 this constant was set to by hand. Two independent faces,
+	// two sizes, one ratio.
+	//
+	// **This is the number to size any new text column against**, and the
+	// option plates below are the first thing to use it deliberately
+	// rather than by trial. It is not a magic constant — oF measures a
+	// bounding box where PIL reports an advance, and the two differ by
+	// bearings and by oF's own atlas padding — but it is stable enough
+	// across these faces to design with, and every use of it is still
+	// backed by a runtime warning rather than trusted outright.
+	const float kOfWidthRatio = 1.400f;
 	const float kCartMinNameSpacePx = 280.0f;
 
 	// **The cart is anchored to the NEAR ROW's own bottom edge, not to the
@@ -525,12 +547,51 @@ namespace {
 	const float kQrQuietModules = 4.0f;
 	const float kQrCaptionGapPx = 14.0f;
 
+	// **The whole code, quiet zone included, is 200px — SMALLER THAN A
+	// BIN.** Developer, 2026-08-25: "the qr code should be much smaller
+	// smaller, now it even overlaps the bins. it should be easily scanned
+	// by persons phone. so bigger means they have to move phone much far
+	// away. it should be smaler than the bin size."
+	//
+	// Two separate faults, and this fixes both:
+	//
+	// 1. The overlap was arithmetic. The old sizing solved for a module
+	//    from `avail - 2 * kQrQuietModules * 4` — a fixed 32px allowance
+	//    for the margins — and then laid out `module * n + 2 * (module *
+	//    4)`, where the quiet zone is 8 MODULES wide, not 32px. At the
+	//    module size it picked that came out at 592px against a 554px
+	//    centre column, so the code ran off the pot gap and onto the
+	//    trays either side of it.
+	//
+	// 2. The size was wrong even where it fitted. A QR is scanned at the
+	//    distance where it fills the phone's frame, so a bigger projected
+	//    code makes the diner stand FURTHER back, not closer — which on a
+	//    1.5m table means leaning away from the thing they are scanning.
+	//
+	// 200px is 159mm on the plywood against a bin's 200mm, so it is
+	// visibly smaller than the trays beside it. At 29 modules plus 8 of
+	// quiet zone that is a 5px module, ~4mm physical — comfortably above
+	// what a phone camera resolves at arm's length, and the code is
+	// projected at full contrast onto a white plate (below), which is the
+	// part that actually decides whether a scan succeeds.
+	const float kQrTargetSidePx = 200.0f;
+	// The token, once it exists. Big, because it is the one thing a diner
+	// carries away from this screen — and it exists ONLY after payment,
+	// which is core's rule, not this file's (see StateLink::Qr::token).
+	const int kTokenPx = 88;
+
 	// A broth's colour swatch (doc §18.1, "a colour swatch each"), drawn
-	// as a filled disc at the plate's left. Sized against the option
-	// plate's own height rather than fixed, so it stays proportional if
-	// OPTION_H_PX ever moves in core/hover.py.
-	const float kOptionSwatchFrac = 0.34f;
-	const float kOptionSwatchInsetPx = 26.0f;
+	// as a filled disc in the plate's icon column. Sized against the
+	// option plate's own height rather than fixed, so it stays
+	// proportional if OPTION_H_PX ever moves in core/hover.py.
+	// 0.34 -> 0.5 (2026-08-25): the plates lost a quarter of their height
+	// when they moved into the cart's band, and a disc that shrank with
+	// them would have been a 25px dot read from a metre away. Its own
+	// inset constant is gone — the disc is centred in the icon column now
+	// (kOptionIconColPx), which is what keeps every plate's NAME starting
+	// at the same x whether it carries a swatch, three chillies or
+	// nothing.
+	const float kOptionSwatchFrac = 0.5f;
 	// The veg/non-veg dot. Green and red are the same two the cart's own
 	// buttons use (kWidgetPrimary/kWidgetDanger) rather than a third
 	// pair — one green and one red on this table, not several. Egg is
@@ -603,65 +664,157 @@ namespace {
 	// button's ring encloses text rather than a physical hole and a heavier
 	// frame starts to compete with its own label.
 	const float kWidgetRingMM = 5.0f;
-	const ofColor kWidgetPrimary(0, 115, 0);      // the `picked` green, equiluminant
-	const ofColor kWidgetSecondary(98, 98, 98);
-	// **2026-08-24, developer, on the cart's own Confirm/Cancel pair:
-	// "confirm and cancell button looks washed out and i think it need
-	// green and red colour respectively."** They were drawn in
-	// kWidgetDisabled (190,190,190) — light grey on a near-white field,
-	// which is exactly the "washed out" report and was itself deliberate
-	// (doc §8: "Inactive for now — placeholder only"). They are real
-	// dwell targets now (core/hover.py's own widget set), so the disabled
-	// grey is wrong twice over.
+
+	// **A ROUNDED RECTANGLE, not a pill (2026-08-25).** Developer: "also
+	// make itrectangle with rounded corners insted of current shape", and
+	// on the same shape a message earlier, "still the shape and size tooks
+	// bad."
 	//
-	// Green is kWidgetPrimary above, unchanged — already chosen as
-	// equiluminant with the greys per I8 ("distinguish states by hue,
-	// never by brightness"). Red is a DEEP red, not the error banner's
-	// #e05d5d: that one is a FILL with dark ink on top, where this is ink
-	// on the near-white table and a light red would read as pink and lose
-	// the same contrast the grey just lost. #C0392B is luminance-close to
-	// kWidgetPrimary and shares a family with §3's own fire-core #C74A34.
-	const ofColor kWidgetDanger(0xC0, 0x39, 0x2B);
-	const ofColor kWidgetDisabled(190, 190, 190);
+	// The pill was half-height corners, which was the roundest a rect can
+	// be — and at 100px tall with a 6-letter label that made a lozenge
+	// whose end caps were wider than the space the word sat in. It read as
+	// a badge, not as a button. 18px of radius on a 76px button is about
+	// what every kiosk, phone and ticket machine a diner has already used
+	// puts on a primary action: unmistakably a button, still soft enough
+	// not to fight the fluid and the halos around it.
+	//
+	// The option plates use the SAME radius rather than a proportional
+	// one, so a 520x74 broth plate and a 155x76 Next button read as the
+	// same family of control at two sizes. A radius that scaled with the
+	// shape would make the wide plates look flatter than the buttons.
+	const float kWidgetCornerPx = 18.0f;
+
+	// **The green/red pair is gone (2026-08-25).** Developer: "the red and
+	// green is not suing well."
+	//
+	// They were right, and the reason is that this table has a palette
+	// already: a warm near-white field (#E8E6E1), amber halos breathing
+	// around the bins, orange fire, and one deep teal accent that earned
+	// its place by being the only ink that survived three rounds of the
+	// projector's warm shift (see kAccentInk). A saturated traffic-light
+	// green and a fire-engine red are from a different design — they read
+	// as a web form dropped onto the plywood, and the red in particular
+	// competed with the actual fire.
+	//
+	// What replaces them is a hierarchy rather than two opposed signals,
+	// which is also what every restaurant kiosk does (QSR Magazine's own
+	// guidance: the confirming action is the large, bold one; "Cancel" and
+	// "Edit" are kept smaller and less prominent):
+	//
+	//   PRIMARY (Next / Pay)  the teal accent, the loudest thing in the
+	//                         row — filled harder, glowing brighter. It is
+	//                         the one button a diner following the flow
+	//                         ever needs to find.
+	//   DANGER (Cancel)       a muted clay red. Still unmistakably the
+	//                         warning colour, but desaturated into the
+	//                         table's own warm family so it stops shouting
+	//                         over the food.
+	//   SECONDARY (Back)      warm graphite. Quiet on purpose: Back is for
+	//                         a diner who already knows they want it.
+	//
+	// All three are dark inks on a near-white field (§13.4's rule), and
+	// all three are separated by HUE rather than by brightness (I8) — teal
+	// ~188 degrees, clay ~11, graphite neutral.
+	const ofColor kWidgetPrimary(0x0E, 0x6B, 0x78);   // = kAccentInk, the table's one accent
+	const ofColor kWidgetSecondary(0x6E, 0x6A, 0x62); // warm graphite
+	const ofColor kWidgetDanger(0xA8, 0x55, 0x45);    // muted clay
+	const ofColor kWidgetDisabled(0xB4, 0xB0, 0xA8);  // warm grey, not blue-grey
 	// The dwell sweep, drawn INSIDE a widget (see drawWidget). Same amber
 	// as the cursor's own dwell ring (kDwellFillColor) so a filling button
 	// and a filling ring read as one mechanism, at the low alpha a tint
 	// under dark text has to keep.
 	const ofColor kWidgetDwellFill(200, 120, 0, 80);
 
-	// **The buttons are pills with a glow, not rectangles with a frame.**
-	// Developer, 2026-08-24: "the cancell and confirm buttons looks
-	// blocky, u need to see that this whole design is like a fluid, the
-	// flames the glowing hallow and so on, we need the cort info box and
-	// button match with it." A pill is the least blocky shape there is,
-	// and the glow is built from the same `drawRoundedBand` primitive the
-	// bin halos already breathe with — so a button reads as belonging to
-	// the same table rather than as a UI control pasted onto it.
+	// --- the glow, and why it BREATHES ------------------------------------
 	//
-	// `kWidgetRingMM` is unchanged and still what frames the pill; a ring
-	// that follows a corner radius is what `drawRing`'s rounded branch was
-	// built for (the light pass's own rounded cutouts).
+	// Developer, 2026-08-25 (second report on the same thing): "the
+	// cancell and confirm button still does not have a active breathing
+	// halo."
 	//
-	// **2026-08-25: the glow was there and could not be seen.** Developer:
-	// "the cancel and confirm button looks horible completely feels out of
-	// place and no halo effect also." The numbers below were tuned by
-	// reasoning ("this is ink on a near-white table, so keep it low") and
-	// the reasoning was wrong in one specific way: a 24px reach spread
-	// over 9 bands puts each band under 3px wide, and at peak alpha 60 the
-	// outer bands land in the low single digits — under the threshold
-	// where anything is visible against #E8E6E1 at all. The bins' own
-	// halo, which reads perfectly well on this same field, uses ~36px of
-	// reach at 24 bands and a much higher peak.
+	// The glow was already here and already the right size — the previous
+	// fix widened it to match the bins' own halo (40px of reach, 20 bands)
+	// after a 24px/9-band version turned out to be under the visible
+	// threshold on this field. What it was not was ALIVE. The bins breathe
+	// (drawHalo's `breathe` term, a 3s sine with a 0.65 floor) and the
+	// buttons sat at a constant alpha next to them, which on a table where
+	// everything else is moving reads as "dead", not as "quiet".
 	//
-	// So the button's glow now matches the bin halo's shape rather than
-	// being a quieter cousin of it: further out, more bands, and a peak
-	// that actually registers. The pill's own fill stays low — that part
-	// of the old reasoning holds, since a heavy fill really would fight
-	// its own label.
+	// So the button's glow now runs the same sine, at the same period, off
+	// the same clock — one breath across the whole table rather than two
+	// rhythms. `kWidgetBreathFloor` is higher than the halo's 0.65 because
+	// a button must never be at its dimmest when a diner first looks for
+	// it; the swing is smaller and the floor is higher, so it reads as
+	// steady-with-a-pulse rather than as fading in and out.
+	//
+	// **Hovering pins it to full and stops the breathing.** A control the
+	// hand is on should be steady, not pulsing under the finger, and the
+	// step change from breathing to solid is itself the "yes, this one"
+	// feedback — before the dwell ring has moved at all.
 	const float kWidgetGlowReachPx = 40.0f;
 	const int kWidgetGlowBands = 20;
-	const int kWidgetFillAlpha = 30;
-	const int kWidgetGlowAlpha = 130;
+	const float kWidgetBreathPeriodS = kHaloBreathPeriodS;   // one breath, table-wide
+	const float kWidgetBreathFloor = 0.78f;
+	// The primary action is louder than the other two, deliberately — see
+	// the palette block above on kiosk button hierarchy. These are the
+	// peak alphas the breath multiplies.
+	const int kWidgetFillAlpha = 26;
+	const int kWidgetGlowAlpha = 105;
+	const int kWidgetPrimaryFillAlpha = 52;
+	const int kWidgetPrimaryGlowAlpha = 165;
+
+	// --- the option plates (broth, spice) ---------------------------------
+	// A selected plate is filled and check-marked rather than merely
+	// glowing: the developer's model is "the selection is locked even
+	// without hover... then the info als remains locked", and a lock has
+	// to be readable from across the table with no hand anywhere near it.
+	const int kOptionSelectedFillAlpha = 60;
+	const int kOptionSelectedGlowAlpha = 150;
+	// Where the swatch/chilli column ends and the label begins. Reserved
+	// at a FIXED width so a 3-chilli plate and a 0-chilli plate start
+	// their labels at the same x — a label column that moved with the icon
+	// count would make the four spice plates look like four different
+	// controls. The tick's gutter is reserved the same way, and for the
+	// same reason: a name that reflowed when its plate was selected would
+	// make choosing it look like choosing something else.
+	//
+	// **Every one of these five numbers is set by the arithmetic below,
+	// not by eye.** The plate is kCartWidthPx (520) wide and the longest
+	// menu name is "Mushroom Vegan Broth" — PIL 267px at 20px bold, so
+	// 267 x kOfWidthRatio = 374px as oF will actually measure it. What is
+	// left for the label after the two reserved columns is
+	//
+	//     520 - (16 + 56 + 12) - (12 + 26 + 14) = 384px
+	//
+	// which clears 374 by 10px. That margin is thin on purpose rather
+	// than by accident: widening it means either a smaller name or a
+	// narrower icon column, and drawOptionPlate carries the same
+	// one-warning-per-name log drawCart does, so a future menu entry that
+	// does NOT fit says so in the boot log instead of appearing clipped
+	// on the plywood.
+	const float kOptionIconColPx = 56.0f;
+	const float kOptionPadXPx = 16.0f;
+	const float kOptionLabelGapPx = 12.0f;
+	const float kOptionCheckRadiusPx = 13.0f;
+	const float kOptionCheckInsetPx = 14.0f;
+	// 20px, and that IS the measurement above rather than a taste call —
+	// 22px would need 414px against the 384px the plate has. The name is
+	// repeated at 30px in the info box directly above, which is the
+	// primary read; this is the list entry beside it, at arm's length.
+	const int kOptionLabelPx = 20;
+
+	// --- the page header (title + step dots) -------------------------------
+	// One sentence naming the task, and where the diner is in the
+	// sequence. See StateLink::Screen for why this exists at all.
+	//
+	// 26px against the 554px centre column: the longest title core sends
+	// ("Choose Your Spice") measures 278px in PIL, so ~389px as oF will
+	// measure it — 165px of margin. The title is centred and free of the
+	// cart's 520px, so the column is what bounds it, not the cart.
+	const int kPageTitlePx = 26;
+	const float kPageHeaderHeightPx = 52.0f;
+	const float kStepDotRadiusPx = 6.0f;
+	const float kStepDotGapPx = 16.0f;
+	const ofColor kPageTitleColor(0x2B, 0x21, 0x18);   // the plate's own ink
 
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
 		float cx, float baselineY){
@@ -888,6 +1041,18 @@ void UiLayer::setup(){
 	// it is the one line on the box somebody may act on.
 	ok = loadUiFont(_infoDietFont, kFontFile, kInfoDietPx) && ok;
 	ok = loadUiFont(_infoKcalFont, kMonoFontFile, kInfoBoxKcalPx) && ok;
+	// A button's label is read first, so it stays bold — but at 22px, not
+	// the 28px `_nameFont` it used to borrow. Three buttons now share the
+	// cart's 520px (core/hover.py's own `button_row`), which leaves each
+	// one 154.7px, and the widest label ("Cancel") measures ~114px as oF
+	// measures it — 40px of margin. At the old 28px it was ~148px in a
+	// 155px button, i.e. no margin at all.
+	ok = loadUiFont(_buttonFont, kFontFile, 22) && ok;
+	ok = loadUiFont(_pageTitleFont, kFontFile, kPageTitlePx) && ok;
+	// See kOptionLabelPx: 20px is what the plate's own arithmetic allows,
+	// not a preference.
+	ok = loadUiFont(_optionFont, kFontFile, kOptionLabelPx) && ok;
+	ok = loadUiFont(_tokenFont, kMonoBoldFontFile, kTokenPx) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
 	_fontsLoaded = ok;
 	if(!_fontsLoaded){
@@ -959,7 +1124,12 @@ void UiLayer::setup(){
 	// moving a button core is still hit-testing elsewhere is the exact
 	// failure this whole arrangement exists to prevent.
 	if(_fontsLoaded){
-		const float kHoverButtonsTopPx = 925.0f;   // core/hover.py BUTTONS_TOP_PX
+		// 925 -> 937 (2026-08-25): hover.py's BUTTONS_TOP_PX is derived,
+		// not chosen — it centres the row in the near margin — so
+		// shrinking BUTTON_H_PX from 100 to 76 moved it down by half the
+		// difference. Re-derive this literal from that file's own
+		// arithmetic, never by eye, whenever either number moves.
+		const float kHoverButtonsTopPx = 937.0f;   // core/hover.py BUTTONS_TOP_PX
 		if(cartBottomPx() > kHoverButtonsTopPx){
 			ofLogWarning(kTag) << "cart bottom measures " << cartBottomPx()
 				<< "px, below core/hover.py's button band at " << kHoverButtonsTopPx
@@ -992,10 +1162,17 @@ void UiLayer::setup(){
 					+ fabsf(_infoKcalFont.getDescenderHeight()))
 			+ kInfoBoxLineGapPx * 1.5f
 			+ infoBodyLineH * (float)kInfoBoxNoteMaxLines;
-		if(infoContent > kInfoBoxHeightPx){
+		// **Measured against the TIGHTER of the two bands** — the option
+		// screens put a page header above the box, so they get
+		// kPageHeaderHeightPx less than the cart screen does. Checking the
+		// roomy one would pass while the broth screen overflowed.
+		const float tightest = kInfoBoxHeightPx - kPageHeaderHeightPx;
+		if(infoContent > tightest){
 			ofLogWarning(kTag) << "info box content (name + rule + diet + "
 				<< kInfoBoxNoteMaxLines << " note lines) measures " << infoContent
-				<< "px in a " << kInfoBoxHeightPx << "px band — it will overflow";
+				<< "px in a " << tightest << "px band (the option screens', "
+				<< "which is " << kPageHeaderHeightPx << "px shorter than the "
+				<< "cart screen's) — it will overflow";
 		}
 	}
 
@@ -1248,6 +1425,109 @@ void UiLayer::drawFadedRule(float x, float y, float widthPx,
 	ofSetColor(255);
 }
 
+float UiLayer::breath(float floor01, float phase){
+	// One sine, one clock, one period — the bins' halos and the buttons'
+	// glows both come through here so the whole table breathes together
+	// rather than in two rhythms a diner can see fighting.
+	//
+	// Returns floor01..1. The FLOOR is the load-bearing parameter: at 0 a
+	// thing disappears at the bottom of every breath, which reads as
+	// broken rather than as alive (the bins' first rig photo, which is
+	// why kHaloBreathPeriodS' own comment raised theirs from 0.1 to
+	// 0.35). A control a diner has to find gets a much higher one still.
+	const float amp = 1.0f - ofClamp(floor01, 0.0f, 1.0f);
+	return ofClamp(floor01, 0.0f, 1.0f) + amp * 0.5f
+		* (1.0f + sinf(TWO_PI * ofGetElapsedTimef() / kWidgetBreathPeriodS + phase));
+}
+
+void UiLayer::drawChilli(float cx, float cy, float sizePx,
+	const ofColor & body){
+	// doc §18.1's "chilli glyphs", built rather than typed — see
+	// StateLink::Widget::icon for why no font here can supply one.
+	//
+	// Deliberately a SILHOUETTE and not an illustration: this is drawn at
+	// ~26px on projected plywood, read at a glance, and counted. What has
+	// to survive that is the outline (a fat shoulder tapering to a tip)
+	// and the count; a highlight or a two-tone body would just be noise
+	// at this size. Two beziers meeting at the tip give the asymmetric
+	// curve that says "pepper" rather than "carrot".
+	if(sizePx <= 0.0f){
+		return;
+	}
+	const float h = sizePx;
+	const float w = sizePx * 0.42f;
+	const float top = cy - h * 0.5f;
+	const float stemH = h * 0.22f;
+	const float bodyTop = top + stemH;
+	const float tipY = cy + h * 0.5f;
+
+	ofPath path;
+	path.setFilled(true);
+	path.setFillColor(body);
+	path.setCircleResolution(48);
+	// The body: down the left shoulder to the tip, back up the right.
+	// The right side bulges further out than the left, and the tip sits
+	// off-centre, which is what keeps it from reading as a symmetric
+	// teardrop.
+	path.moveTo(cx - w * 0.30f, bodyTop);
+	path.bezierTo(cx - w * 0.62f, bodyTop + h * 0.28f,
+		cx - w * 0.34f, tipY - h * 0.18f,
+		cx + w * 0.16f, tipY);
+	path.bezierTo(cx + w * 0.34f, tipY - h * 0.30f,
+		cx + w * 0.62f, bodyTop + h * 0.26f,
+		cx + w * 0.30f, bodyTop);
+	path.close();
+	path.draw();
+
+	// The stem, in the same ink at reduced alpha rather than in a second
+	// (green) colour. A green cap would be a fourth hue on a table that
+	// already carries teal, clay and amber, and at this size it would
+	// read as a smudge; a lighter tone of the pepper's own ink says
+	// "different part, same object" without adding to the palette.
+	ofPath stem;
+	stem.setFilled(true);
+	stem.setFillColor(ofColor(body, (int)(body.a * 0.55f)));
+	stem.setCircleResolution(24);
+	stem.moveTo(cx - w * 0.10f, bodyTop + 1.0f);
+	stem.bezierTo(cx - w * 0.16f, top + stemH * 0.35f,
+		cx - w * 0.44f, top + stemH * 0.15f,
+		cx - w * 0.52f, top);
+	stem.lineTo(cx - w * 0.30f, top + stemH * 0.10f);
+	stem.bezierTo(cx - w * 0.12f, top + stemH * 0.30f,
+		cx + w * 0.10f, top + stemH * 0.55f,
+		cx + w * 0.10f, bodyTop + 1.0f);
+	stem.close();
+	stem.draw();
+}
+
+void UiLayer::drawCheckMark(float cx, float cy, float radiusPx,
+	const ofColor & colour){
+	// A FILLED six-point tick, not two strokes. `ofPath::setStrokeWidth`
+	// is `ofSetLineWidth` in disguise on this renderer and is capped or
+	// ignored outright (drawAnnulus carries the finding), so a stroked
+	// tick would be a hairline on the deploy board.
+	if(radiusPx <= 0.0f){
+		return;
+	}
+	const float t = radiusPx * 0.30f;   // stroke thickness, as geometry
+	// Points along the tick's centreline, in units of radiusPx.
+	const glm::vec2 a(cx - radiusPx * 0.62f, cy + radiusPx * 0.02f);
+	const glm::vec2 b(cx - radiusPx * 0.16f, cy + radiusPx * 0.48f);
+	const glm::vec2 c(cx + radiusPx * 0.66f, cy - radiusPx * 0.48f);
+
+	ofPath path;
+	path.setFilled(true);
+	path.setFillColor(colour);
+	path.moveTo(a.x, a.y - t * 0.7f);
+	path.lineTo(b.x, b.y - t * 1.15f);
+	path.lineTo(c.x - t * 0.2f, c.y - t * 0.9f);
+	path.lineTo(c.x + t * 0.55f, c.y + t * 0.2f);
+	path.lineTo(b.x + t * 0.05f, b.y + t * 0.85f);
+	path.lineTo(a.x - t * 0.55f, a.y + t * 0.8f);
+	path.close();
+	path.draw();
+}
+
 void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
 	const ofColor & colour){
 	ofPath path;
@@ -1301,11 +1581,14 @@ void UiLayer::drawHalo(int i) const {
 	}
 	const ofRectangle bin = binRectPx(i);
 	const float baseCornerRadiusPx = mmToPxX(CUTOUT_CORNER_RADIUS_MM);
-	// 0.35 floor, not the first attempt's 0.1 — see kHaloBreathPeriodS's
-	// own comment: a bin dimmed almost to nothing read as broken, not as
-	// breathing, in the first photo.
-	const float breathe = 0.65f + 0.35f
-		* sinf(TWO_PI * ofGetElapsedTimef() / kHaloBreathPeriodS + _haloPhase[i]);
+	// 0.30 floor, not the first attempt's near-zero — see
+	// kHaloBreathPeriodS's own comment: a bin dimmed almost to nothing
+	// read as broken, not as breathing, in the first photo. (This is the
+	// same curve as the `0.65 + 0.35 * sin` it was written as before
+	// 2026-08-25, algebraically identical — it goes through the shared
+	// `breath` helper now so the buttons' new glow and the bins' halo
+	// cannot drift into two different rhythms.)
+	const float breathe = breath(0.30f, _haloPhase[i]);
 	for(int k = 0; k < kHaloRingCount; k++){
 		const float innerPx = kHaloMarginPx + (float)k * kHaloRingPitchPx;
 		const float outerPx = innerPx + kHaloRingThicknessPx;
@@ -1392,6 +1675,17 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 	// about. A bin cannot be hovered on those screens anyway — the
 	// pointer is in the centre column — but the ordering is stated here
 	// rather than left to that coincidence.
+	// **Three sources, in this order: hovered widget, SELECTED widget,
+	// hovered bin.** The middle one is new (2026-08-25) and is what the
+	// developer meant by "when the progress fills the selection is locked
+	// even without hover. then the info als remains locked."
+	//
+	// Without it the box emptied the instant the hand left the plate the
+	// diner had just chosen, so the one screen where they most want to
+	// re-read what they picked was the one screen that would not show it.
+	// Hover still outranks selection, because a hand moving to a second
+	// broth is asking about that one — the box follows the question, and
+	// falls back to the answer when there is no question.
 	InfoContent content;
 	bool haveContent = false;
 	for(const StateLink::Widget & w : state.widgets){
@@ -1402,6 +1696,18 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 			content.desc = w.desc;
 			haveContent = true;
 			break;
+		}
+	}
+	if(!haveContent){
+		for(const StateLink::Widget & w : state.widgets){
+			if(w.selected && w.hasInfo){
+				content.name = w.label;
+				content.diet = w.diet;
+				content.meta = w.meta;
+				content.desc = w.desc;
+				haveContent = true;
+				break;
+			}
 		}
 	}
 	if(!haveContent){
@@ -1637,7 +1943,59 @@ void UiLayer::drawTotal(const StateLink::Total & total, float baselineY) const {
 	ofSetColor(255);
 }
 
-void UiLayer::drawInfoBox(const StateLink::State & state) const {
+void UiLayer::drawPageHeader(const StateLink::Screen & screen) const {
+	// The title and the step dots. Both are core's (I2) — this draws
+	// whatever arrived and looks nothing up, so a second locale is a JSON
+	// edit and no C++.
+	//
+	// An empty title draws nothing at all, which is how an idle table
+	// gets no header rather than an empty strip: core sends "" on every
+	// screen that is not part of the ordering sequence.
+	if(screen.title.empty() || !_pageTitleFont.isLoaded()){
+		return;
+	}
+	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
+	const float top = kInfoBoxTopPx;
+
+	ofSetColor(kPageTitleColor);
+	drawCentered(_pageTitleFont, screen.title, cx,
+		top + _pageTitleFont.getAscenderHeight());
+
+	// The dots: filled up to and including the current step, hollow
+	// after. A diner who can see there are three steps and that they are
+	// on the second one knows the table is not about to charge them —
+	// which is most of what makes a kiosk feel safe to poke at, and it is
+	// the thing kiosk guidance means by "logical flow and step
+	// progression".
+	//
+	// Never a "2 / 3" numeral: this table is read at a distance and by
+	// people who are not necessarily reading English, and three dots
+	// carry the same fact with no reading at all.
+	if(screen.steps > 0){
+		const float dotsY = top + _pageTitleFont.getAscenderHeight()
+			+ fabsf(_pageTitleFont.getDescenderHeight()) + 12.0f;
+		const float pitch = kStepDotRadiusPx * 2.0f + kStepDotGapPx;
+		const float span = pitch * (float)(screen.steps - 1);
+		for(int k = 0; k < screen.steps; k++){
+			const float x = cx - span * 0.5f + pitch * (float)k;
+			if(k < screen.step){
+				ofSetColor(kAccentInk);
+				ofDrawCircle(x, dotsY, kStepDotRadiusPx);
+			}
+			else {
+				// Hollow, drawn as an annulus rather than a stroked
+				// circle — ofPath's stroke is glLineWidth in disguise on
+				// this renderer (drawAnnulus' own comment).
+				drawAnnulus(x, dotsY, kStepDotRadiusPx,
+					kStepDotRadiusPx - 2.0f, ofColor(kAccentInk, 110));
+			}
+		}
+	}
+	ofSetColor(255);
+}
+
+void UiLayer::drawInfoBox(const StateLink::State & state,
+	float topPx, float heightPx) const {
 	// VISUAL_LAYER.md §8/§9 build item 10. "Info box sits ABOVE the cart,
 	// fixed height, does not push the cart down. Idle: invisible. No fill,
 	// no border. Not an empty bordered box."
@@ -1686,8 +2044,8 @@ void UiLayer::drawInfoBox(const StateLink::State & state) const {
 	const InfoContent & b = _info;
 
 	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
-	const ofRectangle box(cx - kCartWidthPx * 0.5f, kInfoBoxTopPx,
-		kCartWidthPx, kInfoBoxHeightPx);
+	const ofRectangle box(cx - kCartWidthPx * 0.5f, topPx,
+		kCartWidthPx, heightPx);
 
 	// One alpha for the rule and every glyph — §8 fades the box as one
 	// thing, and staggering them would read as a rendering fault rather
@@ -2060,7 +2418,7 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	// strip is for everyone *not* holding the tablet.
 	//
 	// This is the general rule for the strip, established here because
-	// `recap`/`qr` (M6) will ask the same question: the state that changes
+	// `qr` (M6) asks the same question: the state that changes
 	// what the table is DOING outranks the state that reports a fault in
 	// a subsystem that state has already disabled.
 	//
@@ -2101,47 +2459,72 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 
 void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	const ofRectangle box(w.x, w.y, w.w, w.h);
-	ofColor ring = kWidgetSecondary;
+	ofColor ink = kWidgetSecondary;
 	if(!w.enabled){
-		ring = kWidgetDisabled;
+		ink = kWidgetDisabled;
 	}
 	else if(w.style == "primary"){
-		ring = kWidgetPrimary;
+		ink = kWidgetPrimary;
 	}
 	else if(w.style == "danger"){
-		// 2026-08-24: the cart's Cancel. A third style rather than
-		// reusing "secondary" grey — I8 wants a state carried by hue, and
-		// "this discards your order" is not the same statement as "this
-		// is the lesser of two buttons."
-		ring = kWidgetDanger;
+		// The Cancel button. A style of its own rather than "secondary"
+		// grey — I8 wants a state carried by hue, and "this discards your
+		// order" is not the same statement as "this is the lesser of two
+		// buttons." Since 2026-08-25 it is a MUTED clay rather than a
+		// fire-engine red; see kWidgetDanger.
+		ink = kWidgetDanger;
 	}
 	else if(w.style == "option"){
 		// M6's broth and spice plates. Neutral ink rather than a fourth
 		// hue: four options in four colours would make the SCREEN look
 		// like it was carrying state, when the only state on it is which
-		// one the hand is over. The broth's own swatch carries its
-		// identity instead, below.
-		ring = kInkColor;
+		// one is chosen. The broth's own swatch (and the spice plate's
+		// chillies) carry identity instead.
+		ink = w.selected ? kWidgetPrimary : kInkColor;
 	}
 
-	// **A pill with a glow, not a rectangle with a frame.** Developer,
-	// 2026-08-24: "the cancell and confirm buttons looks blocky... this
-	// whole design is like a fluid, the flames the glowing hallow and so
-	// on, we need the cort info box and button match with it." The corner
-	// radius is half the height, which is the roundest a rect can be, and
-	// the glow is drawHalo's own falloff (drawGlow) so a lit button and a
-	// lit bin are the same effect at two sizes.
-	const float corner = box.height * 0.5f;
-
-	// A disabled button gets no glow at all — the glow is what says "this
-	// is live", and I8 forbids carrying that in brightness alone, so the
-	// hue goes with it (grey) rather than the glow merely dimming.
+	// **How lit this control is, 0..1 — and the one number the whole
+	// "breathing halo" report comes down to.**
+	//
+	//   hovered        1.0, steady. A control under the hand must not
+	//                  pulse; the step from breathing to solid is itself
+	//                  the "yes, this one" feedback, and it lands before
+	//                  the dwell ring has moved at all.
+	//   selected       1.0, steady. A locked-in choice is a fact, not an
+	//                  invitation.
+	//   enabled        breathing, on the same sine and the same clock as
+	//                  the bin halos (see `breath`).
+	//   disabled       0. The glow is what says "this is live", and I8
+	//                  forbids carrying that in brightness alone — so the
+	//                  hue goes grey with it rather than the glow merely
+	//                  dimming.
+	float glow01 = 0.0f;
 	if(w.enabled){
+		glow01 = (w.hover || w.selected) ? 1.0f
+			: breath(kWidgetBreathFloor);
+	}
+
+	if(w.kind == "option"){
+		drawOptionPlate(w, ink, glow01);
+		return;
+	}
+
+	// **A rounded RECTANGLE, not a pill** (kWidgetCornerPx's own comment
+	// carries the report). The glow is drawHalo's falloff (drawGlow) so a
+	// lit button and a lit bin are the same effect at two sizes.
+	const float corner = std::min(kWidgetCornerPx,
+		std::min(box.width, box.height) * 0.5f);
+	const bool primary = w.enabled && w.style == "primary";
+	const int glowPeak = primary ? kWidgetPrimaryGlowAlpha : kWidgetGlowAlpha;
+	const int fillPeak = primary ? kWidgetPrimaryFillAlpha : kWidgetFillAlpha;
+
+	if(glow01 > 0.0f){
 		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands,
-			ring, kWidgetGlowAlpha);
+			ink, (int)(glowPeak * glow01));
 	}
 	drawRoundedRectFill(box, corner,
-		ofColor(ring, w.enabled ? kWidgetFillAlpha : kWidgetFillAlpha / 2));
+		ofColor(ink, w.enabled ? (int)(fillPeak * (0.55f + 0.45f * glow01))
+			: kWidgetFillAlpha / 2));
 
 	// Dwell progress, drawn INSIDE the button. The cursor's own ring
 	// (drawCursor) already shows the same fraction, but it sits under the
@@ -2150,15 +2533,12 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	// "no progress of hover was shown"). `dwell` is core's 0..1 fraction;
 	// oF still times nothing (doc §9.4).
 	//
-	// **It fills LEFT to RIGHT, and that is geometry, not preference.**
-	// The first version filled bottom-up, which was right for a rectangle
-	// and is impossible for a pill: a partial-height rounded rect sitting
-	// on the pill's bottom edge has a SHALLOWER corner radius than the
-	// pill does, so its bottom corners stick out through the pill's own
-	// curve — visibly, on a shape this round. A partial-WIDTH rounded rect
-	// sharing the pill's left cap, top and bottom edges is contained by
-	// construction at every fraction, because it is the same shape with
-	// its right cap moved in.
+	// **It fills LEFT to RIGHT**, which was forced by the old pill shape
+	// (a partial-height rounded rect on a pill's bottom edge pokes its
+	// corners out through the pill's curve) and is kept now that the
+	// shape is a rounded rect, because left-to-right is what a progress
+	// bar does everywhere else a diner has seen one. The clamp to the
+	// button's own corner is what keeps the sweep inside the frame.
 	if(w.enabled && w.dwell > 0.0f){
 		const float fillW = box.width * ofClamp(w.dwell, 0.0f, 1.0f);
 		if(fillW > 1.0f){
@@ -2172,38 +2552,140 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	// drawRing frames the rect from OUTSIDE it, the same annulus rule the
 	// plates follow (§14.4), so the label inside is never touched by its
 	// own frame however thick the frame becomes. Passing `corner` here is
-	// what makes the frame follow the pill instead of squaring it off.
-	drawRing(box, ringX, ringY, ring, corner);
+	// what makes the frame follow the rounded corner instead of squaring
+	// it off.
+	drawRing(box, ringX, ringY, ink, corner);
 
 	// Dark ink on a light field (§13.4) — and a disabled button's label is
 	// greyed rather than hidden, because a button whose label vanished
-	// would read as a rendering fault rather than as unavailable.
-	//
-	// 2026-08-24: an ENABLED label now takes the ring's own colour rather
-	// than kInkColor. Both live colours (kWidgetPrimary's green,
-	// kWidgetDanger's red) are dark enough for §13.4's rule on their own,
-	// and a green ring around near-black text carries the hue in a thin
-	// frame only — half of what the developer's "washed out" report was
-	// about. kInkColor is still what a plain "secondary" widget gets, so
-	// nothing that was neutral becomes coloured by this.
-	ofSetColor(w.enabled ? (w.style == "primary" || w.style == "danger" ? ring : kInkColor)
-		: kWidgetDisabled);
-	drawCentered(_nameFont, w.label, box.getCenter().x,
-		box.getCenter().y + _nameFont.getAscenderHeight() * 0.5f);
+	// would read as a rendering fault rather than as unavailable. An
+	// enabled label takes the frame's own colour: all three live inks are
+	// dark enough for §13.4 on their own, and a coloured frame around
+	// near-black text carries the hue in a hairline only, which was half
+	// of the original "washed out" report.
+	ofSetColor(w.enabled ? ink : kWidgetDisabled);
+	const ofTrueTypeFont & face =
+		_buttonFont.isLoaded() ? _buttonFont : _nameFont;
+	drawCentered(face, w.label, box.getCenter().x,
+		box.getCenter().y + face.getAscenderHeight() * 0.5f);
+	ofSetColor(255);
+}
 
-	// doc §18.1's "a colour swatch each", for the broths. Drawn LAST so
-	// it sits over the dwell fill rather than under it — the fill sweeps
-	// across the whole plate, and a swatch that disappeared under it
-	// would look like the broth had been deselected halfway through
-	// choosing it.
+void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
+	float glow01) const {
+	// A broth or a spice plate. Laid out as a LIST ROW, not as a centred
+	// button: icon column, name, and a tick on the right when it is the
+	// one chosen. That is what a diner scanning four options reads
+	// fastest — the names line up in a column, so comparing them is one
+	// eye movement rather than four.
+	//
+	// **The icon column is a fixed width whatever it holds.** A 3-chilli
+	// plate and a 0-chilli plate start their labels at the same x; a
+	// column that sized itself to its contents would leave the four
+	// spice names in four different places and stop them reading as one
+	// list.
+	const ofRectangle box(w.x, w.y, w.w, w.h);
+	const float corner = std::min(kWidgetCornerPx,
+		std::min(box.width, box.height) * 0.5f);
+	const bool sel = w.selected && w.enabled;
+
+	if(glow01 > 0.0f){
+		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands, ink,
+			(int)((sel ? kOptionSelectedGlowAlpha : kWidgetGlowAlpha) * glow01));
+	}
+	// A selected plate is FILLED, not merely outlined. Developer,
+	// 2026-08-25: "when the progress fills the the selection is locked
+	// even without hover." A lock has to be readable across the table
+	// with no hand near it, and a slightly brighter outline is not.
+	drawRoundedRectFill(box, corner,
+		ofColor(ink, w.enabled
+			? (int)((sel ? kOptionSelectedFillAlpha : kWidgetFillAlpha)
+				* (0.55f + 0.45f * glow01))
+			: kWidgetFillAlpha / 2));
+
+	if(w.enabled && w.dwell > 0.0f){
+		const float fillW = box.width * ofClamp(w.dwell, 0.0f, 1.0f);
+		if(fillW > 1.0f){
+			drawRoundedRectFill(ofRectangle(box.x, box.y, fillW, box.height),
+				corner, kWidgetDwellFill);
+		}
+	}
+
+	drawRing(box, mmToPxX(kWidgetRingMM), mmToPxY(kWidgetRingMM), ink, corner);
+
+	const float cy = box.getCenter().y;
+	const float iconCx = box.x + kOptionPadXPx + kOptionIconColPx * 0.5f;
+
+	// doc §18.1's "a colour swatch each", for the broths. Drawn after the
+	// dwell fill rather than under it — the fill sweeps across the whole
+	// plate, and a swatch that disappeared under it would look like the
+	// broth had been deselected halfway through choosing it.
 	if(!w.swatch.empty()){
 		ofColor sw;
 		if(parseHexColor(w.swatch, sw)){
 			const float r = box.height * kOptionSwatchFrac * 0.5f;
+			// A hairline of the plate's own ink around the disc, so a
+			// pale broth (#D8CFC0 collagen) still has an edge against the
+			// near-white field instead of dissolving into it.
+			ofSetColor(ink, 90);
+			ofDrawCircle(iconCx, cy, r + 2.0f);
 			ofSetColor(sw);
-			ofDrawCircle(box.x + kOptionSwatchInsetPx + r,
-				box.getCenter().y, r);
+			ofDrawCircle(iconCx, cy, r);
 		}
+	}
+
+	// doc §18.1's "four plates, 0-3, with chilli glyphs" — built here,
+	// never typed (StateLink::Widget::icon says why).
+	//
+	// **Level 0 draws none, and that is the whole statement.** Doc §17 is
+	// explicit that no-spice is a real choice rather than an absence, and
+	// a greyed-out pepper in that slot would read as one pepper. The
+	// label beside it says "No Spice"; nothing else is needed.
+	if(w.icon == "chilli" && w.iconCount > 0){
+		// Sized so three of them still clear the icon column: at 0.44 of
+		// the plate's height the group spans ~42px of the 56px reserved.
+		const float chilliH = box.height * 0.44f;
+		const float pitch = chilliH * 0.44f;
+		const float span = pitch * (float)(w.iconCount - 1);
+		for(int k = 0; k < w.iconCount; k++){
+			drawChilli(iconCx - span * 0.5f + pitch * (float)k, cy,
+				chilliH, ofColor(kWidgetDanger, w.enabled ? 255 : 120));
+		}
+	}
+
+	// The name, left-aligned after the icon column, with the tick's own
+	// gutter reserved whether a tick is showing or not — see
+	// kOptionIconColPx for the arithmetic that sets both columns and the
+	// font size against the longest name on the menu.
+	const float labelX = box.x + kOptionPadXPx + kOptionIconColPx
+		+ kOptionLabelGapPx;
+	const float labelMaxW = box.x + box.width - kOptionCheckInsetPx
+		- kOptionCheckRadiusPx * 2.0f - kOptionLabelGapPx - labelX;
+	const ofTrueTypeFont & face =
+		_optionFont.isLoaded() ? _optionFont : _nameFont;
+	// **Reported once per name, not per frame** — the same net drawCart
+	// carries, for the same reason: the last two truncation reports on
+	// this table each cost a rebuild to diagnose because nothing recorded
+	// the actual widths. The columns above are sized to clear every name
+	// in `data/menu.json`, so this should never fire; if a fifth broth
+	// with a longer name is added, the boot log says so by name.
+	std::string label = w.label;
+	const float labelW = face.getStringBoundingBox(w.label, 0, 0).width;
+	if(labelW > labelMaxW){
+		label = truncateToWidth(face, w.label, labelMaxW);
+		if(_truncatedNames.insert(w.label).second){
+			ofLogWarning(kTag) << "option plate: \"" << w.label << "\" needs "
+				<< labelW << "px but the label column is " << labelMaxW
+				<< "px — truncated; shrink kOptionIconColPx or kOptionLabelPx";
+		}
+	}
+	ofSetColor(w.enabled ? (sel ? kWidgetPrimary : kPlateNameColor)
+		: kWidgetDisabled);
+	face.drawString(label, labelX, cy + face.getAscenderHeight() * 0.5f);
+
+	if(sel){
+		drawCheckMark(box.x + box.width - kOptionCheckInsetPx
+			- kOptionCheckRadiusPx, cy, kOptionCheckRadiusPx, kWidgetPrimary);
 	}
 	ofSetColor(255);
 }
@@ -2215,49 +2697,105 @@ void UiLayer::drawWidgets(const StateLink::State & state) const {
 }
 
 void UiLayer::drawCheckout(const StateLink::State & state) const {
-	// doc §18.1's CHECKOUT screen and §18.2's payment mock: "a QR code
-	// projected, the code spoken by the sound bus". The QR's whole
-	// purpose is that a judge can scan it off the projected plywood with
-	// their own phone, so this is sized for a camera at arm's length
+	// doc §18.1's CHECKOUT screen and §18.2's payment mock. The whole
+	// purpose is that a diner can scan the code off the projected plywood
+	// with their own phone, so this is sized for a camera at arm's length
 	// rather than for a reader at three metres.
+	//
+	// **Two screens in one function, and which one is showing is decided
+	// by `qr.token` rather than by `qr.paid`.** Developer, 2026-08-25:
+	// "the token number should be given only after sucessfull payment."
+	// Core leaves the token empty until the money has landed (see
+	// StateLink::Qr::token), so this side has no way to draw a number
+	// early even by mistake — the rule lives on the wire, not in a
+	// condition here that a later edit could invert.
+	//
+	//   UNPAID   the QR, small, on a white plate, with the total.
+	//   PAID     the token, big, and no QR — the code has done its job
+	//            and a scannable QR left up beside a paid order is an
+	//            invitation to scan it again.
 	const StateLink::Qr & qr = state.qr;
 	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
-	const float left = cx - kCartWidthPx * 0.5f;
-	float y = kInfoBoxTopPx;
 
-	// The code, big. It is the fallback for everything: if the QR will
-	// not scan, if the phone is dead, if the network is down, a diner
-	// can still read four characters out and pay at a counter.
-	if(_totalNumFont.isLoaded()){
-		ofSetColor(kInkColor);
-		drawCentered(_totalNumFont, qr.code, cx,
-			y + _totalNumFont.getAscenderHeight());
-		y += _totalNumFont.getAscenderHeight()
-			+ fabsf(_totalNumFont.getDescenderHeight()) + 10.0f;
-	}
-	if(_infoFont.isLoaded()){
-		ofSetColor(kInfoBoxTextColor);
-		drawCentered(_infoFont,
-			qr.paid ? "Paid. Thank you." : "Scan to pay", cx,
-			y + _infoFont.getAscenderHeight());
-		y += _infoFont.getAscenderHeight()
-			+ fabsf(_infoFont.getDescenderHeight()) + 14.0f;
+	// The band the cart would have occupied. The page header
+	// (drawPageHeader) has already had the strip above it, so this screen
+	// starts where the info box would.
+	const float bandTop = kInfoBoxTopPx + kPageHeaderHeightPx;
+	const float bandBottom = kCartRowsBottomPx + kCartFooterHeightPx;
+
+	if(!qr.token.empty()){
+		// --- paid ---------------------------------------------------
+		// The token, and nothing competing with it. This is the one thing
+		// the diner carries away from the table.
+		const ofTrueTypeFont & big =
+			_tokenFont.isLoaded() ? _tokenFont : _totalNumFont;
+		if(!big.isLoaded()){
+			return;
+		}
+		const float blockH = big.getAscenderHeight()
+			+ fabsf(big.getDescenderHeight());
+		// Centred as a GROUP, token plus hint, rather than the token
+		// being centred and the hint hanging off the bottom of it.
+		const bool haveHint = _infoFont.isLoaded()
+			&& !state.screen.hint.empty();
+		const float hintH = haveHint
+			? 18.0f + _infoFont.getAscenderHeight()
+				+ fabsf(_infoFont.getDescenderHeight())
+			: 0.0f;
+		const float y = bandTop
+			+ (bandBottom - bandTop - blockH - hintH) * 0.5f;
+		ofSetColor(kAccentInk);
+		drawCentered(big, qr.token, cx, y + big.getAscenderHeight());
+		if(haveHint){
+			ofSetColor(kInfoBoxTextColor);
+			drawCentered(_infoFont, state.screen.hint, cx,
+				y + blockH + 18.0f + _infoFont.getAscenderHeight());
+		}
+		ofSetColor(255);
+		return;
 	}
 
+	// --- unpaid: the code to scan -------------------------------------
+	//
 	// **The quiet zone is drawn, not assumed.** A QR needs a margin of
 	// blank around it to be found at all, and this table's background is
 	// not blank — the fluid layer is underneath and the halos reach in
 	// from the bins. So a white plate goes down first, at full strength,
 	// exactly like the light-pass cutouts do for the same reason (I9).
+	//
+	// **Sized to kQrTargetSidePx, not to the space available.** The old
+	// version filled whatever was free, which is how it ended up 592px
+	// wide in a 554px column and ran onto the trays — and how it ended up
+	// asking a diner to hold their phone further away the more room the
+	// layout happened to have. See kQrTargetSidePx for both faults.
 	const int n = (int)qr.modules.size();
-	if(n > 0 && _infoFont.isLoaded()){
-		const float avail = std::min(kCartWidthPx,
-			cartBottomPx() - y - kQrCaptionGapPx);
+	float y = bandTop;
+	if(n > 0){
+		// Solve for the module size that lands the WHOLE code — n modules
+		// plus two 4-module quiet zones — on the target side. Floored to
+		// a whole pixel so every module is the same width: a scanner
+		// tolerates a smaller code far better than one whose columns
+		// alternate 5px and 6px from rounding.
 		const float module = std::max(1.0f,
-			floorf((avail - 2.0f * kQrQuietModules * 4.0f) / (float)n));
+			floorf(kQrTargetSidePx / ((float)n + 2.0f * kQrQuietModules)));
 		const float quiet = module * kQrQuietModules;
 		const float side = module * (float)n + 2.0f * quiet;
 		const float qx = cx - side * 0.5f;
+		// Centred as a GROUP — code, total, hint — so the block sits in
+		// the middle of the band rather than the code being centred and
+		// the two lines hanging off the bottom of it.
+		const float totalBlockH = _totalNumFont.isLoaded()
+			? _totalNumFont.getAscenderHeight()
+				+ fabsf(_totalNumFont.getDescenderHeight())
+			: 0.0f;
+		const float hintBlockH = (_infoFont.isLoaded()
+				&& !state.screen.hint.empty())
+			? _infoFont.getAscenderHeight()
+				+ fabsf(_infoFont.getDescenderHeight()) + kQrCaptionGapPx
+			: 0.0f;
+		const float contentH = side + kQrCaptionGapPx + totalBlockH + hintBlockH;
+		y = bandTop + std::max(0.0f, (bandBottom - bandTop - contentH) * 0.5f);
+
 		ofSetColor(255, 255, 255);
 		ofDrawRectangle(qx, y, side, side);
 		ofSetColor(kInkColor);
@@ -2268,9 +2806,8 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 					continue;
 				}
 				// Drawn one module at a time rather than as a merged
-				// path: at this size that is ~400 quads, and a scanner
-				// cares far more about crisp module edges than this
-				// costs to draw.
+				// path: that is ~400 quads, and a scanner cares far more
+				// about crisp module edges than this costs to draw.
 				ofDrawRectangle(qx + quiet + (float)c * module,
 					y + quiet + (float)r * module, module, module);
 			}
@@ -2278,13 +2815,28 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 		y += side + kQrCaptionGapPx;
 	}
 
-	if(_infoKcalFont.isLoaded() && !qr.totalText.empty()){
+	// The total, under the code — the number the diner is about to pay,
+	// which is the one fact they should be able to check before they
+	// scan. Set at the cart's own total size and colour, so it reads as
+	// the same number they were looking at one screen ago.
+	if(_totalNumFont.isLoaded() && !qr.totalText.empty()){
 		ofSetColor(kCartTotalValueColor);
-		drawCentered(_infoKcalFont, qr.totalText, cx,
-			y + _infoKcalFont.getAscenderHeight());
+		drawCentered(_totalNumFont, qr.totalText, cx,
+			y + _totalNumFont.getAscenderHeight());
+		y += _totalNumFont.getAscenderHeight()
+			+ fabsf(_totalNumFont.getDescenderHeight()) + kQrCaptionGapPx;
+	}
+
+	// "Scan with your phone camera." The one instruction on the screen,
+	// last and quietest — a diner who already knows what a QR is never
+	// reads it, and the one who does not has nowhere else to find out.
+	// Core resolves the wording (I2); an empty hint draws nothing.
+	if(_infoFont.isLoaded() && !state.screen.hint.empty()){
+		ofSetColor(kInfoBoxTextColor);
+		drawCentered(_infoFont, state.screen.hint, cx,
+			y + _infoFont.getAscenderHeight());
 	}
 	ofSetColor(255);
-	(void)left;
 }
 
 void UiLayer::drawCursor(const CursorLink::Hand & pointer, float dwell) const {
@@ -2443,15 +2995,69 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		for(int i = 0; i < 8 && i < (int)state.bins.size(); i++){
 			drawBin(i, state.bins[i], _bins[i]);
 		}
-		drawInfoBox(state);
-		// **The cart is the diner's receipt right up to the last screen,
-		// and then it is not.** It stays up through BROTH, SPICE and
-		// RECAP — that is what they are approving — and is replaced by
-		// the code on CHECKOUT, whose one job is to be scannable.
-		if(state.overlayKind == "qr"){
+
+		// **The centre column is a stack of PAGES now, and exactly one of
+		// them is up at a time.** Developer, 2026-08-25: "the broth should
+		// come like a second page of the selection with an option to go
+		// back to cart. now it overlays the cart and it is teribble."
+		//
+		// It overlaid because this function used to draw the cart on
+		// every screen but CHECKOUT, while core sent option widgets whose
+		// rects (core/hover.py's old BAND_TOP_PX..BAND_BOTTOM_PX)
+		// straddled the info box AND the cart — so four broth plates
+		// landed on top of a cart that was still being drawn underneath
+		// them. Two changes fixed it together: the option rects moved
+		// into the cart's own band (core/hover.py's `_cart_band_px`), and
+		// the cart stops drawing on the screens that are not the cart.
+		//
+		// The band above stays what it always was — the info box — on
+		// every page, which is the other half of the same instruction:
+		// "the top info area should be left to there for broth info and
+		// in spicy page, spice info." On the option pages a page header
+		// takes the top of that band (drawPageHeader) and the box moves
+		// down by exactly its height.
+		const bool optionPage = state.phase == "broth" || state.phase == "spice";
+		const bool payPage = state.overlayKind == "qr";
+		// **A banner outranks a header**, the same precedence doc §14.5
+		// sets for this column and the same one drawInfoBox already
+		// follows: the state that changes what the table is DOING wins
+		// over anything else here. Without this an `error` overlay raised
+		// mid-order (which happens while SERVING) would draw
+		// "SCALES OFFLINE" and "Choose Your Broth" on top of each other.
+		const bool bannerUp = state.overlayKind == "uncalibrated"
+			|| state.overlayKind == "error" || state.mode == "setting";
+		// **`headed` is one condition and the header/box move together.**
+		// An earlier cut had the header drawing whenever core sent a
+		// title but the box only stepping down on the option pages, which
+		// put "Your Order" straight through the top of the info box on
+		// the cart screen. They are the same fact and are read from the
+		// same bool now.
+		const bool headed = !state.screen.title.empty() && !bannerUp;
+
+		if(headed){
+			drawPageHeader(state.screen);
+		}
+		if(!payPage){
+			// The payment page owns the whole band below the header —
+			// there is no hovered item to describe on it, and a leftover
+			// info box from a bin the diner's hand drifted over would sit
+			// on top of the code they are trying to scan. (drawInfoBox
+			// refuses on `overlayKind == "qr"` too; this is the same
+			// answer stated at the call site rather than left to that.)
+			const float infoTop = kInfoBoxTopPx
+				+ (headed ? kPageHeaderHeightPx : 0.0f);
+			drawInfoBox(state, infoTop,
+				kInfoBoxHeightPx - (headed ? kPageHeaderHeightPx : 0.0f));
+		}
+
+		if(payPage){
 			drawCheckout(state);
 		}
-		else {
+		else if(!optionPage){
+			// The cart is the diner's receipt up to the moment they leave
+			// it. On the option pages the same band holds the options
+			// instead — that is what makes broth a page rather than an
+			// overlay.
 			drawCart(state);
 		}
 		drawWidgets(state);

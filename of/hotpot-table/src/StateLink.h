@@ -106,6 +106,27 @@ public:
 		// be wrong for the first frame of a hover, when the accumulator
 		// is still at zero.
 		bool hover = false;
+		// 2026-08-25. Whether this option is the one the diner has LOCKED
+		// IN — a completed dwell, held until they complete a dwell on a
+		// different one. Independent of `hover`, and that independence is
+		// the whole point: a diner can hover a second broth to read its
+		// info box and take their hand away without changing anything.
+		//
+		// Core owns it (`core/hover.Widget.selected`) for the same reason
+		// core owns `hover`: it is the thing that will be written to the
+		// order, and a second answer derived on this side could disagree
+		// with the one that bills.
+		bool selected = false;
+		// A glyph oF draws itself, `iconCount` times. "chilli" is the only
+		// one today — doc §18.1's "four plates, 0-3, with chilli glyphs".
+		//
+		// A NAME and a COUNT, never a character: the fonts this app loads
+		// are DejaVu at Latin + Latin1Supplement + CurrencySymbols, and
+		// U+1F336 is in none of them, so a literal pepper would silently
+		// draw nothing at all. drawWidget builds the shape from an ofPath
+		// instead — see drawChilli.
+		std::string icon;
+		int iconCount = 0;
 		// The info box's content while this widget is hovered — a broth
 		// or a spice level has one, Cancel and Confirm do not. Same three
 		// fields and the same rules as Bin's, so drawInfoBox can take
@@ -124,6 +145,19 @@ public:
 		std::string url;          // what the modules below encode
 		std::string totalText;    // resolved by core (I2)
 		bool paid = false;
+		// **The diner-facing token, and it is EMPTY until the money has
+		// landed.** Developer, 2026-08-25: "the token number should be
+		// given only after sucessfull payment." `code` above is still
+		// always populated — the URL is built from it and the staff view
+		// lists it — but this is the field the table draws, and core
+		// leaves it blank on an unpaid order so oF cannot show a number a
+		// diner could walk to the counter with before paying.
+		//
+		// A separate field rather than oF checking `paid` itself: the
+		// rule is a product decision about what a diner may be told, and
+		// keeping it on core's side means it holds for any future surface
+		// too, not just this one draw call.
+		std::string token;
 		// Square, row-major, true == a dark module. Core sends the
 		// matrix and oF draws filled rects: I2 again — core owns the
 		// data, oF owns the pixels, and a matrix scales to whatever
@@ -143,6 +177,26 @@ public:
 		std::string label;   // e.g. "Total"/"总计" — I2: resolved by core, oF never looks it up
 	};
 
+	// 2026-08-25: the page header. A sentence naming the task, plus where
+	// the diner is in the sequence.
+	//
+	// Every restaurant kiosk a diner has already used leads its screen
+	// with one of these, and without it the broth page is four unlabelled
+	// plates and a Next button — which is the opposite of the developer's
+	// own standard for this table ("any non techy person should be able
+	// to understand it").
+	//
+	// `step`/`steps` are 0 when there is no sequence to be in (IDLE,
+	// setting mode), and `title` is empty on exactly those screens, so a
+	// header that should not exist draws nothing rather than drawing an
+	// empty strip. Resolved by core, per I2.
+	struct Screen {
+		std::string title;
+		std::string hint;
+		int step = 0;
+		int steps = 0;
+	};
+
 	// doc §4.3's `state` message, decoded. Bins is always resized to
 	// exactly 8 by the parser (padding/truncating a malformed line rather
 	// than trusting it) so UiLayer never has to range-check it.
@@ -155,7 +209,9 @@ public:
 		// paint SETTING — NOT BILLING over a table that is billing.
 		std::string mode = "serving";
 		// M6: which screen of doc §9.1's chain the table is on —
-		// idle|selecting|broth|spice|recap|checkout|setting|uncalibrated.
+		// idle|selecting|broth|spice|checkout|setting|uncalibrated.
+		// ("recap" was a ninth value until 2026-08-25; that state is
+		// deleted — see python/hotpot/core/fsm.py's module docstring.)
 		// **Alongside `mode`, never inside it.** doc §4.3 fixes `mode` at
 		// serving|setting and the banner branches on it, so folding the
 		// checkout screens in there would make every one of them paint a
@@ -164,6 +220,7 @@ public:
 		// the billing value: a line that arrived without it must not put
 		// the table into a checkout screen nobody asked for.
 		std::string phase = "selecting";
+		Screen screen;
 		std::string locale = "en";
 		Fluid fluid;
 		std::vector<Bin> bins;

@@ -311,6 +311,18 @@ bool StateLink::parseState(const ofJson & j, State & out){
 		out.total.label = j["total"].value("label", "");   // absent on an older core — draws blank, not garbage
 	}
 
+	// The page header (2026-08-25). Absent on an older core leaves every
+	// field at its default, and an empty title is the same "draw nothing"
+	// every other optional string on this wire already means — so a core
+	// that has never heard of this renders the table it always did.
+	if(j.contains("screen") && j["screen"].is_object()){
+		const ofJson & sj = j["screen"];
+		out.screen.title = sj.value("title", "");
+		out.screen.hint = sj.value("hint", "");
+		out.screen.step = sj.value("step", 0);
+		out.screen.steps = sj.value("steps", 0);
+	}
+
 	if(j.contains("overlay") && j["overlay"].is_object()){
 		const ofJson & ov = j["overlay"];
 		out.overlayKind = ov.value("kind", "none");
@@ -324,6 +336,9 @@ bool StateLink::parseState(const ofJson & j, State & out){
 			out.qr.url = ov.value("url", "");
 			out.qr.totalText = ov.value("total_text", "");
 			out.qr.paid = ov.value("paid", false);
+			// Empty until the payment lands — core decides that, not
+			// this side. See Qr::token.
+			out.qr.token = ov.value("token", "");
 			if(ov.contains("qr") && ov["qr"].is_array()){
 				for(const auto & rowj : ov["qr"]){
 					if(!rowj.is_array()){
@@ -433,7 +448,14 @@ bool StateLink::parseState(const ofJson & j, State & out){
 			w.enabled = wj.value("enabled", true);
 			w.style = wj.value("style", "primary");
 			w.hover = wj.value("hover", false);
+			w.selected = wj.value("selected", false);
 			w.swatch = wj.value("swatch", "");
+			w.icon = wj.value("icon", "");
+			// Clamped, not trusted: this is a loop bound in drawWidget,
+			// and a malformed line must not be able to ask for a
+			// thousand peppers. 8 is far above the 3 the menu can
+			// actually produce, so a real value is never clipped.
+			w.iconCount = std::max(0, std::min(8, wj.value("icon_count", 0)));
 			// M6's option widgets carry the info box's content. Absent on
 			// Cancel/Confirm and on any older core, and absent means the
 			// box simply does not appear for them — the same rule an

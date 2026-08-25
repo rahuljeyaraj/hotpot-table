@@ -210,11 +210,30 @@ CLASSIFY_LIVE_TIMEOUT_S = 5.0
 # makes core the one place a client's effective configuration lives.
 CLASSIFIER_LIVE_HZ = 2.0
 
-# Doc section 18.3: "CHECKOUT auto-returns to IDLE after 90s whether or
-# not the receipt was fetched. The order stays in the queue as unpaid. A
-# contest floor has no patience and no diner will remember to press
-# anything."
-CHECKOUT_TIMEOUT_S = 90.0
+# **Doc section 18.3's 90s CHECKOUT timeout is DELETED, 2026-08-25.**
+#
+# Developer, verbatim: "i see the qr code dissaperared when it was left
+# idel for sometime, that should not happen, no time out. onc can cancell
+# or go back, but not self disappear."
+#
+# The doc's reasoning ("a contest floor has no patience and no diner will
+# remember to press anything") was about a table nobody clears. It is
+# wrong about the one person the timer actually fires on: a diner who has
+# just got their phone out, opened the camera and is lining up the code.
+# That takes longer than most UI waits and it is the ONLY thing anybody is
+# doing on this screen — so the timeout's whole population is people who
+# are using it correctly, and what it does to them is delete the code
+# mid-scan, with the order already written and unpaid.
+#
+# What replaced it is two buttons a person presses (`hover.checkout_widgets`
+# — Back and Cancel, both of which void the order) plus the payment itself
+# landing on the WebSocket. A table left genuinely abandoned now sits on
+# the QR screen until staff touch it, which is visible and recoverable;
+# the old behaviour was invisible and lost the diner's scan.
+#
+# `_checkout_since` is kept — it still stamps when the screen opened, which
+# is useful in the log and on the staff view — but nothing reads it as a
+# deadline any more.
 
 
 def _html_escape(s: str) -> str:
@@ -398,12 +417,25 @@ class Core:
         # previous diner's broth can never ride into the next order.
         self._broth_id: str = ""
         self._spice_level: int = 0
-        # The order written at RECAP -> CHECKOUT, held while the QR is up
-        # so the payment callback and the table can find it by code.
+        # **Separate from `_spice_level`, because 0 is a real level.** Doc
+        # section 17 makes "no spice" a genuine choice rather than an
+        # absence, so the int cannot also mean "not chosen yet" — and Pay
+        # is gated on a choice having been made. See `_choose_spice`.
+        self._spice_chosen: bool = False
+        # The previous tick's widget ids+rects, for the "the buttons just
+        # changed under a resting hand" guard in `_apply_cursor`. Starts
+        # as a sentinel rather than `()` so the very first tick counts as
+        # a change — a hand already over the table at boot must not have
+        # banked dwell against a layout it never saw appear.
+        self._widget_shape_prev: Optional[tuple] = None
+        # The order written on the SPICE -> CHECKOUT edge, held while the
+        # QR is up so the payment callback and the table can find it by
+        # code.
         self._order: Optional[orders.Order] = None
         self._order_qr: list = []
-        # `time.monotonic()` when CHECKOUT began — doc section 18.3's 90s
-        # timeout is measured from here.
+        # `time.monotonic()` when CHECKOUT began. Kept for the log and the
+        # staff view; **not a deadline** — the 90s timeout that used to
+        # read it is deleted (see CHECKOUT_TIMEOUT_S' block above).
         self._checkout_since: Optional[float] = None
         self.cart = _seed_cart()
         # binmap and refresh_weights are both here so that fsm.py owns all
@@ -1414,11 +1446,11 @@ class Core:
         #
         # **This was `fsm.serving` until M6 and had to change with it.**
         # The two predicates split when the checkout chain landed: a
-        # table in RECAP is serving a diner but must not be weighing, or
-        # the total moves while they are reading the recap they are being
-        # asked to approve, and the QR's 90 seconds of load-cell drift
-        # would change an order already written to the database. See
-        # `fsm.weighing`.
+        # table on the broth screen is serving a diner but must not be
+        # weighing, or the total moves under a diner who has already been
+        # shown it, and load-cell drift while the QR is up would change an
+        # order already written to the database. See `fsm.weighing` —
+        # including why backing out to the cart deliberately un-freezes it.
         if not self.fsm.weighing:
             return
         reading = self.scale.read()
@@ -1655,17 +1687,38 @@ class Core:
         # arm both buttons on an untouched table and never disarm them.
         self._widgets = self._widgets_for_state()
 
-        # Doc section 18.3: "CHECKOUT auto-returns to IDLE after 90s
-        # whether or not the receipt was fetched. A contest floor has no
-        # patience and no diner will remember to press anything." Checked
-        # here, on the tick, rather than on a timer thread — this loop
-        # already runs at 60Hz and a second clock would need its own lock.
-        if (self.fsm.state is fsm.State.CHECKOUT
-                and self._checkout_since is not None
-                and now - self._checkout_since >= CHECKOUT_TIMEOUT_S):
-            _log.info("core: checkout timed out after %.0fs — back to IDLE",
-                      CHECKOUT_TIMEOUT_S)
-            self._finish_checkout()
+        # **When the buttons change, disarm whatever is under the hand.**
+        #
+        # A dwell fires with the hand still resting on the button — that
+        # is what dwell means — and the usual reason the buttons change is
+        # that a dwell just fired. So at the instant a new set arrives, a
+        # hand is sitting on top of it having chosen none of it, and
+        # whatever now occupies that spot must not start filling on its
+        # own. `DwellTracker`'s ordinary re-arm latch covers this only
+        # while the id under the hand is unchanged; this covers the case
+        # where it is not.
+        #
+        # **Keyed on the LAYOUT changing, not on a transition having
+        # fired**, because the two are not the same event and the case
+        # that proved it has no transition in it at all: a payment landing
+        # on the WebSocket swaps the payment screen's Back/Cancel for a
+        # single Done, in the same FSM state, from another thread. A hand
+        # resting where Done lands would have ended the session 1.2s later
+        # — with the token the diner is meant to read still on screen.
+        #
+        # Ids AND rects, but not `enabled` or `dwell`: those two move
+        # constantly (a Next button arming the moment a broth is chosen)
+        # and re-arming on them would make a dwell that starts as the
+        # button enables impossible to complete.
+        shape = self._widget_shape()
+        if shape != self._widget_shape_prev:
+            self._widget_shape_prev = shape
+            self.dwell.suppress_until_exit(self._widgets, pointer)
+
+        # The 90s CHECKOUT timeout that used to be checked here is gone —
+        # see CHECKOUT_TIMEOUT_S' own block at the top of this module for
+        # the report that removed it and what replaced it. Nothing on this
+        # tick ends the payment screen; only a person or a payment does.
 
         # `hover.bin_under` already answers None for a None hand (its own
         # docstring), so this runs unconditionally rather than duplicating
@@ -1684,6 +1737,19 @@ class Core:
         if fired is not None:
             self._fire_widget(fired)
 
+    def _widget_shape(self) -> tuple:
+        """What `self._widgets` looks like, for change detection only.
+
+        Ids and rects — the two things that decide what a hand at a given
+        point is pointing at. Deliberately NOT `enabled` or `dwell`: both
+        move constantly (Next arms the instant a broth is chosen, dwell
+        moves every frame), and treating either as a layout change would
+        reset a dwell every tick.
+
+        Caller holds `state_lock`.
+        """
+        return tuple((w.id, w.rect) for w in self._widgets)
+
     def _widgets_for_state(self) -> list:
         """Which buttons the table is offering right now.
 
@@ -1695,13 +1761,20 @@ class Core:
         """
         st = self.fsm.state
         if st is fsm.State.BROTH:
-            return hover.broth_widgets(self.menu.broths)
+            # The current choice is passed IN rather than looked up by the
+            # layout, so `hover` keeps knowing nothing about the session —
+            # it lays rects out and marks whichever id it was told is the
+            # chosen one. That is what lets `test_hover` run with no core.
+            return hover.broth_widgets(self.menu.broths,
+                                       selected_id=self._broth_id)
         if st is fsm.State.SPICE:
-            return hover.spice_widgets(self.menu.spice_levels)
-        if st is fsm.State.RECAP:
-            return hover.recap_widgets()
+            return hover.spice_widgets(
+                self.menu.spice_levels,
+                selected_level=(self._spice_level
+                                if self._spice_chosen else None))
         if st is fsm.State.CHECKOUT:
-            return hover.checkout_widgets()
+            return hover.checkout_widgets(
+                paid=self._order is not None and self._order.paid)
         # `cart_active` gates whether Cancel/Confirm are dwellable at all
         # (hover.widgets_for's own docstring). `cart.is_active()` reads
         # `shown_g`, i.e. the DEADBANDED number — deliberately, and for
@@ -1749,6 +1822,7 @@ class Core:
         # already using.
         self._broth_id = ""
         self._spice_level = 0
+        self._spice_chosen = False
         self._order = None
         self._order_qr = []
         self._checkout_since = None
@@ -1758,10 +1832,21 @@ class Core:
         and does nothing is visible as a missing entry rather than as
         silence.
 
+        The guard against a hand left resting on whatever replaces this
+        button is NOT here — it is in `_apply_cursor`, keyed on the widget
+        layout changing rather than on this method having run, because a
+        layout can change without a dwell (the payment landing is the
+        case that proved it). See `_widget_shape`.
+
         Caller holds `state_lock`.
         """
         self._send_evt({"t": "evt", "kind": "sound", "id": "dwell_fire"})
         if widget_id == hover.CANCEL:
+            # **Void first, while `_order` still exists.** `_end_session`
+            # clears it, so an order written on the payment screen and
+            # cancelled from it would otherwise stay `new` in the queue
+            # for a kitchen to cook and nobody to pay for.
+            self._void_pending_order("cancelled by the diner")
             # `fsm.cancel()` calls `reset_session()` itself on the SELECTING
             # -> IDLE edge; the call below covers every other state, which
             # today is all of them (nothing drives IDLE -> SELECTING until
@@ -1769,6 +1854,9 @@ class Core:
             # idempotent by construction (`start_g[i] = live_g[i]`).
             self.fsm.cancel()
             self._end_session()
+            return
+        if widget_id == hover.BACK:
+            self._fire_back()
             return
         if widget_id == hover.CONFIRM:
             self._fire_confirm()
@@ -1796,88 +1884,231 @@ class Core:
                      widget_id)
 
     def _fire_confirm(self) -> None:
-        """Confirm means different things on different screens, and this
-        is the one place that decides which.
+        """The primary button. It means something different on each
+        screen, and this is the one place that decides which.
 
-        SELECTING it is doc section 9.1's "done" — the cart is finished
-        and the diner is sent to BROTH. RECAP it is the commit that writes
-        the order. CHECKOUT it is "I have read the code", which does
-        exactly what doc section 18.3's timeout does.
+        It wears a different LABEL on each too — "Next" on the cart and
+        broth screens, "Pay" on the spice screen (`hover._nav_row`) — but
+        one id, so the dispatch below is on the FSM state, which is the
+        thing that actually determines what should happen. Branching on a
+        label would mean the wire's wording could change what the table
+        does.
+
+            SELECTING  doc section 9.1's "done" — the cart is finished and
+                       the diner goes to BROTH.
+            BROTH      the chosen broth is accepted and the diner goes to
+                       SPICE. Refuses with nothing chosen, though the
+                       button is disabled in that case anyway (belt and
+                       braces: `enabled` is drawn from a snapshot taken
+                       one tick earlier).
+            SPICE      the commit. Writes the order and opens the payment
+                       screen.
+            CHECKOUT   only once the order is PAID, where the button says
+                       Done and ends the session. An unpaid payment
+                       screen has no primary button at all — see
+                       `hover.checkout_widgets` for why a Done there would
+                       be a way to clear the table without paying, and
+                       why the refusal is repeated here rather than left
+                       to the button's absence.
 
         Caller holds `state_lock`.
         """
         st = self.fsm.state
-        if st is fsm.State.RECAP:
-            self._write_order()
-            return
         if st is fsm.State.CHECKOUT:
+            if self._order is None or not self._order.paid:
+                _log.info("core: Done on an unpaid checkout — ignored")
+                return
             self._finish_checkout()
+            return
+        if st is fsm.State.BROTH:
+            if not self._broth_id:
+                _log.info("core: Next on BROTH with no broth chosen — "
+                          "staying put")
+                return
+            if self.fsm.broth_chosen():
+                _log.info("core: broth %s accepted, BROTH -> SPICE",
+                          self._broth_id)
+            return
+        if st is fsm.State.SPICE:
+            if not self._spice_chosen:
+                _log.info("core: Pay on SPICE with no level chosen — "
+                          "staying put")
+                return
+            self._write_order()
             return
         self._begin_checkout()
 
-    def _begin_checkout(self) -> None:
-        """SELECTING -> BROTH, doc section 9.1's `dwell "done"` edge.
+    def _fire_back(self) -> None:
+        """The Back button — one screen backward, never out of the order.
 
-        **`cart.finalize()` happens HERE, not at RECAP.** It snaps every
-        bin's shown grams onto the true removed grams, dropping the
-        display deadband (doc section 9.2's fix for open debt #5) — so the
-        numbers the diner reads on the recap card are the numbers the
-        order is written from. Doing it later would mean the recap showed
-        deadbanded grams and the receipt showed different ones, which is
-        precisely the discrepancy the deadband exists to avoid.
+        Offered on every screen after the cart (`hover._nav_row`), because
+        before it existed the only way to fix a wrong broth was Cancel,
+        which threw away the whole cart. That is the difference the
+        developer asked for: "so the user can really navigate to and fro
+        without any issues."
+
+        **Backing out of CHECKOUT voids the order that was already
+        written.** The row exists in SQLite with a code by then, and a
+        diner who is now going to choose a different spice level must not
+        leave a payable, cookable order behind them with the old one on
+        it. `fsm.back()` cannot do this itself — it owns no database (see
+        `fsm._BACK_EDGES`) — so it happens here, before the transition, so
+        `_order` is still in hand.
+
+        Caller holds `state_lock`.
+        """
+        if self.fsm.state is fsm.State.CHECKOUT:
+            self._void_pending_order("the diner went back to change it")
+        if not self.fsm.back():
+            _log.info("core: Back fired in %s, which has nothing behind it",
+                      self.fsm.state.value)
+            return
+        _log.info("core: back to %s", self.fsm.state.value)
+
+    def _void_pending_order(self, why: str) -> None:
+        """Mark the order currently on the table `void` and forget it.
+
+        Doc section 9.7's status enum is `new | cooking | served | void`,
+        and this is the one thing that writes the last of those. A no-op
+        when there is no order — which is every screen before the payment
+        one, so callers do not have to check first.
+
+        **Never touches a PAID order.** A payment that landed while the
+        diner's hand was travelling toward Back is money that changed
+        hands; voiding that row would hide a real transaction from the
+        kitchen and from the staff view's queue. The session ends normally
+        instead, through the same path `_on_order_paid` already takes.
+
+        Caller holds `state_lock`.
+        """
+        order = self._order
+        if order is None:
+            return
+        if order.paid:
+            _log.info("core: %s is paid — not voiding it (%s)",
+                      order.code, why)
+            return
+        try:
+            self.orders.set_status(order.code, "void")
+        except Exception as e:                       # noqa: BLE001
+            # A void that fails leaves a `new` row in the queue, which a
+            # human can see and fix. Raising here would strand the diner
+            # on a screen whose Back button did nothing.
+            _log.exception("core: could not void %s: %s", order.code, e)
+        else:
+            _log.info("core: %s voided — %s", order.code, why)
+        self._order = None
+        self._order_qr = []
+        self._checkout_since = None
+        self.web.broadcast({"t": "orders", "orders": self.orders.as_dicts()})
+
+    def _begin_checkout(self) -> None:
+        """SELECTING -> BROTH, doc section 9.1's `dwell "done"` edge —
+        the cart screen's Next button.
+
+        **`cart.finalize()` happens HERE, at the moment the diner leaves
+        the cart.** It snaps every bin's shown grams onto the true removed
+        grams, dropping the display deadband (doc section 9.2's fix for
+        open debt #5) — so the numbers the diner last read on the cart are
+        the numbers the order is written from. Doing it at the commit
+        instead would mean the cart showed deadbanded grams and the
+        receipt showed different ones, which is precisely the discrepancy
+        the deadband exists to avoid.
 
         `fsm.done()` refuses an empty cart (its own docstring), so a hand
-        resting on Confirm at an untouched table cannot start a checkout.
+        resting on Next at an untouched table cannot start a checkout.
 
         Caller holds `state_lock`.
         """
         if not self.fsm.done():
-            _log.info("core: Done fired but the cart is empty — staying put")
+            _log.info("core: Next fired but the cart is empty — staying put")
             return
         self.cart.finalize()
-        self._broth_id = ""
-        self._spice_level = 0
+        # **The diner's broth and spice are NOT cleared here**, and that
+        # changed with the Back button (2026-08-25). This method runs on
+        # every SELECTING -> BROTH crossing, including the second one after
+        # somebody backed out to the cart to add an item — and wiping their
+        # choices for that would punish exactly the correction the Back
+        # button exists to make possible. A session's choices are cleared
+        # where a session ends: `_end_session`.
         _log.info("core: SELECTING -> BROTH, cart finalised at %.2f",
                   pricing.total(self.cart, self.binmap, self.catalogue))
 
     def _choose_broth(self, broth_id: str) -> None:
-        """BROTH -> SPICE. Caller holds `state_lock`."""
+        """Lock a broth in. **Does not advance the screen.**
+
+        Developer, 2026-08-25: "each option button doesnt select and move
+        to the next page... only when the button progress completes the
+        previous button gets unselected and this button get selected."
+
+        A completed dwell on a plate used to BE the BROTH -> SPICE
+        transition, which made the choice invisible: the screen was gone
+        before the diner could see what they had picked, and there was no
+        way to change it short of Cancel. Now it writes one field, the
+        next tick marks that widget `selected` on the wire, and the diner
+        moves on when they press Next.
+
+        Re-choosing is just this method again with a different id — the
+        old choice is overwritten, so "the previous button gets
+        unselected" is a consequence of there being one field rather than
+        a rule anything has to enforce.
+
+        Caller holds `state_lock`.
+        """
         if self.fsm.state is not fsm.State.BROTH:
             return
         if self.menu.broth(broth_id) is None:
             _log.warning("core: unknown broth %r ignored", broth_id)
             return
+        if broth_id == self._broth_id:
+            return
         self._broth_id = broth_id
-        if self.fsm.broth_chosen():
-            self._send_evt({"t": "evt", "kind": "sound", "id": "broth_select"})
-            _log.info("core: broth %s chosen", broth_id)
+        self._send_evt({"t": "evt", "kind": "sound", "id": "broth_select"})
+        _log.info("core: broth %s selected", broth_id)
 
     def _choose_spice(self, level: int) -> None:
-        """SPICE -> RECAP. Caller holds `state_lock`."""
+        """Lock a spice level in. **Does not advance the screen** — same
+        change and same reasoning as `_choose_broth`.
+
+        **`_spice_chosen` is a separate flag and has to be.** Level 0 is a
+        genuine choice (doc section 17: "many shops offer a level 0 with
+        no numbing at all, and this is a normal, expected choice"), so
+        `_spice_level == 0` cannot mean "nothing picked yet" — and Pay is
+        gated on something having been picked. One int cannot carry both
+        answers.
+
+        Caller holds `state_lock`.
+        """
         if self.fsm.state is not fsm.State.SPICE:
             return
         if self.menu.spice(level) is None:
             _log.warning("core: unknown spice level %r ignored", level)
             return
+        if self._spice_chosen and level == self._spice_level:
+            return
         self._spice_level = level
-        if self.fsm.spice_chosen():
-            self._send_evt({"t": "evt", "kind": "sound", "id": "spice_select"})
-            _log.info("core: spice level %d chosen", level)
+        self._spice_chosen = True
+        self._send_evt({"t": "evt", "kind": "sound", "id": "spice_select"})
+        _log.info("core: spice level %d selected", level)
 
     def _write_order(self) -> None:
-        """RECAP -> CHECKOUT: doc section 18.1's "order written to SQLite,
+        """SPICE -> CHECKOUT: doc section 18.1's "order written to SQLite,
         a short code assigned, a QR code projected".
+
+        Was the RECAP -> CHECKOUT edge until 2026-08-25; RECAP is deleted
+        (see `fsm.py`'s module docstring) and this is unchanged apart from
+        which state it leaves.
 
         **The cart is NOT re-baselined here.** That happens at
         `_finish_checkout`, when the diner is actually done — doc section
         9.1 lists checkout *completion* as the reset_session() caller, not
         checkout entry. Resetting now would empty the cart out from under
-        the recap the QR screen still shows beside the code.
+        the total the payment screen still shows beside the code.
 
-        A failed write leaves the FSM in RECAP rather than advancing to a
-        CHECKOUT screen with no order behind it: the diner sees Confirm
-        not take, which is honest, instead of a code that is not in the
-        database when they try to pay with it.
+        A failed write leaves the FSM on the spice screen rather than
+        advancing to a payment screen with no order behind it: the diner
+        sees Pay not take, which is honest, instead of a code that is not
+        in the database when they try to pay with it.
 
         Caller holds `state_lock`.
         """
@@ -1900,8 +2131,9 @@ class Core:
             self.orders.set_qr_url(order.code, url)
             order.qr_url = url
         except Exception as e:                      # noqa: BLE001
-            _log.exception("core: could not write the order — staying in "
-                           "RECAP so the diner sees Confirm not take: %s", e)
+            _log.exception("core: could not write the order — staying on "
+                           "the spice screen so the diner sees Pay not "
+                           "take: %s", e)
             return
         if not self.fsm.confirm():
             return
@@ -2007,22 +2239,45 @@ class Core:
         touching the FSM — this is the one place an outside event drives
         a state change.
 
-        **Only ends the session if this is the order currently on the
-        table.** A judge scanning a receipt from ten minutes ago must not
-        reset a table a different diner is halfway through.
+        **The session does NOT end here any more (2026-08-25), and it
+        cannot.** It used to: payment landed and `_finish_checkout()` put
+        the table straight back to IDLE. That was survivable while the
+        order code was shown throughout — but the developer's instruction
+        is "the token number should be given only after sucessfull
+        payment", so the token now appears *at* this moment. Resetting in
+        the same breath would flash it for a frame or two and clear the
+        table before the diner had read a single character of the one
+        thing they are meant to carry to the counter.
+
+        So the screen stays up, showing the token, until a person presses
+        Done (`hover.checkout_widgets(paid=True)`). There is deliberately
+        no timer behind it — same instruction, same reason as the QR's:
+        "no time out. onc can cancell or go back, but not self
+        disappear." **The cost, stated plainly: a diner who pays and
+        walks away leaves the table on its thank-you screen until
+        somebody presses Done.** That is visible and one dwell from
+        clear, where the old behaviour was invisible and lost the token.
+        If a paid screen should time out after all, that is one branch in
+        `_apply_cursor` — but it is a product call, not a fix.
+
+        **Only touches the table if this is the order currently on it.**
+        A judge scanning a receipt from ten minutes ago must not disturb
+        a table a different diner is halfway through.
         """
         self.web.broadcast({"t": "orders", "orders": self.orders.as_dicts()})
         with self.state_lock:
             current = self._order is not None and self._order.code == order.code
             if current:
-                self._order = order          # so the QR screen reads `paid`
+                # So the payment screen reads `paid` and core starts
+                # sending the token — see `_overlay_msg`.
+                self._order = order
             if not current or self.fsm.state is not fsm.State.CHECKOUT:
                 _log.info("core: %s paid (not the order on the table now)",
                           order.code)
                 return
             self._send_evt({"t": "evt", "kind": "sound", "id": "order_done"})
-            _log.info("core: %s paid — ending the session", order.code)
-            self._finish_checkout()
+            _log.info("core: %s paid — token %s is on the table, waiting for "
+                      "Done", order.code, order.code)
 
     def _receipt_html(self, order: "orders.Order") -> str:
         """Doc section 18.2's "mobile-friendly receipt page — itemised, in
@@ -2122,11 +2377,21 @@ class Core:
                 # widgets), and two answers to that question would
                 # eventually disagree.
                 "hover": w.id == self.dwell.active_id,
+                # 2026-08-25: which option is LOCKED IN, as opposed to
+                # which one a hand happens to be over. The two are
+                # independent now — a diner can hover a second broth to
+                # read about it and leave without changing their choice —
+                # so oF needs both on the wire, not one derived from the
+                # other. See `hover.Widget.selected`.
+                "selected": bool(w.selected),
             }
             if w.info:
                 item["info"] = dict(w.info)
             if w.swatch:
                 item["swatch"] = w.swatch
+            if w.icon:
+                item["icon"] = w.icon
+                item["icon_count"] = int(w.icon_count)
             out.append(item)
         return out
 
@@ -2179,6 +2444,14 @@ class Core:
                 "total_text": self.locales.currency(
                     self._order.total, self.locale)["text"],
                 "paid": self._order.paid,
+                # **The token is only sent once the money has landed.**
+                # Developer, 2026-08-25: "the token number should be given
+                # only after sucessfull payment." `code` above is still on
+                # the wire because the URL is built from it and the staff
+                # view lists it — but oF draws THIS field, and an unpaid
+                # order simply has no token to draw. A number shown beside
+                # an unpaid QR is one a diner can walk to the counter with.
+                "token": self._order.code if self._order.paid else "",
                 # The QR as a square bool matrix, drawn by oF as filled
                 # rects (I2 — core owns the data, oF owns the pixels).
                 # Sent once per state tick like everything else; it is a
@@ -2186,8 +2459,6 @@ class Core:
                 # a second, event-shaped message of its own.
                 "qr": [[1 if v else 0 for v in row] for row in self._order_qr],
             }
-        if self.fsm.state is fsm.State.RECAP:
-            return {"kind": "recap"}
         reading = self.scale.read()
         lost = any(self._scale_baselined[i] and reading.grams[i] is None
                   for i in range(cart.NUM_BINS))
@@ -3157,11 +3428,12 @@ class Core:
                 # **M6: which screen the table is on, alongside — not
                 # inside — `mode`.** Doc section 4.3 fixes `mode` at
                 # serving|setting and oF branches its banner on it, so
-                # folding BROTH/SPICE/RECAP/CHECKOUT in there would have
-                # made every checkout screen read as a mode change. This
-                # is the FSM state's own name, and oF uses it to decide
-                # whether it is drawing a cart or a list of options.
+                # folding BROTH/SPICE/CHECKOUT in there would have made
+                # every checkout screen read as a mode change. This is the
+                # FSM state's own name, and oF uses it to decide whether
+                # it is drawing a cart or a list of options.
                 "phase": self.fsm.state.value,
+                "screen": self._screen_msg(),
                 "locale": self.locale,
                 # M8 hasn't built the fluid renderer yet; the shape is correct
                 # per doc section 4.3, "mala" is the documented diner default,
@@ -3175,6 +3447,57 @@ class Core:
             }
             self._state_seq += 1
             return msg
+
+    def _screen_msg(self) -> Dict[str, Any]:
+        """The page header: a title telling the diner what to do, and
+        where they are in the sequence.
+
+        2026-08-25. The developer's standard for this table is "any non
+        techy person should be able to understand it", and the single
+        cheapest thing that buys is a sentence naming the task — every
+        restaurant kiosk a diner has already used leads its screen with
+        one ("Choose your size", "Add a drink?"). Without it the broth
+        page is four unlabelled plates and a Next button.
+
+        `step`/`steps` drive the dots oF draws beside the title: a diner
+        who can see there are three steps and they are on the second one
+        knows the table is not about to charge them, which is most of what
+        makes a kiosk feel safe to poke at. The payment screen is step 3
+        of 3 rather than a fourth — it is the END of the sequence, not
+        another decision to make.
+
+        Every string is resolved here, per I2 — oF does no lookup, so a
+        second locale changes `data/locales/*.json` and no C++.
+
+        Caller holds `state_lock` (via `_state_msg`).
+        """
+        st = self.fsm.state
+        if st is fsm.State.BROTH:
+            key, step = "step_broth", 2
+        elif st is fsm.State.SPICE:
+            key, step = "step_spice", 3
+        elif st is fsm.State.CHECKOUT:
+            paid = self._order is not None and self._order.paid
+            key, step = ("paid" if paid else "step_pay"), 3
+        elif st is fsm.State.SELECTING:
+            key, step = "step_cart", 1
+        else:
+            # IDLE, BOOT, SETTING, UNCALIBRATED: no header. An empty title
+            # draws nothing (oF's own rule for every optional string), and
+            # a step counter on a table nobody is using would be furniture
+            # claiming a transaction is in progress.
+            return {"title": "", "step": 0, "steps": 0, "hint": ""}
+        hint = ""
+        if st is fsm.State.CHECKOUT:
+            paid = self._order is not None and self._order.paid
+            hint = self.locales.translate(
+                "token_hint" if paid else "pay_hint", self.locale)
+        return {
+            "title": self.locales.translate(key, self.locale),
+            "step": step,
+            "steps": 3,
+            "hint": hint,
+        }
 
     def _total_msg(self) -> Dict[str, Any]:
         # Doc §4.3's total is {amount, text} only — this adds `label`
