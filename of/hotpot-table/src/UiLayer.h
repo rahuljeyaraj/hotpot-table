@@ -7,6 +7,7 @@
 #include "StateLink.h"
 
 #include <array>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -202,6 +203,17 @@ private:
 	static void drawStringLitTo(const ofTrueTypeFont & f, const std::string & s,
 		float x, float baseline, float splitX, const ofColor & dark,
 		const ofColor & lit);
+	// The same pair, centred on `cx` the way `drawCentered` centres one.
+	static void drawCenteredLitTo(const ofTrueTypeFont & f, const std::string & s,
+		float cx, float baseline, float splitX, const ofColor & dark,
+		const ofColor & lit);
+	// How far the dwell sweep has crossed this widget, 0..1 — latched
+	// against the one-frame gap between core clearing `dwell` and core
+	// marking `selected`. See `_sweepHoldUntil`.
+	float sweep01For(const StateLink::Widget & w) const;
+	// The dark band itself, clipped to the widget's rounded corner, plus
+	// the amber leading edge while it is still moving.
+	static void drawSweep(const ofRectangle & box, float corner, float sweep01);
 	void drawBin(int i, const StateLink::Bin & b, const BinTween & tw) const;
 	// VISUAL_LAYER.md §8/§9 build item 9: the running total now draws as
 	// one receipt-style line (label left, value right) inside the cart
@@ -336,6 +348,15 @@ private:
 	// the warning is one line per name rather than one per frame at 60Hz.
 	// Mutable because drawCart is const and this is diagnostics, not state.
 	mutable std::set<std::string> _truncatedNames;
+	// **The anti-flicker latch** (see `sweep01For`). Widget id -> the
+	// elapsed time until which that widget's sweep is pinned full. Core
+	// clears `dwell` on the tick a choice fires and only marks `selected`
+	// on the NEXT state it sends, so for one or two frames a widget that
+	// just filled reports dwell 0 and selected false — which flashed the
+	// card back to white before it settled black. Cleared lazily: an entry
+	// is only read for a widget that is on screen, and the map is a
+	// handful of ids.
+	mutable std::map<std::string, float> _sweepHoldUntil;
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
 	bool _fontsLoaded = false;
 

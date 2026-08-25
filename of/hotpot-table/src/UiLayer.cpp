@@ -276,9 +276,19 @@ namespace {
 	// Split across both gaps rather than taken out of one, so neither
 	// the mark's clearance from the table edge nor its breathing room
 	// above the banner collapses on its own.
+	// **The header block was given room, 2026-08-25.** Developer: "the
+	// icon, the page name and the 5 dots all looks cramped up there, need
+	// to give breathing space for them. it is ok to reduce the font size to
+	// acheive that if necessary." Three gaps opened together — the mark's
+	// clearance from the table edge, the mark-to-title gap here, and
+	// `kStepDotsRowGapPx` below — and `kPageTitlePx` took the size cut the
+	// developer offered, which is what pays for most of it. The mark itself
+	// keeps its 170px: shrinking the logo would have made the header
+	// airier by making its one graphic element smaller, which is the
+	// opposite of what was asked for.
 	const float kBrandHeightPx = 170.0f;
-	const float kBrandTopMarginPx = 12.0f;
-	const float kBrandBannerGapPx = 14.0f;
+	const float kBrandTopMarginPx = 20.0f;
+	const float kBrandBannerGapPx = 26.0f;
 
 	// --- VISUAL_LAYER.md §8/§9, build item 9: the cart panel ----------------
 	// Lives in the same centre column as the brand mark and the mode
@@ -838,7 +848,6 @@ namespace {
 	// ring and the name ink all stay the plate's ordinary neutral colour
 	// whether it is selected or not.
 	const int kOptionSelectedGlowAlpha = 210;
-	const float kOptionSelectedRingMM = 9.0f;
 
 	// **The dwell sweep, and the inverted ink behind it, 2026-08-25
 	// (final).** The 140/255 selected fill this block used to define was
@@ -865,6 +874,11 @@ namespace {
 	// one mechanism.
 	const ofColor kOptionSweepEdgeColor(200, 120, 0);
 	const float kOptionSweepEdgePx = 4.0f;
+	// How long a full sweep is held after `dwell` drops — the anti-flicker
+	// latch, see `sweep01For`. A quarter second is far longer than the
+	// one-or-two-frame gap it exists to cover and far shorter than a diner
+	// can move a hand off a control and back onto it.
+	const float kSweepHoldS = 0.25f;
 	// **Broth and spice share one card shape now, 2026-08-25, later
 	// still.** The chili-strip cell (a separate, narrower layout) is gone
 	// with the vertical-slider redesign it belonged to — see
@@ -882,7 +896,13 @@ namespace {
 	// ("Choose Your Spice") measures 278px in PIL, so ~389px as oF will
 	// measure it — 165px of margin. The title is centred and free of the
 	// cart's 520px, so the column is what bounds it, not the cart.
-	const int kPageTitlePx = 26;
+	// 23px since 2026-08-25, down from 26 — the developer's own offer
+	// ("it is ok to reduce the font size to acheive that if necessary")
+	// taken up, because the header's three elements needed the vertical
+	// room more than the title needed the extra 3px. Still comfortably
+	// clear of the 554px centre column: the longest title core sends
+	// ("Choose Your Spice") measured ~389px at 26px, so ~344px here.
+	const int kPageTitlePx = 23;
 	// **The header's HEIGHT is measured at setup(), not fixed here** — see
 	// `_pageHeaderPx`. It was a 52px constant for one build and the info
 	// box's own check caught what that cost: the band below it came out
@@ -909,18 +929,18 @@ namespace {
 	// width — different amounts on different screens, because the titles
 	// are different lengths.
 	const float kStepDotRadiusPx = 5.0f;
-	const float kStepDotGapPx = 14.0f;
+	const float kStepDotGapPx = 20.0f;   // 14 -> 20, same 2026-08-25 pass
 	// The title's DESCENDER line -> the dots' top edge. Measured off the
 	// descender rather than the baseline so a title with descenders
 	// ("Choose Your Spice") cannot reach into the dots — and the
 	// descender is a font metric, not a per-string one, so the dots
 	// still sit at the same height on every screen.
 	//
-	// 8px here is what makes the whole header exactly 18px taller than
-	// the inline version was, which is exactly what the brand margins
-	// above gave back. Both numbers move together or the info box's own
-	// band check (setup()) starts warning.
-	const float kStepDotsRowGapPx = 8.0f;
+	// 18px since 2026-08-25 (was 8) — part of the "give breathing space"
+	// pass; see `kBrandTopMarginPx`'s own block. This and the brand
+	// margins move together, and `setup()`'s band check is the thing that
+	// says whether they have gone too far.
+	const float kStepDotsRowGapPx = 18.0f;
 	const ofColor kPageTitleColor(0x2B, 0x21, 0x18);   // the plate's own ink
 
 	void drawCentered(const ofTrueTypeFont & font, const std::string & text,
@@ -2587,19 +2607,23 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	// the button, not the pointer"). `dwell` is core's 0..1 fraction; oF
 	// still times nothing (doc §9.4).
 	//
+	// **The button row now uses the option cards' inverting sweep**,
+	// 2026-08-25: "the same inversion effect is also needed for the
+	// cancel, next back pay, done icons at the bottom as well." It was a
+	// translucent amber wash (`kWidgetDwellFill`, alpha 80) that left the
+	// label alone; it is now the same near-solid dark band the cards use,
+	// with the label inverting behind its leading edge — so Back, Cancel,
+	// Pay, Next and Done all report progress the same way a broth card
+	// does, and the table has one dwell language instead of two.
+	//
 	// **It fills LEFT to RIGHT**, which was forced by the old pill shape
 	// (a partial-height rounded rect on a pill's bottom edge pokes its
 	// corners out through the pill's curve) and is kept now that the
 	// shape is a rounded rect, because left-to-right is what a progress
 	// bar does everywhere else a diner has seen one. The clamp to the
 	// button's own corner is what keeps the sweep inside the frame.
-	if(w.enabled && w.dwell > 0.0f){
-		const float fillW = box.width * ofClamp(w.dwell, 0.0f, 1.0f);
-		if(fillW > 1.0f){
-			drawRoundedRectFill(ofRectangle(box.x, box.y, fillW, box.height),
-				corner, kWidgetDwellFill);
-		}
-	}
+	const float sweep01 = sweep01For(w);
+	drawSweep(box, corner, sweep01);
 
 	const float ringX = mmToPxX(kWidgetRingMM);
 	const float ringY = mmToPxY(kWidgetRingMM);
@@ -2617,11 +2641,18 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	// dark enough for §13.4 on their own, and a coloured frame around
 	// near-black text carries the hue in a hairline only, which was half
 	// of the original "washed out" report.
-	ofSetColor(w.enabled ? ink : kWidgetDisabled);
+	//
+	// Behind the sweep's leading edge the label flips to the lit ink —
+	// `kOptionNameLitColor`, the same off-white the cards use, rather than
+	// a lightened version of each button's own hue: on the swept black the
+	// hue is already carried by the ring and the halo around it, and three
+	// different near-whites would be three shades of "the same" colour.
 	const ofTrueTypeFont & face =
 		_buttonFont.isLoaded() ? _buttonFont : _nameFont;
-	drawCentered(face, w.label, box.getCenter().x,
-		box.getCenter().y + face.getAscenderHeight() * 0.5f);
+	drawCenteredLitTo(face, w.label, box.getCenter().x,
+		box.getCenter().y + face.getAscenderHeight() * 0.5f,
+		box.x + box.width * sweep01,
+		w.enabled ? ink : kWidgetDisabled, kOptionNameLitColor);
 	ofSetColor(255);
 }
 
@@ -2670,44 +2701,19 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	// nearly SOLID and the text comes with it: everything left of the
 	// leading edge is redrawn in the lit inks below, so contrast is
 	// preserved the whole way across instead of collapsing at the end.
-	//
-	// `sweep01` is the diner's dwell while they are hovering, and pinned
-	// to 1 once the choice is locked — a locked card is simply a card
-	// whose sweep finished and stayed. That is what makes a full-dark
-	// card the READABLE state rather than the unreadable one.
-	const float sweep01 = w.enabled
-		? (sel ? 1.0f : ofClamp(w.dwell, 0.0f, 1.0f)) : 0.0f;
+	const float sweep01 = sweep01For(w);
 	const float sweepW = box.width * sweep01;
-	if(sweepW > 1.0f){
-		// Clipped to the card's own rounded rect by drawing the sweep as a
-		// rounded rect of the SAME corner radius and then squaring off its
-		// right edge with a plain rect — an intersection would need a
-		// stencil, and the sweep's right edge is a straight cut by design.
-		drawRoundedRectFill(ofRectangle(box.x, box.y, sweepW, box.height),
-			corner, kOptionSweepColor);
-		if(sweepW > corner){
-			ofSetColor(kOptionSweepColor);
-			ofDrawRectangle(box.x + sweepW - corner, box.y + corner,
-				corner, box.height - 2.0f * corner);
-		}
-	}
-	// The leading edge, in the dwell amber — so "how far along am I" is
-	// legible even where the sweep happens to be crossing blank card
-	// rather than a letter. Drawn only while the sweep is actually
-	// moving: at rest (0) and at lock (1) there is no progress to report,
-	// and a stray amber bar down a locked card's right edge would read as
-	// a second, unexplained state.
-	if(sweep01 > 0.01f && sweep01 < 0.99f){
-		ofSetColor(kOptionSweepEdgeColor);
-		ofDrawRectangle(box.x + sweepW - kOptionSweepEdgePx, box.y,
-			kOptionSweepEdgePx, box.height);
-	}
+	drawSweep(box, corner, sweep01);
 
-	// The border THICKNESS is the other half of the selection signal —
-	// unchanged by this pass, `kOptionSelectedRingMM` is already nearly
-	// twice `kWidgetRingMM` (see that constant's own comment).
-	const float ringMM = sel ? kOptionSelectedRingMM : kWidgetRingMM;
-	drawRing(box, mmToPxX(ringMM), mmToPxY(ringMM), ink, corner);
+	// **The ring does NOT thicken on selection any more, 2026-08-25.**
+	// Developer: "now we are filling with black there is no point in
+	// creating the button edges thicker, let it remain the same." The
+	// thicker ring was the border half of an older selection signal
+	// ("change the border thickness and change the halo colour") from when
+	// the card itself stayed pale; a fully swept card carries the state in
+	// its own fill now, and a ring that also jumped from 5mm to 9mm shifted
+	// the text inside it at the moment of locking.
+	drawRing(box, mmToPxX(kWidgetRingMM), mmToPxY(kWidgetRingMM), ink, corner);
 
 	// The broth screen's own card style, 2026-08-25. Developer: "there is
 	// no info box, instead the whole button is inlarged to contain the
@@ -2874,6 +2880,87 @@ void UiLayer::drawStringLitTo(const ofTrueTypeFont & f, const std::string & s,
 	}
 	ofSetColor(lit);
 	f.drawString(prefix, x, baseline);
+}
+
+void UiLayer::drawCenteredLitTo(const ofTrueTypeFont & f, const std::string & s,
+	float cx, float baseline, float splitX, const ofColor & dark,
+	const ofColor & lit){
+	// `drawCentered`'s own arithmetic, lifted rather than shared, because
+	// `drawStringLitTo` needs the resolved LEFT edge and drawCentered only
+	// ever computes it internally.
+	if(s.empty() || !f.isLoaded()){
+		return;
+	}
+	const ofRectangle bb = f.getStringBoundingBox(s, 0, 0);
+	drawStringLitTo(f, s, cx - bb.width * 0.5f - bb.x, baseline, splitX,
+		dark, lit);
+}
+
+float UiLayer::sweep01For(const StateLink::Widget & w) const {
+	// The diner's dwell while they are hovering, pinned to 1 once the
+	// choice is locked — a locked control is simply one whose sweep
+	// finished and stayed. That is what makes a full-dark card the
+	// READABLE state rather than the unreadable one.
+	//
+	// **The latch is the flicker fix, 2026-08-25.** Developer: "there is a
+	// flickering sometimes in the button selection, it will fill black and
+	// suddenly it flicker white before tuning black." Core clears `dwell`
+	// on the tick a choice fires, but `selected` only reaches oF on the
+	// NEXT state it sends — so for a frame or two the widget reports dwell
+	// 0 AND selected false, and the sweep collapsed to nothing before
+	// coming straight back. Rather than have oF guess at core's timing (or
+	// have core send a field for it), a widget whose sweep reaches full is
+	// held full for `kSweepHoldS`, which comfortably outlasts one state
+	// round-trip at any frame rate the table runs at. If the choice really
+	// was abandoned at 99% the hold simply expires and the sweep clears.
+	if(!w.enabled){
+		return 0.0f;
+	}
+	if(w.selected){
+		return 1.0f;
+	}
+	const float raw = ofClamp(w.dwell, 0.0f, 1.0f);
+	const float now = ofGetElapsedTimef();
+	if(raw >= 0.995f){
+		_sweepHoldUntil[w.id] = now + kSweepHoldS;
+		return 1.0f;
+	}
+	const auto it = _sweepHoldUntil.find(w.id);
+	if(it != _sweepHoldUntil.end()){
+		if(now < it->second){
+			return 1.0f;
+		}
+		_sweepHoldUntil.erase(it);
+	}
+	return raw;
+}
+
+void UiLayer::drawSweep(const ofRectangle & box, float corner, float sweep01){
+	const float sweepW = box.width * sweep01;
+	if(sweepW > 1.0f){
+		// Clipped to the control's own rounded rect by drawing the sweep as
+		// a rounded rect of the SAME corner radius and then squaring off its
+		// right edge with a plain rect — an intersection would need a
+		// stencil, and the sweep's right edge is a straight cut by design.
+		drawRoundedRectFill(ofRectangle(box.x, box.y, sweepW, box.height),
+			corner, kOptionSweepColor);
+		if(sweepW > corner){
+			ofSetColor(kOptionSweepColor);
+			ofDrawRectangle(box.x + sweepW - corner, box.y + corner,
+				corner, box.height - 2.0f * corner);
+		}
+	}
+	// The leading edge, in the dwell amber — so "how far along am I" is
+	// legible even where the sweep happens to be crossing blank space
+	// rather than a letter. Drawn only while the sweep is actually moving:
+	// at rest (0) and at lock (1) there is no progress to report, and a
+	// stray amber bar down a locked control's right edge would read as a
+	// second, unexplained state.
+	if(sweep01 > 0.01f && sweep01 < 0.99f){
+		ofSetColor(kOptionSweepEdgeColor);
+		ofDrawRectangle(box.x + sweepW - kOptionSweepEdgePx, box.y,
+			kOptionSweepEdgePx, box.height);
+	}
 }
 
 void UiLayer::drawWidgets(const StateLink::State & state) const {
