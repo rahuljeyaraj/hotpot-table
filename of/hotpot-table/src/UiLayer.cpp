@@ -897,20 +897,32 @@ namespace {
 	const ofColor kCardBaseColor(0xE8, 0xE6, 0xE1);
 
 	// --- the spice card's chilli count ------------------------------------
-	// **Back on 2026-08-25, third time, and bigger.** Developer: "in the
-	// spicy box, put one chilli in the mil right alighedn in same line as
-	// that of mild. then 2 chilli in medium and three in hot, all right
-	// alighned. chili icon should be bigger than the one u used before as
-	// it was not clear." The version deleted earlier this session drew at
-	// 22px inside a narrow icon column; at three metres through a
-	// projector that was a red smudge. 40px, on the name's own line, at
-	// the card's right edge — `hover.spice_widgets` sends the count as
-	// `icon_count` and this draws exactly that many, with no empty
-	// outline peppers behind them (a count, not a gauge).
-	const float kChilliHPx = 40.0f;
-	const float kChilliPitchPx = 34.0f;
-	const ofColor kChilliColor(0xC0, 0x39, 0x2B);
-	const ofColor kChilliStemColor(0x4F, 0x7A, 0x3A);
+	// **Back on 2026-08-25, third time.** Developer: "in the spicy box,
+	// put one chilli in the mil right alighedn in same line as that of
+	// mild. then 2 chilli in medium and three in hot, all right alighned."
+	// `hover.spice_widgets` sends the count as `icon_count` and
+	// `drawOptionPlate` draws exactly that many, with no empty outline
+	// peppers behind them — a count, not a gauge.
+	//
+	// **The height is not a constant: it is the NAME's cap height.**
+	// Developer, after a fixed 40px version: "the height of the chili
+	// should be same as the height of the hot, medium mild letters." So
+	// the glyph is measured off `nameFace` at draw time and this block
+	// only carries the proportions. That also means the peppers track the
+	// name font if it is ever resized again, instead of silently drifting
+	// out of step with it the way a hard-coded px would.
+	const float kChilliAspect = 2.0f;      // width / height, before rotation
+	const float kChilliRotationDeg = -38.0f;
+	// The horizontal room one rotated pepper actually takes, as a multiple
+	// of its height — the rotated body's own extent, not the axis-aligned
+	// box of an unrotated one. Used for the strip's width and its pitch,
+	// so a name's truncation budget and the peppers' spacing come off the
+	// same number.
+	const float kChilliWidthFactor = 1.62f;
+	const float kChilliGapFactor = 0.26f;  // between peppers, x height
+	const ofColor kChilliColor(0xE8, 0x23, 0x2A);
+	const ofColor kChilliEdgeColor(0xC4, 0x1E, 0x27);
+	const ofColor kChilliStemColor(0x1B, 0x6B, 0x3A);
 	// The sweep's own fall clock — see `sweep01For`. The sweep rises with
 	// the wire value but falls only on this renderer's time: nothing for
 	// `kSweepFallDelayS` (long enough to swallow a tracker dropout or a
@@ -1616,48 +1628,75 @@ float UiLayer::breath(float floor01, float phase){
 }
 
 void UiLayer::drawChilli(float cx, float cy, float sizePx){
-	// One pepper, centred on (cx, cy), `sizePx` tall — see kChilliHPx for
-	// why it is drawn at the size it is. A silhouette, not an
-	// illustration: a curved body tapering to a point, plus a stem, in two
-	// flat fills. Anything finer (a highlight, a shaded side) disappears
-	// on a projected plywood surface and only costs legibility.
+	// One pepper, centred on (cx, cy), `sizePx` TALL and `kChilliAspect`
+	// times that wide — redrawn 2026-08-25 to the reference the developer
+	// supplied: a chilli lying on its side, tip at the lower left, the
+	// body sweeping up and right into a fat shoulder, and a green stem
+	// hooking up off that shoulder. The upright pepper this replaced read
+	// as a flame or a teardrop at card size, which is exactly the wrong
+	// thing to put on a spice card.
+	//
+	// Still a silhouette, not an illustration — two flat fills and a
+	// darker red edge, no highlight and no shading. At the size the
+	// developer asked for ("the height of the chili should be same as the
+	// height of the hot, medium mild letters") anything finer would be
+	// sub-pixel on the projector.
 	if(sizePx <= 0.0f){
 		return;
 	}
 	const float h = sizePx;
-	const float w = sizePx * 0.46f;
-	const float topY = cy - h * 0.5f;
-	const float bodyTop = topY + h * 0.22f;   // where the stem ends
-	const float tipY = cy + h * 0.5f;
+	const float w = sizePx * kChilliAspect;
+	// Built around the origin and ROTATED into place — developer, on the
+	// first flat version: "may be rotate the chilli bit to make it less
+	// wider." A pepper lying dead flat is `kChilliAspect` times as wide as
+	// it is tall, and three of them beside a name ate the card's whole
+	// right half; tipping it up trades some of that width for height the
+	// name line already has. It also just looks less like a diagram.
+	ofPushMatrix();
+	ofTranslate(cx, cy);
+	ofRotateDeg(kChilliRotationDeg);
+	const float left = -w * 0.5f;
+	const float top = -h * 0.5f;
+	const float bottom = h * 0.5f;
+	const float cy2 = 0.0f;
 
 	ofPath body;
 	body.setFilled(true);
 	body.setFillColor(kChilliColor);
-	body.setCircleResolution(48);
-	// Shoulder down the left, curving in to the tip, which leans right.
-	body.moveTo(cx - w * 0.10f, bodyTop);
-	body.bezierTo(cx - w * 0.62f, bodyTop + h * 0.10f,
-		cx - w * 0.52f, tipY - h * 0.24f,
-		cx + w * 0.16f, tipY);
-	// Back up the right side, fuller than the left — that asymmetry is
-	// what stops it reading as a carrot.
-	body.bezierTo(cx + w * 0.46f, tipY - h * 0.30f,
-		cx + w * 0.40f, bodyTop + h * 0.06f,
-		cx - w * 0.10f, bodyTop);
+	// The darker edge from the reference — it is what keeps the shape
+	// legible where a pepper overlaps the swept black band behind it.
+	body.setStrokeColor(kChilliEdgeColor);
+	body.setStrokeWidth(std::max(1.0f, h * 0.06f));
+	body.setCircleResolution(64);
+	// The tip, at the far left, sitting just below the middle.
+	body.moveTo(left, cy2 + h * 0.16f);
+	// Upper edge: sweeps right and climbs to the shoulder.
+	body.bezierTo(left + w * 0.26f, cy2 - h * 0.10f,
+		left + w * 0.52f, top,
+		left + w * 0.82f, top + h * 0.06f);
+	// Around the fat right end.
+	body.bezierTo(left + w * 0.99f, top + h * 0.22f,
+		left + w * 0.98f, cy2 + h * 0.24f,
+		left + w * 0.78f, cy2 + h * 0.38f);
+	// Lower edge: back along the belly to the tip.
+	body.bezierTo(left + w * 0.52f, bottom,
+		left + w * 0.20f, bottom - h * 0.02f,
+		left, cy2 + h * 0.16f);
 	body.close();
 	body.draw();
 
-	// The stem: a short stalk out of the crown, kinked to one side.
+	// The stem, hooking up and right off the shoulder.
 	ofPath stem;
 	stem.setFilled(false);
 	stem.setStrokeColor(kChilliStemColor);
-	stem.setStrokeWidth(std::max(2.0f, h * 0.09f));
+	stem.setStrokeWidth(std::max(1.5f, h * 0.11f));
 	stem.setCircleResolution(24);
-	stem.moveTo(cx - w * 0.06f, bodyTop + h * 0.02f);
-	stem.bezierTo(cx - w * 0.10f, topY + h * 0.10f,
-		cx + w * 0.16f, topY + h * 0.06f,
-		cx + w * 0.44f, topY);
+	stem.moveTo(left + w * 0.80f, top + h * 0.10f);
+	stem.bezierTo(left + w * 0.90f, top - h * 0.14f,
+		left + w * 0.99f, top - h * 0.30f,
+		left + w * 0.94f, top - h * 0.42f);
 	stem.draw();
+	ofPopMatrix();
 }
 
 void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
@@ -2870,8 +2909,15 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	// subtract the strip: a broth sends no icon and loses nothing.
 	const int chilliCount = (w.icon == "chilli")
 		? std::max(0, std::min(8, w.iconCount)) : 0;
+	// Sized to the NAME's own cap height, measured off the label rather
+	// than off the font's ascender — "Hot", "Medium" and "Mild" are all
+	// caps-and-x-height with no descender, so the string's own bounding
+	// box IS the letter height the developer asked the pepper to match.
+	const float chilliH = chilliCount > 0
+		? nameFace.getStringBoundingBox(w.label, 0, 0).height : 0.0f;
+	const float chilliPitch = chilliH * (kChilliWidthFactor + kChilliGapFactor);
 	const float chilliStripW = chilliCount > 0
-		? (chilliCount - 1) * kChilliPitchPx + kChilliHPx * 0.46f
+		? (chilliCount - 1) * chilliPitch + chilliH * kChilliWidthFactor
 			+ kInfoDietDotGapPx
 		: 0.0f;
 	const float nameWidth = textWidth - chilliStripW;
@@ -2907,11 +2953,15 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	// alone by the sweep for the same reason the diet dot's hue is: it is
 	// the information.
 	if(chilliCount > 0){
-		const float chilliCy = nameBaseline
-			- nameFace.getAscenderHeight() * 0.42f;
-		const float rightCx = box.x + box.width - padX - kChilliHPx * 0.23f;
+		// Vertically centred on the letters themselves — the midpoint
+		// between the baseline and the top of the caps — so a pepper the
+		// same height as the word sits level with the word rather than
+		// riding above or below it.
+		const float chilliCy = nameBaseline - chilliH * 0.5f;
+		const float rightCx = box.x + box.width - padX
+			- chilliH * kChilliWidthFactor * 0.5f;
 		for(int i = 0; i < chilliCount; i++){
-			drawChilli(rightCx - i * kChilliPitchPx, chilliCy, kChilliHPx);
+			drawChilli(rightCx - i * chilliPitch, chilliCy, chilliH);
 		}
 	}
 	y += nameFace.getAscenderHeight() + fabsf(nameFace.getDescenderHeight())
