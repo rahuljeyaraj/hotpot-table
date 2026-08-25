@@ -538,14 +538,22 @@ namespace {
 	                                  // the same nominal size in the sans
 	const int kInfoDietPx = 17;
 	const float kInfoBoxPadXPx = 24.0f;
-	// 14 -> 10 and 6 -> 5, 2026-08-25. Both came off the same measurement
-	// as kInfoBoxTextPx above: the line gap appears seven and a half times
-	// in the box's height sum (once after the name, twice around the rule,
-	// one and a half after the diet line, three inside the note), so a
-	// single point off it is worth more here than anywhere else on the
-	// table.
-	const float kInfoBoxPadYPx = 10.0f;
-	const float kInfoBoxLineGapPx = 5.0f;
+	// 14 -> 10 -> 7 and 6 -> 5 -> 3, 2026-08-25. Both came off the same
+	// measurement as kInfoBoxTextPx above: the line gap appears seven and
+	// a half times in the box's height sum (once after the name, twice
+	// around the rule, one and a half after the diet line, three inside
+	// the note), so a single point off it is worth more here than anywhere
+	// else on the table.
+	//
+	// **The second cut paid for the header's breathing room**, same day:
+	// `kBrandTopMarginPx`/`kBrandBannerGapPx`/`kStepDotsRowGapPx` took 20px
+	// out of this band, and setup()'s own check caught it immediately
+	// (224.0px of content in a 204.8px band — exactly the overflow the
+	// check exists to refuse to ship). ~15px comes back off the line gap
+	// and ~6px off the pad, which clears it without touching a font size
+	// on the one screen the diner reads longest.
+	const float kInfoBoxPadYPx = 7.0f;
+	const float kInfoBoxLineGapPx = 3.0f;
 	// **No fill, no border, no panel.** The pink-fill + fire-glow rounded
 	// card that lived here until 2026-08-24 is gone: the developer picked
 	// Direction A off the design canvas, which is the text-forward one —
