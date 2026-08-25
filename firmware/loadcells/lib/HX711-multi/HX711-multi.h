@@ -18,6 +18,7 @@ class HX711MULTI
 		bool debugEnabled; //print debug messages?
 
 		long *OFFSETS;	// used for tare weight
+		uint32_t READY_TIMEOUT_MS;	// LOCAL PATCH: bound on the DOUT wait
 		float SCALE;	// used to return weight in grams, kg, ounces, whatever
 
 	public:
@@ -43,12 +44,15 @@ class HX711MULTI
 		void set_gain(byte gain = 128);
 
 		// waits for the chip to be ready and returns a reading
-		void read(long *result = NULL);
+		// LOCAL PATCH: returns false if the wait timed out, in which case
+		// no clock was issued and 'result' is untouched. See README.md.
+		bool read(long *result = NULL);
 
 		// same as read, but does not offset the values according to the tare
 		// LOCAL PATCH: was `void HX711MULTI::readRaw(...)`. A qualified name is
 		// illegal inside the class body; GCC rejects it outright. See README.md.
-		void readRaw(long *result = NULL);
+		// LOCAL PATCH: returns bool, see read() above.
+		bool readRaw(long *result = NULL);
 
 		// set the OFFSET value for tare weight
 		// times: how many times to read the tare value
@@ -63,6 +67,23 @@ class HX711MULTI
 		void power_up();
 
 		void setDebugEnable(bool debugEnable = true);
+
+		// LOCAL PATCH -- the bounded ready-wait. Upstream spins in
+		// `while (!is_ready());` forever, so one dead DOUT line silences all
+		// channels and hangs the caller. See README.md.
+
+		// Waits for every channel's DOUT to go low. Returns false on timeout.
+		// Sleeps between polls, so the RTOS idle task and the USB stack still
+		// run -- upstream's tight spin starves them and trips the watchdog.
+		bool waitReady(uint32_t timeout_ms);
+
+		// Bit i is set when channel i's DOUT is still high (not ready).
+		// Valid for up to 32 channels, which is well past any real wiring.
+		uint32_t notReadyMask();
+
+		// How long readRaw()/read()/tare() wait before giving up.
+		void setReadyTimeout(uint32_t timeout_ms);
+		uint32_t getReadyTimeout();
 };
 
 #endif /* HX711_MULTI_h */

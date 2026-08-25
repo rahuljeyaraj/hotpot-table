@@ -7,6 +7,7 @@ HX711MULTI::HX711MULTI(int count, byte *dout, byte pd_sck, byte gain) {
 	COUNT   = count;
 
 	debugEnabled = false;
+	READY_TIMEOUT_MS = 1000; // LOCAL PATCH: see waitReady()
 
 	pinMode(PD_SCK, OUTPUT);
 	for (int i=0; i<count; i++) {
@@ -33,6 +34,41 @@ bool HX711MULTI::is_ready() {
 		}
 	}
 	return result;
+}
+
+// LOCAL PATCH -- everything down to set_gain() is local. See README.md.
+
+uint32_t HX711MULTI::notReadyMask() {
+	uint32_t mask = 0;
+	for (int i = 0; i < COUNT && i < 32; ++i) {
+		if (digitalRead(DOUT[i]) == HIGH) {
+			mask |= ((uint32_t)1) << i;
+		}
+	}
+	return mask;
+}
+
+bool HX711MULTI::waitReady(uint32_t timeout_ms) {
+	uint32_t start = millis();
+	while (!is_ready()) {
+		// millis() subtraction is unsigned, so this stays correct across the
+		// 49-day rollover.
+		if ((uint32_t)(millis() - start) >= timeout_ms) {
+			return false;
+		}
+		// 1ms of real sleep, not a spin: the HX711 holds DOUT low until it is
+		// clocked, so nothing is missed, and the idle task gets to run.
+		delay(1);
+	}
+	return true;
+}
+
+void HX711MULTI::setReadyTimeout(uint32_t timeout_ms) {
+	READY_TIMEOUT_MS = timeout_ms;
+}
+
+uint32_t HX711MULTI::getReadyTimeout() {
+	return READY_TIMEOUT_MS;
 }
 
 void HX711MULTI::set_gain(byte gain) {
@@ -81,7 +117,10 @@ bool HX711MULTI::tare(byte times, uint16_t tolerance) {
 	}
 
 	for (i=0; i<times; ++i) {
-		readRaw(values);
+		// LOCAL PATCH: a channel that never reports cannot be tared.
+		if (!readRaw(values)) {
+			return false;
+		}
 		for (j=0; j<COUNT; ++j) {
 			if (values[j]<minValues[j]) {
 				minValues[j]=values[j];
@@ -117,9 +156,13 @@ bool HX711MULTI::tare(byte times, uint16_t tolerance) {
 
 //reads from all cahnnels and sets the values into the passed long array pointer (which must have at least 'count' cells allocated)
 //if you are only reading to toggle the line, and not to get values (such as in the case of setting gains) you can pass NULL.
-void HX711MULTI::read(long *result) {
+bool HX711MULTI::read(long *result) {
     
-    readRaw(result);
+    // LOCAL PATCH: a timed-out read leaves 'result' untouched rather than
+    // subtracting offsets from stale memory.
+    if (!readRaw(result)) {
+        return false;
+    }
     
     // Datasheet indicates the value is returned as a two's complement value, so 'stretch' the 24th bit to fit into 32 bits. 
 	if (NULL!=result) {
@@ -127,13 +170,19 @@ void HX711MULTI::read(long *result) {
 		    result[j] -= OFFSETS[j];   	
 		}
 	}
+	return true;
 }
 
 
-void HX711MULTI::readRaw(long *result) {
+bool HX711MULTI::readRaw(long *result) {
 	int i,j;
 	// wait for all the chips to become ready
-	while (!is_ready());
+	// LOCAL PATCH: was `while (!is_ready());`, which never returns if any one
+	// DOUT line is stuck high. Bail out instead, and clock nothing: a partial
+	// or garbage frame read from a silent channel is worse than no frame.
+	if (!waitReady(READY_TIMEOUT_MS)) {
+		return false;
+	}
 
 	// pulse the clock pin 24 times to read the data
 	for (i = 0; i < 24; ++i) {
@@ -163,6 +212,7 @@ void HX711MULTI::readRaw(long *result) {
 	    } 
 
     }
+	return true;
 }
 
 void HX711MULTI::setDebugEnable(bool debugEnable) {
