@@ -652,6 +652,14 @@ namespace {
 	// needed to clear a 3rd note line without shrinking any text.
 	const float kBrothCardPadYPx = 7.0f;
 	const float kBrothCardNoteLineGapPx = 3.0f;
+	// The option card's own note size — see `drawOptionPlate`'s comment on
+	// `_cardNoteFont` for why the card does not simply share the info
+	// box's `kInfoBoxTextPx`.
+	const int kCardNotePx = 16;
+	// "No line cap", for the measuring wrap that decides whether the note
+	// was truncated. `wrapToLines` reads 0 as "no lines at all", so this
+	// has to be a number no menu note can reach rather than zero.
+	const size_t kCardNoteLineCap = 64;
 
 	// --- The pointer: none of it is drawn any more ------------------------
 	// This block used to hold the cursor's own furniture — first a dot and
@@ -882,6 +890,27 @@ namespace {
 	// one mechanism.
 	const ofColor kOptionSweepEdgeColor(200, 120, 0);
 	const float kOptionSweepEdgePx = 4.0f;
+	// The card's opaque base — Stage's own `kTableBackground`, restated
+	// here rather than shared because Stage paints the whole table with it
+	// and this paints one card with it, and the two would not want to move
+	// together if either ever changed. See `drawWidget`'s own comment.
+	const ofColor kCardBaseColor(0xE8, 0xE6, 0xE1);
+
+	// --- the spice card's chilli count ------------------------------------
+	// **Back on 2026-08-25, third time, and bigger.** Developer: "in the
+	// spicy box, put one chilli in the mil right alighedn in same line as
+	// that of mild. then 2 chilli in medium and three in hot, all right
+	// alighned. chili icon should be bigger than the one u used before as
+	// it was not clear." The version deleted earlier this session drew at
+	// 22px inside a narrow icon column; at three metres through a
+	// projector that was a red smudge. 40px, on the name's own line, at
+	// the card's right edge — `hover.spice_widgets` sends the count as
+	// `icon_count` and this draws exactly that many, with no empty
+	// outline peppers behind them (a count, not a gauge).
+	const float kChilliHPx = 40.0f;
+	const float kChilliPitchPx = 34.0f;
+	const ofColor kChilliColor(0xC0, 0x39, 0x2B);
+	const ofColor kChilliStemColor(0x4F, 0x7A, 0x3A);
 	// The sweep's own fall clock — see `sweep01For`. The sweep rises with
 	// the wire value but falls only on this renderer's time: nothing for
 	// `kSweepFallDelayS` (long enough to swallow a tracker dropout or a
@@ -1171,6 +1200,7 @@ void UiLayer::setup(){
 	// See kOptionLabelPx: 20px is what the plate's own arithmetic allows,
 	// not a preference.
 	ok = loadUiFont(_optionFont, kFontFile, kOptionLabelPx) && ok;
+	ok = loadUiFont(_cardNoteFont, kRegularFontFile, kCardNotePx) && ok;
 	ok = loadUiFont(_tokenFont, kMonoBoldFontFile, kTokenPx) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
 	_fontsLoaded = ok;
@@ -1583,6 +1613,51 @@ float UiLayer::breath(float floor01, float phase){
 	const float amp = 1.0f - ofClamp(floor01, 0.0f, 1.0f);
 	return ofClamp(floor01, 0.0f, 1.0f) + amp * 0.5f
 		* (1.0f + sinf(TWO_PI * ofGetElapsedTimef() / kWidgetBreathPeriodS + phase));
+}
+
+void UiLayer::drawChilli(float cx, float cy, float sizePx){
+	// One pepper, centred on (cx, cy), `sizePx` tall — see kChilliHPx for
+	// why it is drawn at the size it is. A silhouette, not an
+	// illustration: a curved body tapering to a point, plus a stem, in two
+	// flat fills. Anything finer (a highlight, a shaded side) disappears
+	// on a projected plywood surface and only costs legibility.
+	if(sizePx <= 0.0f){
+		return;
+	}
+	const float h = sizePx;
+	const float w = sizePx * 0.46f;
+	const float topY = cy - h * 0.5f;
+	const float bodyTop = topY + h * 0.22f;   // where the stem ends
+	const float tipY = cy + h * 0.5f;
+
+	ofPath body;
+	body.setFilled(true);
+	body.setFillColor(kChilliColor);
+	body.setCircleResolution(48);
+	// Shoulder down the left, curving in to the tip, which leans right.
+	body.moveTo(cx - w * 0.10f, bodyTop);
+	body.bezierTo(cx - w * 0.62f, bodyTop + h * 0.10f,
+		cx - w * 0.52f, tipY - h * 0.24f,
+		cx + w * 0.16f, tipY);
+	// Back up the right side, fuller than the left — that asymmetry is
+	// what stops it reading as a carrot.
+	body.bezierTo(cx + w * 0.46f, tipY - h * 0.30f,
+		cx + w * 0.40f, bodyTop + h * 0.06f,
+		cx - w * 0.10f, bodyTop);
+	body.close();
+	body.draw();
+
+	// The stem: a short stalk out of the crown, kinked to one side.
+	ofPath stem;
+	stem.setFilled(false);
+	stem.setStrokeColor(kChilliStemColor);
+	stem.setStrokeWidth(std::max(2.0f, h * 0.09f));
+	stem.setCircleResolution(24);
+	stem.moveTo(cx - w * 0.06f, bodyTop + h * 0.02f);
+	stem.bezierTo(cx - w * 0.10f, topY + h * 0.10f,
+		cx + w * 0.16f, topY + h * 0.06f,
+		cx + w * 0.44f, topY);
+	stem.draw();
 }
 
 void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
@@ -2599,7 +2674,10 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	const bool primary = w.enabled && w.style == "primary";
 	const int fillPeak = primary ? kWidgetPrimaryFillAlpha : kWidgetFillAlpha;
 
-	// The halo is `drawWidgets`' first pass — see there.
+	// The halo is `drawWidgetGlows`, earlier in the frame; the opaque base
+	// under the wash is what stops a neighbour's halo reading through this
+	// button. Same reasoning as `drawOptionPlate` — see there.
+	drawRoundedRectFill(box, corner, kCardBaseColor);
 	drawRoundedRectFill(box, corner,
 		ofColor(ink, w.enabled ? (int)(fillPeak * (0.55f + 0.45f * glow01))
 			: kWidgetFillAlpha / 2));
@@ -2688,9 +2766,17 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	// branch — and only the GLOW reaches for `kWidgetPrimary`, so a
 	// locked-in choice reads as "this one is glowing teal" rather than
 	// "this whole card turned blue."
-	// The halo itself is drawn in `drawWidgets`' FIRST pass, not here —
-	// see that function's own comment on why every glow has to land under
-	// every card rather than over the neighbouring ones.
+	// The halo itself is `drawWidgetGlows`, called much earlier — see
+	// there for why every glow has to land under the whole column.
+	//
+	// An OPAQUE base first, then the usual translucent ink wash on top of
+	// it. The wash is only ~10% ink, so without this the neighbouring
+	// cards' halos read straight through a card that was drawn over them
+	// — which is what "i can still see halo of button coming over other
+	// buttons" was still seeing after the draw order was fixed. The base
+	// is the table's own colour, so the card looks exactly as it did;
+	// it just stops being a window.
+	drawRoundedRectFill(box, corner, kCardBaseColor);
 	drawRoundedRectFill(box, corner,
 		ofColor(ink, w.enabled
 			? (int)(kWidgetFillAlpha * (0.55f + 0.45f * glow01))
@@ -2751,9 +2837,21 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	}
 	const float padX = kInfoBoxPadXPx;
 	const float leftX = box.x + padX;
+	// **The note draws in `_cardNoteFont`, not `_infoFont`, since
+	// 2026-08-25.** Developer: "now broth content is getting truncated. u
+	// may reduce the font size but it cant truncate." The header's
+	// breathing-room pass took ~28px off the top of every card and the
+	// longest broth note stopped fitting. `_cardNoteFont` is the same face
+	// at `kCardNotePx` (16px against the shared box's 18px), which buys
+	// back a line and a half of note per card — and it is a font of the
+	// card's OWN, deliberately not a smaller `kInfoBoxTextPx`, because the
+	// shared info box on the bin screen has its own band arithmetic and
+	// has no reason to shrink with this.
+	const ofTrueTypeFont & noteFace =
+		_cardNoteFont.isLoaded() ? _cardNoteFont : _infoFont;
 	const float textWidth = box.width - 2.0f * padX;
-	const float bodyLineH = _infoFont.getAscenderHeight()
-		+ fabsf(_infoFont.getDescenderHeight()) + kBrothCardNoteLineGapPx;
+	const float bodyLineH = noteFace.getAscenderHeight()
+		+ fabsf(noteFace.getDescenderHeight()) + kBrothCardNoteLineGapPx;
 	float y = box.y + kBrothCardPadYPx;
 
 	// The name — `_optionFont` (20px), not `_infoNameFont` (32px, sized
@@ -2765,10 +2863,22 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	const ofTrueTypeFont & nameFace =
 		_optionFont.isLoaded() ? _optionFont : _nameFont;
 	const float nameBaseline = y + nameFace.getAscenderHeight();
+	// The chilli count, right-aligned on the NAME's own line — developer,
+	// 2026-08-25: "put one chilli in the mil right alighedn in same line
+	// as that of mild. then 2 chilli in medium and three in hot, all right
+	// alighned." Drawn before the name so the name's width budget can
+	// subtract the strip: a broth sends no icon and loses nothing.
+	const int chilliCount = (w.icon == "chilli")
+		? std::max(0, std::min(8, w.iconCount)) : 0;
+	const float chilliStripW = chilliCount > 0
+		? (chilliCount - 1) * kChilliPitchPx + kChilliHPx * 0.46f
+			+ kInfoDietDotGapPx
+		: 0.0f;
+	const float nameWidth = textWidth - chilliStripW;
 	std::string name = w.label;
 	const float nameW = nameFace.getStringBoundingBox(name, 0, 0).width;
-	if(nameW > textWidth){
-		name = truncateToWidth(nameFace, name, textWidth);
+	if(nameW > nameWidth){
+		name = truncateToWidth(nameFace, name, nameWidth);
 		if(_truncatedNames.insert(w.label).second){
 			// Shared by the broth screen's cards AND, since 2026-08-25,
 			// the spice screen's description cards (`hover.spice_widgets`)
@@ -2776,8 +2886,8 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 			// tells the two apart in a log.
 			ofLogWarning(kTag) << "info card " << w.id << " (\""
 				<< w.label << "\") needs " << nameW
-				<< "px but the card is " << textWidth
-				<< "px wide — truncated";
+				<< "px but the card leaves " << nameWidth
+				<< "px for the name — truncated";
 		}
 	}
 	// The name's own ink no longer switches on `sel` either — see this
@@ -2787,6 +2897,23 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	const float splitX = box.x + sweepW;
 	drawStringLitTo(nameFace, name, leftX, nameBaseline, splitX,
 		w.enabled ? kInfoBoxNameColor : kWidgetDisabled, kOptionNameLitColor);
+
+	// The peppers, laid right to left from the card's right pad so the
+	// LAST one always lands on the same x whatever the count is — which is
+	// what makes the three cards read as a scale rather than as three
+	// unrelated rows. Centred on the name's x-height rather than its
+	// baseline, so a 40px glyph beside a 20px word sits level with the
+	// word instead of hanging off the bottom of it. Their red is left
+	// alone by the sweep for the same reason the diet dot's hue is: it is
+	// the information.
+	if(chilliCount > 0){
+		const float chilliCy = nameBaseline
+			- nameFace.getAscenderHeight() * 0.42f;
+		const float rightCx = box.x + box.width - padX - kChilliHPx * 0.23f;
+		for(int i = 0; i < chilliCount; i++){
+			drawChilli(rightCx - i * kChilliPitchPx, chilliCy, kChilliHPx);
+		}
+	}
 	y += nameFace.getAscenderHeight() + fabsf(nameFace.getDescenderHeight())
 		+ kInfoBoxLineGapPx;
 
@@ -2838,11 +2965,29 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	const float remaining = (box.y + box.height - kBrothCardPadYPx) - y;
 	const size_t maxLines = remaining >= bodyLineH
 		? (size_t)(remaining / bodyLineH) : 0;
-	for(const std::string & line
-			: wrapToLines(_infoFont, w.desc, textWidth, maxLines)){
-		drawStringLitTo(_infoFont, line, leftX, y + _infoFont.getAscenderHeight(),
+	const std::vector<std::string> noteLines =
+		wrapToLines(noteFace, w.desc, textWidth, maxLines);
+	for(const std::string & line : noteLines){
+		drawStringLitTo(noteFace, line, leftX, y + noteFace.getAscenderHeight(),
 			splitX, kInfoBoxTextColor, kOptionNoteLitColor);
 		y += bodyLineH;
+	}
+	// **Truncation is a bug here, not a fallback** — developer: "it cant
+	// truncate." `wrapToLines` ellipsises whatever did not fit, which is
+	// exactly why nobody noticed until it showed up on the rig; say so in
+	// the log, once per card, so the next card that outgrows its box is
+	// caught on the bench instead. `kCardNoteLineCap` is "no cap" — the
+	// helper treats 0 as "no lines at all", so the unbounded wrap has to
+	// ask for a number no note will ever reach.
+	if(!w.desc.empty()){
+		const size_t wanted =
+			wrapToLines(noteFace, w.desc, textWidth, kCardNoteLineCap).size();
+		if(wanted > noteLines.size()
+				&& _truncatedNames.insert(w.id + ":desc").second){
+			ofLogWarning(kTag) << "info card " << w.id << " note wants "
+				<< wanted << " lines but only " << maxLines
+				<< " fit — shrink kCardNotePx or the menu copy";
+		}
 	}
 	ofSetColor(255);
 }
@@ -2995,23 +3140,37 @@ void UiLayer::drawSweep(const ofRectangle & box, float corner, float sweep01){
 	}
 }
 
-void UiLayer::drawWidgets(const StateLink::State & state) const {
-	// **Two passes: every halo first, then every widget, 2026-08-25.**
-	// Developer: "hallo of any button should not come over any other
-	// button selected on not." A halo reaches `kWidgetGlowReachPx` past
-	// its own frame, which on the stacked option cards is far enough to
-	// land on the neighbour above and below — and drawn in one pass, card
-	// N's halo painted OVER card N-1's fill and text, so a selected card
-	// smeared teal across the card next to it.
+void UiLayer::drawWidgetGlows(const StateLink::State & state) const {
+	// **Every halo, before ANY of the centre column, 2026-08-25.**
+	// Developer, twice: "hallo of any button should not come over any
+	// other button selected on not", then — after a first attempt that
+	// only split `drawWidgets` into two loops — "i can still see halo of
+	// button coming over other buttons", plus "the page heading's bottom
+	// seems to be cut off. are u drawing a box above the heading for the
+	// 5 dots?"
 	//
-	// Splitting the loop fixes it without shrinking the reach, which is
-	// the reason the glow reads from three metres at all: the halos still
-	// spill exactly as far, they just all land underneath every card
-	// instead of on top of some of them. Between the cards — the gap the
-	// glow is actually for — nothing changes.
+	// Both reports are the same bug seen twice. A halo reaches
+	// `kWidgetGlowReachPx` past its own frame, which on the stacked
+	// option cards clears the neighbour above and below AND, for the top
+	// card, reaches up into the page title's descender — that "box above
+	// the heading" is the first card's halo, not a box. Splitting
+	// `drawWidgets` in two fixed the halo landing over a neighbour's
+	// GEOMETRY but not over the header, because the whole of
+	// `drawWidgets` runs after `drawPageHeader`. So the glow pass moved
+	// out here and is called before the header, the cart and the info box
+	// — everything in the column now paints on top of every halo.
+	//
+	// The other half of the fix is in `drawWidget`: the card fill is only
+	// ~10% ink, so a neighbour's halo was also showing THROUGH a card
+	// that was drawn over it. See `kCardBaseColor`.
 	for(const StateLink::Widget & w : state.widgets){
 		drawWidgetGlow(w);
 	}
+}
+
+void UiLayer::drawWidgets(const StateLink::State & state) const {
+	// Bodies only — the halos are `drawWidgetGlows`, called much earlier
+	// in `draw()`. See there.
 	for(const StateLink::Widget & w : state.widgets){
 		drawWidget(w);
 	}
@@ -3346,6 +3505,11 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		// the cart screen. They are the same fact and are read from the
 		// same bool now.
 		const bool headed = !state.screen.title.empty() && !bannerUp;
+
+		// Every widget's halo, ahead of everything else in this column —
+		// the header included. See `drawWidgetGlows` for why it cannot sit
+		// with the widget bodies further down.
+		drawWidgetGlows(state);
 
 		if(headed){
 			drawPageHeader(state.screen);

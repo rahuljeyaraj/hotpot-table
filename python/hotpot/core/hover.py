@@ -667,9 +667,18 @@ def spice_widgets(levels: Sequence[Any], *,
     stack, closest to the nav row (the diner's own edge), Hot at the
     TOP.
 
-    No `diet` and no `icon` on a spice level — it is not food, and the
-    card no longer carries a chilli gauge (`UiLayer::drawOptionPlate`
-    reads no icon field at all any more).
+    No `diet` on a spice level — it is not food.
+
+    **The chilli gauge is back, 2026-08-25 (later still).** Developer:
+    "in the spicy box, put one chilli in the mil right alighedn in same
+    line as that of mild. then 2 chilli in medium and three in hot, all
+    right alighned. chili icon should be bigger than the one u used
+    before as it was not clear." So `icon_count` is the level itself —
+    Mild 1, Medium 2, Hot 3 — and `UiLayer::drawOptionPlate` draws that
+    many peppers right-aligned on the name's own line. `max_icon_count`
+    is deliberately NOT set: the earlier design drew empty outline
+    peppers up to the maximum as a gauge, and the instruction here is a
+    plain count, not a scale.
     """
     ordered = sorted((s for s in levels if int(s.level) > 0),
                      key=lambda s: int(s.level))
@@ -681,6 +690,7 @@ def spice_widgets(levels: Sequence[Any], *,
                enabled=True,
                selected=(selected_level is not None
                          and int(s.level) == int(selected_level)),
+               icon="chilli", icon_count=int(s.level),
                info={"diet": "", "meta": "", "desc": s.note})
         for s, rect in zip(hottest_first, rects)
     ]

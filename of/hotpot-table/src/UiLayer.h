@@ -180,6 +180,9 @@ private:
 	// the alpha, hold the height.
 	static void drawFadedRule(float x, float y, float widthPx,
 		float thickPx, const ofColor & colour, int peakAlpha);
+	// One chilli pepper, centred on (cx, cy), `sizePx` tall — the spice
+	// card's count glyph. See kChilliHPx for the sizing report.
+	static void drawChilli(float cx, float cy, float sizePx);
 	// The breathing term the buttons and the bin halos share — one sine,
 	// one clock, one period, so the whole table breathes together rather
 	// than in two rhythms. `phase` offsets it (the bins use a per-island
@@ -187,9 +190,10 @@ private:
 	static float breath(float floor01, float phase = 0.0f);
 	void drawHalo(int i) const;
 	void drawWidgets(const StateLink::State & state) const;
-	// Pass one of `drawWidgets`: this widget's halo and nothing else, so
-	// that every halo lands under every widget rather than over its
-	// neighbours. `drawWidget` draws everything except the halo.
+	// Every widget's halo and nothing else. Called from `draw()` ahead of
+	// the page header, the info box, the cart AND the widget bodies, so a
+	// halo can never land on top of any of them. See the definition.
+	void drawWidgetGlows(const StateLink::State & state) const;
 	void drawWidgetGlow(const StateLink::Widget & w) const;
 	void drawWidget(const StateLink::Widget & w) const;
 	// An `option` widget — a broth or a spice plate. Split out of
@@ -344,6 +348,9 @@ private:
 	// (kOptionLabelPx' own arithmetic) and retitling a page must not be
 	// able to clip four menu names as a side effect.
 	ofTrueTypeFont _optionFont;
+	// The option card's note face — `kCardNotePx`, a step under the shared
+	// info box's own text size. See `drawOptionPlate`.
+	ofTrueTypeFont _cardNoteFont;
 	// The token, and it is mono for the reason every fixed number on this
 	// table is: a diner reads this one character by character to somebody
 	// at a counter, and proportional digits at this size run together.
