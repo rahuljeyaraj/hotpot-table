@@ -192,16 +192,16 @@ void ofApp::update(){
 		state = _link.getState();
 		_ui.update(dt, true, state);
 	}
-	// **The fluid is the FIRST PAGE's pointer only, since 2026-08-25.**
+	// **The fluid SIMULATION is the FIRST PAGE's only, since 2026-08-25.**
 	// Developer: "after the first page is over, we no longer need fire
 	// simulation anywhere, it is a distraction." "First page" is the
 	// bin-picking screen — idle (nobody has arrived yet) and selecting
 	// (a diner is filling the cart) — the only two phases where a bin can
-	// actually be hovered and lit. Every screen after that (broth, spice,
-	// checkout, setting) falls back to the plain dot+ring cursor that
-	// already exists for exactly this case (`draw()`'s own
-	// `cursorForUi`/`drawCursorAboveLightPass` — nothing new was built,
-	// only gated differently).
+	// actually be hovered and lit. This gates only the PARTICLE sim, not
+	// the flame cursor glyph — `draw()`'s own `cursorForUi` draws that on
+	// every phase (2026-08-25, later still: "bring back fire as pointer
+	// to all pages") — so a diner off the first page still sees a flame
+	// under their hand, just with no fluid trailing it.
 	const bool fluidActive = kFluidEnabled
 		&& (state.phase == "idle" || state.phase == "selecting");
 	// Driven by the real hand cursor(s), never the mouse (ofApp's mouse
@@ -329,14 +329,18 @@ void ofApp::draw(){
 	const bool fluidActive = kFluidEnabled
 		&& (state.phase == "idle" || state.phase == "selecting");
 
-	// While the fluid is active it IS the hand pointer (FluidLayer.h's
-	// class comment) — the old dot+ring cursor is suppressed rather than
-	// drawn on top of it, so there is still exactly one visual answer to
-	// "where is the hand," not two competing ones. Off the first page,
-	// `cursorForUi` is real again and the plain cursor takes over —
-	// nothing new: this is the same fallback that already existed for
-	// `kFluidEnabled == false`, now reached by phase instead.
-	const CursorLink::Hand * cursorForUi = fluidActive ? nullptr : _cursor.pointer();
+	// **The flame cursor is back on every page, 2026-08-25, later still**
+	// — developer: "bring back fire as pointer to all pages." It used to
+	// be suppressed here on the first page (idle/selecting) while the
+	// fluid sim was active, on the theory that the fluid itself was
+	// enough of a hand indicator. `cursorForUi` is now always the real
+	// pointer, first page included, so `UiLayer::drawFlame` (the flame
+	// glyph — see `kCursorFlameHPx`'s own comment) draws over the fluid
+	// exactly the way it already draws over every other page's UI. The
+	// fluid simulation itself is untouched — still gated to the first
+	// page by `fluidActive` below — this only changes which cursor draws
+	// on top of it.
+	const CursorLink::Hand * cursorForUi = _cursor.pointer();
 
 	// VISUAL_LAYER.md §9 build item 5 ("Layer reorder") / §5's 5-layer
 	// order: layer 1 (table background) happens inside beginContent()
@@ -386,10 +390,10 @@ void ofApp::draw(){
 	// there is no live link yet, and that default is exactly right here
 	// too: it is what keeps this condition and UiLayer::draw's the same
 	// single test, so the two can never disagree about which one of them
-	// is responsible for this frame's cursor. Uses the same cursorForUi
-	// (nullptr while the fluid is enabled) as the call above, for the same
-	// reason: the fluid is the pointer now, so this above-the-light-pass
-	// path has nothing to draw either.
+	// is responsible for this frame's cursor. Uses the same `cursorForUi`
+	// as the call above (real on every phase now — see that variable's
+	// own comment), null only when the tracker itself has nothing to
+	// report.
 	std::function<void()> aboveLightPass = nullptr;
 	if(state.mode == "serving" && cursorForUi != nullptr){
 		const CursorLink::Hand * pointer = cursorForUi;

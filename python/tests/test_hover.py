@@ -683,50 +683,34 @@ class TestSelectionIsNotAPageTurn(unittest.TestCase):
 
 
 class TestTheSpiceScreen(unittest.TestCase):
-    """2026-08-25: the horizontal chili-strip became a vertical slider.
-    Developer: "make the spicy selector as a vertical slider with the
-    mild near and hot far, and keep the slider towards the left side of
-    central area, and remaining area u wire the mild, medium and hot with
-    its discription." See `hover.spice_widgets`'s own docstring for the
-    shared-id reasoning these tests lean on.
+    """2026-08-25, later still: the chili-strip and the vertical slider it
+    became are both gone. Developer: "no need chilli icon, no need slider
+    which was never implemented, instead a 2 button was implemented,
+    remove that and follow exactly what is done with broth do the same
+    for spice boxes as well. just 3 boxes." `hover.spice_widgets` now
+    returns one full-width card per level — the same shape
+    `hover.broth_widgets` already draws through `UiLayer::
+    drawOptionPlate`.
     """
 
-    def _zones(self, ws):
-        return [w for w in ws if w.kind == "option" and w.icon == "chilli"]
+    def _options(self, ws):
+        return [w for w in ws if w.kind == "option"]
 
-    def _cards(self, ws):
-        return [w for w in ws if w.kind == "option" and w.icon != "chilli"]
+    def test_three_boxes_one_per_level(self):
+        # "just 3 boxes" — one per non-zero level, not a stop plus a card.
+        self.assertEqual(len(self._options(hover.spice_widgets(SPICES))), 3)
 
     def test_mild_is_nearest_and_hot_is_farthest(self):
-        # **Supersedes the old "mild leftmost" test.** "Near" is the
-        # diner's own edge (the module docstring's "primary action
-        # nearest the diner") — mild sits at the BOTTOM of the stack,
-        # closest to the nav row, and hot at the TOP. Level 0 ("No
-        # Spice") is excluded — see
+        # "Near" is the diner's own edge (the module docstring's "primary
+        # action nearest the diner") — mild sits at the BOTTOM of the
+        # stack, closest to the nav row, and hot at the TOP. Level 0
+        # ("No Spice") is excluded — see
         # `test_level_zero_is_not_offered_by_the_picker`.
-        zones = self._zones(hover.spice_widgets(SPICES))
-        levels = [hover.parse_spice_level(w.id) for w in zones]
+        options = self._options(hover.spice_widgets(SPICES))
+        levels = [hover.parse_spice_level(w.id) for w in options]
         self.assertEqual(levels, [3, 2, 1], "top to bottom is not hot to mild")
-        ys = [w.rect[1] for w in zones]
+        ys = [w.rect[1] for w in options]
         self.assertEqual(ys, sorted(ys), "top to bottom is not ascending y")
-
-    def test_every_level_pairs_a_slider_stop_with_a_description_card(self):
-        # One id shared by two rects — a narrow dwellable stop on the
-        # left and a wide description card on the right, both firing the
-        # same choice (`hover.spice_widgets`'s own docstring on why).
-        ws = hover.spice_widgets(SPICES)
-        zones, cards = self._zones(ws), self._cards(ws)
-        self.assertEqual(len(zones), 3)
-        self.assertEqual(len(cards), 3)
-        self.assertEqual({w.id for w in zones}, {w.id for w in cards})
-        for zone in zones:
-            card = next(c for c in cards if c.id == zone.id)
-            with self.subTest(id=zone.id):
-                # Same row: equal y and height, stop left of its card.
-                self.assertEqual(zone.rect[1], card.rect[1])
-                self.assertEqual(zone.rect[3], card.rect[3])
-                self.assertLess(zone.rect[0] + zone.rect[2], card.rect[0])
-                self.assertEqual(card.info.get("desc"), "A note.")
 
     def test_the_source_order_is_not_mutated(self):
         # `menu.Menu.load` sorts ascending and the staff view reads that
@@ -735,26 +719,25 @@ class TestTheSpiceScreen(unittest.TestCase):
         hover.spice_widgets(SPICES)
         self.assertEqual([s.level for s in SPICES], before)
 
-    def test_each_level_carries_its_own_number_of_chillies(self):
-        for w in self._zones(hover.spice_widgets(SPICES)):
-            level = hover.parse_spice_level(w.id)
-            with self.subTest(level=level):
-                self.assertEqual(w.icon, "chilli")
-                self.assertEqual(w.icon_count, level)
+    def test_a_spice_card_carries_no_icon(self):
+        # Supersedes the old chilli-gauge assertions — there is no gauge
+        # left to carry a count.
+        for w in self._options(hover.spice_widgets(SPICES)):
+            with self.subTest(widget=w.id):
+                self.assertEqual(w.icon, "")
+                self.assertEqual(w.icon_count, 0)
 
-    def test_every_cell_shares_the_same_max_icon_count(self):
-        # So the stack reads as one gauge (1 red + 2 grey for Mild, not a
-        # lone chilli) rather than three unrelated icon counts — see
-        # `Widget.max_icon_count`.
-        zones = self._zones(hover.spice_widgets(SPICES))
-        self.assertEqual([w.max_icon_count for w in zones], [3, 3, 3])
+    def test_each_card_carries_its_own_note(self):
+        for w in self._options(hover.spice_widgets(SPICES)):
+            with self.subTest(widget=w.id):
+                self.assertEqual(w.info.get("desc"), "A note.")
 
-    def test_a_broth_carries_no_swatch_and_no_chillies(self):
+    def test_a_broth_carries_no_swatch_and_no_icon(self):
         # **Supersedes the old "a broth carries a swatch" test.**
         # Developer, 2026-08-25: "the coloured circle infront of the
         # broth name has to be removed." Broth cards draw the name/diet/
-        # meta/note directly (`UiLayer::drawOptionPlate`'s broth-card
-        # branch) and never read `w.swatch`.
+        # note directly (`UiLayer::drawOptionPlate`) and never read
+        # `w.swatch`.
         for w in hover.broth_widgets(BROTHS):
             if w.kind != "option":
                 continue

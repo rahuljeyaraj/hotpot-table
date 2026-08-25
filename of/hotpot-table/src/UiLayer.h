@@ -185,12 +185,6 @@ private:
 	// the alpha, hold the height.
 	static void drawFadedRule(float x, float y, float widthPx,
 		float thickPx, const ofColor & colour, int peakAlpha);
-	// One chilli pepper, built from an ofPath — there is no pepper glyph
-	// in any font this app loads (StateLink::Widget::icon says why), and
-	// doc §18.1 asks the spice screen for "chilli glyphs". Drawn tip-down
-	// with a stem, at `sizePx` tall, centred on (cx, cy).
-	static void drawChilli(float cx, float cy, float sizePx,
-		const ofColor & body);
 	// The pointer cursor's own glyph — a candle-flame silhouette, tip up,
 	// leaning slightly off-centre, `sizePx` tall, centred on (cx, cy).
 	// Replaced the old concentric-ring cursor, 2026-08-25 (see

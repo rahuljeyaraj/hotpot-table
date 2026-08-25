@@ -117,25 +117,19 @@ public:
 		// order, and a second answer derived on this side could disagree
 		// with the one that bills.
 		bool selected = false;
-		// A glyph oF draws itself, `iconCount` times. "chilli" is the only
-		// one today — doc §18.1's "four plates, 0-3, with chilli glyphs".
-		//
-		// A NAME and a COUNT, never a character: the fonts this app loads
-		// are DejaVu at Latin + Latin1Supplement + CurrencySymbols, and
-		// U+1F336 is in none of them, so a literal pepper would silently
-		// draw nothing at all. drawWidget builds the shape from an ofPath
-		// instead — see drawChilli.
+		// A glyph oF could draw itself, `iconCount` times — the mechanism
+		// the spice screen's chilli gauge used to be built on (doc §18.1's
+		// "four plates, 0-3, with chilli glyphs"). Deleted 2026-08-25,
+		// later still: developer, "no need chilli icon... follow exactly
+		// what is done with broth... just 3 boxes" — nothing in UiLayer
+		// reads `icon`/`iconCount`/`maxIconCount` any more (drawOptionPlate
+		// no longer has an icon branch at all), and core no longer sends
+		// them. Left on the wire rather than removed outright, since the
+		// fields are generic (a name and a count, not "chilli"
+		// specifically) — but there is no live producer left to
+		// demonstrate them.
 		std::string icon;
 		int iconCount = 0;
-		// 2026-08-25's chili-strip: how many total icon SLOTS this cell
-		// draws, of which the first `iconCount` are lit and the rest
-		// drawn grey — so a cell reads as a gauge (1 red + 2 grey for
-		// Mild) rather than a lone chilli with nothing to compare it
-		// against. 0 (the default, and every non-spice widget) means
-		// "no shared total" — drawWidget/drawOptionPlate fall back to the
-		// old single-count behaviour (just `iconCount` lit, nothing else
-		// drawn) when this is 0, so a broth's swatch and an older core
-		// with no such field are both unaffected.
 		int maxIconCount = 0;
 		// The info box's content while this widget is hovered — a broth
 		// or a spice level has one, Cancel and Confirm do not. Same three

@@ -4650,33 +4650,25 @@ class TestCheckoutFlow(CoreCase):
         with lock:
             widgets = msgs[-1]["widgets"]
         options = [w for w in widgets if w["id"].startswith(hover.SPICE_PREFIX)]
-        # 6, not 4 — 2026-08-25's vertical slider drops "No Spice" (level
-        # 0) from the picker and pairs each of the 3 remaining levels
-        # with a slider stop AND a description card, one id each (see
-        # `hover.spice_widgets`).
-        self.assertEqual(len(options), 6)
-        # Only the description cards carry `info` — a stop's own icon row
-        # already says what it is, and `main.py`'s serialiser omits the
-        # `info` key entirely for a widget whose `Widget.info` is empty.
-        cards = [w for w in options if w.get("icon") != "chilli"]
-        self.assertEqual(len(cards), 3)
-        for w in cards:
+        # 3, not 6 — 2026-08-25, later still: the slider (a stop plus a
+        # description card per level) is gone, and "No Spice" (level 0)
+        # stays off the picker — see `hover.spice_widgets`.
+        self.assertEqual(len(options), 3)
+        for w in options:
             with self.subTest(widget=w["id"]):
                 self.assertEqual(w["info"]["diet"], "")
                 self.assertTrue(w["info"]["desc"])
 
-    def test_the_spice_slider_reaches_hot_at_top_mild_at_bottom_with_chillies(self):
-        """**Supersedes the old "mild first, left to right" wire test.**
-        Developer, 2026-08-25: "make the spicy selector as a vertical
-        slider with the mild near and hot far" — mild at the bottom
-        (nearest the diner's own edge, the nav row), hot at the top, per
-        `hover.spice_layout_rects`'s own reasoning.
+    def test_the_spice_screen_reaches_hot_at_top_mild_at_bottom(self):
+        """**Supersedes the old "mild first, left to right" wire test and
+        its slider-era successor.** Developer, 2026-08-25, later still:
+        "no need chilli icon, no need slider... follow exactly what is
+        done with broth... just 3 boxes." Mild sits at the bottom
+        (nearest the diner's own edge, the nav row), hot at the top —
+        unchanged ordering, now on plain cards instead of slider stops.
 
-        Checked on the WIRE, not just in `hover`: the count reaches oF as
-        a number and oF draws that many peppers with an ofPath, because no
-        font this app loads has a chilli glyph in it. `max_icon_count` is
-        checked too — every stop has to share the SAME total or the stack
-        stops reading as one gauge.
+        Checked on the WIRE, not just in `hover`: no `icon` field reaches
+        oF for these widgets at all any more.
         """
         self._advance_to(fsm.State.SPICE)
         c, msgs, lock = self.of_client()
@@ -4685,21 +4677,15 @@ class TestCheckoutFlow(CoreCase):
             widgets = msgs[-1]["widgets"]
         options = [w for w in widgets
                    if w["id"].startswith(hover.SPICE_PREFIX)]
-        # Only the slider stops carry a chilli row — the paired
-        # description cards share the same ids, so filter to the stops.
-        zones = [w for w in options if w.get("icon") == "chilli"]
         # Sent in draw order, and the draw order is hottest first, top to
         # bottom. Level 0 ("No Spice") is absent entirely.
-        self.assertEqual([hover.parse_spice_level(w["id"]) for w in zones],
+        self.assertEqual([hover.parse_spice_level(w["id"]) for w in options],
                          [3, 2, 1])
-        ys = [w["rect"][1] for w in zones]
+        ys = [w["rect"][1] for w in options]
         self.assertEqual(ys, sorted(ys))
-        for w in zones:
-            level = hover.parse_spice_level(w["id"])
-            with self.subTest(level=level):
-                self.assertEqual(w["icon"], "chilli")
-                self.assertEqual(w["icon_count"], level)
-                self.assertEqual(w["max_icon_count"], 3)
+        for w in options:
+            with self.subTest(widget=w["id"]):
+                self.assertNotIn("icon", w)
 
     def test_the_wire_says_which_option_is_locked_in(self):
         """`selected` is what keeps the info box pinned to a choice after
