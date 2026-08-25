@@ -456,6 +456,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 			// thousand peppers. 8 is far above the 3 the menu can
 			// actually produce, so a real value is never clipped.
 			w.iconCount = std::max(0, std::min(8, wj.value("icon_count", 0)));
+			w.maxIconCount = std::max(0, std::min(8, wj.value("max_icon_count", 0)));
 			// M6's option widgets carry the info box's content. Absent on
 			// Cancel/Confirm and on any older core, and absent means the
 			// box simply does not appear for them — the same rule an

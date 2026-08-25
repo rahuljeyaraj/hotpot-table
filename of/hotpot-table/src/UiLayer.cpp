@@ -2729,6 +2729,70 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	const float cy = box.getCenter().y;
 	const float iconCx = box.x + kOptionPadXPx + kOptionIconColPx * 0.5f;
 
+	// 2026-08-25: the chili-strip redesign. Developer: "i need the
+	// spicilevel selection not to be a button, but 4 chillies as shown in
+	// the image touching the left most chilli just highlights that one,
+	// which is mild and should be default, and if u press right most it
+	// should be most spicy." `hover.spice_widgets` now lays these out as
+	// a ROW of square-ish cells (see `hover.spice_cell_rects`) rather
+	// than a stacked list, and sends `maxIconCount` so every cell draws
+	// the SAME total — a cell with `iconCount=1` is 1 red chilli next to
+	// 2 grey ones, not a lone chilli with nothing to compare it against
+	// (the reference picture's own point: every tier shows the full row,
+	// only how many are lit changes). This branch is the whole
+	// difference from the broth's list-row layout below it: centred
+	// icons, a centred label underneath, no icon column, no tick — the
+	// fill/glow/dwell-fill/ring above already drew the same way either
+	// style needs, since none of that cares about the box's shape.
+	if(w.icon == "chilli" && w.maxIconCount > 0){
+		const float cx = box.getCenter().x;
+		const float total = (float)w.maxIconCount;
+		// Solve for the tallest chilli that still fits `total` of them
+		// across the cell's own width, not an arbitrary shrink factor.
+		// Centres are `chilliH * 1.05` apart (`pitch`, below) and each
+		// glyph reaches roughly half its own height either side of its
+		// centre (`drawChilli`'s tip-to-stem shape), so the full row
+		// spans `pitch*(total-1) + chilliH` — solved for chilliH against
+		// the cell's padded width, then capped by the cell's height so a
+		// narrow, tall cell cannot ask for a chilli taller than the cell.
+		const float padPx = kOptionPadXPx * 0.5f;
+		const float availW = box.width - padPx * 2.0f;
+		const float chilliH = std::min(box.height * 0.34f,
+			availW / (1.05f * (total - 1.0f) + 1.0f));
+		const float pitch = chilliH * 1.05f;
+		const float span = pitch * (total - 1.0f);
+		const float iconsCy = box.y + box.height * 0.40f;
+		for(int k = 0; k < w.maxIconCount; k++){
+			const bool lit = k < w.iconCount;
+			const ofColor col = lit
+				? ofColor(kWidgetDanger, w.enabled ? 255 : 120)
+				: ofColor(kWidgetDisabled, w.enabled ? 160 : 90);
+			drawChilli(cx - span * 0.5f + pitch * (float)k, iconsCy,
+				chilliH, col);
+		}
+
+		// The name, centred BELOW the chilies — a card, not a list row,
+		// so nothing here is left-aligned.
+		const ofTrueTypeFont & face =
+			_optionFont.isLoaded() ? _optionFont : _nameFont;
+		const float labelMaxW = box.width - kOptionPadXPx * 2.0f;
+		std::string label = w.label;
+		const float labelW = face.getStringBoundingBox(label, 0, 0).width;
+		if(labelW > labelMaxW){
+			label = truncateToWidth(face, label, labelMaxW);
+			if(_truncatedNames.insert(w.label).second){
+				ofLogWarning(kTag) << "spice cell: \"" << w.label
+					<< "\" needs " << labelW << "px but the cell is "
+					<< labelMaxW << "px wide — truncated";
+			}
+		}
+		ofSetColor(w.enabled ? (sel ? kWidgetPrimary : kPlateNameColor)
+			: kWidgetDisabled);
+		drawCentered(face, label, cx, box.y + box.height * 0.80f);
+		ofSetColor(255);
+		return;
+	}
+
 	// doc §18.1's "a colour swatch each", for the broths. Drawn after the
 	// dwell fill rather than under it — the fill sweeps across the whole
 	// plate, and a swatch that disappeared under it would look like the

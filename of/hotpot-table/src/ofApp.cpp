@@ -183,10 +183,27 @@ void ofApp::update(){
 	// see SkeletonLink::update()'s own comment.
 	_skeleton.update();
 	bool hasState = _link.hasState();
+	// Default-constructed when there is no link yet — StateLink::State's
+	// own default `phase` is "selecting" (StateLink.h), which is exactly
+	// the first-page fluid this default should read as, same reasoning
+	// draw()'s own `state` local below already uses.
+	StateLink::State state;
 	if(hasState){
-		StateLink::State state = _link.getState();
+		state = _link.getState();
 		_ui.update(dt, true, state);
 	}
+	// **The fluid is the FIRST PAGE's pointer only, since 2026-08-25.**
+	// Developer: "after the first page is over, we no longer need fire
+	// simulation anywhere, it is a distraction." "First page" is the
+	// bin-picking screen — idle (nobody has arrived yet) and selecting
+	// (a diner is filling the cart) — the only two phases where a bin can
+	// actually be hovered and lit. Every screen after that (broth, spice,
+	// checkout, setting) falls back to the plain dot+ring cursor that
+	// already exists for exactly this case (`draw()`'s own
+	// `cursorForUi`/`drawCursorAboveLightPass` — nothing new was built,
+	// only gated differently).
+	const bool fluidActive = kFluidEnabled
+		&& (state.phase == "idle" || state.phase == "selecting");
 	// Driven by the real hand cursor(s), never the mouse (ofApp's mouse
 	// callbacks are all empty, deliberately — v3 §7.1's deleted OSC hand
 	// mock is not coming back as a fluid-testing shortcut). Every hand
@@ -199,12 +216,20 @@ void ofApp::update(){
 	// on `state`). Safe to call unconditionally: with no state yet, every
 	// bin's fire spring is still at its constructed 0, so this returns
 	// empty rather than needing its own hasState guard.
-	if(kFluidEnabled){
+	if(fluidActive){
 		std::vector<FluidLayer::FireRing> fireRings;
 		for(const auto & e : _ui.fireEmitters()){
 			fireRings.push_back({e.bin, e.cornerRadiusPx, e.innerOffsetPx, e.outerOffsetPx, e.intensity, e.binIndex});
 		}
 		_fluid.update(fluidDt, _cursor.hands(), fireRings);
+	}
+	else if(kFluidEnabled){
+		// No new injection off this page — an empty hands list, not the
+		// real cursor — but still stepped, so whatever is left over from
+		// the first page keeps dissipating in the background rather than
+		// freezing mid-frame and popping back unchanged the moment the
+		// diner returns to it.
+		_fluid.update(fluidDt, {});
 	}
 
 	_statTimer += dt;
@@ -297,11 +322,21 @@ void ofApp::draw(){
 		state = _link.getState();
 	}
 
-	// While the fluid is enabled it IS the hand pointer (FluidLayer.h's
+	// **First page only, since 2026-08-25** — see update()'s own comment
+	// on `fluidActive` (the same test, computed twice rather than carried
+	// across two functions, matching this file's existing pattern for
+	// `fluidDt`/dt-style per-frame locals).
+	const bool fluidActive = kFluidEnabled
+		&& (state.phase == "idle" || state.phase == "selecting");
+
+	// While the fluid is active it IS the hand pointer (FluidLayer.h's
 	// class comment) — the old dot+ring cursor is suppressed rather than
 	// drawn on top of it, so there is still exactly one visual answer to
-	// "where is the hand," not two competing ones.
-	const CursorLink::Hand * cursorForUi = kFluidEnabled ? nullptr : _cursor.pointer();
+	// "where is the hand," not two competing ones. Off the first page,
+	// `cursorForUi` is real again and the plain cursor takes over —
+	// nothing new: this is the same fallback that already existed for
+	// `kFluidEnabled == false`, now reached by phase instead.
+	const CursorLink::Hand * cursorForUi = fluidActive ? nullptr : _cursor.pointer();
 
 	// VISUAL_LAYER.md §9 build item 5 ("Layer reorder") / §5's 5-layer
 	// order: layer 1 (table background) happens inside beginContent()
@@ -314,7 +349,7 @@ void ofApp::draw(){
 	// afterward, unconditionally.
 	_stage.beginContent();
 	// --- layer 2: fluid -----------------------------------------------
-	if(kFluidEnabled){
+	if(fluidActive){
 		// VISUAL_LAYER.md §2, decided at §9 step 3 (the bench test): fire
 		// must DARKEN the light table, not brighten it, so it draws under
 		// OF_BLENDMODE_MULTIPLY rather than whatever ofxFlowTools' own

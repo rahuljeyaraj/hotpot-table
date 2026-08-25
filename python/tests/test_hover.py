@@ -661,14 +661,17 @@ class TestSelectionIsNotAPageTurn(unittest.TestCase):
                 with self.subTest(widget=w.id):
                     self.assertFalse(w.selected)
 
-    def test_level_zero_is_selectable_and_is_not_no_selection(self):
-        # **The trap.** Doc section 17 makes level 0 a genuine choice, so
-        # `selected_level=0` must mark it and must enable Pay — a falsy
-        # check anywhere on this path turns "no spice, please" into "you
-        # have not chosen yet" and the diner can never leave the screen.
-        ws = {w.id: w for w in hover.spice_widgets(SPICES, selected_level=0)}
-        self.assertTrue(ws[hover.spice_widget_id(0)].selected)
-        self.assertTrue(ws[hover.CONFIRM].enabled)
+    def test_level_zero_is_not_offered_by_the_picker(self):
+        # **Supersedes the old "level zero is selectable" trap check.**
+        # 2026-08-25's chili-strip drops "No Spice" (level 0) as an
+        # orderable choice — developer's own call, confirmed the same
+        # session: the reference picture it is modelled on has no
+        # zero-chilli tier. `menu.Menu.load` still requires level 0 to
+        # EXIST in `data/menu.json` (doc section 17's genuine-no-spice
+        # guarantee is about the data, not the picker) — see
+        # `hover.spice_widgets`'s own docstring.
+        ws = {w.id: w for w in hover.spice_widgets(SPICES, selected_level=1)}
+        self.assertNotIn(hover.spice_widget_id(0), ws)
 
     def test_an_option_never_stops_being_dwellable(self):
         # Switching choices means dwelling a DIFFERENT plate, so every
@@ -681,14 +684,21 @@ class TestSelectionIsNotAPageTurn(unittest.TestCase):
 
 class TestTheSpiceScreen(unittest.TestCase):
 
-    def test_the_hottest_level_is_at_the_top(self):
-        # Developer, 2026-08-25: "the spicy list should be in opposite
-        # order hot should come at top."
+    def test_mild_is_leftmost_and_hot_is_rightmost(self):
+        # **Supersedes the old "hottest at the top" test.** Developer,
+        # 2026-08-25, on the new chili-strip: "touching the left most
+        # chilli just highlights that one, which is mild and should be
+        # default, and if u press right most it should be most spicy."
+        # That instruction was written for a horizontal row, reversing
+        # the earlier "hottest first" rule, which was written for the
+        # vertical stacked list this replaces (see `hover.spice_widgets`'s
+        # own docstring). Level 0 ("No Spice") is excluded — see
+        # `test_level_zero_is_not_offered_by_the_picker`.
         ws = [w for w in hover.spice_widgets(SPICES) if w.kind == "option"]
         levels = [hover.parse_spice_level(w.id) for w in ws]
-        self.assertEqual(levels, [3, 2, 1, 0])
-        ys = [w.rect[1] for w in ws]
-        self.assertEqual(ys, sorted(ys), "top to bottom is not descending heat")
+        self.assertEqual(levels, [1, 2, 3])
+        xs = [w.rect[0] for w in ws]
+        self.assertEqual(xs, sorted(xs), "left to right is not ascending heat")
 
     def test_the_source_order_is_not_mutated(self):
         # `menu.Menu.load` sorts ascending and the staff view reads that
@@ -705,6 +715,13 @@ class TestTheSpiceScreen(unittest.TestCase):
             with self.subTest(level=level):
                 self.assertEqual(w.icon, "chilli")
                 self.assertEqual(w.icon_count, level)
+
+    def test_every_cell_shares_the_same_max_icon_count(self):
+        # So the row reads as one gauge (1 red + 2 grey for Mild, not a
+        # lone chilli) rather than three unrelated icon counts — see
+        # `Widget.max_icon_count`.
+        ws = [w for w in hover.spice_widgets(SPICES) if w.kind == "option"]
+        self.assertEqual([w.max_icon_count for w in ws], [3, 3, 3])
 
     def test_a_broth_carries_a_swatch_and_no_chillies(self):
         for w in hover.broth_widgets(BROTHS):
@@ -741,6 +758,18 @@ class TestTheOptionsSitWhereTheCartWas(unittest.TestCase):
         # button chose a broth instead.
         for r in hover.option_rects(4):
             self.assertLessEqual(r[1] + r[3], hover.BUTTONS_TOP_PX)
+
+    def test_the_option_row_clears_both_bins_idle_halo(self):
+        # Developer, 2026-08-25: "the broth buttons are too long and it
+        # overlaps with the halo, need to be made smaller." UiLayer's
+        # idle halo reaches kHaloMarginPx(14) + kHaloRingCount(24) *
+        # kHaloRingPitchPx(1.5) = 50px past a bin's own edge — mirrored
+        # here as `_HALO_REACH_PX` since oF and this module cannot share
+        # a constant.
+        x0, col_w = hover.centre_column_px()
+        left = x0 + (col_w - hover.OPTION_W_PX) * 0.5
+        clearance = left - x0
+        self.assertGreaterEqual(clearance, hover._HALO_REACH_PX)
 
     def test_no_option_overlaps_a_bin(self):
         from hotpot.core import bin_grid

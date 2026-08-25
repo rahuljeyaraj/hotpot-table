@@ -5022,3 +5022,108 @@ table. **Waiting on the developer's call.**
   `bins` message — `scale.status()` has carried all three since M2.2 and
   nothing forwarded them, which is why diagnosing this took a
   hand-written WebSocket probe instead of a glance.
+
+## M6 rig report 3 (2026-08-25): the spice chili-strip, fluid off after
+## page 1, and the option row cleared of the halo
+
+Four items from the same conversation, no rig access this session — see
+each item's own "not yet observed" note.
+
+**1. Spice level is a chili-strip now, not a stacked list of plates.**
+Developer: "i need the spicilevel selection not to be a button, but 4
+chillies as shown in the image touching the left most chilli just
+highlights that one, which is mild and should be default, and if u press
+right most it should be most spicy." The reference picture (Mild/Spicy/
+Hot/Extra, 4 tiers, no zero-chilli one) does not match this menu's 4
+levels (No Spice/Mild/Medium/Hot) 1-for-1 — asked the developer how to
+reconcile it rather than guessing. Answer: **drop "No Spice" as an
+orderable choice, 3 chilies (Mild/Medium/Hot), leftmost = Mild = default,
+rightmost = Hot = most spicy.**
+- `menu.Menu.load` is UNTOUCHED and still requires level 0 to exist in
+  `data/menu.json` (doc section 17's genuine-no-spice guarantee is about
+  the data, not the picker) — `hover.spice_widgets` is the one place
+  that filters it back out, so the doc invariant and the on-disk menu are
+  both intact. `_choose_spice(0)` still works if ever fired directly
+  (voice, a future staff override); only the touch picker cannot reach
+  it any more.
+- **Ascending, not descending — supersedes the 2026-08-25-earlier
+  "hottest at the top" rule**, which was written for the vertical
+  stacked list this replaces. Left to right now reads mild to hot,
+  per the developer's own new instruction.
+- One `Widget` per level still (`kind="option"`), reusing every hover/
+  dwell/selected mechanism the broth plates already have — only the
+  RECT layout changed. `hover.spice_cell_rects` lays 3 cells left to
+  right in the option row's existing band (same top/bottom the broth
+  plates stack in, so the info box above and the nav row below never
+  move between the two screens). Every cell carries a new
+  `max_icon_count` (today, 3) alongside the existing `icon_count`, so
+  `UiLayer::drawOptionPlate`'s new `icon == "chilli"` branch can draw
+  the WHOLE gauge in every cell — Mild is 1 red chilli next to 2 grey
+  ones in the same box, not a lone chilli with nothing to compare it
+  against, which is what the reference picture actually shows.
+  `StateLink::Widget::maxIconCount` mirrors it on the wire (0 = no
+  shared total, the old single-count behaviour, so an older core or a
+  broth's plain swatch are unaffected).
+- **Mild pre-selected by default**, not "nothing chosen": `Core.
+  _default_spice_level` (the lowest level `hover.spice_widgets` actually
+  offers, i.e. 1 today) seeds `_spice_level`/`_spice_chosen` at boot and
+  at every `_end_session()`, so arriving on SPICE already has a choice —
+  Pay needs no dwell on the strip at all unless the diner wants
+  something hotter. This is a real behaviour change from before M6's own
+  build (Pay used to refuse until an explicit dwell); `test_forward_is_
+  refused_until_something_is_chosen` now covers BROTH only, and a new
+  `test_pay_succeeds_immediately_with_the_default_spice_level` covers
+  SPICE.
+- Cell sizing in `drawOptionPlate` is SOLVED, not guessed: the tallest
+  chilli that still fits `max_icon_count` of them across the cell's own
+  width, capped by the cell's height. Unmeasured against a real
+  projection though — tune once seen.
+- 6 hover.py tests replaced/added (`test_level_zero_is_not_offered_by_
+  the_picker`, `test_mild_is_leftmost_and_hot_is_rightmost`, `test_every_
+  cell_shares_the_same_max_icon_count`, `test_the_option_row_clears_
+  both_bins_idle_halo`), 5 test_core_main.py tests replaced/added. 1139
+  tests pass, `python -m unittest discover -s python/tests`.
+
+**2. Fire simulation is the first page's pointer only.** Developer:
+"after the first page is over, we no longer need fire simulation
+anywhere, it is a distraction. we need to comeup with a pointer for rest
+of the pages." "First page" is idle/selecting — the only phases a bin
+can be hovered and lit — everything after (broth, spice, checkout,
+setting) now falls back to the plain dot+ring cursor that already
+existed for `kFluidEnabled == false`, just gated by `state.phase`
+instead of a compile-time switch: `ofApp`'s new `fluidActive` (`update()`
+and `draw()` each compute it fresh, same as `fluidDt`) replaces every
+bare `kFluidEnabled` check in the real render path — the fluid still
+steps with no new injection off the first page, so a lingering flame
+dissipates in the background instead of freezing and popping back
+unchanged on return. Nothing new was built for the fallback cursor: it
+is the same `cursorForUi`/`drawCursorAboveLightPass` path M1's `state.mode
+== "serving"` case has used since 2026-08-12.
+
+**3. The option row (broth AND spice) no longer overlaps the halo.**
+Developer: "the broth buttons are too long and it overlaps with the halo,
+need to be made smaller." `hover.OPTION_W_PX` used to just be
+`CART_WIDTH_PX` (520px) — fine for the cart, which has nothing else in
+its band, but the option row shares the centre column with bins 1 and 2,
+and each bin's idle halo reaches `kHaloMarginPx`(14) +
+`kHaloRingCount`(24)*`kHaloRingPitchPx`(1.5) = 50px past its own edge —
+520px left only ~17px clear each side. `OPTION_W_PX` is now derived
+(`col_w - 2*(_HALO_REACH_PX + clearance)` ≈ 434px), mirroring the halo
+math the same way `CART_WIDTH_PX` itself is mirrored in `UiLayer.cpp`.
+Broth's own list-row layout is otherwise unchanged; the new spice cells
+use the same narrower width.
+
+**4. The 5-dots-under-the-title fix (M6 rig report 2, item 5) was real
+code but had never actually reached the rig** — that session's own log
+says the Debug exe held open by a live `run.py` stack, Release-only
+verified. No stack was running this session (`Get-CimInstance
+Win32_Process` — nothing matching `python`/`hotpot-table`), so this is
+the first Debug rebuild to actually carry that fix, alongside the other
+three items above.
+
+All four: `msbuild Debug x64`, 0 errors, 0 new warnings (the usual two
+pre-existing `ftVorticityForceShader.h`/`LNK4075` lines). **Nothing in
+this report has been seen on the projected surface** — no rig was up
+this session to check the chili strip's sizing, the halo clearance in
+person, or that a hand crossing from SPICE to BROTH no longer trails
+flame.

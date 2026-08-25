@@ -182,6 +182,14 @@ class Widget:
     # avoid). oF draws the pepper as a path instead.
     icon: str = ""
     icon_count: int = 0
+    # 2026-08-25's chili-strip redesign: how many total icon SLOTS this
+    # cell draws, of which the first `icon_count` are lit and the rest
+    # grey — so "Mild" reads as 1 red chilli next to 2 grey ones in the
+    # SAME cell, not a lone chilli with nothing to compare it against
+    # (the reference picture's own point). 0 for a widget with no icon
+    # row at all (broth's swatch, Cancel/Confirm), where oF's old
+    # single-count behaviour (iconCount lit, nothing else drawn) applies.
+    max_icon_count: int = 0
 
     def contains(self, x: float, y: float) -> bool:
         rx, ry, rw, rh = self.rect
@@ -454,13 +462,84 @@ def _cart_band_px() -> Tuple[float, float]:
 
 OPTIONS_TOP_PX, OPTIONS_BOTTOM_PX = _cart_band_px()
 
-OPTION_W_PX = CART_WIDTH_PX
+# **Narrower than the cart, on purpose — this is the whole of the "broth
+# overlaps the halo" report.** Developer, 2026-08-25: "the broth buttons
+# are too long and it overlaps with the halo, need to be made smaller."
+# `OPTION_W_PX` used to just be `CART_WIDTH_PX` (520px), which the cart
+# and its buttons can afford because nothing else sits in their band —
+# but the option row sits in the SAME centre column as bins 1 and 2, and
+# each bin's idle halo (`UiLayer.cpp`'s `drawHalo`) reaches
+# `kHaloMarginPx` (14px) + `kHaloRingCount`(24) * `kHaloRingPitchPx`(1.5)
+# = 50px past the bin's own edge into that column. 520px leaves only
+# (554 - 520)/2 =~ 17px clear on each side — well inside the halo's own
+# 50px reach. Mirrored here as `_HALO_REACH_PX`, the same reason
+# `CART_WIDTH_PX` itself is mirrored in `UiLayer.cpp` and cannot share a
+# constant with it (one is Python, the other C++).
+_HALO_REACH_PX = 50.0
+# A bit of daylight beyond the halo's own outer edge, so the row clears
+# it rather than just touching it.
+_HALO_CLEARANCE_PX = 10.0
+
+
+def _option_w_px() -> float:
+    _, col_w = centre_column_px()
+    return col_w - 2.0 * (_HALO_REACH_PX + _HALO_CLEARANCE_PX)
+
+
+OPTION_W_PX = _option_w_px()
 # 100 -> 74. Four plates plus three gaps have to fit the cart's ~348px
 # band now instead of the old 470px one: 4*74 + 3*16 = 344. `option_rects`
 # raises rather than overflowing, so this is checked at layout time on
 # every boot, not assumed here.
 OPTION_H_PX = 74.0
 OPTION_GAP_PX = 16.0
+
+# --- the spice screen's own chili-strip layout, 2026-08-25 -----------------
+#
+# Developer: "i need the spicilevel selection not to be a button, but 4
+# chillies as shown in the image touching the left most chilli just
+# highlights that one, which is mild and should be default, and if u
+# press right most it should be most spicy." Confirmed in the same
+# session: "No Spice" (data/menu.json's level 0) is DROPPED as an
+# orderable choice here rather than stretched to fill a 4th chilli slot
+# the reference picture does not have — with it out, the menu's
+# remaining levels are exactly Mild(1)/Medium(2)/Hot(3), three chilies,
+# not four. `menu.Menu.load` still requires level 0 to EXIST in the data
+# (doc section 17's genuine-no-spice guarantee) — this is the one place
+# that filters it back out of what a diner can actually reach, so the
+# data and the doc invariant are both untouched.
+#
+# Still one dwellable `Widget` per level, reusing every hover/dwell/
+# selected mechanism the broth plates already have — only the RECT
+# layout (a row, not a stack) and the drawing (`UiLayer::drawOptionPlate`'s
+# `icon == "chilli"` branch) changed. Every cell shares `max_icon_count`
+# (== how many levels are offered) so the row reads as one gauge: a cell
+# with `icon_count=1` draws 1 red chilli next to 2 grey ones, not a lone
+# chilli with nothing to compare it against.
+SPICE_CELL_GAP_PX = 24.0
+# Tall relative to its width — this is a big, obvious touch target in the
+# reference picture's own style, not a list row. Clamped to the band's
+# own height in `spice_cell_rects` so it can never overflow into the info
+# box above or the nav row below.
+SPICE_CELL_H_PX = 220.0
+
+
+def spice_cell_rects(count: int) -> List[Rect]:
+    """`count` cells, left to right, centred in the option row's own band
+    and width (`OPTION_W_PX`, `OPTIONS_TOP_PX`..`OPTIONS_BOTTOM_PX`) — the
+    same band the broth plates stack in, so the info box above and the
+    nav row below never move between the two screens.
+    """
+    if count <= 0:
+        return []
+    x0, col_w = centre_column_px()
+    left = x0 + (col_w - OPTION_W_PX) * 0.5
+    band_h = OPTIONS_BOTTOM_PX - OPTIONS_TOP_PX
+    cell_h = min(SPICE_CELL_H_PX, band_h)
+    top = OPTIONS_TOP_PX + (band_h - cell_h) * 0.5
+    cell_w = (OPTION_W_PX - SPICE_CELL_GAP_PX * (count - 1)) / count
+    return [(left + i * (cell_w + SPICE_CELL_GAP_PX), top, cell_w, cell_h)
+            for i in range(count)]
 
 
 def option_rects(count: int) -> List[Rect]:
@@ -539,32 +618,45 @@ def broth_widgets(broths: Sequence[Any], *,
 
 def spice_widgets(levels: Sequence[Any], *,
                   selected_level: Optional[int] = None) -> List[Widget]:
-    """Doc section 18.1's SPICE screen: one plate per level, plus the nav
-    row (Back, Cancel, Pay).
+    """Doc section 18.1's SPICE screen: one chilli-strip cell per level
+    (level 0 excluded — see below), plus the nav row (Back, Cancel, Pay).
 
-    **HOTTEST FIRST.** Developer, 2026-08-25: "the spicy list should be in
-    opposite order hot should come at top, also show it with number of
-    chili icons." `menu.Menu.load` sorts its levels ascending and other
-    readers (the staff view's Orders tab) rely on that, so the reversal is
-    here, at the one place that lays the plates out, rather than in the
-    data or the loader.
+    **MILD FIRST, left to right — supersedes the old "hottest first"
+    rule.** Developer, 2026-08-25: "touching the left most chilli just
+    highlights that one, which is mild and should be default, and if u
+    press right most it should be most spicy." The 2026-08-25-earlier
+    "hottest first" instruction was written for the vertical stacked
+    list this replaces (hot at the TOP of a column); it does not carry
+    over to a horizontal strip, where "first" reads left to right and the
+    developer's new instruction is explicit about the direction.
 
-    Each plate carries `icon="chilli"` and `icon_count = level`, and oF
-    draws that many peppers — see `Widget.icon` for why it is a count and
-    not a glyph. Level 0 gets zero peppers, which with the label "No
-    Spice" beside it is the whole statement; a greyed-out pepper there
-    would read as one pepper, and doc section 17 is explicit that level 0
-    is a real choice rather than an absence.
+    **Level 0 ("No Spice") is filtered out here, not in the data.**
+    `menu.Menu.load` still requires it to exist in `data/menu.json` (doc
+    section 17's genuine-no-spice guarantee), so the underlying menu is
+    untouched; this is the one place that keeps it off the picker. The
+    reference picture the strip is modelled on shows exactly three
+    non-zero tiers with no zero-chilli one, and stretching "No Spice"
+    into a slot the picture does not have was rejected in favour of
+    dropping it as an orderable choice — developer's own call.
+
+    Each cell carries `icon="chilli"`, `icon_count = level` and
+    `max_icon_count = len(ordered)` (today, 3) — oF draws `max_icon_count`
+    total chilies, the first `icon_count` lit and the rest grey, so every
+    cell in the row shares the same total and reads as one gauge rather
+    than three unrelated icons (see `Widget.max_icon_count`).
 
     No `diet` on a spice level — it is not food. The info box draws the
     diet mark only when there is one rather than drawing a blank dot.
     """
-    ordered = sorted(levels, key=lambda s: -int(s.level))
-    rects = option_rects(len(ordered))
+    ordered = sorted((s for s in levels if int(s.level) > 0),
+                     key=lambda s: int(s.level))
+    rects = spice_cell_rects(len(ordered))
+    max_count = len(ordered)
     out = [
         Widget(id=spice_widget_id(s.level), rect=rect, label_key="",
                label=s.display_name(), kind="option", style="option",
                enabled=True, icon="chilli", icon_count=int(s.level),
+               max_icon_count=max_count,
                selected=(selected_level is not None
                          and int(s.level) == int(selected_level)),
                info={"diet": "", "meta": s.meta, "desc": s.note})

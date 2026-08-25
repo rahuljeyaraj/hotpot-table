@@ -127,6 +127,16 @@ public:
 		// instead — see drawChilli.
 		std::string icon;
 		int iconCount = 0;
+		// 2026-08-25's chili-strip: how many total icon SLOTS this cell
+		// draws, of which the first `iconCount` are lit and the rest
+		// drawn grey — so a cell reads as a gauge (1 red + 2 grey for
+		// Mild) rather than a lone chilli with nothing to compare it
+		// against. 0 (the default, and every non-spice widget) means
+		// "no shared total" — drawWidget/drawOptionPlate fall back to the
+		// old single-count behaviour (just `iconCount` lit, nothing else
+		// drawn) when this is 0, so a broth's swatch and an older core
+		// with no such field are both unaffected.
+		int maxIconCount = 0;
 		// The info box's content while this widget is hovered — a broth
 		// or a spice level has one, Cancel and Confirm do not. Same three
 		// fields and the same rules as Bin's, so drawInfoBox can take

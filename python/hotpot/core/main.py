@@ -420,16 +420,29 @@ class Core:
         # blank broth plate at a diner three screens into an order.
         self.menu = menu.Menu.load(menu_path)
         self.orders = orders.OrderStore(orders_path)
+        # 2026-08-25's chili-strip: the picker (`hover.spice_widgets`)
+        # drops level 0 ("No Spice") as an orderable choice, and the
+        # default a diner gets without touching anything is the LOWEST
+        # level the picker actually offers — today, Mild — not 0. Doc
+        # section 17's "no spice is a genuine choice" guarantee is about
+        # the DATA still existing (`menu.Menu.load` still requires level
+        # 0), not about it being the default; see `hover.spice_widgets`'s
+        # own docstring for the developer's call on why it is excluded.
+        self._default_spice_level: int = min(
+            (s.level for s in self.menu.spice_levels if s.level > 0),
+            default=0)
         # What the diner has chosen so far this session. Cleared by
         # `_end_session`, which is the one place a session ends, so a
         # previous diner's broth can never ride into the next order.
         self._broth_id: str = ""
-        self._spice_level: int = 0
+        self._spice_level: int = self._default_spice_level
         # **Separate from `_spice_level`, because 0 is a real level.** Doc
         # section 17 makes "no spice" a genuine choice rather than an
         # absence, so the int cannot also mean "not chosen yet" — and Pay
         # is gated on a choice having been made. See `_choose_spice`.
-        self._spice_chosen: bool = False
+        # Starts True (Mild pre-selected) rather than False — see
+        # `_default_spice_level` above.
+        self._spice_chosen: bool = self._default_spice_level > 0
         # The previous tick's widget ids+rects, for the "the buttons just
         # changed under a resting hand" guard in `_apply_cursor`. Starts
         # as a sentinel rather than `()` so the very first tick counts as
@@ -1829,8 +1842,10 @@ class Core:
         # payment landing minutes later reset a table a new diner is
         # already using.
         self._broth_id = ""
-        self._spice_level = 0
-        self._spice_chosen = False
+        # Mild pre-selected, not "nothing chosen" — see
+        # `_default_spice_level`'s own comment in `__init__`.
+        self._spice_level = self._default_spice_level
+        self._spice_chosen = self._default_spice_level > 0
         self._order = None
         self._order_qr = []
         self._checkout_since = None
@@ -2400,6 +2415,8 @@ class Core:
             if w.icon:
                 item["icon"] = w.icon
                 item["icon_count"] = int(w.icon_count)
+                if w.max_icon_count:
+                    item["max_icon_count"] = int(w.max_icon_count)
             out.append(item)
         return out
 

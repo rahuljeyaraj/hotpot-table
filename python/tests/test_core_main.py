@@ -4037,25 +4037,45 @@ class TestCheckoutFlow(CoreCase):
             self.core._fire_widget(hover.broth_widget_id("mala"))
             self.core._fire_widget(hover.CONFIRM)
             ids = [w.id for w in self.core._widgets_for_state()]
-        self.assertIn(hover.spice_widget_id(0), ids)
+        # Mild (level 1), not level 0 — 2026-08-25's chili-strip drops
+        # "No Spice" from the picker, see `hover.spice_widgets`.
+        self.assertIn(hover.spice_widget_id(1), ids)
 
     def test_forward_is_refused_until_something_is_chosen(self):
         """The button is disabled on the wire, but the dispatch refuses
         too — `enabled` is drawn from a snapshot core took one tick
         earlier, so it is not a gate anything should rely on alone.
+
+        **BROTH still refuses with nothing chosen; SPICE no longer can.**
+        2026-08-25's chili-strip pre-selects Mild by default (developer:
+        "which is mild and should be default" — see
+        `Core._default_spice_level`), so arriving on SPICE already has a
+        choice and Pay succeeds immediately. That is
+        `test_pay_succeeds_immediately_with_the_default_spice_level`
+        below; this test now covers BROTH only.
         """
         self._advance_to(fsm.State.BROTH)
         with self.core.state_lock:
             self.core._fire_widget(hover.CONFIRM)
             self.assertIs(self.core.fsm.state, fsm.State.BROTH)
+        self.assertEqual(self.core.orders.recent(), [])
+
+    def test_pay_succeeds_immediately_with_the_default_spice_level(self):
+        """The other half of the test above: SPICE arrives with Mild
+        already chosen, so Pay needs no dwell on the chili strip at all.
+        """
+        self._advance_to(fsm.State.BROTH)
+        with self.core.state_lock:
             self.core._fire_widget(hover.broth_widget_id("miso"))
             self.core._fire_widget(hover.CONFIRM)
             self.assertIs(self.core.fsm.state, fsm.State.SPICE)
-            # Same again on the spice screen: Pay must not write an order
-            # with a spice level nobody picked.
+            self.assertTrue(self.core._spice_chosen)
+            self.assertEqual(self.core._spice_level,
+                             self.core._default_spice_level)
             self.core._fire_widget(hover.CONFIRM)
-            self.assertIs(self.core.fsm.state, fsm.State.SPICE)
-        self.assertEqual(self.core.orders.recent(), [])
+            self.assertIs(self.core.fsm.state, fsm.State.CHECKOUT)
+            order = self.core._order
+        self.assertEqual(order.spice, self.core._default_spice_level)
 
     def test_level_zero_counts_as_a_choice(self):
         """**The trap.** Doc section 17 makes "no spice" a real choice, so
@@ -4510,16 +4530,21 @@ class TestCheckoutFlow(CoreCase):
         self.assertIn("&lt;script&gt;", html)
 
     def test_a_new_session_does_not_inherit_the_last_diners_choices(self):
+        """`_advance_to(CHECKOUT)` explicitly picks spice level 2 (Medium)
+        — a new session must reset that back to the DEFAULT (Mild, not
+        whatever the previous diner happened to choose), not to "nothing
+        picked": 2026-08-25's chili-strip pre-selects Mild, so a fresh
+        session is `_spice_chosen=True` again, on the default level, the
+        instant it resets (see `Core._default_spice_level`).
+        """
         self._advance_to(fsm.State.CHECKOUT)
         with self.core.state_lock:
+            self.assertEqual(self.core._spice_level, 2)  # the previous pick
             self.core._finish_checkout()
             self.assertEqual(self.core._broth_id, "")
-            self.assertEqual(self.core._spice_level, 0)
-            # `_spice_chosen`, not just the level: level 0 is a real
-            # choice, so only the flag can say "nothing picked yet" — and
-            # a session that inherited a stale True would let the next
-            # diner press Pay having chosen no spice at all.
-            self.assertFalse(self.core._spice_chosen)
+            self.assertEqual(self.core._spice_level,
+                             self.core._default_spice_level)
+            self.assertTrue(self.core._spice_chosen)
             self.assertIsNone(self.core._order)
             self.assertEqual(self.core._order_qr, [])
 
@@ -4618,20 +4643,28 @@ class TestCheckoutFlow(CoreCase):
         with lock:
             widgets = msgs[-1]["widgets"]
         options = [w for w in widgets if w["id"].startswith(hover.SPICE_PREFIX)]
-        self.assertEqual(len(options), 4)
+        # 3, not 4 — 2026-08-25's chili-strip drops "No Spice" (level 0)
+        # from the picker, see `hover.spice_widgets`.
+        self.assertEqual(len(options), 3)
         for w in options:
             with self.subTest(widget=w["id"]):
                 self.assertEqual(w["info"]["diet"], "")
                 self.assertTrue(w["info"]["desc"])
 
-    def test_the_spice_plates_reach_of_hottest_first_with_their_chillies(self):
-        """Developer, 2026-08-25: "the spicy list should be in opposite
-        order hot should come at top, also show it with number of chili
-        icons."
+    def test_the_spice_plates_reach_of_mild_first_with_their_chillies(self):
+        """**Supersedes the old "hottest first" wire test.** Developer,
+        2026-08-25, on the new chili-strip: "touching the left most
+        chilli just highlights that one, which is mild and should be
+        default, and if u press right most it should be most spicy" —
+        left to right, mild to hot, reversing the earlier vertical-list
+        instruction this widget set no longer uses (see
+        `hover.spice_widgets`'s own docstring).
 
         Checked on the WIRE, not just in `hover`: the count reaches oF as
         a number and oF draws that many peppers with an ofPath, because no
-        font this app loads has a chilli glyph in it.
+        font this app loads has a chilli glyph in it. `max_icon_count` is
+        checked too — every cell has to share the SAME total or the row
+        stops reading as one gauge.
         """
         self._advance_to(fsm.State.SPICE)
         c, msgs, lock = self.of_client()
@@ -4640,16 +4673,18 @@ class TestCheckoutFlow(CoreCase):
             widgets = msgs[-1]["widgets"]
         options = [w for w in widgets
                    if w["id"].startswith(hover.SPICE_PREFIX)]
-        # Sent in draw order, and the draw order is hottest first.
+        # Sent in draw order, and the draw order is mild first, left to
+        # right. Level 0 ("No Spice") is absent entirely.
         self.assertEqual([hover.parse_spice_level(w["id"]) for w in options],
-                         [3, 2, 1, 0])
-        ys = [w["rect"][1] for w in options]
-        self.assertEqual(ys, sorted(ys))
+                         [1, 2, 3])
+        xs = [w["rect"][0] for w in options]
+        self.assertEqual(xs, sorted(xs))
         for w in options:
             level = hover.parse_spice_level(w["id"])
             with self.subTest(level=level):
                 self.assertEqual(w["icon"], "chilli")
                 self.assertEqual(w["icon_count"], level)
+                self.assertEqual(w["max_icon_count"], 3)
 
     def test_the_wire_says_which_option_is_locked_in(self):
         """`selected` is what keeps the info box pinned to a choice after
