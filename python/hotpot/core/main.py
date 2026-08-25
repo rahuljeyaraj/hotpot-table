@@ -1887,6 +1887,25 @@ class Core:
         Caller holds `state_lock` (via `_apply_cursor`).
         """
         idle_for = now - self._last_real_pointer_at
+
+        # **An abandoned, EMPTY SELECTING session auto-cancels back to
+        # IDLE after the same idle window**, so the attract loop is
+        # reachable at all on a table where `hand_present()` can fire
+        # from a hand that never goes on to pick anything — a diner who
+        # tapped once and walked off, or (found live, 2026-08-26) a
+        # webcam that briefly saw something hand-shaped with nobody
+        # actually there. Gated on `cart.is_active()` being False for the
+        # same reason the old `CHECKOUT_TIMEOUT_S` (deleted above) was
+        # wrong to have one: a cart with real food already taken from it
+        # is a diner's order, and this must never touch that — only a
+        # session with nothing in it, which costs nobody anything to
+        # cancel.
+        if (self.fsm.state is fsm.State.SELECTING
+                and pointer is None
+                and not self.cart.is_active()
+                and idle_for >= self.phantom_idle_s):
+            self.fsm.cancel()
+
         want_phantom = (self.fsm.state is fsm.State.IDLE
                         and pointer is None
                         and idle_for >= self.phantom_idle_s

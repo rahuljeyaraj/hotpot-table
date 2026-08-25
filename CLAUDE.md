@@ -5328,3 +5328,23 @@ dots and both buttons all hidden; the 8 bin halos and the brand mark
 both still drawn; the fireball visibly active and lighting a bin on the
 right island. First real photographic evidence anywhere in this
 feature's history, not reasoning from code.
+
+**Same day, a second real-rig problem, found from the developer still
+not seeing it after the fix above: the table went back to SELECTING on
+its own and stayed there.** Nothing returns an abandoned SELECTING
+session to IDLE — that has never been a gap before because a diner who
+started an order was assumed to either finish it or hit Cancel. On this
+dev machine the real webcam intermittently trips `hand_present()` with
+nobody actually at the table, and the resulting empty SELECTING session
+then sits there forever, permanently out of reach of the idle-attract
+loop (`_apply_phantom` is deliberately `IDLE`-only). Fixed in
+`_apply_phantom`: a SELECTING session with an EMPTY cart
+(`not cart.is_active()`) and no real pointer for `phantom_idle_s` now
+auto-cancels back to IDLE. Gated on the empty cart specifically, the
+same reasoning that made the old `CHECKOUT_TIMEOUT_S` wrong to have —
+a cart with real food in it is a diner's order and this must never touch
+it, but an empty one costs nobody anything to cancel. Pure Python, no oF
+rebuild needed. **Confirmed live**, second screenshot: a much fuller
+flame visibly active mid-idle, UI still hidden, after several minutes of
+the webcam's spurious detections no longer being able to strand the
+table.
