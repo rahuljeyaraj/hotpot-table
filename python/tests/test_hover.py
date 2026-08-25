@@ -520,14 +520,40 @@ class TestTheNavRow(unittest.TestCase):
         positions, which is the part a diner learns.
         """
         slots = hover.button_slot_rects()
+        # The paid screen is NOT in this list, and that is deliberate
+        # since 2026-08-25 — its lone Done is centred and two slots wide
+        # (see the next test). Every screen with a ROW in it is here.
         for name, ws in (("cart", build_widgets()),
                          ("broth", hover.broth_widgets(BROTHS)),
                          ("spice", hover.spice_widgets(SPICES)),
-                         ("payment", hover.checkout_widgets()),
-                         ("paid", hover.checkout_widgets(paid=True))):
+                         ("payment", hover.checkout_widgets())):
             for w in self._row(ws):
                 with self.subTest(screen=name, widget=w.id):
                     self.assertIn(w.rect, slots)
+
+    def test_the_paid_screens_done_is_centred_and_two_slots_wide(self):
+        """Developer, 2026-08-25: "the last done button shout be center
+        aligned and double width."
+
+        The one exception to the fixed-slot grid, and only because the
+        row is a single button — there is no second button for it to line
+        up with. Pinned three ways because "centred and double width" can
+        be got wrong in three different ways and two of them still look
+        plausible on the rig: the width has to be two slots PLUS the gap
+        they would have had between them (not 2x a slot, which is
+        narrower), and the centre has to be the row's centre.
+        """
+        row = self._row(hover.checkout_widgets(paid=True))
+        self.assertEqual(len(row), 1)
+        x, y, w, h = row[0].rect
+        slots = hover.button_slot_rects()
+        self.assertNotIn(row[0].rect, slots)
+        self.assertAlmostEqual(w, slots[0][2] * 2 + hover.BUTTON_GAP_PX)
+        # Same band and same height as every other button on the table.
+        self.assertAlmostEqual(y, slots[0][1])
+        self.assertAlmostEqual(h, slots[0][3])
+        # Centred on the row, i.e. its centre is the middle slot's centre.
+        self.assertAlmostEqual(x + w * 0.5, slots[1][0] + slots[1][2] * 0.5)
 
     def test_the_row_on_every_screen_is_the_one_the_developer_asked_for(self):
         """Developer, 2026-08-25, verbatim (— is an empty slot):
@@ -537,6 +563,11 @@ class TestTheNavRow(unittest.TestCase):
             spice     Back   · Cancel · Pay
             payment   Back   · —      · Cancel
             paid      —      · —      · Done
+
+        The paid row moved on the same day, later: its Done is centred
+        and spans two slots, so it is covered by
+        `test_the_paid_screens_done_is_centred_and_two_slots_wide`
+        instead of by this table. The other four are unchanged.
         """
         slots = hover.button_slot_rects()
         expected = {
@@ -544,14 +575,12 @@ class TestTheNavRow(unittest.TestCase):
             "broth": [hover.BACK, hover.CANCEL, hover.CONFIRM],
             "spice": [hover.BACK, hover.CANCEL, hover.CONFIRM],
             "payment": [hover.BACK, None, hover.CANCEL],
-            "paid": [None, None, hover.CONFIRM],
         }
         rows = {
             "cart": build_widgets(),
             "broth": hover.broth_widgets(BROTHS),
             "spice": hover.spice_widgets(SPICES),
             "payment": hover.checkout_widgets(),
-            "paid": hover.checkout_widgets(paid=True),
         }
         for name, want in expected.items():
             by_rect = {w.rect: w.id for w in self._row(rows[name])}

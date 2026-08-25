@@ -2201,7 +2201,13 @@ class Core:
             # but reading the billed number directly means they cannot
             # come apart if that ordering is ever changed.
             grams = self.cart.removed_grams(i)
-            if grams <= 0:
+            # **Not `grams <= 0` — `is_billable`.** A true zero was never
+            # the thing appearing on receipts with a 1-cent tag; a
+            # sub-gram pick was, printed as "0 g" and priced anyway. Same
+            # predicate `pricing._sum_resolved` now uses, so the lines
+            # here and the total they sit under drop exactly the same
+            # bins (2026-08-25).
+            if not pricing.is_billable(grams):
                 continue
             out.append(orders.OrderLine(
                 bin=i, item_id=item_id, name=item.display_name(self.locale),
@@ -3539,8 +3545,10 @@ class Core:
             # draws nothing (oF's own rule for every optional string), and
             # a step counter on a table nobody is using would be furniture
             # claiming a transaction is in progress.
-            return {"title": "", "step": 0, "steps": 0, "hint": ""}
+            return {"title": "", "step": 0, "steps": 0, "hint": "",
+                    "hint2": ""}
         hint = ""
+        hint2 = ""
         if st is fsm.State.CHECKOUT:
             paid = self._order is not None and self._order.paid
             # **The unpaid screen has no hint at all** — developer,
@@ -3551,17 +3559,33 @@ class Core:
             # key `pay_hint` is deleted, not blanked, so nothing can put
             # it back by accident.
             #
-            # The PAID screen keeps its hint. A token number is not
-            # self-explanatory the way a QR is — "Show this number at the
-            # counter" is the only thing on the table saying what to do
-            # with it.
+            # **The PAID screen keeps its hint, and it is TWO lines.**
+            # Developer, 2026-08-25: "at the payment recieved page it says
+            # show this number at the counter. that doesnt make sense. we
+            # first need to hand it over for cooking, then collect it when
+            # the token number is called." The old single line named a
+            # counter that does not exist and pointed at the wrong end of
+            # the trip — a token here is not presented to anybody, it is
+            # ANNOUNCED back at the diner. The flow the developer gave:
+            # staff stand at the table, the bowl is handed to them, they
+            # tie it to the token themselves (not this system's problem),
+            # and the number is called when the food is cooked.
+            #
+            # So two lines, because they are two different moments and
+            # collapsing them is what made the old line wrong: `hint` is
+            # what to do NOW, `hint2` is what happens next. Both resolved
+            # here per I2; `hint2` is empty on every other screen, and oF
+            # draws nothing for an empty one.
             hint = (self.locales.translate("token_hint", self.locale)
                     if paid else "")
+            hint2 = (self.locales.translate("token_hint2", self.locale)
+                     if paid else "")
         return {
             "title": self.locales.translate(key, self.locale),
             "step": step,
             "steps": 5,
             "hint": hint,
+            "hint2": hint2,
         }
 
     def _total_msg(self) -> Dict[str, Any]:

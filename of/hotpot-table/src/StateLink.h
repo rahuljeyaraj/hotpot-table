@@ -194,9 +194,19 @@ public:
 	// setting mode), and `title` is empty on exactly those screens, so a
 	// header that should not exist draws nothing rather than drawing an
 	// empty strip. Resolved by core, per I2.
+	//
+	// `hint`/`hint2` are the two lines under the token on the PAID screen
+	// — what to do now ("Hand your bowl to the staff") and what happens
+	// next ("We'll call this number when it's ready"). Two fields rather
+	// than one string with a newline in it: oF does no text layout beyond
+	// a baseline, and a wire that carried an escaped newline inside one
+	// string would make every consumer of `hint` responsible for
+	// splitting it. Both are empty on every other screen, and an empty
+	// one draws nothing.
 	struct Screen {
 		std::string title;
 		std::string hint;
+		std::string hint2;
 		int step = 0;
 		int steps = 0;
 	};

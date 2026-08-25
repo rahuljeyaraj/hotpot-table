@@ -13,7 +13,8 @@
   "step_pay": "Scan To Pay",
   "paid": "Payment Received",
   "token": "Your Token",
-  "token_hint": "Show this number at the counter",
+  "token_hint": "Hand your bowl to the staff",
+  "token_hint2": "We'll call this number when it's ready",
   "language": "Language",
   "per_100g": "/100g",
   "kcal_per_100g": "kcal / 100g"

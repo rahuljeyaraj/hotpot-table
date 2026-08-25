@@ -4607,6 +4607,40 @@ class TestCheckoutFlow(CoreCase):
             sample()                                       # token
         self.assertEqual(seen, [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)])
 
+    def test_the_paid_screen_says_hand_the_bowl_over_then_wait(self):
+        """Developer, 2026-08-25: "at the payment recieved page it says
+        show this number at the counter. that doesnt make sense. we first
+        need to hand it over for cooking, then collect it when the token
+        number is called."
+
+        Two lines because they are two moments — `hint` is the action at
+        the table, `hint2` is the promise about later. What this really
+        pins is that neither line sends the diner to a counter: staff are
+        at the table, and the token is ANNOUNCED, never presented.
+        """
+        self._advance_to(fsm.State.CHECKOUT)
+        code = self.core._order.code
+        urlopen("http://127.0.0.1:%d/pay/%s"
+                % (self.core.web.port, code), timeout=DEADLINE).read()
+        self.assertTrue(wait_for(lambda: self.core.orders.get(code).paid))
+        with self.core.state_lock:
+            scr = self.core._screen_msg()
+        self.assertTrue(scr["hint"])
+        self.assertTrue(scr["hint2"])
+        for line in (scr["hint"], scr["hint2"]):
+            self.assertNotIn("counter", line.lower())
+
+    def test_only_the_paid_screen_carries_a_second_hint_line(self):
+        # `hint2` exists on every screen message (oF reads it
+        # unconditionally) but is empty everywhere else — an idle table
+        # must not draw a stray caption.
+        with self.core.state_lock:
+            self.core.fsm.boot_complete()
+            self.assertEqual(self.core._screen_msg()["hint2"], "")
+        self._advance_to(fsm.State.SPICE)
+        with self.core.state_lock:
+            self.assertEqual(self.core._screen_msg()["hint2"], "")
+
     def test_an_idle_table_gets_no_header_at_all(self):
         # A step counter on a table nobody is using would be furniture
         # claiming a transaction is in progress.

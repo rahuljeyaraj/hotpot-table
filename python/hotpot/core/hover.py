@@ -353,6 +353,39 @@ def button_slot_rects() -> List[Rect]:
              btn_w, BUTTON_H_PX) for i in range(BUTTON_SLOTS)]
 
 
+def button_span_centre(slots: int = 2) -> Rect:
+    """One button, centred on the row, `slots` slots wide.
+
+    **The single deliberate exception to the fixed-slot grid, and it is
+    for a row with exactly one button in it.** Developer, 2026-08-25:
+    "the last done button shout be center aligned and double width." The
+    grid's rule (see `BUTTON_SLOTS`) is that a row never re-centres — a
+    two-button row leaves the middle EMPTY and fills the ends, so buttons
+    stay on the same three x positions from screen to screen. That rule
+    exists so a diner's eye does not have to re-find the row; it says
+    nothing useful about a screen whose row is one button, where there is
+    no second button for it to line up with and nothing left to confuse
+    it with.
+
+    Width is `slots` slots plus the gaps between them, so the button is
+    exactly as wide as the slots it spans — the row's own rhythm, not a
+    new size invented for one screen.
+
+    **This overlaps the slot the payment screen's Cancel sits in**, which
+    is the crossing `BUTTON_SLOTS` warns about: a hand resting on Cancel
+    when the payment lands is inside the new Done. Nothing about that is
+    new — `DwellTracker.suppress_until_exit` already covers it, because
+    `core/main.py` fires it on any change of widget SHAPE and this is one.
+    """
+    rects = button_slot_rects()
+    btn_w = rects[0][2]
+    width = btn_w * slots + BUTTON_GAP_PX * (slots - 1)
+    x0, col_w = centre_column_px()
+    left = x0 + (col_w - CART_WIDTH_PX) * 0.5
+    return (left + (CART_WIDTH_PX - width) * 0.5, BUTTONS_TOP_PX,
+            width, BUTTON_H_PX)
+
+
 def button_row(ids: Sequence[Optional[str]]) -> Dict[str, Rect]:
     """Assign widget ids to the fixed slots, `None` for an empty one.
 
@@ -718,7 +751,7 @@ def checkout_widgets(*, paid: bool = False) -> List[Widget]:
     until it leaves and comes back. Nothing else stands between a
     stationary hand and a voided order here.
 
-    PAID: **Done, alone.** Back is meaningless (nobody re-chooses a spice
+    PAID: **Done, alone — centred, two slots wide.** Back is meaningless (nobody re-chooses a spice
     level for an order they have paid for) and Cancel would be worse than
     meaningless — it would offer to cancel money that has already
     changed hands, which this table cannot do. What is on screen is the
@@ -730,8 +763,11 @@ def checkout_widgets(*, paid: bool = False) -> List[Widget]:
     disappear." The screen ends when a person presses one of these.
     """
     if paid:
-        rects = button_row([None, None, CONFIRM])
-        return [Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="done",
+        # Centred and two slots wide (`button_span_centre`), not parked in
+        # the right-hand slot — developer, 2026-08-25. It is the only
+        # thing on the screen a hand can press, and it sat off to one side
+        # under a token that is itself centred.
+        return [Widget(id=CONFIRM, rect=button_span_centre(), label_key="done",
                        style="primary", enabled=True)]
     rects = button_row([BACK, None, CANCEL])
     return [

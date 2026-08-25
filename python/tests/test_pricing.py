@@ -234,6 +234,48 @@ class TestTotal(unittest.TestCase):
     def test_empty_binmap_totals_zero(self):
         self.assertEqual(total(self.cart, self.binmap, self.cat), 0.0)
 
+    def test_a_sub_gram_pick_bills_nothing(self):
+        """Developer, 2026-08-25: "what ever is 0g should not get listed
+        in the final bill. now it shows with .01$ or .00$ price tag."
+
+        0.4 g of the most expensive thing on the table is a sleeve
+        brushing a bin, or the load cell drifting — not an order. It
+        printed as "0 g" and still carried money, which is a receipt
+        contradicting itself. Priced at 55/100g it was worth 0.22 cents,
+        i.e. exactly the 1-cent tag in the report.
+        """
+        self.binmap.set_bin(0, item_id="dried_prawns", conf=0.9, source="mock")
+        self.cart.start_g[0] = 100.0
+        self.cart.set_live_grams(0, 99.6)        # 0.4g removed
+        self.assertEqual(total(self.cart, self.binmap, self.cat), 0.0)
+
+    def test_the_floor_is_the_printed_gram_not_a_gram_of_its_own(self):
+        """0.6 g prints as 1 g, so it is a real line and it bills.
+
+        The pair with the case above is the whole point: the cut is where
+        the *displayed* number crosses zero, so a bin can never print a
+        gram figure the bill disagrees with. A threshold of "under 1 g"
+        would have made this pick print as 1 g and bill as nothing —
+        the same self-contradicting line, one gram further up.
+        """
+        self.binmap.set_bin(0, item_id="dried_prawns", conf=0.9, source="mock")
+        self.cart.start_g[0] = 100.0
+        self.cart.set_live_grams(0, 99.4)        # 0.6g removed -> prints 1 g
+        self.assertGreater(total(self.cart, self.binmap, self.cat), 0.0)
+
+    def test_is_billable_reads_the_displayed_grams(self):
+        self.assertFalse(pricing.is_billable(0.0))
+        self.assertFalse(pricing.is_billable(0.4))
+        # Exactly 0.5 is NOT billable, and that is `display_grams` being
+        # `round()` — Python rounds halves to even, so 0.5 prints as 0 g.
+        # Asserted rather than worked around: the rule is "if it prints
+        # as 0 g it does not bill", so wherever that boundary sits, both
+        # sides of it have to agree. A hand-rolled `>= 0.5` here would be
+        # a second rounding rule for the same number.
+        self.assertFalse(pricing.is_billable(0.5))
+        self.assertTrue(pricing.is_billable(0.6))
+        self.assertTrue(pricing.is_billable(200.0))
+
 
 class TestShownTotal(unittest.TestCase):
     """The displayed total (I5's deadband) against the billed one (I4).

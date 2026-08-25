@@ -630,6 +630,16 @@ namespace {
 	// carries away from this screen — and it exists ONLY after payment,
 	// which is core's rule, not this file's (see StateLink::Qr::token).
 	const int kTokenPx = 88;
+	// The two lines under the token (2026-08-25). The first gap is larger
+	// than the second so the pair reads as ONE block hung off the token
+	// rather than as three evenly spaced lines — the token is the thing,
+	// the two lines are its caption.
+	const float kTokenHintGapPx = 18.0f;
+	const float kTokenHintLineGapPx = 8.0f;
+	// Line two ("we'll call this number") is a promise, not an
+	// instruction; see drawCheckout for why it is not drawn at the same
+	// weight as line one.
+	const int kTokenHint2Alpha = 170;
 
 	// The veg/non-veg dot. Green and red are the same two the cart's own
 	// buttons use (kWidgetPrimary/kWidgetDanger) rather than a third
@@ -3319,20 +3329,45 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 			+ fabsf(big.getDescenderHeight());
 		// Centred as a GROUP, token plus hint, rather than the token
 		// being centred and the hint hanging off the bottom of it.
-		const bool haveHint = _infoFont.isLoaded()
-			&& !state.screen.hint.empty();
-		const float hintH = haveHint
-			? 18.0f + _infoFont.getAscenderHeight()
+		//
+		// **TWO hint lines here, not one** (2026-08-25) — core sends what
+		// to do now in `hint` and what happens next in `hint2`; see
+		// StateLink::Screen. Both are counted into the group height
+		// BEFORE anything is drawn, so the block stays centred whether
+		// core sent one line, two, or none: a second line appearing must
+		// not push the token off centre.
+		const float lineH = _infoFont.isLoaded()
+			? _infoFont.getAscenderHeight()
 				+ fabsf(_infoFont.getDescenderHeight())
 			: 0.0f;
+		const bool haveHint = _infoFont.isLoaded()
+			&& !state.screen.hint.empty();
+		const bool haveHint2 = _infoFont.isLoaded()
+			&& !state.screen.hint2.empty();
+		const float hintH = (haveHint ? kTokenHintGapPx + lineH : 0.0f)
+			+ (haveHint2 ? kTokenHintLineGapPx + lineH : 0.0f);
 		const float y = bandTop
 			+ (bandBottom - bandTop - blockH - hintH) * 0.5f;
 		ofSetColor(kAccentInk);
 		drawCentered(big, qr.token, cx, y + big.getAscenderHeight());
+		float hintY = y + blockH;
 		if(haveHint){
+			hintY += kTokenHintGapPx;
 			ofSetColor(kInfoBoxTextColor);
 			drawCentered(_infoFont, state.screen.hint, cx,
-				y + blockH + 18.0f + _infoFont.getAscenderHeight());
+				hintY + _infoFont.getAscenderHeight());
+			hintY += lineH;
+		}
+		if(haveHint2){
+			hintY += kTokenHintLineGapPx;
+			// Dimmer than the first line, deliberately: line one is an
+			// instruction the diner acts on before leaving the table,
+			// line two is a promise about later. Equal weight would make
+			// the diner read two commands and look for the second thing
+			// to do.
+			ofSetColor(kInfoBoxTextColor, kTokenHint2Alpha);
+			drawCentered(_infoFont, state.screen.hint2, cx,
+				hintY + _infoFont.getAscenderHeight());
 		}
 		ofSetColor(255);
 		return;

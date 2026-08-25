@@ -319,6 +319,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 		const ofJson & sj = j["screen"];
 		out.screen.title = sj.value("title", "");
 		out.screen.hint = sj.value("hint", "");
+		out.screen.hint2 = sj.value("hint2", "");
 		out.screen.step = sj.value("step", 0);
 		out.screen.steps = sj.value("steps", 0);
 	}

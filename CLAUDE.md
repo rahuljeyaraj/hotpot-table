@@ -5127,3 +5127,80 @@ this report has been seen on the projected surface** — no rig was up
 this session to check the chili strip's sizing, the halo clearance in
 person, or that a hand crossing from SPICE to BROTH no longer trails
 flame.
+
+## M6 rig report 4 (2026-08-25): the paid screen's wording, sub-gram
+## lines on the bill, and Done centred
+
+Three items, all from the developer looking at a real paid order.
+
+**1. "at the payment recieved page it says show this number at the
+counter. that doesnt make sense."** Full quote: "we first need to hand it
+over for cooking, then collect it when the token number is called." The
+old `token_hint` ("Show this number at the counter") named a counter that
+does not exist and pointed at the wrong end of the trip — a token here is
+never PRESENTED to anybody, it is ANNOUNCED back at the diner. Asked for
+the actual flow before touching it; developer: "there will be a staff
+near the table, we just hand the bowl to them, they have some system to
+track the bowl to token number which we need not worry, then once done
+the token will be called."
+
+So the screen now carries TWO lines, because that is two moments and
+collapsing them is what made the old line wrong:
+
+    Hand your bowl to the staff          (token_hint  — what to do now)
+    We'll call this number when it's ready (token_hint2 — what happens next)
+
+`screen.hint2` is a new field on doc §4.3's `state` message, resolved by
+core per I2 and empty on every other screen; `StateLink` defaults it to
+"" so an older core renders exactly the table it always did.
+`UiLayer::drawCheckout` counts BOTH lines into the group height before
+drawing anything, so the token stays centred whether core sent two lines,
+one, or none, and line two is drawn at `kTokenHint2Alpha` — an
+instruction and a promise should not read at the same weight.
+
+**Still unanswered and flagged to the developer:** the number only exists
+as projected light and on the diner's own phone, so "we'll call this
+number" is a promise the table cannot keep once they walk away from it.
+
+**2. "what ever is 0g should not get listed in the final bill. now it
+shows with .01$ or .00$ price tag."** Nothing was ever truly 0 g —
+`_order_lines` has dropped `grams <= 0` since M6. What got through was
+SUB-GRAM: 0.4 g of load-cell drift or a sleeve brushing a bin, printed as
+"0 g" by the receipt's `:.0f` and still carrying `0.4/100 * price` beside
+it. That is also why one report names two different tags: the phone's
+receipt rounded that money to $0.01, while the table's own line, priced
+off `display_grams`, showed the same pick as $0.00.
+
+New `pricing.is_billable(grams)` — `display_grams(grams) > 0.0`, i.e. the
+test is the DISPLAYED number, never an epsilon of its own, so a bin can
+never print a gram figure the bill disagrees with. Applied in
+`_sum_resolved` (so `total()` and `shown_total()` cannot end up with
+different floors) AND in `core/main.py._order_lines` (so a receipt's
+lines still sum to its total). Note for anyone reading the boundary:
+`display_grams` is `round()`, which rounds halves to even, so exactly
+0.5 g prints as 0 g and does not bill — asserted rather than worked
+around, since a hand-rolled `>= 0.5` would be a second rounding rule for
+the same number.
+
+**3. "the last done button shout be center aligned and double width."**
+New `hover.button_span_centre()`, the one deliberate exception to the
+fixed-slot grid (`BUTTON_SLOTS`) — and only because the paid row is a
+single button, so there is no second button for it to line up with and
+nothing left to confuse it with. Width is two slots plus the gap between
+them, so it keeps the row's own rhythm rather than inventing a size. It
+overlaps the slot the payment screen's Cancel sits in, which is the
+crossing `BUTTON_SLOTS` warns about; nothing new is needed for it —
+`DwellTracker.suppress_until_exit` already fires on any change of widget
+shape, and this is one.
+
+Tests: 6 added (2 paid-screen hint, 3 sub-gram pricing, 1 Done geometry),
+2 nav-row tests updated to exclude the paid row from the three-slot
+table. 1140 pass. **6 failures are PRE-EXISTING and unrelated** — 4
+`TestCheckoutFlow` and `test_a_spice_card_carries_no_icon` /
+`test_broth_cards_reclaim_the_old_info_box_band`; verified by running the
+same files on a clean stash before any of this landed.
+
+`msbuild Release x64`, 0 errors, 0 new warnings.
+**Nothing here has been seen on the projected surface** — no rig was up,
+so the two-line hint's spacing under an 88px token and the centred Done's
+width against the cart are both unverified in person.

@@ -267,6 +267,33 @@ def display_grams(shown_g: float) -> float:
     return float(round(shown_g))
 
 
+def is_billable(grams: float) -> bool:
+    """Whether a pick this small is a line on the bill at all.
+
+    **Anything that rounds to 0 g is not billed and not listed.**
+    Developer, 2026-08-25: "what ever is 0g should not get listed in the
+    final bill. now it shows with .01$ or .00$ price tag." Nothing on the
+    bill was ever *truly* zero — `_order_lines` has always dropped
+    `grams <= 0`. What got through was SUB-GRAM: 0.4 g of load-cell drift,
+    or a sleeve brushing a bin, printed as "0 g" by the receipt's `:.0f`
+    and still carrying `0.4/100 * price` of money beside it. Hence the two
+    different tags in one report — the phone's receipt rounded that to
+    $0.01 and the table's own line, priced off `display_grams`, showed the
+    same pick as $0.00.
+
+    The test is the DISPLAYED grams, not an epsilon of its own, so the
+    rule reads the way the developer stated it: if the diner sees 0 g,
+    there is no line. Any threshold picked independently would eventually
+    disagree with the number printed next to it, which is the whole fault
+    being fixed.
+
+    Used by `_sum_resolved` (so the money agrees) and by
+    `core/main.py._order_lines` (so the receipt agrees). Both, or the
+    lines on a receipt stop summing to its total.
+    """
+    return display_grams(grams) > 0.0
+
+
 def _sum_resolved(cart: "Cart", binmap: BinMap, catalogue: Catalogue,
                   conf_floor: float, grams_of: Any) -> float:
     """Doc section 9.2, line 3: sum bin_price() over every *resolved* bin.
@@ -287,7 +314,14 @@ def _sum_resolved(cart: "Cart", binmap: BinMap, catalogue: Catalogue,
         item = catalogue.item(b.item_id)
         if item is None:
             continue
-        grand += bin_price(grams_of(i), item.price_per_100g)
+        g = grams_of(i)
+        # A bin the diner reads as 0 g contributes 0.00 — see
+        # `is_billable`. This is in the shared summer rather than in
+        # either caller so `total()` (what bills) and `shown_total()`
+        # (what the table prints) cannot end up with different floors.
+        if not is_billable(g):
+            continue
+        grand += bin_price(g, item.price_per_100g)
     return grand
 
 
