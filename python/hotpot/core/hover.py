@@ -487,82 +487,155 @@ def _option_w_px() -> float:
 
 
 OPTION_W_PX = _option_w_px()
-# 100 -> 74. Four plates plus three gaps have to fit the cart's ~348px
-# band now instead of the old 470px one: 4*74 + 3*16 = 344. `option_rects`
-# raises rather than overflowing, so this is checked at layout time on
-# every boot, not assumed here.
-OPTION_H_PX = 74.0
+# Shared by the spice chili-strip's cell gaps and the broth cards' row
+# gaps (`spice_cell_rects`/`broth_card_rects`) — the two no longer share a
+# per-item height (`OPTION_H_PX` was that shared height, and is gone with
+# the function that used it, `option_rects` — see this constant's own git
+# history if that reasoning is ever needed again).
 OPTION_GAP_PX = 16.0
 
-# --- the spice screen's own chili-strip layout, 2026-08-25 -----------------
+# --- the spice screen's own vertical slider layout, 2026-08-25 -------------
 #
-# Developer: "i need the spicilevel selection not to be a button, but 4
-# chillies as shown in the image touching the left most chilli just
-# highlights that one, which is mild and should be default, and if u
-# press right most it should be most spicy." Confirmed in the same
-# session: "No Spice" (data/menu.json's level 0) is DROPPED as an
-# orderable choice here rather than stretched to fill a 4th chilli slot
-# the reference picture does not have — with it out, the menu's
-# remaining levels are exactly Mild(1)/Medium(2)/Hot(3), three chilies,
-# not four. `menu.Menu.load` still requires level 0 to EXIST in the data
-# (doc section 17's genuine-no-spice guarantee) — this is the one place
-# that filters it back out of what a diner can actually reach, so the
-# data and the doc invariant are both untouched.
+# Superseded the horizontal chili-strip row this same comment block used
+# to describe. Developer: "make the spicy selector as a vertical slider
+# with the mild near and hot far, and keep the slider towards the left
+# side of central area, and remaining area u wire the mild, medium and
+# hot with its discription."
 #
-# Still one dwellable `Widget` per level, reusing every hover/dwell/
-# selected mechanism the broth plates already have — only the RECT
-# layout (a row, not a stack) and the drawing (`UiLayer::drawOptionPlate`'s
-# `icon == "chilli"` branch) changed. Every cell shares `max_icon_count`
-# (== how many levels are offered) so the row reads as one gauge: a cell
-# with `icon_count=1` draws 1 red chilli next to 2 grey ones, not a lone
-# chilli with nothing to compare it against.
-SPICE_CELL_GAP_PX = 24.0
-# Tall relative to its width — this is a big, obvious touch target in the
-# reference picture's own style, not a list row. Clamped to the band's
-# own height in `spice_cell_rects` so it can never overflow into the info
-# box above or the nav row below.
-SPICE_CELL_H_PX = 220.0
+# Two rects per level now, not one: a narrow SLIDER STOP on the left
+# (`SPICE_TRACK_W_PX` wide, stacked top to bottom, drawn by
+# `UiLayer::drawOptionPlate`'s existing `icon == "chilli"` branch — that
+# branch already solves the chilli size from the CELL'S OWN width, so a
+# tall-narrow rect needs no C++ change) and a wide DESCRIPTION CARD on
+# the right filling the rest of the band, at the same y and height as its
+# own stop — so the two read as one row, the way the broth screen's cards
+# already taught this table to show a note next to a choice
+# (`broth_widgets`'s own comment).
+#
+# **"Near" is the diner's own edge, "far" is away from them — the module
+# docstring's own rule ("the primary action nearest the diner").** Mild
+# sits at the BOTTOM of the stack, closest to the nav row (the diner's
+# edge), and Hot at the TOP — reaching further up the slider reads as
+# reaching for more heat.
+#
+# Both rects reclaim the old shared info box's band as well as the old
+# option row's, the same move `broth_card_rects` already made for broth:
+# spice no longer draws through the shared `drawInfoBox` at all (see
+# `UiLayer::draw`'s `spicePage`).
+# Narrow — the track only has to hold 3 small chillies and a short word
+# ("Mild"/"Medium"/"Hot"), and every px handed to it is a px the
+# description card's own note loses (that note is already fighting for
+# room: same card height as a broth card, but a broth card gets the
+# FULL `OPTION_W_PX` to wrap in and this card does not).
+SPICE_TRACK_W_PX = 100.0
+SPICE_TRACK_GAP_PX = 20.0
+# The shortest a slider row can be and still hold a chilli strip (left)
+# or a name + a couple of note lines (right) — same failure mode
+# `_BROTH_CARD_MIN_H_PX` guards, and the same reason (an unbounded level
+# count should fail loudly, not shrink every row toward nothing).
+_SPICE_ROW_MIN_H_PX = 70.0
 
 
-def spice_cell_rects(count: int) -> List[Rect]:
-    """`count` cells, left to right, centred in the option row's own band
-    and width (`OPTION_W_PX`, `OPTIONS_TOP_PX`..`OPTIONS_BOTTOM_PX`) — the
-    same band the broth plates stack in, so the info box above and the
-    nav row below never move between the two screens.
+def spice_layout_rects(count: int) -> Tuple[List[Rect], List[Rect]]:
+    """`count` (zone_rect, desc_rect) pairs, HOTTEST FIRST — index 0 is
+    the top-most, farthest-from-diner row. This is the REVERSE of
+    `spice_widgets`' own `ordered` list (ascending level, mildest first),
+    because `ordered` still has to answer "which is mildest" for the data
+    itself while this stack wants ascending level to run bottom-to-top;
+    `spice_widgets` zips it against `reversed(ordered)`.
     """
     if count <= 0:
-        return []
-    x0, col_w = centre_column_px()
-    left = x0 + (col_w - OPTION_W_PX) * 0.5
-    band_h = OPTIONS_BOTTOM_PX - OPTIONS_TOP_PX
-    cell_h = min(SPICE_CELL_H_PX, band_h)
-    top = OPTIONS_TOP_PX + (band_h - cell_h) * 0.5
-    cell_w = (OPTION_W_PX - SPICE_CELL_GAP_PX * (count - 1)) / count
-    return [(left + i * (cell_w + SPICE_CELL_GAP_PX), top, cell_w, cell_h)
-            for i in range(count)]
-
-
-def option_rects(count: int) -> List[Rect]:
-    """`count` stacked rects, centred in the cart's own band.
-
-    Raises if they will not fit. A silent overflow here would push a
-    dwellable plate down into the button row, i.e. a hand reaching for
-    Next would choose a broth — the kind of thing that is obvious on the
-    table and invisible in a diff, so it fails loudly at layout time.
-    """
-    if count <= 0:
-        return []
-    total_h = count * OPTION_H_PX + (count - 1) * OPTION_GAP_PX
-    band_h = OPTIONS_BOTTOM_PX - OPTIONS_TOP_PX
-    if total_h > band_h:
+        return [], []
+    top = _INFO_BOX_TOP_PX + _PAGE_HEADER_PX_ESTIMATE
+    bottom = OPTIONS_BOTTOM_PX
+    band_h = bottom - top
+    total_gap = OPTION_GAP_PX * (count - 1)
+    row_h = (band_h - total_gap) / count
+    if row_h < _SPICE_ROW_MIN_H_PX:
         raise ValueError(
-            f"hover: {count} options need {total_h:.0f}px but the cart "
-            f"band is only {band_h:.0f}px — shrink OPTION_H_PX or the menu")
+            f"hover: {count} spice rows would be {row_h:.0f}px tall, "
+            f"under the {_SPICE_ROW_MIN_H_PX:.0f}px floor — shrink the menu")
     x0, col_w = centre_column_px()
     left = x0 + (col_w - OPTION_W_PX) * 0.5
-    top = OPTIONS_TOP_PX + (band_h - total_h) * 0.5
-    return [(left, top + i * (OPTION_H_PX + OPTION_GAP_PX),
-             OPTION_W_PX, OPTION_H_PX) for i in range(count)]
+    desc_x = left + SPICE_TRACK_W_PX + SPICE_TRACK_GAP_PX
+    desc_w = OPTION_W_PX - SPICE_TRACK_W_PX - SPICE_TRACK_GAP_PX
+    zone_rects: List[Rect] = []
+    desc_rects: List[Rect] = []
+    for i in range(count):
+        y = top + i * (row_h + OPTION_GAP_PX)
+        zone_rects.append((left, y, SPICE_TRACK_W_PX, row_h))
+        desc_rects.append((desc_x, y, desc_w, row_h))
+    return zone_rects, desc_rects
+
+
+# --- the broth screen's own full-height cards, 2026-08-25 ------------------
+#
+# Developer: "there is no info box, instead the whole button is inlarged to
+# contain the info about respective brothes, so u can use the complete
+# vertical space above the next button row." One card per broth, stacked
+# full-width (not a row of narrow columns like the spice chili-strip — a
+# broth's `note` is a real sentence, and 130px-wide columns would wrap it
+# into a dozen barely-readable lines where a ~434px-wide, ~185px-tall card
+# fits it in two or three).
+#
+# **These three constants mirror `UiLayer.cpp`'s brand-block geometry and
+# cannot share a constant with it (one is Python, the other C++) — same
+# reasoning as `CART_WIDTH_PX`/`kCartWidthPx`.** They give the band's TOP:
+# the same point `kInfoBoxTopPx` marks in oF, i.e. immediately below the
+# brand mark, which is exactly the space broth cards now reclaim from the
+# (no longer drawn, on this screen) shared info box.
+_BRAND_TOP_MARGIN_PX = 12.0    # UiLayer kBrandTopMarginPx
+_BRAND_HEIGHT_PX = 170.0       # UiLayer kBrandHeightPx
+_BRAND_BANNER_GAP_PX = 14.0    # UiLayer kBrandBannerGapPx
+_INFO_BOX_TOP_PX = (_BRAND_TOP_MARGIN_PX + _BRAND_HEIGHT_PX
+                    + _BRAND_BANNER_GAP_PX)
+# The page header's height (title + step dots) is measured at RUNTIME from
+# the loaded font in oF (`UiLayer::_pageHeaderPx`) — this module has no font
+# metrics to measure it with. 72px is a rounded-up safety margin over the
+# 68.35px this exact title/font combination measured on a real boot
+# (2026-08-25 session log); a few px of slack costs nothing here since
+# `broth_card_rects` is bottom-anchored at `OPTIONS_BOTTOM_PX` regardless —
+# guessing a little short only trims a little height off the top of every
+# card, it can never push one into the header or the button row.
+_PAGE_HEADER_PX_ESTIMATE = 72.0
+
+# The shortest a broth card can be and still hold its own content: one
+# name line plus one diet/meta line (`UiLayer::drawOptionPlate`'s
+# broth-card branch), with no room left for the note that is the whole
+# point of the redesign. Unlike the old `option_rects`, this function
+# scales card height to whatever fits `count` into the band rather than
+# using one fixed height — which means an unbounded `count` would not
+# overflow, it would just shrink every card toward nothing, just as
+# invisible-in-a-diff a failure as the overflow `option_rects` guarded
+# against. This is that same guard, aimed at the new failure mode.
+_BROTH_CARD_MIN_H_PX = 80.0
+
+
+def broth_card_rects(count: int) -> List[Rect]:
+    """`count` cards, stacked top to bottom, spanning from just below the
+    page header down to `OPTIONS_BOTTOM_PX` — the info box's old band AND
+    the option row's old band, combined, since broth no longer shares the
+    former with anything.
+
+    Raises if a card would come out shorter than `_BROTH_CARD_MIN_H_PX` —
+    see that constant for why that is the right failure mode here, unlike
+    `option_rects`'s own fixed-height overflow check.
+    """
+    if count <= 0:
+        return []
+    top = _INFO_BOX_TOP_PX + _PAGE_HEADER_PX_ESTIMATE
+    bottom = OPTIONS_BOTTOM_PX
+    band_h = bottom - top
+    total_gap = OPTION_GAP_PX * (count - 1)
+    card_h = (band_h - total_gap) / count
+    if card_h < _BROTH_CARD_MIN_H_PX:
+        raise ValueError(
+            f"hover: {count} broth cards would be {card_h:.0f}px tall, "
+            f"under the {_BROTH_CARD_MIN_H_PX:.0f}px floor — shrink the menu")
+    x0, col_w = centre_column_px()
+    left = x0 + (col_w - OPTION_W_PX) * 0.5
+    return [(left, top + i * (card_h + OPTION_GAP_PX), OPTION_W_PX, card_h)
+            for i in range(count)]
 
 
 def _nav_row(*, forward_key: str, forward_enabled: bool) -> List[Widget]:
@@ -588,25 +661,31 @@ def _nav_row(*, forward_key: str, forward_enabled: bool) -> List[Widget]:
 
 def broth_widgets(broths: Sequence[Any], *,
                   selected_id: str = "") -> List[Widget]:
-    """Doc section 18.1's BROTH screen: one plate per broth, plus the nav
-    row (Back, Cancel, Next).
+    """Doc section 18.1's BROTH screen: one full-height card per broth,
+    plus the nav row (Back, Cancel, Next).
 
     **Next is disabled until a broth is locked in.** That is the visible
-    half of the new selection model: dwelling a plate marks it and does
+    half of the new selection model: dwelling a card marks it and does
     nothing else, so the only thing that can move the diner forward is a
     button whose own label says so. A Next that fired on nothing chosen
     would either skip the question or need a silent default, and a broth
     nobody picked is not a broth a kitchen should cook.
 
+    **No swatch, 2026-08-25** — developer: "also the coloured circle
+    infront of the broth name has to be removed." Nothing is passed for
+    it any more (`Widget.swatch` defaults to `""`); `UiLayer::
+    drawOptionPlate`'s broth-card branch never reads `w.swatch` at all,
+    so this is the one place that removal actually lives.
+
     `broths` are `menu.Broth`es; typed loosely so this module does not
     import `menu` (it imports nothing of core's but `geometry_store`, and
     keeping it that way is what lets `test_hover` run with no data files).
     """
-    rects = option_rects(len(broths))
+    rects = broth_card_rects(len(broths))
     out = [
         Widget(id=broth_widget_id(b.id), rect=rect, label_key="",
                label=b.display_name(), kind="option", style="option",
-               enabled=True, swatch=b.swatch,
+               enabled=True,
                selected=(b.id == selected_id),
                info={"diet": b.diet, "meta": b.meta, "desc": b.note})
         for b, rect in zip(broths, rects)
@@ -618,50 +697,69 @@ def broth_widgets(broths: Sequence[Any], *,
 
 def spice_widgets(levels: Sequence[Any], *,
                   selected_level: Optional[int] = None) -> List[Widget]:
-    """Doc section 18.1's SPICE screen: one chilli-strip cell per level
-    (level 0 excluded — see below), plus the nav row (Back, Cancel, Pay).
+    """Doc section 18.1's SPICE screen, redesigned 2026-08-25 into a
+    vertical slider: one narrow dwellable STOP per level (level 0
+    excluded — see below) stacked hot-at-top/mild-at-bottom on the left
+    of the centre column, each paired with a wide DESCRIPTION CARD at the
+    same row on the right, plus the nav row (Back, Cancel, Pay). See
+    `spice_layout_rects` for the geometry and the near/far reasoning.
 
-    **MILD FIRST, left to right — supersedes the old "hottest first"
-    rule.** Developer, 2026-08-25: "touching the left most chilli just
-    highlights that one, which is mild and should be default, and if u
-    press right most it should be most spicy." The 2026-08-25-earlier
-    "hottest first" instruction was written for the vertical stacked
-    list this replaces (hot at the TOP of a column); it does not carry
-    over to a horizontal strip, where "first" reads left to right and the
-    developer's new instruction is explicit about the direction.
+    **The stop and its card share ONE id, deliberately.** They are two
+    RECTS for the same choice, not two choices — `Widget.contains` is
+    hit-tested per rect (`DwellTracker.update` iterates `self._widgets`
+    and takes whichever one the hand is actually inside), so a hand
+    dwelling in either the narrow stop or the wide card fills the SAME
+    accumulator and fires the SAME id, and both widgets report the same
+    `hover`/`selected` back over the wire (`w.id == self.dwell.active_id`
+    in `main.py`'s own serialiser) with no extra plumbing. This is the
+    same "id is the option's identity, not a slot index" rule
+    `broth_widget_id`/`spice_widget_id`'s own module comment states.
 
     **Level 0 ("No Spice") is filtered out here, not in the data.**
     `menu.Menu.load` still requires it to exist in `data/menu.json` (doc
     section 17's genuine-no-spice guarantee), so the underlying menu is
-    untouched; this is the one place that keeps it off the picker. The
-    reference picture the strip is modelled on shows exactly three
-    non-zero tiers with no zero-chilli one, and stretching "No Spice"
-    into a slot the picture does not have was rejected in favour of
-    dropping it as an orderable choice — developer's own call.
+    untouched; this is the one place that keeps it off the picker —
+    unchanged from the horizontal strip this replaces.
 
-    Each cell carries `icon="chilli"`, `icon_count = level` and
+    The stop carries `icon="chilli"`, `icon_count = level` and
     `max_icon_count = len(ordered)` (today, 3) — oF draws `max_icon_count`
-    total chilies, the first `icon_count` lit and the rest grey, so every
-    cell in the row shares the same total and reads as one gauge rather
-    than three unrelated icons (see `Widget.max_icon_count`).
+    total chilies, the first `icon_count` lit and the rest grey, so the
+    stack reads as one gauge rather than three unrelated icons (see
+    `Widget.max_icon_count`). The card carries no icon; its `meta` is the
+    level's own display NAME ("Hot"), not `s.meta` (menu.json's "Level
+    3") — `UiLayer`'s `spiceLevelFromMeta` recognises "mild"/"medium"/
+    "hot" and draws it as the same chilli gauge the stop already shows
+    rather than as a redundant number (see that function's own comment)
+    — the same gauge, once each side.
 
-    No `diet` on a spice level — it is not food. The info box draws the
-    diet mark only when there is one rather than drawing a blank dot.
+    No `diet` on a spice level — it is not food. The card draws the diet
+    mark only when there is one rather than drawing a blank dot.
     """
     ordered = sorted((s for s in levels if int(s.level) > 0),
                      key=lambda s: int(s.level))
-    rects = spice_cell_rects(len(ordered))
-    max_count = len(ordered)
-    out = [
-        Widget(id=spice_widget_id(s.level), rect=rect, label_key="",
-               label=s.display_name(), kind="option", style="option",
-               enabled=True, icon="chilli", icon_count=int(s.level),
-               max_icon_count=max_count,
-               selected=(selected_level is not None
-                         and int(s.level) == int(selected_level)),
-               info={"diet": "", "meta": s.meta, "desc": s.note})
-        for s, rect in zip(ordered, rects)
-    ]
+    hottest_first = list(reversed(ordered))
+    zone_rects, desc_rects = spice_layout_rects(len(hottest_first))
+    max_count = len(hottest_first)
+    out: List[Widget] = []
+    for i, s in enumerate(hottest_first):
+        wid = spice_widget_id(s.level)
+        sel = (selected_level is not None
+               and int(s.level) == int(selected_level))
+        out.append(Widget(id=wid, rect=zone_rects[i], label_key="",
+                          label=s.display_name(), kind="option",
+                          style="option", enabled=True, selected=sel,
+                          icon="chilli", icon_count=int(s.level),
+                          max_icon_count=max_count))
+        # `meta` is the level's own NAME ("Hot"), not `s.meta` ("Level 3")
+        # — `UiLayer::spiceLevelFromMeta` recognises "mild"/"medium"/"hot"
+        # and draws it as the same chilli gauge the stop already shows,
+        # so the card does not repeat the stop's count as a redundant
+        # number (see that function's own comment).
+        out.append(Widget(id=wid, rect=desc_rects[i], label_key="",
+                          label=s.display_name(), kind="option",
+                          style="option", enabled=True, selected=sel,
+                          info={"diet": "", "meta": s.display_name(),
+                                "desc": s.note}))
     out.extend(_nav_row(forward_key="pay",
                         forward_enabled=selected_level is not None))
     return out

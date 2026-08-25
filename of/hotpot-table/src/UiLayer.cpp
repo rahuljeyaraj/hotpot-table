@@ -613,18 +613,6 @@ namespace {
 	// which is core's rule, not this file's (see StateLink::Qr::token).
 	const int kTokenPx = 88;
 
-	// A broth's colour swatch (doc §18.1, "a colour swatch each"), drawn
-	// as a filled disc in the plate's icon column. Sized against the
-	// option plate's own height rather than fixed, so it stays
-	// proportional if OPTION_H_PX ever moves in core/hover.py.
-	// 0.34 -> 0.5 (2026-08-25): the plates lost a quarter of their height
-	// when they moved into the cart's band, and a disc that shrank with
-	// them would have been a 25px dot read from a metre away. Its own
-	// inset constant is gone — the disc is centred in the icon column now
-	// (kOptionIconColPx), which is what keeps every plate's NAME starting
-	// at the same x whether it carries a swatch, three chillies or
-	// nothing.
-	const float kOptionSwatchFrac = 0.5f;
 	// The veg/non-veg dot. Green and red are the same two the cart's own
 	// buttons use (kWidgetPrimary/kWidgetDanger) rather than a third
 	// pair — one green and one red on this table, not several. Egg is
@@ -635,18 +623,73 @@ namespace {
 	const float kInfoDietDotRadiusPx = 8.0f;
 	const float kInfoDietDotGapPx = 10.0f;
 
+	// The broth card's meta slot, 2026-08-25: developer, "instead of writing
+	// not spicy and spicy in the broth box, put the chilli sign of not spicy
+	// and very spicy." A row of `kBrothMetaChilliCount` chillies, the first
+	// `spiceLevelFromMeta(w.meta)` of them lit — same red-lit/grey-unlit
+	// language as `spice_widgets`' own chilli-strip cell, so a diner who has
+	// already seen that gauge on the next screen recognises this one. Sized
+	// against `kInfoDietDotRadiusPx*2` (16px), the diet dot's own diameter,
+	// so the two glyphs on the same line read as one visual weight.
+	const float kBrothMetaChilliHPx = 16.0f;
+	const float kBrothMetaChilliPitchPx = kBrothMetaChilliHPx * 1.2f;
+	const int kBrothMetaChilliCount = 3;
+
+	// The broth card's own, tighter vertical rhythm, 2026-08-25: developer,
+	// "the broth details is getting truncated... reduce the size of the
+	// info to fit in that box." Two of the three real notes (mala,
+	// collagen) were overrunning `drawOptionPlate`'s broth-card branch by
+	// one short line under the shared `kInfoBoxPadYPx`/`kInfoBoxLineGapPx`
+	// rhythm the bins' info box uses — that rhythm is left alone (the bins
+	// were already measured against it) and the broth card gets its own,
+	// smaller pad and note line-gap instead, which is the whole difference
+	// needed to clear a 3rd note line without shrinking any text.
+	const float kBrothCardPadYPx = 7.0f;
+	const float kBrothCardNoteLineGapPx = 3.0f;
+
+	// `menu.json`'s broth `meta` is prose ("Very spicy"), not a level
+	// number — parsed here rather than in core, since only THIS screen
+	// wants it as a chilli count; the shared info box (bins) still wants
+	// the words verbatim. Unrecognised text (a future menu entry that says
+	// something `meta` never has before) returns -1, and the caller falls
+	// back to drawing the words themselves rather than guessing a count.
+	int spiceLevelFromMeta(const std::string & meta){
+		std::string s = meta;
+		std::transform(s.begin(), s.end(), s.begin(),
+			[](unsigned char c){ return std::tolower(c); });
+		if(s.find("not spicy") != std::string::npos
+			|| s.find("no spice") != std::string::npos){
+			return 0;
+		}
+		if(s.find("very spicy") != std::string::npos
+			|| s.find("hot") != std::string::npos){
+			return 3;
+		}
+		if(s.find("medium") != std::string::npos){
+			return 2;
+		}
+		if(s.find("mild") != std::string::npos
+			|| s.find("spicy") != std::string::npos){
+			return 1;
+		}
+		return -1;
+	}
+
 	// --- M5: the pointer cursor and the dwell ring ------------------------
 	// Sizes in px because they are screen furniture, not table geometry —
 	// nothing about a cursor is measured in millimetres of plywood. The
 	// numbers are set against the one thing that does matter physically:
 	// a hand is not a mouse, so the cursor has to be visible under a hand
 	// that is partly covering it, from three metres, on a near-white field.
-	const float kCursorDotRadius = 13.0f;    // the solid centre
-	const float kCursorRingInner = 22.0f;    // thin ring around it, so the
-	const float kCursorRingOuter = 28.0f;    // dot reads even over a label
-	// The dwell ring sits OUTSIDE the cursor's own ring rather than
-	// replacing it: the cursor must not change shape as the ring fills, or
-	// the diner reads it as the cursor breaking rather than as progress.
+	// **A flame, not concentric rings, 2026-08-25** — developer: "instead
+	// of the concentric circles as the pointer, can we have a small candle
+	// like flame?" `kCursorFlameHPx` is sized to roughly the same visual
+	// footprint the old ring pair (13-28px radius) had, so this swap did
+	// not also have to re-earn "visible under a hand, from three metres".
+	const float kCursorFlameHPx = 46.0f;
+	// The dwell ring sits OUTSIDE the flame rather than replacing it: the
+	// cursor must not change shape as the ring fills, or the diner reads
+	// it as the cursor breaking rather than as progress.
 	const float kDwellRingInner = 36.0f;
 	const float kDwellRingOuter = 52.0f;
 
@@ -758,6 +801,30 @@ namespace {
 	// under dark text has to keep.
 	const ofColor kWidgetDwellFill(200, 120, 0, 80);
 
+	// **A glow drawn in the same dark ink as a button's border reads as a
+	// SHADOW, not a halo — 2026-08-25, developer: "if u r putting halo
+	// around buttons, its not at all clear, it looks like a shado."** The
+	// bins' own halo (`drawHalo`) never has this problem because it never
+	// glows in its own ink: it uses a bright, saturated colour of its own
+	// (`kHaloIdleColor`, a hue the ink palette does not otherwise carry) at
+	// up to full 255 alpha. `kWidgetPrimary`/`kWidgetDanger`/
+	// `kWidgetSecondary` were tuned the opposite way, deliberately DARK and
+	// muted so they read as ink on a light field (see kAccentInk's own
+	// comment on that fight) — exactly the properties that make a diffuse
+	// blur of them look like an ordinary drop shadow instead of light.
+	// Rather than adding a fourth hex per hue (this table's palette has
+	// already been through three rounds of "that colour drifts under the
+	// projector" — see kAccentInk), this pushes the SAME hue toward full
+	// brightness and saturation for the glow only, leaving every ink use
+	// (text, borders) untouched. A light, saturated version of a colour is
+	// unambiguously light; a dark, muted one is not.
+	ofColor glowTint(const ofColor & ink){
+		ofColor c = ink;
+		c.setSaturation(215.0f);
+		c.setBrightness(235.0f);
+		return c;
+	}
+
 	// --- the glow, and why it BREATHES ------------------------------------
 	//
 	// Developer, 2026-08-25 (second report on the same thing): "the
@@ -791,48 +858,42 @@ namespace {
 	// the palette block above on kiosk button hierarchy. These are the
 	// peak alphas the breath multiplies.
 	const int kWidgetFillAlpha = 26;
-	const int kWidgetGlowAlpha = 105;
+	// Raised alongside `glowTint`, 2026-08-25 — the tint made the glow
+	// lighter, and a light colour at the old 105/165 alpha over #E8E6E1
+	// was still too washed out to read as lit rather than smudged.
+	const int kWidgetGlowAlpha = 150;
 	const int kWidgetPrimaryFillAlpha = 52;
-	const int kWidgetPrimaryGlowAlpha = 165;
+	const int kWidgetPrimaryGlowAlpha = 205;
 
 	// --- the option plates (broth, spice) ---------------------------------
 	// A selected plate is filled and check-marked rather than merely
 	// glowing: the developer's model is "the selection is locked even
 	// without hover... then the info als remains locked", and a lock has
 	// to be readable from across the table with no hand anywhere near it.
-	const int kOptionSelectedFillAlpha = 60;
-	const int kOptionSelectedGlowAlpha = 150;
-	// Where the swatch/chilli column ends and the label begins. Reserved
-	// at a FIXED width so a 3-chilli plate and a 0-chilli plate start
-	// their labels at the same x — a label column that moved with the icon
-	// count would make the four spice plates look like four different
-	// controls. The tick's gutter is reserved the same way, and for the
-	// same reason: a name that reflowed when its plate was selected would
-	// make choosing it look like choosing something else.
 	//
-	// **Every one of these five numbers is set by the arithmetic below,
-	// not by eye.** The plate is kCartWidthPx (520) wide and the longest
-	// menu name is "Mushroom Vegan Broth" — PIL 267px at 20px bold, so
-	// 267 x kOfWidthRatio = 374px as oF will actually measure it. What is
-	// left for the label after the two reserved columns is
-	//
-	//     520 - (16 + 56 + 12) - (12 + 26 + 14) = 384px
-	//
-	// which clears 374 by 10px. That margin is thin on purpose rather
-	// than by accident: widening it means either a smaller name or a
-	// narrower icon column, and drawOptionPlate carries the same
-	// one-warning-per-name log drawCart does, so a future menu entry that
-	// does NOT fit says so in the boot log instead of appearing clipped
-	// on the plywood.
-	const float kOptionIconColPx = 56.0f;
+	// **Fill and ring both raised, 2026-08-25** — developer: "the selected
+	// button blue colour looks like grey and it is very difficult to see
+	// it is selected. we need really contrast colour for selected and not
+	// selected." The old 60/255 (~23%) fill was close enough to the
+	// unselected card's own 26/255 wash that "selected" read as a hairline
+	// hue difference rather than a locked-in state; this is now more than
+	// double the unselected fill and paired with a ring nearly TWICE
+	// `kWidgetRingMM` thick (`kOptionSelectedRingMM`, drawOptionPlate) so a
+	// selected card is unmistakable by shape alone, not just by a subtler
+	// shade of the same near-white.
+	const int kOptionSelectedFillAlpha = 140;
+	const int kOptionSelectedGlowAlpha = 210;
+	const float kOptionSelectedRingMM = 9.0f;
+	// **The list-row layout these five constants used to share (icon
+	// column, tick gutter) is gone — 2026-08-25.** Spice is a chili-strip
+	// now (`drawOptionPlate`'s `icon == "chilli"` branch, its own layout)
+	// and broth is a full-height info card (that branch's own layout,
+	// borrowed from `drawInfoBox`'s spacing constants instead). Only the
+	// two both still use are kept: `kOptionPadXPx` (both cards' own inset)
+	// and `kOptionLabelPx` (`_optionFont`'s size — the chili cell's label
+	// and the broth card's name, the one border case narrow enough to
+	// still need this exact 20px, see that branch's own comment on why).
 	const float kOptionPadXPx = 16.0f;
-	const float kOptionLabelGapPx = 12.0f;
-	const float kOptionCheckRadiusPx = 13.0f;
-	const float kOptionCheckInsetPx = 14.0f;
-	// 20px, and that IS the measurement above rather than a taste call —
-	// 22px would need 414px against the 384px the plate has. The name is
-	// repeated at 30px in the info box directly above, which is the
-	// primary read; this is the list entry beside it, at arm's length.
 	const int kOptionLabelPx = 20;
 
 	// --- the page header (title + step dots) -------------------------------
@@ -1054,25 +1115,6 @@ namespace {
 	// §17.2 currency text is "<symbol><amount>"). Latin1Supplement adds the
 	// yen/yuan sign and other Latin-1 symbols for the same reason, cheaply,
 	// ahead of any locale actually needing them.
-	// "#RRGGBB" -> ofColor. Returns false on anything else, and the caller
-	// then draws NO swatch rather than a black one — a colour nobody
-	// chose is worse than an absent one, and a typo in data/menu.json
-	// should look like a missing swatch, not like a broth that is
-	// somehow black.
-	bool parseHexColor(const std::string & hex, ofColor & out){
-		if(hex.size() != 7 || hex[0] != '#'){
-			return false;
-		}
-		for(size_t i = 1; i < hex.size(); i++){
-			if(!isxdigit((unsigned char)hex[i])){
-				return false;
-			}
-		}
-		const long v = strtol(hex.substr(1).c_str(), nullptr, 16);
-		out = ofColor((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
-		return true;
-	}
-
 	bool loadUiFont(ofTrueTypeFont & font, const std::string & file, int size){
 		ofTrueTypeFontSettings settings(file, size);
 		settings.ranges = {ofUnicode::Latin1Supplement, ofUnicode::CurrencySymbols};
@@ -1594,30 +1636,39 @@ void UiLayer::drawChilli(float cx, float cy, float sizePx,
 	stem.draw();
 }
 
-void UiLayer::drawCheckMark(float cx, float cy, float radiusPx,
-	const ofColor & colour){
-	// A FILLED six-point tick, not two strokes. `ofPath::setStrokeWidth`
-	// is `ofSetLineWidth` in disguise on this renderer and is capped or
-	// ignored outright (drawAnnulus carries the finding), so a stroked
-	// tick would be a hairline on the deploy board.
-	if(radiusPx <= 0.0f){
+void UiLayer::drawFlame(float cx, float cy, float sizePx, const ofColor & body){
+	// doc §11.4's pointer, redrawn 2026-08-25 — see kCursorFlameHPx's own
+	// comment. Same "silhouette, not illustration" rule drawChilli's
+	// comment argues for at small sizes: a rounded base tapering to a
+	// tip that leans off-centre, one fill, no second tone. The lean is
+	// what keeps this reading as a flickering flame instead of an inert
+	// teardrop or a raindrop pointing the wrong way.
+	if(sizePx <= 0.0f){
 		return;
 	}
-	const float t = radiusPx * 0.30f;   // stroke thickness, as geometry
-	// Points along the tick's centreline, in units of radiusPx.
-	const glm::vec2 a(cx - radiusPx * 0.62f, cy + radiusPx * 0.02f);
-	const glm::vec2 b(cx - radiusPx * 0.16f, cy + radiusPx * 0.48f);
-	const glm::vec2 c(cx + radiusPx * 0.66f, cy - radiusPx * 0.48f);
+	const float h = sizePx;
+	const float w = sizePx * 0.66f;
+	const float tipY = cy - h * 0.5f;
+	const float baseY = cy + h * 0.5f;
 
 	ofPath path;
 	path.setFilled(true);
-	path.setFillColor(colour);
-	path.moveTo(a.x, a.y - t * 0.7f);
-	path.lineTo(b.x, b.y - t * 1.15f);
-	path.lineTo(c.x - t * 0.2f, c.y - t * 0.9f);
-	path.lineTo(c.x + t * 0.55f, c.y + t * 0.2f);
-	path.lineTo(b.x + t * 0.05f, b.y + t * 0.85f);
-	path.lineTo(a.x - t * 0.55f, a.y + t * 0.8f);
+	path.setFillColor(body);
+	path.setCircleResolution(48);
+	// Left shoulder: tip down to the rounded base.
+	path.moveTo(cx + w * 0.06f, tipY);
+	path.bezierTo(cx - w * 0.40f, tipY + h * 0.34f,
+		cx - w * 0.50f, baseY - h * 0.34f,
+		cx - w * 0.18f, baseY);
+	// The rounded bottom.
+	path.bezierTo(cx, baseY + h * 0.10f,
+		cx + w * 0.22f, baseY + h * 0.06f,
+		cx + w * 0.30f, baseY - h * 0.06f);
+	// Right shoulder: bulges further than the left on its way back up to
+	// the tip, which is what pulls the tip off dead-centre.
+	path.bezierTo(cx + w * 0.46f, baseY - h * 0.30f,
+		cx + w * 0.30f, tipY + h * 0.40f,
+		cx + w * 0.06f, tipY);
 	path.close();
 	path.draw();
 }
@@ -2633,7 +2684,7 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 
 	if(glow01 > 0.0f){
 		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands,
-			ink, (int)(glowPeak * glow01));
+			glowTint(ink), (int)(glowPeak * glow01));
 	}
 	drawRoundedRectFill(box, corner,
 		ofColor(ink, w.enabled ? (int)(fillPeak * (0.55f + 0.45f * glow01))
@@ -2686,24 +2737,19 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 
 void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	float glow01) const {
-	// A broth or a spice plate. Laid out as a LIST ROW, not as a centred
-	// button: icon column, name, and a tick on the right when it is the
-	// one chosen. That is what a diner scanning four options reads
-	// fastest — the names line up in a column, so comparing them is one
-	// eye movement rather than four.
-	//
-	// **The icon column is a fixed width whatever it holds.** A 3-chilli
-	// plate and a 0-chilli plate start their labels at the same x; a
-	// column that sized itself to its contents would leave the four
-	// spice names in four different places and stop them reading as one
-	// list.
+	// A broth or a spice option. The two now have entirely different
+	// shapes and are drawn by the two branches below — spice is a
+	// chili-strip cell (`icon == "chilli"`), broth is a full-height info
+	// card. This shared header is what both still have in common: the
+	// fill/glow/dwell-fill/ring, none of which cares whether the box it
+	// is drawing into is a short wide cell or a tall one.
 	const ofRectangle box(w.x, w.y, w.w, w.h);
 	const float corner = std::min(kWidgetCornerPx,
 		std::min(box.width, box.height) * 0.5f);
 	const bool sel = w.selected && w.enabled;
 
 	if(glow01 > 0.0f){
-		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands, ink,
+		drawGlow(box, corner, kWidgetGlowReachPx, kWidgetGlowBands, glowTint(ink),
 			(int)((sel ? kOptionSelectedGlowAlpha : kWidgetGlowAlpha) * glow01));
 	}
 	// A selected plate is FILLED, not merely outlined. Developer,
@@ -2724,26 +2770,29 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		}
 	}
 
-	drawRing(box, mmToPxX(kWidgetRingMM), mmToPxY(kWidgetRingMM), ink, corner);
+	const float ringMM = sel ? kOptionSelectedRingMM : kWidgetRingMM;
+	drawRing(box, mmToPxX(ringMM), mmToPxY(ringMM), ink, corner);
 
-	const float cy = box.getCenter().y;
-	const float iconCx = box.x + kOptionPadXPx + kOptionIconColPx * 0.5f;
-
-	// 2026-08-25: the chili-strip redesign. Developer: "i need the
-	// spicilevel selection not to be a button, but 4 chillies as shown in
-	// the image touching the left most chilli just highlights that one,
-	// which is mild and should be default, and if u press right most it
-	// should be most spicy." `hover.spice_widgets` now lays these out as
-	// a ROW of square-ish cells (see `hover.spice_cell_rects`) rather
-	// than a stacked list, and sends `maxIconCount` so every cell draws
-	// the SAME total — a cell with `iconCount=1` is 1 red chilli next to
-	// 2 grey ones, not a lone chilli with nothing to compare it against
-	// (the reference picture's own point: every tier shows the full row,
-	// only how many are lit changes). This branch is the whole
-	// difference from the broth's list-row layout below it: centred
-	// icons, a centred label underneath, no icon column, no tick — the
-	// fill/glow/dwell-fill/ring above already drew the same way either
-	// style needs, since none of that cares about the box's shape.
+	// 2026-08-25, twice. First the chili-strip redesign — developer: "i
+	// need the spicilevel selection not to be a button, but 4 chillies as
+	// shown in the image... every tier shows the full row, only how many
+	// are lit changes" — which is where `maxIconCount` came from: every
+	// cell draws the SAME total, so a cell with `iconCount=1` is 1 red
+	// chilli next to 2 grey ones, not a lone chilli with nothing to
+	// compare it against.
+	//
+	// Then the vertical-slider redesign, same day: "make the spicy
+	// selector as a vertical slider with the mild near and hot far."
+	// `hover.spice_widgets`/`spice_layout_rects` now stack these cells
+	// top to bottom instead of laying them left to right — nothing
+	// BELOW this comment needed to change for it, since `chilliH` is
+	// solved from the cell's own WIDTH and clamped by its own HEIGHT
+	// (below), which was already shape-agnostic before the row became a
+	// column. This branch is the whole difference from the broth/spice-
+	// card layout below it: centred icons, a centred label underneath,
+	// no icon column, no tick — the fill/glow/dwell-fill/ring above
+	// already drew the same way either style needs, since none of that
+	// cares about the box's shape either.
 	if(w.icon == "chilli" && w.maxIconCount > 0){
 		const float cx = box.getCenter().x;
 		const float total = (float)w.maxIconCount;
@@ -2793,76 +2842,138 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		return;
 	}
 
-	// doc §18.1's "a colour swatch each", for the broths. Drawn after the
-	// dwell fill rather than under it — the fill sweeps across the whole
-	// plate, and a swatch that disappeared under it would look like the
-	// broth had been deselected halfway through choosing it.
-	if(!w.swatch.empty()){
-		ofColor sw;
-		if(parseHexColor(w.swatch, sw)){
-			const float r = box.height * kOptionSwatchFrac * 0.5f;
-			// A hairline of the plate's own ink around the disc, so a
-			// pale broth (#D8CFC0 collagen) still has an edge against the
-			// near-white field instead of dissolving into it.
-			ofSetColor(ink, 90);
-			ofDrawCircle(iconCx, cy, r + 2.0f);
-			ofSetColor(sw);
-			ofDrawCircle(iconCx, cy, r);
-		}
-	}
-
-	// doc §18.1's "four plates, 0-3, with chilli glyphs" — built here,
-	// never typed (StateLink::Widget::icon says why).
+	// 2026-08-25: the broth screen's own card style — the whole rest of
+	// this function. Developer: "there is no info box, instead the whole
+	// button is inlarged to contain the info about respective brothes, so
+	// u can use the complete vertical space above the next button row...
+	// also the coloured circle infront of the broth name has to be
+	// removed." `hover.broth_widgets` now lays out one FULL-WIDTH row per
+	// broth (`hover.broth_card_rects`), spanning the band the shared info
+	// box used to occupy plus the old option row's own band —
+	// `UiLayer::draw` skips `drawInfoBox` entirely on the broth screen
+	// (see that call site), so this card is the ONLY place a broth's
+	// diet/meta/note reach the table now. No swatch (the old
+	// `kOptionSwatchFrac` circle is gone with it — `parseHexColor`/
+	// `w.swatch` are no longer read here at all), no icon column, no
+	// tick — this is the shared info box's own visual language (name,
+	// then diet+meta, then a wrapped note) drawn per-card instead of once
+	// in a shared band.
 	//
-	// **Level 0 draws none, and that is the whole statement.** Doc §17 is
-	// explicit that no-spice is a real choice rather than an absence, and
-	// a greyed-out pepper in that slot would read as one pepper. The
-	// label beside it says "No Spice"; nothing else is needed.
-	if(w.icon == "chilli" && w.iconCount > 0){
-		// Sized so three of them still clear the icon column: at 0.44 of
-		// the plate's height the group spans ~42px of the 56px reserved.
-		const float chilliH = box.height * 0.44f;
-		const float pitch = chilliH * 0.44f;
-		const float span = pitch * (float)(w.iconCount - 1);
-		for(int k = 0; k < w.iconCount; k++){
-			drawChilli(iconCx - span * 0.5f + pitch * (float)k, cy,
-				chilliH, ofColor(kWidgetDanger, w.enabled ? 255 : 120));
-		}
+	// **Same day, this card gained a second tenant.** The spice screen's
+	// vertical slider (the `icon == "chilli"` branch above) pairs each
+	// stop with a description card of its own (`hover.spice_widgets`),
+	// and that card is exactly this shape — name, then diet(empty)+meta,
+	// then a wrapped note — so it draws through here too rather than
+	// through a second copy of the same layout math.
+	//
+	// **The note's line count is SOLVED from the card's own remaining
+	// height, not a fixed budget.** `drawInfoBox` can get away with a
+	// fixed `kInfoBoxNoteMaxLines` because there is only ever one shared
+	// box; this function draws N cards of whatever height `hover.py`
+	// divided the band into for however many broths the menu holds today,
+	// and that count has already changed once this session (4 -> 3). A
+	// card this function was never measured against must still be unable
+	// to overflow its own box.
+	if(!_infoFont.isLoaded() || !_infoNameFont.isLoaded()){
+		ofSetColor(255);
+		return;
 	}
+	const float padX = kInfoBoxPadXPx;
+	const float leftX = box.x + padX;
+	const float rightX = box.x + box.width - padX;
+	const float textWidth = box.width - 2.0f * padX;
+	const float bodyLineH = _infoFont.getAscenderHeight()
+		+ fabsf(_infoFont.getDescenderHeight()) + kBrothCardNoteLineGapPx;
+	float y = box.y + kBrothCardPadYPx;
 
-	// The name, left-aligned after the icon column, with the tick's own
-	// gutter reserved whether a tick is showing or not — see
-	// kOptionIconColPx for the arithmetic that sets both columns and the
-	// font size against the longest name on the menu.
-	const float labelX = box.x + kOptionPadXPx + kOptionIconColPx
-		+ kOptionLabelGapPx;
-	const float labelMaxW = box.x + box.width - kOptionCheckInsetPx
-		- kOptionCheckRadiusPx * 2.0f - kOptionLabelGapPx - labelX;
-	const ofTrueTypeFont & face =
+	// The name — `_optionFont` (20px), not `_infoNameFont` (32px, sized
+	// for a bin's shorter catalogue name): measured against the real
+	// three broths at this card's own width, "Mushroom Vegan Broth" is
+	// the worst case and clears this font/width pair with ~30px to
+	// spare, where 32px would not (see this comment's own sibling in the
+	// chili-cell branch above for the same "measured, not guessed" rule,
+	// learned the hard way earlier this session).
+	const ofTrueTypeFont & nameFace =
 		_optionFont.isLoaded() ? _optionFont : _nameFont;
-	// **Reported once per name, not per frame** — the same net drawCart
-	// carries, for the same reason: the last two truncation reports on
-	// this table each cost a rebuild to diagnose because nothing recorded
-	// the actual widths. The columns above are sized to clear every name
-	// in `data/menu.json`, so this should never fire; if a fifth broth
-	// with a longer name is added, the boot log says so by name.
-	std::string label = w.label;
-	const float labelW = face.getStringBoundingBox(w.label, 0, 0).width;
-	if(labelW > labelMaxW){
-		label = truncateToWidth(face, w.label, labelMaxW);
+	const float nameBaseline = y + nameFace.getAscenderHeight();
+	std::string name = w.label;
+	const float nameW = nameFace.getStringBoundingBox(name, 0, 0).width;
+	if(nameW > textWidth){
+		name = truncateToWidth(nameFace, name, textWidth);
 		if(_truncatedNames.insert(w.label).second){
-			ofLogWarning(kTag) << "option plate: \"" << w.label << "\" needs "
-				<< labelW << "px but the label column is " << labelMaxW
-				<< "px — truncated; shrink kOptionIconColPx or kOptionLabelPx";
+			// Shared by the broth screen's cards AND, since 2026-08-25,
+			// the spice screen's description cards (`hover.spice_widgets`)
+			// — both draw through this same branch, so the id is what
+			// tells the two apart in a log.
+			ofLogWarning(kTag) << "info card " << w.id << " (\""
+				<< w.label << "\") needs " << nameW
+				<< "px but the card is " << textWidth
+				<< "px wide — truncated";
 		}
 	}
-	ofSetColor(w.enabled ? (sel ? kWidgetPrimary : kPlateNameColor)
+	ofSetColor(w.enabled ? (sel ? kWidgetPrimary : kInfoBoxNameColor)
 		: kWidgetDisabled);
-	face.drawString(label, labelX, cy + face.getAscenderHeight() * 0.5f);
+	nameFace.drawString(name, leftX, nameBaseline);
+	y += nameFace.getAscenderHeight() + fabsf(nameFace.getDescenderHeight())
+		+ kInfoBoxLineGapPx;
 
-	if(sel){
-		drawCheckMark(box.x + box.width - kOptionCheckInsetPx
-			- kOptionCheckRadiusPx, cy, kOptionCheckRadiusPx, kWidgetPrimary);
+	// Diet dot + word, meta right-aligned — the exact pair `drawInfoBox`
+	// draws and the exact reason (I8: never a state by colour alone).
+	const float dietBaseline = y + _infoFont.getAscenderHeight();
+	if(!w.diet.empty()){
+		ofColor dietColour = kInfoDietEggColor;
+		std::string dietWord = "EGG";
+		if(w.diet == "veg"){
+			dietColour = kWidgetPrimary;
+			dietWord = "VEG";
+		}
+		else if(w.diet == "nonveg"){
+			dietColour = kWidgetDanger;
+			dietWord = "NON-VEG";
+		}
+		const float dotCx = leftX + kInfoDietDotRadiusPx;
+		ofSetColor(dietColour);
+		ofDrawCircle(dotCx, dietBaseline - _infoFont.getAscenderHeight() * 0.35f,
+			kInfoDietDotRadiusPx);
+		_infoFont.drawString(dietWord,
+			dotCx + kInfoDietDotRadiusPx + kInfoDietDotGapPx, dietBaseline);
+	}
+	if(!w.meta.empty()){
+		const int spiceLevel = spiceLevelFromMeta(w.meta);
+		if(spiceLevel >= 0){
+			const float iconsCy = dietBaseline - _infoFont.getAscenderHeight() * 0.35f;
+			const float rowW = kBrothMetaChilliPitchPx * (float)(kBrothMetaChilliCount - 1)
+				+ kBrothMetaChilliHPx;
+			const float lastCx = rightX - kBrothMetaChilliHPx * 0.5f;
+			const float firstCx = lastCx - (rowW - kBrothMetaChilliHPx);
+			for(int k = 0; k < kBrothMetaChilliCount; k++){
+				const bool lit = k < spiceLevel;
+				const ofColor col = lit
+					? ofColor(kWidgetDanger) : ofColor(kWidgetDisabled, 160);
+				drawChilli(firstCx + kBrothMetaChilliPitchPx * (float)k, iconsCy,
+					kBrothMetaChilliHPx, col);
+			}
+		}
+		else {
+			// Fallback for meta text this parser does not recognise as a
+			// spice level — see spiceLevelFromMeta's own comment.
+			ofRectangle mb = _infoFont.getStringBoundingBox(w.meta, 0, 0);
+			ofSetColor(kInfoBoxKcalColor);
+			_infoFont.drawString(w.meta, rightX - mb.width - mb.x, dietBaseline);
+		}
+	}
+	y += _infoFont.getAscenderHeight() + fabsf(_infoFont.getDescenderHeight())
+		+ kBrothCardNoteLineGapPx;
+
+	// The note fills whatever is left of the card.
+	const float remaining = (box.y + box.height - kBrothCardPadYPx) - y;
+	const size_t maxLines = remaining >= bodyLineH
+		? (size_t)(remaining / bodyLineH) : 0;
+	ofSetColor(kInfoBoxTextColor);
+	for(const std::string & line
+			: wrapToLines(_infoFont, w.desc, textWidth, maxLines)){
+		_infoFont.drawString(line, leftX, y + _infoFont.getAscenderHeight());
+		y += bodyLineH;
 	}
 	ofSetColor(255);
 }
@@ -3038,9 +3149,7 @@ void UiLayer::drawCursor(const CursorLink::Hand & pointer, float dwell) const {
 			start, start + 360.0f * dwell);
 	}
 
-	drawAnnulus(cx, cy, kCursorRingOuter, kCursorRingInner, kCursorColor);
-	ofSetColor(kCursorColor);
-	ofDrawCircle(cx, cy, kCursorDotRadius);
+	drawFlame(cx, cy, kCursorFlameHPx, kCursorColor);
 	ofSetColor(255);
 }
 
@@ -3188,12 +3297,33 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		// the cart stops drawing on the screens that are not the cart.
 		//
 		// The band above stays what it always was — the info box — on
-		// every page, which is the other half of the same instruction:
-		// "the top info area should be left to there for broth info and
-		// in spicy page, spice info." On the option pages a page header
-		// takes the top of that band (drawPageHeader) and the box moves
-		// down by exactly its height.
+		// every page EXCEPT the two option pages, which is the other half
+		// of the same instruction: "the top info area should be left to
+		// there for broth info and in spicy page, spice info." On the
+		// option pages a page header takes the top of that band
+		// (drawPageHeader) and the box moves down by exactly its height —
+		// or, since 2026-08-25, does not draw at all (see `optionPage`).
 		const bool optionPage = state.phase == "broth" || state.phase == "spice";
+		// **Neither option page shares the info box any more, 2026-08-25.**
+		// Broth stopped first — developer: "there is no info box, instead
+		// the whole button is inlarged to contain the info about
+		// respective brothes." `hover.broth_widgets` lays each broth's own
+		// card across the info box's old band AND the option row's own
+		// band combined (`hover.broth_card_rects`) — `drawOptionPlate`'s
+		// broth-card branch draws the name/diet/meta/note directly into
+		// that card, so drawing the shared info box on top of it would
+		// either duplicate the same text or (since nothing is ever hovered
+		// on a card that fills its own band) draw nothing into a reserved
+		// strip the broth cards have already grown into.
+		//
+		// Spice followed the same day, same reason: "make the spicy
+		// selector as a vertical slider... remaining area u wire the mild,
+		// medium and hot with its discription." `hover.spice_widgets` now
+		// pairs each level's slider stop with its own description card
+		// (`hover.spice_layout_rects`), and that card is exactly what the
+		// shared info box used to draw for whichever ONE level was
+		// hovered — now all three show at once, so the old single-level
+		// box would be redundant at best.
 		const bool payPage = state.overlayKind == "qr";
 		// **A banner outranks a header**, the same precedence doc §14.5
 		// sets for this column and the same one drawInfoBox already
@@ -3214,13 +3344,15 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		if(headed){
 			drawPageHeader(state.screen);
 		}
-		if(!payPage){
+		if(!payPage && !optionPage){
 			// The payment page owns the whole band below the header —
 			// there is no hovered item to describe on it, and a leftover
 			// info box from a bin the diner's hand drifted over would sit
 			// on top of the code they are trying to scan. (drawInfoBox
 			// refuses on `overlayKind == "qr"` too; this is the same
 			// answer stated at the call site rather than left to that.)
+			// Broth and spice both own that band now too — see
+			// `optionPage`'s own comment.
 			const float header = headed ? _pageHeaderPx : 0.0f;
 			drawInfoBox(state, kInfoBoxTopPx + header,
 				kInfoBoxHeightPx - header);

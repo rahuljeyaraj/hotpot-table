@@ -4066,7 +4066,7 @@ class TestCheckoutFlow(CoreCase):
         """
         self._advance_to(fsm.State.BROTH)
         with self.core.state_lock:
-            self.core._fire_widget(hover.broth_widget_id("miso"))
+            self.core._fire_widget(hover.broth_widget_id("mushroom"))
             self.core._fire_widget(hover.CONFIRM)
             self.assertIs(self.core.fsm.state, fsm.State.SPICE)
             self.assertTrue(self.core._spice_chosen)
@@ -4099,11 +4099,11 @@ class TestCheckoutFlow(CoreCase):
         self._advance_to(fsm.State.BROTH)
         with self.core.state_lock:
             self.core._fire_widget(hover.broth_widget_id("mala"))
-            self.core._fire_widget(hover.broth_widget_id("miso"))
-            self.assertEqual(self.core._broth_id, "miso")
+            self.core._fire_widget(hover.broth_widget_id("mushroom"))
+            self.assertEqual(self.core._broth_id, "mushroom")
             selected = [w.id for w in self.core._widgets_for_state()
                         if w.selected]
-        self.assertEqual(selected, [hover.broth_widget_id("miso")])
+        self.assertEqual(selected, [hover.broth_widget_id("mushroom")])
 
     def test_every_screen_in_the_chain_has_a_way_out(self):
         """Doc section 9.1's diagram draws no edge out of BROTH/SPICE but
@@ -4618,7 +4618,14 @@ class TestCheckoutFlow(CoreCase):
 
     def test_the_broth_widgets_carry_their_info_box_content(self):
         """Developer, 2026-08-25: "broth and spicy level also need info
-        box." Each option carries its own, so oF shows the hovered one's.
+        box." Each option carries its own info, so oF can draw it —
+        originally into the shared info box, and since the same day's
+        later broth-card redesign, into the card itself instead; either
+        way this is the same `info` payload on the wire.
+
+        **No `swatch` any more** — developer, same day, later: "the
+        coloured circle infront of the broth name has to be removed."
+        `hover.broth_widgets` stopped passing one at all.
         """
         self._advance_to(fsm.State.BROTH)
         c, msgs, lock = self.of_client()
@@ -4633,7 +4640,7 @@ class TestCheckoutFlow(CoreCase):
                 self.assertTrue(w["info"]["desc"])
                 self.assertTrue(w["info"]["meta"])
                 self.assertIn(w["info"]["diet"], coremain.pricing.VALID_DIETS)
-                self.assertTrue(w["swatch"].startswith("#"))
+                self.assertNotIn("swatch", w)
                 self.assertIn("hover", w)
 
     def test_a_spice_level_has_no_diet_because_it_is_not_food(self):
@@ -4643,27 +4650,32 @@ class TestCheckoutFlow(CoreCase):
         with lock:
             widgets = msgs[-1]["widgets"]
         options = [w for w in widgets if w["id"].startswith(hover.SPICE_PREFIX)]
-        # 3, not 4 — 2026-08-25's chili-strip drops "No Spice" (level 0)
-        # from the picker, see `hover.spice_widgets`.
-        self.assertEqual(len(options), 3)
-        for w in options:
+        # 6, not 4 — 2026-08-25's vertical slider drops "No Spice" (level
+        # 0) from the picker and pairs each of the 3 remaining levels
+        # with a slider stop AND a description card, one id each (see
+        # `hover.spice_widgets`).
+        self.assertEqual(len(options), 6)
+        # Only the description cards carry `info` — a stop's own icon row
+        # already says what it is, and `main.py`'s serialiser omits the
+        # `info` key entirely for a widget whose `Widget.info` is empty.
+        cards = [w for w in options if w.get("icon") != "chilli"]
+        self.assertEqual(len(cards), 3)
+        for w in cards:
             with self.subTest(widget=w["id"]):
                 self.assertEqual(w["info"]["diet"], "")
                 self.assertTrue(w["info"]["desc"])
 
-    def test_the_spice_plates_reach_of_mild_first_with_their_chillies(self):
-        """**Supersedes the old "hottest first" wire test.** Developer,
-        2026-08-25, on the new chili-strip: "touching the left most
-        chilli just highlights that one, which is mild and should be
-        default, and if u press right most it should be most spicy" —
-        left to right, mild to hot, reversing the earlier vertical-list
-        instruction this widget set no longer uses (see
-        `hover.spice_widgets`'s own docstring).
+    def test_the_spice_slider_reaches_hot_at_top_mild_at_bottom_with_chillies(self):
+        """**Supersedes the old "mild first, left to right" wire test.**
+        Developer, 2026-08-25: "make the spicy selector as a vertical
+        slider with the mild near and hot far" — mild at the bottom
+        (nearest the diner's own edge, the nav row), hot at the top, per
+        `hover.spice_layout_rects`'s own reasoning.
 
         Checked on the WIRE, not just in `hover`: the count reaches oF as
         a number and oF draws that many peppers with an ofPath, because no
         font this app loads has a chilli glyph in it. `max_icon_count` is
-        checked too — every cell has to share the SAME total or the row
+        checked too — every stop has to share the SAME total or the stack
         stops reading as one gauge.
         """
         self._advance_to(fsm.State.SPICE)
@@ -4673,13 +4685,16 @@ class TestCheckoutFlow(CoreCase):
             widgets = msgs[-1]["widgets"]
         options = [w for w in widgets
                    if w["id"].startswith(hover.SPICE_PREFIX)]
-        # Sent in draw order, and the draw order is mild first, left to
-        # right. Level 0 ("No Spice") is absent entirely.
-        self.assertEqual([hover.parse_spice_level(w["id"]) for w in options],
-                         [1, 2, 3])
-        xs = [w["rect"][0] for w in options]
-        self.assertEqual(xs, sorted(xs))
-        for w in options:
+        # Only the slider stops carry a chilli row — the paired
+        # description cards share the same ids, so filter to the stops.
+        zones = [w for w in options if w.get("icon") == "chilli"]
+        # Sent in draw order, and the draw order is hottest first, top to
+        # bottom. Level 0 ("No Spice") is absent entirely.
+        self.assertEqual([hover.parse_spice_level(w["id"]) for w in zones],
+                         [3, 2, 1])
+        ys = [w["rect"][1] for w in zones]
+        self.assertEqual(ys, sorted(ys))
+        for w in zones:
             level = hover.parse_spice_level(w["id"])
             with self.subTest(level=level):
                 self.assertEqual(w["icon"], "chilli")

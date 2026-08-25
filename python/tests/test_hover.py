@@ -683,22 +683,50 @@ class TestSelectionIsNotAPageTurn(unittest.TestCase):
 
 
 class TestTheSpiceScreen(unittest.TestCase):
+    """2026-08-25: the horizontal chili-strip became a vertical slider.
+    Developer: "make the spicy selector as a vertical slider with the
+    mild near and hot far, and keep the slider towards the left side of
+    central area, and remaining area u wire the mild, medium and hot with
+    its discription." See `hover.spice_widgets`'s own docstring for the
+    shared-id reasoning these tests lean on.
+    """
 
-    def test_mild_is_leftmost_and_hot_is_rightmost(self):
-        # **Supersedes the old "hottest at the top" test.** Developer,
-        # 2026-08-25, on the new chili-strip: "touching the left most
-        # chilli just highlights that one, which is mild and should be
-        # default, and if u press right most it should be most spicy."
-        # That instruction was written for a horizontal row, reversing
-        # the earlier "hottest first" rule, which was written for the
-        # vertical stacked list this replaces (see `hover.spice_widgets`'s
-        # own docstring). Level 0 ("No Spice") is excluded — see
+    def _zones(self, ws):
+        return [w for w in ws if w.kind == "option" and w.icon == "chilli"]
+
+    def _cards(self, ws):
+        return [w for w in ws if w.kind == "option" and w.icon != "chilli"]
+
+    def test_mild_is_nearest_and_hot_is_farthest(self):
+        # **Supersedes the old "mild leftmost" test.** "Near" is the
+        # diner's own edge (the module docstring's "primary action
+        # nearest the diner") — mild sits at the BOTTOM of the stack,
+        # closest to the nav row, and hot at the TOP. Level 0 ("No
+        # Spice") is excluded — see
         # `test_level_zero_is_not_offered_by_the_picker`.
-        ws = [w for w in hover.spice_widgets(SPICES) if w.kind == "option"]
-        levels = [hover.parse_spice_level(w.id) for w in ws]
-        self.assertEqual(levels, [1, 2, 3])
-        xs = [w.rect[0] for w in ws]
-        self.assertEqual(xs, sorted(xs), "left to right is not ascending heat")
+        zones = self._zones(hover.spice_widgets(SPICES))
+        levels = [hover.parse_spice_level(w.id) for w in zones]
+        self.assertEqual(levels, [3, 2, 1], "top to bottom is not hot to mild")
+        ys = [w.rect[1] for w in zones]
+        self.assertEqual(ys, sorted(ys), "top to bottom is not ascending y")
+
+    def test_every_level_pairs_a_slider_stop_with_a_description_card(self):
+        # One id shared by two rects — a narrow dwellable stop on the
+        # left and a wide description card on the right, both firing the
+        # same choice (`hover.spice_widgets`'s own docstring on why).
+        ws = hover.spice_widgets(SPICES)
+        zones, cards = self._zones(ws), self._cards(ws)
+        self.assertEqual(len(zones), 3)
+        self.assertEqual(len(cards), 3)
+        self.assertEqual({w.id for w in zones}, {w.id for w in cards})
+        for zone in zones:
+            card = next(c for c in cards if c.id == zone.id)
+            with self.subTest(id=zone.id):
+                # Same row: equal y and height, stop left of its card.
+                self.assertEqual(zone.rect[1], card.rect[1])
+                self.assertEqual(zone.rect[3], card.rect[3])
+                self.assertLess(zone.rect[0] + zone.rect[2], card.rect[0])
+                self.assertEqual(card.info.get("desc"), "A note.")
 
     def test_the_source_order_is_not_mutated(self):
         # `menu.Menu.load` sorts ascending and the staff view reads that
@@ -708,27 +736,30 @@ class TestTheSpiceScreen(unittest.TestCase):
         self.assertEqual([s.level for s in SPICES], before)
 
     def test_each_level_carries_its_own_number_of_chillies(self):
-        for w in hover.spice_widgets(SPICES):
-            if w.kind != "option":
-                continue
+        for w in self._zones(hover.spice_widgets(SPICES)):
             level = hover.parse_spice_level(w.id)
             with self.subTest(level=level):
                 self.assertEqual(w.icon, "chilli")
                 self.assertEqual(w.icon_count, level)
 
     def test_every_cell_shares_the_same_max_icon_count(self):
-        # So the row reads as one gauge (1 red + 2 grey for Mild, not a
+        # So the stack reads as one gauge (1 red + 2 grey for Mild, not a
         # lone chilli) rather than three unrelated icon counts — see
         # `Widget.max_icon_count`.
-        ws = [w for w in hover.spice_widgets(SPICES) if w.kind == "option"]
-        self.assertEqual([w.max_icon_count for w in ws], [3, 3, 3])
+        zones = self._zones(hover.spice_widgets(SPICES))
+        self.assertEqual([w.max_icon_count for w in zones], [3, 3, 3])
 
-    def test_a_broth_carries_a_swatch_and_no_chillies(self):
+    def test_a_broth_carries_no_swatch_and_no_chillies(self):
+        # **Supersedes the old "a broth carries a swatch" test.**
+        # Developer, 2026-08-25: "the coloured circle infront of the
+        # broth name has to be removed." Broth cards draw the name/diet/
+        # meta/note directly (`UiLayer::drawOptionPlate`'s broth-card
+        # branch) and never read `w.swatch`.
         for w in hover.broth_widgets(BROTHS):
             if w.kind != "option":
                 continue
             with self.subTest(widget=w.id):
-                self.assertTrue(w.swatch.startswith("#"))
+                self.assertEqual(w.swatch, "")
                 self.assertEqual(w.icon, "")
 
 
@@ -740,24 +771,6 @@ class TestTheOptionsSitWhereTheCartWas(unittest.TestCase):
     The old band straddled the info box AND the cart, which is why the
     broth plates landed on top of a cart that was still being drawn.
     """
-
-    def test_the_options_stay_inside_the_carts_own_band(self):
-        for r in hover.option_rects(4):
-            with self.subTest(rect=r):
-                self.assertGreaterEqual(r[1], hover.OPTIONS_TOP_PX)
-                self.assertLessEqual(r[1] + r[3], hover.OPTIONS_BOTTOM_PX)
-
-    def test_the_options_never_reach_the_info_band(self):
-        # UiLayer's kInfoBoxTopPx: brand top margin + brand height + gap.
-        info_box_top = 20.0 + 170.0 + 24.0
-        for r in hover.option_rects(4):
-            self.assertGreater(r[1], info_box_top)
-
-    def test_the_options_never_reach_the_button_row(self):
-        # A plate overlapping Next would mean a hand reaching for the
-        # button chose a broth instead.
-        for r in hover.option_rects(4):
-            self.assertLessEqual(r[1] + r[3], hover.BUTTONS_TOP_PX)
 
     def test_the_option_row_clears_both_bins_idle_halo(self):
         # Developer, 2026-08-25: "the broth buttons are too long and it
@@ -794,11 +807,48 @@ class TestTheOptionsSitWhereTheCartWas(unittest.TestCase):
                     self.assertFalse(
                         overlaps, f"{name}: {a.id} overlaps {b.id}")
 
-    def test_a_fifth_option_fails_loudly_rather_than_overflowing(self):
-        # A silent overflow would put a dwellable plate under the button
+
+class TestTheBrothCardsFillTheReclaimedBand(unittest.TestCase):
+    """Developer, 2026-08-25 (same day, later): "there is no info box,
+    instead the whole button is inlarged to contain the info about
+    respective brothes, so u can use the complete vertical space above
+    the next button row."
+
+    **Supersedes the three `option_rects`-based tests this class used to
+    have above it.** `option_rects` itself is deleted (it had no
+    production caller left once spice moved to `spice_cell_rects` and
+    broth to `broth_card_rects`, this codebase's standing "don't leave
+    dead code dormant" rule) — these test the function that actually
+    replaced its broth role.
+    """
+
+    def test_broth_cards_reclaim_the_old_info_box_band(self):
+        # The whole point of the redesign: the FIRST (topmost) card
+        # starts where the shared info box used to, not where the old
+        # option row did.
+        rects = hover.broth_card_rects(3)
+        self.assertAlmostEqual(
+            rects[0][1],
+            hover._INFO_BOX_TOP_PX + hover._PAGE_HEADER_PX_ESTIMATE)
+
+    def test_broth_cards_stay_above_the_button_row(self):
+        # A card overlapping Next would mean a hand reaching for the
+        # button chose a broth instead.
+        for r in hover.broth_card_rects(3):
+            self.assertLessEqual(r[1] + r[3], hover.BUTTONS_TOP_PX)
+
+    def test_broth_cards_never_overlap_each_other(self):
+        rects = hover.broth_card_rects(3)
+        ys = [r[1] for r in rects]
+        self.assertEqual(ys, sorted(ys))
+        for a, b in zip(rects, rects[1:]):
+            self.assertLessEqual(a[1] + a[3], b[1])
+
+    def test_too_many_broth_cards_fail_loudly_rather_than_overflowing(self):
+        # A silent overflow would put a dwellable card under the button
         # row — obvious on the table, invisible in a diff.
         with self.assertRaises(ValueError):
-            hover.option_rects(6)
+            hover.broth_card_rects(20)
 
 
 class TestBinHover(unittest.TestCase):

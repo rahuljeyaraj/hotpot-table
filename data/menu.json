@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "_note": "Broths and spice levels for the checkout flow (doc 18.1). Broth names are the four on bigwayhotpot.com/menu, developer-supplied. `diet` is INFERRED FROM THE NAME and is not confirmed with the restaurant -- mala is traditionally a beef-tallow base and bone broth is bone, so both are marked nonveg; confirm before this is ever shown to a real diner. `note` and `meta` follow the same rules as pricing.Item.description: ASCII only (UiLayer loads Latin1Supplement + CurrencySymbols, so an em-dash silently does not render), and never an instruction -- the kitchen cooks, the diner chooses.",
+  "_note": "Broths and spice levels for the checkout flow (doc 18.1). Broth names were originally the four on bigwayhotpot.com/menu, developer-supplied; cut to three (one veg, two nonveg) 2026-08-25 for the broth screen's new full-height card redesign -- Miso Broth dropped, developer's own choice, kept as the veg option was Mushroom Vegan Broth over Miso. `diet` is INFERRED FROM THE NAME and is not confirmed with the restaurant -- mala is traditionally a beef-tallow base and bone broth is bone, so both are marked nonveg; confirm before this is ever shown to a real diner. `note` and `meta` follow the same rules as pricing.Item.description: ASCII only (UiLayer loads Latin1Supplement + CurrencySymbols, so an em-dash silently does not render), and never an instruction -- the kitchen cooks, the diner chooses.",
   "broths": [
     {
       "id": "mala",
@@ -28,15 +28,6 @@
       "meta": "Not spicy",
       "note": "Milky and slow simmered. Rich on the tongue but completely mild.",
       "swatch": "#D8CFC0"
-    },
-    {
-      "id": "miso",
-      "names": {"en": "Miso Broth", "zh": "味噌汤"},
-      "pinyin": "weizeng tang",
-      "diet": "veg",
-      "meta": "Not spicy",
-      "note": "Light, salty and gently sweet. The easiest of the four to drink on its own.",
-      "swatch": "#C89A3C"
     }
   ],
   "spice_levels": [

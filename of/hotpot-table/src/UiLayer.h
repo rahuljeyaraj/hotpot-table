@@ -191,11 +191,12 @@ private:
 	// with a stem, at `sizePx` tall, centred on (cx, cy).
 	static void drawChilli(float cx, float cy, float sizePx,
 		const ofColor & body);
-	// The tick on a selected option plate. A stroke would be
-	// ofSetLineWidth in disguise (see drawAnnulus' comment on why that is
-	// unusable on this rig), so it is a filled 6-point polygon.
-	static void drawCheckMark(float cx, float cy, float radiusPx,
-		const ofColor & colour);
+	// The pointer cursor's own glyph — a candle-flame silhouette, tip up,
+	// leaning slightly off-centre, `sizePx` tall, centred on (cx, cy).
+	// Replaced the old concentric-ring cursor, 2026-08-25 (see
+	// kCursorFlameHPx's own comment).
+	static void drawFlame(float cx, float cy, float sizePx,
+		const ofColor & body);
 	// The breathing term the buttons and the bin halos share — one sine,
 	// one clock, one period, so the whole table breathes together rather
 	// than in two rhythms. `phase` offsets it (the bins use a per-island
