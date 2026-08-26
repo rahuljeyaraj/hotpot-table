@@ -241,6 +241,11 @@ void ofApp::update(){
 	// the ambient crackle follows the same "hand present, real or
 	// phantom" rule the visual fireball already does.
 	_audio.setHandFireActive(_cursor.pointer() != nullptr);
+	// Steps any loop currently easing to silence (AudioBus::fadeOutLoop,
+	// from one of the three setXActive edges above) — must run every
+	// frame regardless of `hasState`, same reasoning as the `evt` drain:
+	// a fade in progress does not pause just because the link dropped.
+	_audio.update(dt);
 
 	// **The fluid simulation runs on EVERY page, 2026-08-25 (final).**
 	// It was briefly first-page-only ("after the first page is over, we no

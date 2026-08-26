@@ -19,6 +19,14 @@ namespace {
 	// recording as of 2026-08-26 — see AudioBus.h's note on it.
 	const float kHandFireGain = 0.45f;
 	const float kFireBurningGain = 1.0f;
+
+	// 2026-08-26, developer report: a loop cut with a bare `stop()` the
+	// instant its driving bool went false was audible as an abrupt chop
+	// (worst on the roaming fireball's crackle, gone the moment a hand
+	// left the camera's view). Half a second is enough to read as a fade
+	// rather than a stop, short enough that a hand gone for good doesn't
+	// leave an audible tail hanging around.
+	const float kLoopFadeOutS = 0.5f;
 }
 
 void AudioBus::setup(){
@@ -74,6 +82,48 @@ void AudioBus::play(const std::string & id, float gain, float speed){
 	v.player.play();
 }
 
+void AudioBus::update(float dt){
+	for(auto & entry : _voices){
+		Voice & v = entry.second;
+		if(!v.fadingOut){
+			continue;
+		}
+		v.fadeElapsed += dt;
+		if(v.fadeElapsed >= kLoopFadeOutS){
+			// Reached silence: an actual stop(), same end state the old
+			// instant cut left things in, just arrived at gradually.
+			v.player.stop();
+			v.fadingOut = false;
+			continue;
+		}
+		float t = v.fadeElapsed / kLoopFadeOutS;
+		v.player.setVolume(v.activeGain * (1.0f - t));
+	}
+}
+
+void AudioBus::startLoop(Voice & v, float gain){
+	v.activeGain = gain;
+	v.fadingOut = false;
+	if(!v.player.isPlaying()){
+		v.player.setLoop(true);
+		v.player.setMultiPlay(false);
+		v.player.play();
+	}
+	// Set every time, not only on a fresh play(): this is also the "cancel
+	// a fade in progress" path (hand back in view before kLoopFadeOutS
+	// ran out), and the loop must jump straight back to full volume, not
+	// resume climbing from wherever the fade had gotten to.
+	v.player.setVolume(gain);
+}
+
+void AudioBus::fadeOutLoop(Voice & v){
+	if(v.fadingOut || !v.player.isPlaying()){
+		return;   // already easing down, or already silent
+	}
+	v.fadingOut = true;
+	v.fadeElapsed = 0.0f;
+}
+
 void AudioBus::setFireBurningActive(bool active){
 	if(active == _fireBurningActive){
 		return;   // state.fireActive repeats every tick (doc §4.3); only edges act
@@ -85,12 +135,9 @@ void AudioBus::setFireBurningActive(bool active){
 		return;
 	}
 	if(active){
-		v.player.setLoop(true);
-		v.player.setMultiPlay(false);
-		v.player.setVolume(kFireBurningGain);
-		v.player.play();
+		startLoop(v, kFireBurningGain);
 	} else {
-		v.player.stop();
+		fadeOutLoop(v);
 	}
 }
 
@@ -105,12 +152,9 @@ void AudioBus::setHandFireActive(bool active){
 		return;
 	}
 	if(active){
-		v.player.setLoop(true);
-		v.player.setMultiPlay(false);
-		v.player.setVolume(kHandFireGain);
-		v.player.play();
+		startLoop(v, kHandFireGain);
 	} else {
-		v.player.stop();
+		fadeOutLoop(v);
 	}
 }
 
@@ -125,11 +169,8 @@ void AudioBus::setAttractActive(bool active){
 		return;
 	}
 	if(active){
-		v.player.setLoop(true);
-		v.player.setMultiPlay(false);
-		v.player.setVolume(kAttractGain);
-		v.player.play();
+		startLoop(v, kAttractGain);
 	} else {
-		v.player.stop();
+		fadeOutLoop(v);
 	}
 }

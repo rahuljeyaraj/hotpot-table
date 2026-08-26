@@ -28,6 +28,14 @@ class AudioBus {
 public:
 	void setup();
 
+	// Advances any loop currently easing to silence (see the fade-out note
+	// on `setHandFireActive` below). Call once per frame, real `dt` — the
+	// same raw `ofGetLastFrameTime()` ofApp::update() already keeps for UI
+	// tweening, not FluidLayer's smoothed one; a fade is cosmetic, not a
+	// sim, so a single long frame just makes that one fade step bigger,
+	// never a driver worth smoothing further.
+	void update(float dt);
+
 	// One id at a time, the wire's own shape (doc §4.4's `evt`). `gain`
 	// scales the file's own recorded level (§15.2's `hover` wants "-18
 	// dB", carried as a gain in the 0..1 sense `ofSoundPlayer::setVolume`
@@ -80,13 +88,40 @@ public:
 	// checked for silence/padding at its boundaries, so `setLoop(true)`
 	// may audibly click or gap at the seam. Trim it to a clean loop
 	// point if that's heard on the rig.
+	//
+	// 2026-08-26, developer report: going inactive used to call
+	// `ofSoundPlayer::stop()` straight away, which cuts the loop dead on
+	// the current sample — audible as an abrupt chop the instant a hand
+	// leaves the camera's view, not a fade. All three loops in this class
+	// now ease out over `kLoopFadeOutS` instead (`fadeOutLoop`); only the
+	// entry stays instant ("catches fire" the moment a hand/bin lights up
+	// is still meant to be immediate — only going quiet is smoothed).
 	void setHandFireActive(bool active);
 
 private:
 	struct Voice {
 		ofSoundPlayer player;
 		bool loaded = false;
+		// Fade-out state, `startLoop`/`fadeOutLoop`/`update`'s own. Unused
+		// by `play()`'s one-shots.
+		float activeGain = 1.0f;   // volume once fully faded in
+		bool fadingOut = false;
+		float fadeElapsed = 0.0f;
 	};
+
+	// Starts (or resumes) a looping voice at `gain`. Does not restart
+	// playback if the voice is already sounding — including mid fade-out
+	// — so a hand that leaves and comes straight back just cancels the
+	// fade and glides the volume back up rather than clicking to a dead
+	// stop and restarting from sample 0.
+	void startLoop(Voice & v, float gain);
+
+	// Begins easing `v` to silence over `kLoopFadeOutS`; `update()` does
+	// the actual stepping and calls `player.stop()` once it reaches zero.
+	// A no-op if `v` isn't sounding or is already fading — the fade is
+	// idempotent the same way `setFireBurningActive` etc. already only
+	// act on an edge.
+	void fadeOutLoop(Voice & v);
 
 	// Loads on first use (logging a "no such file" warning exactly once
 	// per id, since the Voice — and so the warning — is cached either
