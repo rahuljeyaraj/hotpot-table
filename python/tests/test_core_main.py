@@ -46,6 +46,7 @@ from hotpot.core import fsm  # noqa: E402
 from hotpot.core import geometry_store  # noqa: E402
 from hotpot.core import hover  # noqa: E402
 from hotpot.core import main as coremain  # noqa: E402
+from hotpot.core import scale  # noqa: E402
 
 DEADLINE = 5.0
 
@@ -157,6 +158,10 @@ class CoreCase(unittest.TestCase):
             control_host="127.0.0.1", control_port=0,
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            # scale_filter_path, same rule as cal_path: a developer tuning
+            # knob, not a calibration, but still a file a test run must
+            # never read or write the real one of (2026-08-26).
+            scale_filter_path=os.path.join(self._cal_dir.name, "scale_filter.json"),
             homography_path=self.h_path, camera_grid_path=self.g_path,
             projector_grid_path=self.pg_path,
             view_rotation_path=self.v_path,
@@ -1328,6 +1333,7 @@ class TestBinsTab(CoreCase):
             control_host="127.0.0.1", control_port=0,
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            scale_filter_path=os.path.join(self._cal_dir.name, "scale_filter.json"),
             bin_map_path=self.bm_path,
             scale_open_port=_no_serial_port)
 
@@ -1359,6 +1365,152 @@ class TestBinsTab(CoreCase):
         self.assertEqual(b0["source"], self.core.binmap.bins[0].source)
         choice_ids = {c["id"] for c in msg["choices"]}
         self.assertEqual(choice_ids, set(self.core.catalogue.ids()))
+
+
+class TestScaleFilterAndTrace(ScaleRig, CoreCase):
+    """2026-08-26, developer report: the median filter alone still let
+    the weight jump — a moving average (`scale.py`'s `avg_window`) helped
+    but not enough, so the Developer tab now gets a live plot of the raw
+    vs. filtered signal, a bin picker, and window-size controls that
+    persist across a restart. This class covers the wire side of that:
+    `bins`' new `median_window`/`avg_window` fields, `scale_trace`, and
+    `set_scale_filter`. `scale.py`'s own test_scale.py already covers the
+    filtering maths in isolation.
+    """
+
+    def bins_msg(self, w, pred=lambda m: True, timeout=DEADLINE):
+        return self.recv_until(
+            w, lambda m: m.get("t") == "bins" and pred(m), timeout)
+
+    def trace_msg(self, w, pred=lambda m: True, timeout=DEADLINE):
+        return self.recv_until(
+            w, lambda m: m.get("t") == "scale_trace" and pred(m), timeout)
+
+    def filter_result(self, w, timeout=DEADLINE):
+        return self.recv_until(
+            w, lambda m: m.get("t") == "scale_filter_result", timeout)
+
+    def test_bins_message_carries_the_current_window_sizes(self):
+        w = self.ws()
+        self.recv_json(w)
+        msg = self.bins_msg(w)
+        self.assertIsNotNone(msg)
+        self.assertEqual(msg["median_window"], scale.DEFAULT_MEDIAN_WINDOW)
+        self.assertEqual(msg["avg_window"], scale.DEFAULT_AVG_WINDOW)
+
+    def test_scale_trace_carries_raw_and_filtered_counts_per_bin(self):
+        self.feed([100, 0, 0, 0, 0, 0, 0, 0])
+        w = self.ws()
+        self.recv_json(w)
+        msg = self.trace_msg(
+            w, lambda m: m["raw"][0] is not None and m["raw"][0] == 100.0)
+        self.assertIsNotNone(msg, "no scale_trace with the fed value arrived")
+        self.assertEqual(msg["filtered"][0], 100.0)
+        # Untouched bins read zero (the fed value), not None — a real
+        # sample arrived for every bin on this tick, just all zeros.
+        self.assertEqual(msg["raw"][1], 0.0)
+
+    def test_scale_trace_is_all_none_before_any_sample(self):
+        w = self.ws()
+        self.recv_json(w)
+        msg = self.bins_msg(w)   # anything on the 10Hz clock confirms a tick fired
+        self.assertIsNotNone(msg)
+        trace = self.trace_msg(w)
+        self.assertIsNotNone(trace)
+        self.assertEqual(trace["raw"], [None] * 8)
+        self.assertEqual(trace["filtered"], [None] * 8)
+
+    def test_set_scale_filter_resizes_the_running_reader_live(self):
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "set_scale_filter", "median_window": 7,
+                           "avg_window": 4}))
+        res = self.filter_result(w)
+        self.assertIsNotNone(res)
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["median_window"], 7)
+        self.assertEqual(res["avg_window"], 4)
+        self.assertEqual(self.core.scale.median_window, 7)
+        self.assertEqual(self.core.scale.avg_window, 4)
+
+    def test_set_scale_filter_reaches_the_bins_broadcast(self):
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "set_scale_filter", "median_window": 9}))
+        self.assertTrue(self.filter_result(w)["ok"])
+        msg = self.bins_msg(w, lambda m: m["median_window"] == 9)
+        self.assertIsNotNone(msg, "the new window size never reached a bins broadcast")
+
+    def test_set_scale_filter_allows_a_partial_update(self):
+        w = self.ws()
+        self.recv_json(w)
+        before_avg = self.core.scale.avg_window
+        w.send(json.dumps({"t": "set_scale_filter", "median_window": 6}))
+        res = self.filter_result(w)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self.core.scale.median_window, 6)
+        self.assertEqual(self.core.scale.avg_window, before_avg)
+
+    def test_set_scale_filter_rejects_a_bad_value_and_changes_nothing(self):
+        w = self.ws()
+        self.recv_json(w)
+        before_median = self.core.scale.median_window
+        before_avg = self.core.scale.avg_window
+        w.send(json.dumps({"t": "set_scale_filter", "median_window": 0,
+                           "avg_window": 4}))
+        res = self.filter_result(w)
+        self.assertIsNotNone(res)
+        self.assertFalse(res["ok"])
+        # NEITHER field moved — a bad avg_window must not leave
+        # median_window half-changed either, and here it's the earlier
+        # field (median_window=0) that's actually invalid.
+        self.assertEqual(self.core.scale.median_window, before_median)
+        self.assertEqual(self.core.scale.avg_window, before_avg)
+
+    def test_a_non_integer_value_is_refused(self):
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "set_scale_filter", "median_window": 2.5}))
+        res = self.filter_result(w)
+        self.assertFalse(res["ok"])
+
+    def test_no_setting_mode_gate(self):
+        """Unlike Tare/Calibrate/the bin override, this is a diagnostic
+        tuning knob, not a calibration — it must work while serving, so a
+        developer can watch the plot react to a live diner's own pick."""
+        w = self.ws()
+        mode_seed = self.recv_json(w)
+        self.assertEqual(mode_seed["t"], "pips")
+        # Confirm the table is in the default SERVING mode, not SETTING.
+        self.assertEqual(self.core._mode_msg()["mode"], "serving")
+        w.send(json.dumps({"t": "set_scale_filter", "avg_window": 5}))
+        res = self.filter_result(w)
+        self.assertTrue(res["ok"], res)
+
+    def test_the_window_sizes_survive_a_restart(self):
+        w = self.ws()
+        self.recv_json(w)
+        w.send(json.dumps({"t": "set_scale_filter", "median_window": 8,
+                           "avg_window": 6}))
+        self.assertTrue(self.filter_result(w)["ok"])
+        reborn = coremain.Core(
+            control_host="127.0.0.1", control_port=0,
+            web_host="127.0.0.1", web_port=0,
+            cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            scale_filter_path=os.path.join(self._cal_dir.name, "scale_filter.json"),
+            bin_map_path=self.bm_path,
+            scale_open_port=_no_serial_port)
+        self.addCleanup(reborn.stop)
+        self.assertEqual(reborn.scale.median_window, 8)
+        self.assertEqual(reborn.scale.avg_window, 6)
+
+    def test_a_fresh_boot_with_no_saved_filter_uses_the_module_defaults(self):
+        """The other half of the restart test: nothing written yet means
+        nothing overridden — same "missing state/ means a fresh clone"
+        tolerance every other state file in this module gets."""
+        self.assertEqual(self.core.scale.median_window,
+                         scale.DEFAULT_MEDIAN_WINDOW)
+        self.assertEqual(self.core.scale.avg_window, scale.DEFAULT_AVG_WINDOW)
 
 
 class TestMode(ScaleRig, CoreCase):
@@ -1741,6 +1893,7 @@ class TestCameraJoinMessage(unittest.TestCase):
             control_host="127.0.0.1", control_port=0,
             web_host="127.0.0.1", web_port=0,
             cal_path=os.path.join(self._cal_dir.name, "loadcell_cal.json"),
+            scale_filter_path=os.path.join(self._cal_dir.name, "scale_filter.json"),
             bin_map_path=os.path.join(self._cal_dir.name, "bin_map.json"),
             scale_open_port=_no_serial_port, **kwargs)
 
@@ -1814,6 +1967,7 @@ class TestStateSnapshotIsAtomic(unittest.TestCase):
         self.core = coremain.Core(control_host="127.0.0.1", control_port=0,
                                   web_host="127.0.0.1", web_port=0,
                                   cal_path=os.path.join(cal_dir.name, "loadcell_cal.json"),
+                                  scale_filter_path=os.path.join(cal_dir.name, "scale_filter.json"),
                                   bin_map_path=os.path.join(cal_dir.name, "bin_map.json"),
                                   scale_open_port=_no_serial_port)
 
@@ -1896,6 +2050,7 @@ class TestUnitSuffixIsLocalised(unittest.TestCase):
                                  web_host="127.0.0.1", web_port=0,
                                  data_dir=tmp,
                                  cal_path=os.path.join(tmp, "loadcell_cal.json"),
+                                 scale_filter_path=os.path.join(tmp, "scale_filter.json"),
                                  bin_map_path=os.path.join(tmp, "bin_map.json"),
                                  scale_open_port=_no_serial_port)
             msg = core._state_msg()
@@ -3473,6 +3628,7 @@ class TestStop(unittest.TestCase):
             core = coremain.start(control_host="127.0.0.1", control_port=0,
                                   web_host="127.0.0.1", web_port=0,
                                   cal_path=os.path.join(tmp, "loadcell_cal.json"),
+                                  scale_filter_path=os.path.join(tmp, "scale_filter.json"),
                                   bin_map_path=os.path.join(tmp, "bin_map.json"),
                                   scale_open_port=_no_serial_port)
             core.stop()

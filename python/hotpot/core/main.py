@@ -395,6 +395,7 @@ class Core:
         data_dir: Path = DATA_DIR,
         scale_port: str = SCALE_PORT,
         cal_path: Path = calibrator.CAL_PATH,
+        scale_filter_path: Path = scale.SCALE_FILTER_PATH,
         scale_open_port: Optional[Callable[[], Any]] = None,
         camera_host: str = CAMERA_HOST,
         camera_port: int = CAMERA_PORT,
@@ -558,8 +559,19 @@ class Core:
         self.camera_port = camera_port
 
         self.cal = loadcell_cal.Calibration.load(cal_path)
-        self.scale = scale.ScaleReader(scale_port, cal=self.cal,
-                                       open_port=scale_open_port)
+        # 2026-08-26: the Developer tab's window-size controls persist here
+        # (scale.SCALE_FILTER_PATH's own docstring) — a developer tuning
+        # knob, not a calibration, so a missing/corrupt file is never
+        # fatal, just DEFAULT_MEDIAN_WINDOW/DEFAULT_AVG_WINDOW as if
+        # nobody had ever touched it.
+        self.scale_filter_path = Path(scale_filter_path)
+        filter_window = scale.load_filter_window(self.scale_filter_path)
+        self.scale = scale.ScaleReader(
+            scale_port, cal=self.cal, open_port=scale_open_port,
+            median_window=filter_window.get(
+                "median_window", scale.DEFAULT_MEDIAN_WINDOW),
+            avg_window=filter_window.get(
+                "avg_window", scale.DEFAULT_AVG_WINDOW))
         self.calibrator = calibrator.Calibrator(self.scale, path=cal_path)
 
         # -- M4: geometry (doc sections 5.3, 8.4, 8.5) -------------------
@@ -1117,6 +1129,9 @@ class Core:
             return
         if t == "set_bin_override":
             self._handle_set_bin_override(msg)
+            return
+        if t == "set_scale_filter":
+            self._handle_set_scale_filter(msg)
             return
         if t == "capture":
             self._handle_capture(msg)
@@ -3674,7 +3689,84 @@ class Core:
                        for iid in self.catalogue.ids()
                        if self.catalogue.item(iid) is not None],
             "bins": bins,
+            # The Developer tab's window-size controls read their current
+            # value off this — the same "arrives within 100ms of join, no
+            # separate join message needed" reasoning this whole method's
+            # docstring already gives for the Bins tab itself (2026-08-26).
+            "median_window": self.scale.median_window,
+            "avg_window": self.scale.avg_window,
         }
+
+    def _scale_trace_msg(self) -> Dict[str, Any]:
+        """The Developer tab's live plot: one raw sample and one
+        filtered (median-then-average) sample per bin, per tick
+        (2026-08-26). COUNTS, not grams — unlike `_bins_tab_msg`, this is
+        a signal-level diagnostic and must keep working on an
+        uncalibrated bin, which is the ordinary state of a bin nobody has
+        weighed a reference mass in yet.
+
+        Broadcast to every tablet on the same 10Hz tick as `bins`/`hands`
+        regardless of whether anyone has the Developer tab open — unlike
+        the camera process's own stats (polled cross-process, over HTTP,
+        only while that tab is visible), this is core's own in-memory
+        data going out over a socket that is already open, and eight
+        bins' worth of two numbers each is a rounding error next to
+        `bins`' own per-tick payload.
+        """
+        reading = self.scale.read()
+        raw = reading.raw_counts
+        filtered = reading.counts
+        return {
+            "t": "scale_trace",
+            "ts": reading.ts,
+            "raw": list(raw) if raw is not None else [None] * binmap.NUM_BINS,
+            "filtered": list(filtered) if filtered is not None else [None] * binmap.NUM_BINS,
+        }
+
+    def _handle_set_scale_filter(self, msg: Dict[str, Any]) -> None:
+        """Developer tab's window-size controls (2026-08-26):
+        `median_window`/`avg_window`, resized LIVE on the running reader.
+
+        **No setting-mode gate.** This is a developer tuning knob, not a
+        calibration — it cannot make a bin bill wrong, only change how
+        smoothed the number is (`scale.DEFAULT_AVG_WINDOW`'s own comment
+        in scale.py explains why these two have to be tunable at all: the
+        right value is a rig measurement away, not a guess). Gating it on
+        setting mode would make it untestable against a live diner's own
+        pick, which is exactly the case a developer watching the plot
+        would want to try.
+
+        Either field may be omitted to leave it unchanged. Both are
+        validated BEFORE either is applied, so a bad `avg_window` cannot
+        leave `median_window` half-changed with no way to tell from the
+        reply.
+        """
+        median_window = msg.get("median_window")
+        avg_window = msg.get("avg_window")
+        for name, v in (("median_window", median_window), ("avg_window", avg_window)):
+            if v is not None and (not isinstance(v, int) or isinstance(v, bool) or v < 1):
+                self.web.broadcast({
+                    "t": "scale_filter_result", "ok": False,
+                    "message": f"{name} must be a whole number of 1 or more.",
+                })
+                return
+        if median_window is not None:
+            self.scale.set_median_window(median_window)
+        if avg_window is not None:
+            self.scale.set_avg_window(avg_window)
+        try:
+            scale.save_filter_window(self.scale.median_window,
+                                     self.scale.avg_window,
+                                     self.scale_filter_path)
+        except Exception as e:                        # noqa: BLE001
+            _log.warning("core: could not write %s (%s) — the filter "
+                         "window is correct in memory but will not "
+                         "survive a restart", self.scale_filter_path, e)
+        self.web.broadcast({
+            "t": "scale_filter_result", "ok": True,
+            "median_window": self.scale.median_window,
+            "avg_window": self.scale.avg_window,
+        })
 
     # -- state broadcaster (doc section 4.3) --------------------------------
 
@@ -3699,6 +3791,11 @@ class Core:
                 # over Wi-Fi does not need 60Hz to show where a hand is,
                 # and the table already gets it at full rate over UDP.
                 self.web.broadcast(self._hands_msg())
+                # The Developer tab's live plot, same clock again — the
+                # load cells themselves only sample at ~10.7Hz (scale.py's
+                # module docstring), so this tick already matches the
+                # fastest anything here can actually change.
+                self.web.broadcast(self._scale_trace_msg())
             # Sends nothing unless mode or cart_active actually flipped
             # (_publish_mode's own check), so this is the "on change, not
             # on a timer" model reusing an existing clock rather than a

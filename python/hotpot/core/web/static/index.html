@@ -644,6 +644,38 @@
   }
   .cam-ctrl-chip { flex: none; }
   #camCtrlStatus.hide { display: none; }
+  /* Scale filter card (2026-08-26): the live raw-vs-filtered plot. The
+     canvas is drawn at a fixed internal resolution (900x220, set via its
+     width/height attributes in the markup) and scaled down to the card's
+     width by CSS — same "draw once, scale with CSS" approach the crop
+     thumbnails use, simpler here since there's no source image to size
+     against. */
+  .scale-trace-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 10px;
+  }
+  .scale-trace-bin-label {
+    font-size: 12px; color: var(--muted); display: flex;
+    flex-direction: column; gap: 4px;
+  }
+  .scale-trace-bin-label select { width: 140px; }
+  .scale-trace-legend { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .scale-trace-swatch {
+    display: inline-block; width: 14px; height: 3px; border-radius: 2px;
+    margin-left: 10px;
+  }
+  .scale-trace-swatch:first-child { margin-left: 0; }
+  .scale-trace-swatch.raw { background: var(--red); }
+  .scale-trace-swatch.filtered { background: var(--serving); }
+  .scale-trace-canvas {
+    width: 100%; height: 220px; display: block;
+    background: #16171a; border: 1px solid #2a2c31; border-radius: 6px;
+  }
+  .scale-window-input {
+    width: 70px; min-height: 32px; text-align: right;
+    border: 1px solid #3a3d47; border-radius: 6px;
+    background: #22252b; color: var(--text); font-size: 14px;
+  }
 </style>
 </head>
 <body>
@@ -1022,6 +1054,46 @@
         </div>
 
         <div class="setup-card">
+          <!-- 2026-08-26, developer report: the median filter alone still
+               let the weight jump; a moving average helped but not
+               enough. This card is the instrument for the next tuning
+               pass — raw vs. filtered counts, live, for one bin at a
+               time, plus the two window sizes that shape the filtered
+               line. `scale_trace` (core/main.py, ~10Hz) feeds the plot
+               for all 8 bins at once; only the selected bin is drawn. -->
+          <h2>Scale filter</h2>
+          <p>Raw load-cell counts against the filtered (median, then
+             moving-average) output core actually bills from. Median
+             rejects a single bad read; the average smooths the ordinary
+             sample-to-sample wobble a median cannot touch. Both window
+             sizes below apply live and persist across a restart.</p>
+          <div class="scale-trace-toolbar">
+            <label class="scale-trace-bin-label">Bin
+              <select id="scaleTraceBin" class="bin-override"></select>
+            </label>
+            <div class="scale-trace-legend">
+              <span class="scale-trace-swatch raw"></span>Raw
+              <span class="scale-trace-swatch filtered"></span>Filtered
+            </div>
+          </div>
+          <canvas id="scaleTraceCanvas" class="scale-trace-canvas"
+                  width="900" height="220"></canvas>
+          <div class="cam-ctrl-list">
+            <div class="cam-ctrl-row">
+              <span class="cam-ctrl-label">Median window (samples)</span>
+              <input type="number" id="scaleMedianWindow" class="scale-window-input"
+                     min="1" max="50" step="1">
+            </div>
+            <div class="cam-ctrl-row">
+              <span class="cam-ctrl-label">Average window (samples)</span>
+              <input type="number" id="scaleAvgWindow" class="scale-window-input"
+                     min="1" max="50" step="1">
+            </div>
+          </div>
+          <p class="setup-status" id="scaleFilterStatus"></p>
+        </div>
+
+        <div class="setup-card">
           <h2>Fake weight addition</h2>
           <p>Doc §12.8's {45,6,120,3,25,80} g mock pick/put-back cycle,
              one shared pointer for every button below.</p>
@@ -1118,6 +1190,13 @@
     Array.prototype.forEach.call(tabPanels, function (p) {
       p.classList.toggle("active", p.dataset.tab === tab);
     });
+    // The scale-filter plot only redraws while its own tab is active
+    // (`applyScaleTrace`'s own gate, below) — a repaint on arrival here
+    // catches up on whatever accumulated while this tab was hidden.
+    // `drawScaleTrace` is declared later in the file but hoisted, and is
+    // never called before the first `scale_trace` message defines it a
+    // history to draw — see its own "waiting for data" empty state.
+    if (tab === "developer" && typeof drawScaleTrace === "function") drawScaleTrace();
   }
 
   Array.prototype.forEach.call(tabButtons, function (btn) {
@@ -1610,6 +1689,149 @@
     });
   });
 
+  // --- Developer tab: scale filter (2026-08-26) --------------------------
+  // `scale_trace` arrives at ~10Hz for all 8 bins whether or not this tab
+  // is open — core's own in-memory data over a socket that's already
+  // open, unlike the camera stats above, which cross a process boundary
+  // over HTTP and are worth gating (`pollCamInfo`'s own comment). The
+  // history buffer is kept for the SELECTED bin only: switching bins
+  // starts a fresh trace rather than replaying data that was never
+  // collected for the newly-picked one.
+  var SCALE_TRACE_HISTORY_S = 30;
+  var scaleTraceBinSel = document.getElementById("scaleTraceBin");
+  var scaleTraceCanvas = document.getElementById("scaleTraceCanvas");
+  var scaleTraceCtx = scaleTraceCanvas.getContext("2d");
+  var scaleMedianWindowInput = document.getElementById("scaleMedianWindow");
+  var scaleAvgWindowInput = document.getElementById("scaleAvgWindow");
+  var scaleFilterStatusEl = document.getElementById("scaleFilterStatus");
+  var scaleTraceHistory = [];   // [{t, raw, filtered}], oldest first
+  var scaleTraceBin = 0;
+
+  for (var sbi = 0; sbi < 8; sbi++) {
+    var sbOpt = document.createElement("option");
+    sbOpt.value = String(sbi);
+    sbOpt.textContent = "Bin " + sbi;
+    scaleTraceBinSel.appendChild(sbOpt);
+  }
+  scaleTraceBinSel.addEventListener("change", function () {
+    scaleTraceBin = Number(scaleTraceBinSel.value) || 0;
+    scaleTraceHistory = [];
+    drawScaleTrace();
+  });
+
+  function applyScaleTrace(msg) {
+    scaleTraceHistory.push({
+      t: msg.ts, raw: msg.raw[scaleTraceBin], filtered: msg.filtered[scaleTraceBin],
+    });
+    var cutoff = msg.ts - SCALE_TRACE_HISTORY_S;
+    while (scaleTraceHistory.length && scaleTraceHistory[0].t < cutoff) {
+      scaleTraceHistory.shift();
+    }
+    if (developerPanel.classList.contains("active")) drawScaleTrace();
+  }
+
+  function drawScaleTrace() {
+    var w = scaleTraceCanvas.width, h = scaleTraceCanvas.height;
+    var ctx = scaleTraceCtx;
+    ctx.clearRect(0, 0, w, h);
+    var pts = scaleTraceHistory;
+    if (pts.length < 2) {
+      ctx.fillStyle = "#5a5d66";
+      ctx.font = "13px sans-serif";
+      ctx.fillText("Waiting for load-cell data…", 12, h / 2);
+      return;
+    }
+    var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    var tSpan = Math.max(1e-6, t1 - t0);
+    var lo = Infinity, hi = -Infinity;
+    pts.forEach(function (p) {
+      [p.raw, p.filtered].forEach(function (v) {
+        if (v === null || v === undefined) return;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      });
+    });
+    if (!isFinite(lo) || !isFinite(hi)) {
+      ctx.fillStyle = "#5a5d66";
+      ctx.font = "13px sans-serif";
+      ctx.fillText("No samples yet — is the XIAO connected?", 12, h / 2);
+      return;
+    }
+    // A flat signal (lo === hi) would divide by zero below; give it some
+    // headroom to draw a straight line in rather than a NaN-shaped blank.
+    var pad = Math.max(1, (hi - lo) * 0.08);
+    lo -= pad; hi += pad;
+    var vSpan = hi - lo;
+    var marginL = 8, marginR = 8, marginT = 8, marginB = 8;
+    var plotW = w - marginL - marginR, plotH = h - marginT - marginB;
+
+    function x(t) { return marginL + ((t - t0) / tSpan) * plotW; }
+    function y(v) { return marginT + plotH - ((v - lo) / vSpan) * plotH; }
+
+    function drawLine(key, colour) {
+      ctx.beginPath();
+      var started = false;
+      pts.forEach(function (p) {
+        var v = p[key];
+        if (v === null || v === undefined) { started = false; return; }
+        if (!started) { ctx.moveTo(x(p.t), y(v)); started = true; }
+        else ctx.lineTo(x(p.t), y(v));
+      });
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    // Raw drawn first so the filtered line — the one billing actually
+    // uses — is always the one on top where the two disagree.
+    drawLine("raw", "#e05d5d");
+    drawLine("filtered", "#2fb0b8");
+
+    ctx.fillStyle = "#5a5d66";
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(Math.round(hi), w - 4, marginT + 10);
+    ctx.fillText(Math.round(lo), w - 4, h - 4);
+    ctx.textAlign = "left";
+  }
+
+  // Window-size controls: fires on change (blur/Enter), not per
+  // keystroke — same reasoning the camera sliders give for firing on
+  // release rather than per drag pixel. `document.activeElement` guards
+  // both inputs against the `bins` broadcast overwriting a number an
+  // operator is mid-edit on, same pattern the Bins tab's own override
+  // select already uses.
+  function sendScaleFilter(patch) {
+    sendCal(Object.assign({ t: "set_scale_filter" }, patch));
+  }
+  scaleMedianWindowInput.addEventListener("change", function () {
+    var v = Math.round(Number(scaleMedianWindowInput.value));
+    if (!(v >= 1)) return;
+    sendScaleFilter({ median_window: v });
+  });
+  scaleAvgWindowInput.addEventListener("change", function () {
+    var v = Math.round(Number(scaleAvgWindowInput.value));
+    if (!(v >= 1)) return;
+    sendScaleFilter({ avg_window: v });
+  });
+
+  function applyScaleFilterFields(medianWindow, avgWindow) {
+    if (document.activeElement !== scaleMedianWindowInput && medianWindow != null) {
+      scaleMedianWindowInput.value = medianWindow;
+    }
+    if (document.activeElement !== scaleAvgWindowInput && avgWindow != null) {
+      scaleAvgWindowInput.value = avgWindow;
+    }
+  }
+
+  function applyScaleFilterResult(msg) {
+    if (msg.ok) {
+      scaleFilterStatusEl.textContent = "";
+      applyScaleFilterFields(msg.median_window, msg.avg_window);
+    } else {
+      scaleFilterStatusEl.textContent = msg.message || "Could not change the filter.";
+    }
+  }
+
   // --- mock pick/put-back controls (doc section 12.8, build item 5) -----
   // "the keyboard mock from Stage 2, reborn... with the {45,6,120,3,25,80}
   // g size cycle." One shared pointer, not eight independent ones — the
@@ -1939,6 +2161,12 @@
       c.noiseLabel.textContent = !known ? "unmeasured" : (b.noisy ? "noisy" : "stable");
       c.hintEl.textContent = b.tared ? "" : "Tare first, then Calibrate";
     });
+    // The Scale filter card's own window-size inputs, off the same
+    // 10Hz message rather than a dedicated join field — this is the
+    // "already on a 10Hz timer, so a joining tablet waits at most 100ms
+    // for it" reasoning `_join_msgs()`'s own docstring gives the Bins
+    // tab, extended to this card since it lives on the same tab.
+    applyScaleFilterFields(msg.median_window, msg.avg_window);
   }
 
   // A result for the override select. Success needs no feedback here —
@@ -3819,6 +4047,8 @@
       else if (msg.t === "bins") applyBins(msg);
       else if (msg.t === "cal_result") applyCalResult(msg);
       else if (msg.t === "bin_override_result") applyBinOverrideResult(msg);
+      else if (msg.t === "scale_trace") applyScaleTrace(msg);
+      else if (msg.t === "scale_filter_result") applyScaleFilterResult(msg);
       else if (msg.t === "mode") applyMode(msg);
       else if (msg.t === "camera") applyCamera(msg);
       else if (msg.t === "geometry") applyGeometry(msg);

@@ -81,8 +81,10 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Deque, List, Optional, Sequence
+from pathlib import Path
+from typing import Any, Callable, Deque, Dict, List, Optional, Sequence
 
+from hotpot.common import atomicio
 from hotpot.core import loadcell_cal
 
 log = logging.getLogger("hotpot.scale")
@@ -145,6 +147,54 @@ RATE_WINDOW = 32
 # not a measurement to bill from.
 MIN_CAPTURE_SAMPLES = 5
 
+# core/scale.py -> core -> hotpot -> python -> repo root. Same shape as
+# binmap.py's BIN_MAP_PATH. 2026-08-26: the Developer tab's window-size
+# controls (median_window/avg_window) write here so a tuned value
+# survives a restart instead of silently reverting to the module
+# defaults above — a developer knob, not a calibration, so unlike
+# loadcell_cal.json a missing or corrupt file is never fatal, just a
+# reason to fall back to DEFAULT_MEDIAN_WINDOW/DEFAULT_AVG_WINDOW.
+_ROOT = Path(__file__).resolve().parents[3]
+SCALE_FILTER_PATH = _ROOT / "state" / "scale_filter.json"
+
+
+def load_filter_window(path: Any = SCALE_FILTER_PATH) -> Dict[str, int]:
+    """`{"median_window": N, "avg_window": M}`, whichever of the two keys
+    `path` actually holds valid positive ints for — a missing file, a
+    corrupt one, or a bad value in it all fall back to the caller using
+    the module defaults for that key, the same "missing state/ means a
+    fresh clone" tolerance `core/main.py`'s own `_load_binmap` gives
+    `bin_map.json`. This is a tuning knob, not `loadcell_cal.json` — it
+    cannot mis-bill, so there is nothing here worth stopping the process
+    over.
+    """
+    try:
+        raw = atomicio.read_json(path, default=None)
+    except Exception as e:                        # noqa: BLE001
+        log.warning("scale: %s unreadable (%s) — using the module "
+                    "defaults", path, e)
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, int] = {}
+    for key in ("median_window", "avg_window"):
+        v = raw.get(key)
+        if isinstance(v, int) and not isinstance(v, bool) and v >= 1:
+            out[key] = v
+    return out
+
+
+def save_filter_window(median_window: int, avg_window: int,
+                       path: Any = SCALE_FILTER_PATH) -> None:
+    """The values a human just tuned on the Developer tab's live plot,
+    written so they survive a restart. Called from `core/main.py`'s
+    `set_scale_filter` handler; a failed write is the caller's problem to
+    log and shrug off, same as `_save_binmap` — the in-memory reader is
+    already correct either way.
+    """
+    atomicio.write_json(path, {"median_window": median_window,
+                               "avg_window": avg_window})
+
 
 class ScaleError(Exception):
     """A capture that cannot be used for a tare or a calibration.
@@ -196,10 +246,19 @@ class Reading:
     `grams[i] is None` means bin i cannot be weighed — stale link, or an
     uncalibrated cell — and must contribute nothing to a price rather
     than 0.0 g (doc section 21, M2).
+
+    `raw_counts`/`raw_grams` are the single most recent sample BEFORE
+    either filter stage — 2026-08-26, added for the Developer tab's live
+    plot, so "is the filter actually helping" is something a human can
+    watch rather than infer. Nothing that bills reads these two fields;
+    `None` under the same conditions as `counts`/`grams` (stale, or no
+    sample yet), so a plot of them goes empty exactly when billing does.
     """
 
     counts: Optional[List[float]]
     grams: List[Optional[float]]
+    raw_counts: Optional[List[float]]
+    raw_grams: List[Optional[float]]
     settled: List[bool]
     ts: float
     age: float
@@ -288,6 +347,11 @@ class ScaleReader:
 
         self._window: Deque[List[int]] = deque(maxlen=median_window)
         self._avg: Deque[List[float]] = deque(maxlen=avg_window)
+        # The single most recent raw sample, pre-filter — 2026-08-26, for
+        # the Developer tab's live plot (see Reading's own docstring).
+        # Nothing that bills reads this; `_counts` (post-filter) is still
+        # the only thing `grams_all` sees for pricing.
+        self._last_raw: Optional[List[int]] = None
         self._rate: Deque[float] = deque(maxlen=RATE_WINDOW)
         self._collectors: List[List[List[int]]] = []
 
@@ -322,6 +386,7 @@ class ScaleReader:
         now = time.time() if now is None else now
         with self._lock:
             counts = None if self._counts is None else list(self._counts)
+            raw = None if self._last_raw is None else list(self._last_raw)
             ts = self._ts
             settled = [s.settled for s in self._settle]
         age = (now - ts) if ts > 0.0 else float("inf")
@@ -329,8 +394,11 @@ class ScaleReader:
             # Doc section 9.5: do not silently bill from a frozen reading.
             # grams_all(None) is eight Nones — the same value an
             # uncalibrated cell produces, on purpose, so pricing needs one
-            # rule and not two.
+            # rule and not two. The raw fields go stale on the same clock,
+            # for the same reason: a plot that kept drawing a frozen raw
+            # sample would misrepresent a dead link as a live, silent one.
             return Reading(counts=None, grams=self.cal.grams_all(None),
+                           raw_counts=None, raw_grams=self.cal.grams_all(None),
                            settled=[False] * NUM_BINS, ts=ts, age=age,
                            stale=True)
         # Converted outside the lock: the Calibration belongs to the Bins
@@ -338,6 +406,7 @@ class ScaleReader:
         # skew one frame's grams, and doc section 9.1 refuses staff mode
         # while a cart is active, so no such frame can reach a bill.
         return Reading(counts=counts, grams=self.cal.grams_all(counts),
+                       raw_counts=raw, raw_grams=self.cal.grams_all(raw),
                        settled=settled, ts=ts, age=age, stale=False)
 
     @property
@@ -412,6 +481,7 @@ class ScaleReader:
         sample = [int(c) for c in counts]
         with self._lock:
             self._window.append(sample)
+            self._last_raw = sample
             self._rate.append(now)
             for collector in self._collectors:
                 collector.append(sample)
@@ -434,6 +504,30 @@ class ScaleReader:
             self._ts = now
             self.samples += 1
             self._update_settle(self.cal.grams_all(smoothed), now)
+
+    # -- live filter tuning (2026-08-26, the Developer tab) -----------------
+
+    def set_median_window(self, n: int) -> None:
+        """Resize the median stage on the running reader.
+
+        Not a restart: whatever raw samples are already in the window
+        are kept (trimmed to the newest `n` on a shrink), so tuning this
+        while watching the live plot does not itself cause a jump — only
+        the filtering behaviour changes, not the data feeding it.
+        """
+        if n < 1:
+            raise ValueError("median_window must be at least 1")
+        with self._lock:
+            self.median_window = n
+            self._window = deque(list(self._window)[-n:], maxlen=n)
+
+    def set_avg_window(self, n: int) -> None:
+        """`set_median_window`'s own reasoning, for the average stage."""
+        if n < 1:
+            raise ValueError("avg_window must be at least 1")
+        with self._lock:
+            self.avg_window = n
+            self._avg = deque(list(self._avg)[-n:], maxlen=n)
 
     def _update_settle(self, grams: Sequence[Optional[float]],
                        now: float) -> None:

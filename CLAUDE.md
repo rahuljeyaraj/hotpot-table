@@ -5412,3 +5412,125 @@ only. The actual settling-time cost (`avg_window`'s own extra
 `avg_window` median-periods on top of the median's own ~280ms lag,
 module docstring) has not been watched on the projected surface; tune
 `DEFAULT_AVG_WINDOW` against real jitter once it has.
+
+## Scale filter: Developer-tab live plot, bin picker, tunable windows
+(2026-08-26, same day, developer follow-up — "it is still jumping
+around")
+The moving-average fix above didn't visibly settle it, and there was no
+way to SEE the filter working — median_window/avg_window were both
+still frozen module constants nobody could reach without editing code
+and restarting. This session builds the instrument, not another guess
+at the numbers: a live plot of raw vs. filtered load-cell counts, a bin
+picker, and window-size controls that apply live and persist.
+
+**`core/scale.py`:**
+- `ScaleReader.set_median_window(n)`/`set_avg_window(n)` resize the
+  running reader's deques in place, under the same lock `feed()` uses —
+  not a restart. A shrink keeps the newest samples; a grow just has more
+  room to fill, the same partial-window tolerance the constructor
+  already gives a fresh reader. Resizing itself changes nothing about
+  the CURRENT reading — only the next `feed()` is affected — so turning
+  a knob while watching the plot doesn't itself cause a jump.
+- `Reading` gained `raw_counts`/`raw_grams`: the single most recent
+  sample BEFORE either filter stage. Nothing that bills reads them —
+  `_counts` (post-filter) is still the only thing `grams_all` sees for
+  pricing — they exist purely so "is the filter helping" is something to
+  watch instead of infer. They go `None` on the same staleness clock as
+  the filtered fields, for the same reason: a plot that kept drawing a
+  frozen raw sample past staleness would misrepresent a dead link as a
+  live, quiet one. Deliberately COUNTS, not grams, as the plot's primary
+  signal — unlike `_bins_tab_msg`, this has to keep working on an
+  uncalibrated bin, which is the ordinary state of a bin nobody has
+  weighed a reference mass in yet (`raw_grams` still exists and is
+  `None` there, same as `grams`).
+- `SCALE_FILTER_PATH` (`state/scale_filter.json`) + `load_filter_window`/
+  `save_filter_window`, same `atomicio`/"missing state/ means a fresh
+  clone" shape `binmap.py`'s `BIN_MAP_PATH`/`BinMap.load` already use. A
+  developer tuning knob, not `loadcell_cal.json` — a missing or corrupt
+  file is never fatal, never stops core, just means "use
+  DEFAULT_MEDIAN_WINDOW/DEFAULT_AVG_WINDOW as if nobody had touched it."
+  A bad value inside an otherwise-valid file is dropped per-key, not the
+  whole file.
+
+**`core/main.py`:**
+- `Core` gains `scale_filter_path` (default `scale.SCALE_FILTER_PATH`),
+  read once at boot to build `self.scale` with whatever was saved —
+  same split `cal_path`/`bin_map_path` already have, so a test Core never
+  touches the real file (every `Core(...)`/`coremain.start(...)` call
+  site in `test_core_main.py`, six of them, now passes a throwaway one —
+  `CoreCase.setUp`'s central one covers most tests, the rest are the
+  standalone "second Core, i.e. a restart" helpers scattered through the
+  file).
+- `_bins_tab_msg()` gained `median_window`/`avg_window` — no new join
+  message needed, same "already on a 10Hz timer, a joining tablet waits
+  at most 100ms" reasoning that method's own docstring already gives the
+  rest of the Bins tab.
+- New `_scale_trace_msg()`, broadcast on the same 10Hz tick as
+  `bins`/`hands` in `_state_loop` — unconditionally, not gated on whether
+  the Developer tab is open. Unlike the camera process's own stats
+  (crossed a process boundary over HTTP, worth polling only while
+  visible — M3.4's own reasoning), this is core's in-memory data going
+  out over a socket that's already open every tick regardless, and eight
+  bins' worth of two numbers each doesn't move the needle next to `bins`'
+  own per-tick payload. Sends COUNTS for all 8 bins every tick; which bin
+  to look at is a client-side-only decision — no wire round trip to tell
+  core which one, so switching bins in the dropdown is instant.
+- `_handle_set_scale_filter`: validates both fields BEFORE applying
+  either (a bad `avg_window` must not leave `median_window`
+  half-changed), resizes the live reader, then persists. **Deliberately
+  no setting-mode gate** — unlike Tare/Calibrate/the bin override, this
+  cannot make a bin bill wrong, only change how smoothed the number is,
+  and gating it would make it untestable against a live diner's own pick,
+  which is exactly the case worth watching the plot for.
+
+**Staff view (`index.html`), Developer tab — new "Scale filter" card:**
+a bin `<select>` (dropdown, not checkboxes — overlaying more than one
+bin's raw+filtered pair would be four-plus lines on one chart, worse to
+read, and nothing about tuning needs a side-by-side compare), a
+hand-rolled `<canvas>` line chart (raw in red, filtered in teal — no
+charting library, same "no browser toolchain in this repo" discipline
+every other canvas in this file already follows: the rectified preview,
+the crop thumbnails), and two number inputs for the window sizes.
+- The plot keeps a rolling history for the SELECTED bin only (last 30s);
+  switching bins starts a fresh trace rather than faking data that was
+  never collected for the new one. Y-axis auto-scales to whatever's on
+  screen; a gap in either line (both fields `null` — stale) breaks the
+  line instead of drawing a lie across it.
+- `applyScaleTrace` only redraws while the Developer tab is the active
+  one (`developerPanel.classList.contains("active")`, the same gate
+  `pollCamInfo`/`pollCamControls` already use) even though the message
+  itself arrives regardless — `selectTab` now repaints on switching TO
+  this tab, to catch up on whatever accumulated while it was hidden.
+- Window-size inputs fire on `change` (blur/Enter), not per keystroke —
+  same reasoning the camera sliders already give for firing on release,
+  not per drag pixel — and are guarded against the 10Hz `bins` broadcast
+  overwriting a value mid-edit by `document.activeElement`, the same
+  focus-keyed guard the Bins tab's own override select already uses.
+
+38 new Python tests (`test_scale.py`: `TestLiveFilterTuning` 6,
+`TestRawReading` 5, `TestFilterPersistence` 5; `test_core_main.py`:
+`TestScaleFilterAndTrace` 11, plus every pre-existing `Core(...)`/
+`coremain.start(...)` call site updated for the new constructor
+parameter — 11 more incidentally exercised by the existing suite
+continuing to pass). 1200 tests pass total,
+`python -m unittest discover -s python/tests`, same 10 pre-existing
+failures this file's own history already names (the spice-icon
+`TestCheckoutFlow`/`test_hover` cases, `test_calibrator`'s documented
+stale-link flake) — checked unrelated by name and by re-running the
+flaky one alone twice.
+JS verified the way every staff-view change in this file is: `node
+--check` on the extracted `<script>` block (clean), every new
+`getElementById` id cross-checked against the DOM by script (clean), and
+the whole `index.html` parsed end to end for unclosed/mismatched tags
+(clean). **Not opened in a real browser** — the plot's actual on-screen
+readability, the chart's auto-scaling against real per-channel noise,
+and whether the window-size controls feel responsive while dragging a
+value are all reasoned from code, not observed. Same honest gap this
+file's own Setup-tab/Capture-tab sessions carried before their first
+real-browser pass caught bugs a syntax check couldn't (M4l, M4m).
+**Not observed on the rig at all** — no camera, no XIAO, this dev
+machine has neither attached this session. The one thing actually worth
+watching once it is: whether the plot's raw line, on a real noisy
+channel, visibly explains why the filtered line still isn't smooth
+enough — that's the diagnostic question this whole card exists to
+answer, and it has not been asked of real hardware yet.

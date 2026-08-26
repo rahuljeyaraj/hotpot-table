@@ -16,6 +16,7 @@ ordinary hardware, not a contrived one.
 
 import os
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -269,6 +270,67 @@ class TestMovingAverage(unittest.TestCase):
         self.assertFalse(r.read(now=1000.04).settled[0])
 
 
+class TestLiveFilterTuning(unittest.TestCase):
+    """2026-08-26: the Developer tab's window-size controls resize the
+    running reader rather than requiring a restart.
+    """
+
+    def setUp(self):
+        self.cal = calibrated(counts_per_gram=100.0)
+
+    def test_set_median_window_changes_live_behaviour(self):
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=1,
+                              avg_window=1)
+        r.feed([999_999] * 8, now=1000.0)
+        # median_window=1 is a no-op filter: the outlier passes straight
+        # through — there is no window for it to be outvoted in.
+        self.assertEqual(r.read(now=1000.0).counts[0], 999_999.0)
+        r.set_median_window(5)
+        for c in (100, 100, 100, 100, 999_999):
+            r.feed([c] * 8, now=1000.1)
+        # Now the same outlier is one of five and gets discarded.
+        self.assertEqual(r.read(now=1000.1).counts[0], 100.0)
+
+    def test_set_avg_window_changes_live_behaviour(self):
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=1,
+                              avg_window=1)
+        r.feed([100] * 8, now=1000.0)
+        r.set_avg_window(2)
+        r.feed([200] * 8, now=1000.1)
+        # Averaged over the last two raw samples: (100+200)/2 = 150.
+        self.assertEqual(r.read(now=1000.1).counts[0], 150.0)
+
+    def test_a_shrunk_window_keeps_only_the_newest_samples(self):
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=5,
+                              avg_window=1)
+        for c in (100, 100, 100, 100, 100):
+            r.feed([c] * 8, now=1000.0)
+        r.set_median_window(1)
+        # window=1 now reads the single newest raw sample, not a median
+        # carried over from the larger window.
+        r.feed([999] * 8, now=1000.1)
+        self.assertEqual(r.read(now=1000.1).counts[0], 999.0)
+
+    def test_resizing_does_not_reset_the_reading_immediately(self):
+        """The resize itself must not zero or freeze anything — only the
+        next feed() is affected."""
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=3,
+                              avg_window=1)
+        r.feed([500] * 8, now=1000.0)
+        r.set_median_window(5)
+        self.assertEqual(r.read(now=1000.0).counts[0], 500.0)
+
+    def test_set_median_window_of_zero_is_refused(self):
+        r = scale.ScaleReader("COM-TEST")
+        with self.assertRaises(ValueError):
+            r.set_median_window(0)
+
+    def test_set_avg_window_of_zero_is_refused(self):
+        r = scale.ScaleReader("COM-TEST")
+        with self.assertRaises(ValueError):
+            r.set_avg_window(0)
+
+
 class TestGrams(unittest.TestCase):
 
     def test_counts_convert_through_the_calibration(self):
@@ -295,6 +357,105 @@ class TestGrams(unittest.TestCase):
         got = r.read(now=1000.0).grams
         self.assertIsNone(got[5])
         self.assertEqual(len([g for g in got if g is not None]), 7)
+
+
+class TestRawReading(unittest.TestCase):
+    """2026-08-26: `Reading.raw_counts`/`raw_grams`, added so the
+    Developer tab's live plot can show the pre-filter signal alongside
+    `counts`/`grams` — "is the filter actually helping" as something to
+    watch, not infer.
+    """
+
+    def setUp(self):
+        self.cal = calibrated(counts_per_gram=100.0)
+
+    def test_raw_counts_is_the_single_newest_sample_not_filtered(self):
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=5,
+                              avg_window=3)
+        for c in (100, 100, 100, 100, 999_999):
+            r.feed([c] * 8, now=1000.0)
+        reading = r.read(now=1000.0)
+        # The filtered value rejects the outlier; the raw one does not —
+        # that contrast is the entire point of the plot this field feeds.
+        self.assertEqual(reading.raw_counts[0], 999_999.0)
+        self.assertEqual(reading.counts[0], 100.0)
+
+    def test_raw_grams_converts_through_the_same_calibration(self):
+        cal = calibrated(counts_per_gram=200.0, zero=1000.0)
+        r = scale.ScaleReader("COM-TEST", cal=cal)
+        r.feed([1000 + 200 * 250] * 8, now=1000.0)
+        for g in r.read(now=1000.0).raw_grams:
+            self.assertAlmostEqual(g, 250.0)
+
+    def test_raw_fields_are_none_before_any_sample(self):
+        r = scale.ScaleReader("COM-TEST", cal=self.cal)
+        reading = r.read(now=1000.0)
+        self.assertIsNone(reading.raw_counts)
+        self.assertEqual(reading.raw_grams, [None] * 8)
+
+    def test_raw_fields_go_stale_with_everything_else(self):
+        """A plot that kept drawing a frozen raw sample past staleness
+        would misrepresent a dead link as a live, silent one."""
+        r = scale.ScaleReader("COM-TEST", cal=self.cal)
+        r.feed([50_000] * 8, now=1000.0)
+        frozen = r.read(now=1005.0)
+        self.assertTrue(frozen.stale)
+        self.assertIsNone(frozen.raw_counts)
+        self.assertEqual(frozen.raw_grams, [None] * 8)
+
+    def test_raw_is_unaffected_by_an_uncalibrated_bin(self):
+        """Signal-level, not billing-level: raw_counts must still read
+        even where raw_grams is None, since the whole point is watching
+        the filter work on a bin nobody has calibrated yet."""
+        cal = calibrated(bins=[0, 1, 2, 3, 4, 6, 7])
+        r = scale.ScaleReader("COM-TEST", cal=cal)
+        r.feed([100] * 8, now=1000.0)
+        reading = r.read(now=1000.0)
+        self.assertEqual(reading.raw_counts[5], 100.0)
+        self.assertIsNone(reading.raw_grams[5])
+
+
+class TestFilterPersistence(unittest.TestCase):
+    """2026-08-26: `load_filter_window`/`save_filter_window`, the pair
+    `core/main.py` uses so a Developer-tab tuning session survives a
+    restart.
+    """
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.path = os.path.join(self._dir.name, "scale_filter.json")
+
+    def test_a_missing_file_returns_nothing(self):
+        self.assertEqual(scale.load_filter_window(self.path), {})
+
+    def test_save_then_load_round_trips(self):
+        scale.save_filter_window(7, 4, self.path)
+        self.assertEqual(scale.load_filter_window(self.path),
+                         {"median_window": 7, "avg_window": 4})
+
+    def test_a_corrupt_file_returns_nothing_rather_than_raising(self):
+        """A developer tuning knob, not `loadcell_cal.json` — there is
+        nothing here worth stopping core over."""
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("{not json at all")
+        self.assertEqual(scale.load_filter_window(self.path), {})
+
+    def test_a_bad_value_in_an_otherwise_valid_file_is_dropped(self):
+        import json
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"median_window": 0, "avg_window": 4}, f)
+        # median_window: 0 is invalid (ScaleReader itself would refuse
+        # it) and is dropped rather than handed to the caller; avg_window
+        # is untouched.
+        self.assertEqual(scale.load_filter_window(self.path),
+                         {"avg_window": 4})
+
+    def test_a_non_dict_file_returns_nothing(self):
+        import json
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump([1, 2, 3], f)
+        self.assertEqual(scale.load_filter_window(self.path), {})
 
 
 class TestStaleness(unittest.TestCase):
