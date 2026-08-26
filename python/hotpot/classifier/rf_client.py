@@ -196,10 +196,29 @@ _roboflow_client = _default_roboflow_client
 
 
 def _project_handle(workspace: str, project: str, api_key: str):
-    client = _roboflow_client(api_key)
+    """**Bug found live, 2026-08-26**: `_roboflow_client(api_key)` used to
+    be called OUTSIDE this function's try/except, so a missing `roboflow`
+    package (`ModuleNotFoundError`, the ordinary state on a rig that
+    hasn't installed it yet — doc §4.3's own caution against doing that
+    casually) escaped as a raw traceback into the log instead of the clean
+    `RFClientError` message every other failure in this module gives the
+    operator. Confirmed on the rig: `core/main.py`'s outer catch-all still
+    caught it (core did not crash), but the tablet only ever saw "hit an
+    internal error — see the log", not the actual, simple cause. Both the
+    import and the workspace()/project() call are now inside the same try.
+    """
     try:
+        client = _roboflow_client(api_key)
         return client.workspace(workspace).project(project)
-    except Exception as e:  # noqa: BLE001 - any SDK failure
+    except RFClientError:
+        raise
+    except ModuleNotFoundError as e:
+        raise RFClientError(
+            "the 'roboflow' package is not installed in this Python "
+            "environment — see python/requirements.txt's own comment "
+            "before installing it (do not pip install it into penv "
+            "without reading that first)") from e
+    except Exception as e:  # noqa: BLE001 - any other SDK failure
         raise RFClientError(
             f"could not open Roboflow project {workspace}/{project}: {e}") from e
 

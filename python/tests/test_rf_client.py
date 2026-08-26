@@ -247,6 +247,23 @@ class TestUploadImage(RfClientSdkTestCase):
             rf_client.upload_image("ws", "proj", "k", "/tmp/a.jpg", "x")
         self.assertIn("quota exceeded", str(ctx.exception))
 
+    def test_a_missing_roboflow_package_is_a_clean_error_not_a_raw_traceback(self):
+        # Bug found live, 2026-08-26: _roboflow_client() used to be called
+        # OUTSIDE _project_handle's try/except, so a real
+        # `ModuleNotFoundError('roboflow')` on a rig that hasn't installed
+        # it escaped as a raw exception all the way up through
+        # core/main.py's outer catch-all — caught there, but reported to
+        # the tablet only as "hit an internal error — see the log", never
+        # the actual cause. Simulated here without uninstalling anything:
+        # the factory itself raises the exact class the real lazy import
+        # would raise on a clean environment.
+        def factory(api_key):
+            raise ModuleNotFoundError("No module named 'roboflow'")
+        rf_client._roboflow_client = factory
+        with self.assertRaises(rf_client.RFClientError) as ctx:
+            rf_client.upload_image("ws", "proj", "k", "/tmp/a.jpg", "x")
+        self.assertIn("not installed", str(ctx.exception))
+
 
 class TestUploadCaptures(RfClientSdkTestCase):
 
