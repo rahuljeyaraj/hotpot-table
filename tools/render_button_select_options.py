@@ -14,10 +14,20 @@ from-scratch rethink, each on a different synthesis technique entirely
 (Karplus-Strong plucked string, resonant-filtered noise, FM synthesis,
 and a hybrid of the two percussive ones) so the audition actually spans
 different *kinds* of sound, not just different frequencies of the same
-kind:
-four ticks at AudioBus's own rung->speed mapping (ofApp.cpp: speed =
-clamp(0.9 + 0.12*(rung-1), 0.9, 1.5)), 300ms apart, followed by the fire.
-That's what a diner actually hears, not just the isolated clips.
+kind. All nine of those still simulate the dwell the same way doc §15.2
+describes it: four ticks at AudioBus's own rung->speed mapping
+(ofApp.cpp: speed = clamp(0.9 + 0.12*(rung-1), 0.9, 1.5)), 300ms apart,
+followed by the fire.
+
+Developer feedback after listening to 1-9 (2026-08-26): four discrete
+beeps-then-a-final-beep is the wrong shape regardless of timbre — it
+reads as counting, not building. Variants 10-12 drop the retriggered-
+tick structure entirely: one continuous sound (`dwell_rise.wav`) plays
+once for the whole hold and climbs/brightens/swells for its own
+duration, arriving at `dwell_fire.wav`. Getting this onto the actual rig
+would mean AudioBus plays dwell_rise once per dwell-start instead of
+retriggering dwell_tick every 300ms — a follow-up code change once a
+direction here is picked, not done by this script.
 
 Run from anywhere:
     python tools/render_button_select_options.py
@@ -245,6 +255,76 @@ def _fm_hit(carrier: float, mod_ratio: float, index: float, seconds: float,
     return out
 
 
+def _freq_sweep(f0: float, f1: float, seconds: float, amp: float,
+                 attack_s: float = 0.08, release_s: float = 0.1,
+                 exponential: bool = True, harmonic2: float = 0.0) -> List[float]:
+    """A single continuous tone whose pitch climbs from f0 to f1 across
+    its own duration — phase is accumulated sample-by-sample (not a
+    lookup by t) so the sweep has no clicks or step discontinuities, the
+    whole point being that it reads as one gesture, not four retriggers."""
+    n = _n(seconds)
+    attack_n = _n(attack_s)
+    release_n = _n(release_s)
+    phase = 0.0
+    out = []
+    for i in range(n):
+        frac = i / max(1, n - 1)
+        freq = f0 * (f1 / f0) ** frac if exponential else f0 + (f1 - f0) * frac
+        phase += 2 * math.pi * freq / SAMPLE_RATE
+        if i < attack_n:
+            env = i / attack_n
+        elif i > n - release_n:
+            env = max(0.0, (n - i) / release_n)
+        else:
+            env = 1.0
+        v = math.sin(phase)
+        if harmonic2:
+            v += harmonic2 * frac * math.sin(2 * phase)
+        out.append(amp * env * v)
+    return out
+
+
+def _svf_bandpass_sweep(samples: List[float], f0: float, f1: float, q: float) -> List[float]:
+    """Same resonant filter as `_svf_bandpass`, but its center frequency
+    climbs across the buffer — turns steady noise into a rising "charging"
+    texture instead of a fixed-pitch ring."""
+    n = len(samples)
+    qinv = 1.0 / q
+    low = 0.0
+    band = 0.0
+    out = []
+    for i, x in enumerate(samples):
+        frac = i / max(1, n - 1)
+        freq = f0 * (f1 / f0) ** frac
+        f = 2 * math.sin(math.pi * min(freq, SAMPLE_RATE / 4) / SAMPLE_RATE)
+        high = x - low - qinv * band
+        band += f * high
+        low += f * band
+        out.append(band)
+    return out
+
+
+def _noise_riser(f0: float, f1: float, seconds: float, q: float, amp: float,
+                  rng: random.Random, attack_s: float = 0.15,
+                  release_s: float = 0.06) -> List[float]:
+    n = _n(seconds)
+    noise = _white_noise(seconds, rng)
+    swept = _svf_bandpass_sweep(noise, f0, f1, q)
+    peak = max((abs(v) for v in swept), default=1.0) or 1.0
+    attack_n = _n(attack_s)
+    release_n = _n(release_s)
+    out = []
+    for i, v in enumerate(swept):
+        if i < attack_n:
+            env = i / attack_n
+        elif i > n - release_n:
+            env = max(0.0, (n - i) / release_n)
+        else:
+            env = 1.0
+        out.append(amp * env * v / peak)
+    return out
+
+
 def _wood_tok(freq: float, rng: random.Random, amp: float = 0.5,
               seconds: float = 0.14, decay: float = 28.0) -> List[float]:
     body = _sine_hit(freq, seconds, decay_per_sec=decay, amp=amp)
@@ -392,6 +472,64 @@ def variant_hybrid_pluck(rng: random.Random):
     return tick, fire
 
 
+def variant_tone_sweep(rng: random.Random):
+    """Structural rethink — not four discrete beeps, one continuous tone
+    that climbs for the whole hold, arriving at a bright two-note chime.
+    Reads as "building toward", not "counting steps"."""
+    rise = _freq_sweep(420, 1500, seconds=1.2, amp=0.22,
+                        attack_s=0.08, release_s=0.10, harmonic2=0.4)
+    a = _fm_hit(900, mod_ratio=1.4, index=3.0, seconds=0.16, decay_per_sec=16, amp=0.32)
+    b = _fm_hit(1350, mod_ratio=1.4, index=2.5, seconds=0.20, decay_per_sec=13, amp=0.32)
+    fire = _overlay_at(_pad_to(a, 0.05), b, 0.05)
+    return rise, fire
+
+
+def variant_noise_riser(rng: random.Random):
+    """A textural "charging" riser — filtered noise sweeping upward and
+    swelling in level — instead of a pitched ladder, so there is no
+    ladder note to land wrong; arrival is a mechanical catch+latch, kept
+    percussive so it's unmistakably a different event from the riser."""
+    rise = _noise_riser(500, 3000, seconds=1.2, q=10.0, amp=0.5, rng=rng,
+                         attack_s=0.25, release_s=0.05)
+    catch = _ratchet_click(900, rng, q=14.0, amp=0.5, burst_s=0.006,
+                            tail_s=0.05, decay_per_sec=70)
+    latch = _ratchet_click(520, rng, q=22.0, amp=0.5, burst_s=0.008,
+                            tail_s=0.16, decay_per_sec=22)
+    fire = _overlay_at(_pad_to(catch, 0.05), latch, 0.05)
+    return rise, fire
+
+
+def variant_harmonic_swell(rng: random.Random):
+    """A rising tone that also brightens as it climbs — a second
+    harmonic fades in with pitch, like a filter opening — arriving at a
+    warm three-note major resolve. Whole gesture stays in one sine-family
+    voice so rise and arrival read as the same instrument, not two."""
+    rise = _freq_sweep(500, 1100, seconds=1.2, amp=0.24, attack_s=0.12,
+                        release_s=0.12, exponential=False, harmonic2=0.5)
+    notes = [_sine_hit(f, 0.20, decay_per_sec=14, amp=0.32, harmonic2=0.12)
+             for f in (523.25, 659.25, 784.0)]
+    fire = _pad_to(notes[0], 0.0)
+    fire = _overlay_at(fire, notes[1], 0.05)
+    fire = _overlay_at(fire, notes[2], 0.10)
+    return rise, fire
+
+
+CONTINUOUS_VARIANTS = {
+    "10_tone_sweep": variant_tone_sweep,
+    "11_noise_riser": variant_noise_riser,
+    "12_harmonic_swell": variant_harmonic_swell,
+}
+
+
+def _demo_sequence_rise(rise: List[float], fire: List[float], gap_s: float = 0.03) -> List[float]:
+    """No retriggering — the rise plays once, in full, then the fire.
+    This is what a diner would actually hear under the "one continuous
+    rise, once" design instead of the old four-retrigger simulation."""
+    t = len(rise) / SAMPLE_RATE
+    out = _pad_to(rise, t)
+    return _overlay_at(out, fire, t + gap_s)
+
+
 VARIANTS = {
     "1_current_baseline": variant_current,
     "2_soft_bell": variant_soft_bell,
@@ -415,6 +553,15 @@ def main() -> None:
         _write_wav(out_dir / "dwell_fire.wav", fire)
         _write_wav(out_dir / "demo_full_dwell.wav", _demo_sequence(tick, fire))
         print(f"wrote {name}/ (tick {len(tick)/SAMPLE_RATE:.2f}s, "
+              f"fire {len(fire)/SAMPLE_RATE:.2f}s)")
+
+    for name, make in CONTINUOUS_VARIANTS.items():
+        rise, fire = make(rng)
+        out_dir = out_root / name
+        _write_wav(out_dir / "dwell_rise.wav", rise)
+        _write_wav(out_dir / "dwell_fire.wav", fire)
+        _write_wav(out_dir / "demo_full_dwell.wav", _demo_sequence_rise(rise, fire))
+        print(f"wrote {name}/ (rise {len(rise)/SAMPLE_RATE:.2f}s, "
               f"fire {len(fire)/SAMPLE_RATE:.2f}s)")
 
 
