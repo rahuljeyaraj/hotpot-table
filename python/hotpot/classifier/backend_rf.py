@@ -180,6 +180,16 @@ class RoboflowInferenceBackend:
         self._class_names = list(class_names)
         return model
 
+    def warm(self) -> None:
+        """Forces the model to load right now rather than on the first
+        `classify()` call — what `rf_deploy.py`'s Path A deploy step calls
+        so the first real classify() after a deploy is not also the thing
+        that discovers there is no network (doc §6 step 4: "trigger the
+        weight download and cache-warm... while the operator is standing
+        there watching a progress line").
+        """
+        self._ensure_model()
+
     def classify(self, bgr_crop: Any) -> Tuple[str, float]:
         model = self._ensure_model()
         rgb = _bgr_to_rgb(bgr_crop)

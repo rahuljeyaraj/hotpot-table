@@ -496,6 +496,13 @@
   .ei-progress.hide { display: none; }
   #eiUnlinked.hide, #eiLinked.hide, #eiTotpRow.hide,
   #eiNewFields.hide, #eiExistingFields.hide { display: none; }
+  /* #rfCard (docs/ROBOFLOW_PATHWAY.md §6 step 6) reuses .ei-row/.ei-linked/
+     .ei-progress as-is (their rules above already cover it, class-based),
+     but #rfUnlinked/#rfLinked are their own ids needing their own rule —
+     this codebase's own recorded trap (M4l/M4o's CLAUDE.md notes): a
+     `.hide` class toggled in JS with no matching CSS selector is a silent
+     no-op, not a hidden element. */
+  #rfUnlinked.hide, #rfLinked.hide { display: none; }
 
   /* --- projector grid card (M4n): select-a-line, nudge with arrow keys,
      no camera and no typing ------------------------------------------- */
@@ -955,6 +962,61 @@
           </div>
           <div class="ei-progress hide" id="eiProgress"></div>
           <div class="setup-status" id="eiStatus"></div>
+        </div>
+        <!-- docs/ROBOFLOW_PATHWAY.md §6 step 6: a second training/deploy
+             path beside Edge Impulse, additive per the developer's own
+             instruction — #eiCard above is untouched. Copies #eiCard's
+             own structure (.setup-card/.ei-row/.ei-linked/.ei-progress,
+             reused as-is, doc's own instruction — no #eiCard CSS needed
+             duplicating here). Directly below it inside the same
+             .capture-shell so it inherits the same 1100px cap and
+             stacked-card spacing. Fields: workspace, project, API key —
+             Roboflow has ONE account key, so there is no username/
+             password/TOTP flow at all; #eiNewFields/#eiTotpRow's whole
+             branch has no analogue here and is not copied over. -->
+        <div class="setup-card" id="rfCard">
+          <h2>Roboflow</h2>
+          <p>Link an existing single-label-classification project, then
+             push the captured images to it, train, and deploy the result.
+             Edge Impulse above is unaffected either way.</p>
+          <div id="rfUnlinked">
+            <div class="ei-row">
+              <input id="rfWorkspace" type="text" placeholder="Workspace (e.g. rahuls-workspace-mqtgo)">
+              <input id="rfProject" type="text" placeholder="Project (e.g. hotpot-ingredients)">
+            </div>
+            <div class="ei-row">
+              <input id="rfApiKey" type="password" autocomplete="off" placeholder="API key">
+            </div>
+            <div class="ei-row">
+              <button id="rfLinkBtn" class="setup-btn primary">Link Roboflow</button>
+            </div>
+          </div>
+          <div id="rfLinked" class="hide">
+            <div class="ei-linked">Linked to <span id="rfProjectLabel"></span></div>
+            <div class="ei-row">
+              <button id="rfUploadBtn" class="setup-btn">Upload captures to Roboflow</button>
+              <!-- doc §3.3, the genuine improvement over Edge Impulse:
+                   training is a real API call from here, not a manual
+                   Studio step. -->
+              <button id="rfTrainBtn" class="setup-btn">Train</button>
+            </div>
+            <div class="ei-row">
+              <!-- doc §1: Path A (inference package, weights cached
+                   locally, free tier) is the recommendation and the
+                   default; Path B (ONNX + onnxruntime, fully offline, but
+                   the weights download itself needs a paid Roboflow
+                   plan) is one config value away, not a rewrite — this
+                   select is that one value, at deploy time. -->
+              <select id="rfDeployPath">
+                <option value="a">Deploy — Path A (cached weights)</option>
+                <option value="b">Deploy — Path B (ONNX, paid plan)</option>
+              </select>
+              <button id="rfDeployBtn" class="setup-btn">Deploy</button>
+              <button id="rfUnlinkBtn" class="setup-btn">Unlink</button>
+            </div>
+          </div>
+          <div class="ei-progress hide" id="rfProgress"></div>
+          <div class="setup-status" id="rfStatus"></div>
         </div>
       </div>
     </section>
@@ -3881,6 +3943,183 @@
     }
   }
 
+  // --- Roboflow panel (docs/ROBOFLOW_PATHWAY.md §6 step 6) --------------
+  // Same eiBusy/applyEiGating shape as the Edge Impulse panel just above
+  // (this codebase's own established pattern for a job-guarded card), but
+  // its own variable and its own gating function — the two panels' jobs
+  // are independent (core/main.py's own decision, `_rf_active`'s comment),
+  // so one busy state must never grey out the other card's buttons.
+
+  var rfUnlinked = document.getElementById("rfUnlinked");
+  var rfLinked = document.getElementById("rfLinked");
+  var rfWorkspace = document.getElementById("rfWorkspace");
+  var rfProject = document.getElementById("rfProject");
+  var rfApiKey = document.getElementById("rfApiKey");
+  var rfLinkBtn = document.getElementById("rfLinkBtn");
+  var rfUploadBtn = document.getElementById("rfUploadBtn");
+  var rfTrainBtn = document.getElementById("rfTrainBtn");
+  var rfDeployPath = document.getElementById("rfDeployPath");
+  var rfDeployBtn = document.getElementById("rfDeployBtn");
+  var rfUnlinkBtn = document.getElementById("rfUnlinkBtn");
+  var rfProjectLabel = document.getElementById("rfProjectLabel");
+  var rfProgress = document.getElementById("rfProgress");
+  var rfStatus = document.getElementById("rfStatus");
+  var rfBusy = false;
+
+  function applyRfGating() {
+    rfLinkBtn.disabled = rfBusy;
+    rfUploadBtn.disabled = rfBusy;
+    rfTrainBtn.disabled = rfBusy;
+    rfDeployBtn.disabled = rfBusy;
+    rfUnlinkBtn.disabled = rfBusy;
+  }
+
+  function applyRfStatus(msg) {
+    rfBusy = !!msg.active;
+    if (msg.linked) {
+      rfUnlinked.classList.add("hide");
+      rfLinked.classList.remove("hide");
+      var label = msg.workspace + "/" + msg.project;
+      if (msg.version) label += " (v" + msg.version + ")";
+      if (msg.model_file) label += " — " + msg.model_file;
+      rfProjectLabel.textContent = label;
+    } else {
+      rfUnlinked.classList.remove("hide");
+      rfLinked.classList.add("hide");
+    }
+    applyRfGating();
+  }
+
+  rfLinkBtn.addEventListener("click", function () {
+    if (rfLinkBtn.disabled) return;
+    if (!rfWorkspace.value || !rfProject.value || !rfApiKey.value) {
+      setStatus(rfStatus, "Enter the workspace, project and API key first.", "bad");
+      return;
+    }
+    rfBusy = true;
+    applyRfGating();
+    setStatus(rfStatus, "Linking…", "busy");
+    sendSetup({ t: "rf_link", workspace: rfWorkspace.value,
+                project: rfProject.value, api_key: rfApiKey.value });
+  });
+
+  rfUploadBtn.addEventListener("click", function () {
+    if (rfUploadBtn.disabled) return;
+    rfBusy = true;
+    applyRfGating();
+    rfProgress.classList.remove("hide");
+    rfProgress.textContent = "Uploading…";
+    setStatus(rfStatus, "", null);
+    sendSetup({ t: "rf_upload" });
+  });
+
+  rfTrainBtn.addEventListener("click", function () {
+    if (rfTrainBtn.disabled) return;
+    rfBusy = true;
+    applyRfGating();
+    rfProgress.classList.remove("hide");
+    rfProgress.textContent = "Starting…";
+    setStatus(rfStatus, "", null);
+    sendSetup({ t: "rf_train" });
+  });
+
+  rfDeployBtn.addEventListener("click", function () {
+    if (rfDeployBtn.disabled) return;
+    rfBusy = true;
+    applyRfGating();
+    rfProgress.classList.remove("hide");
+    rfProgress.textContent = "Deploying…";
+    setStatus(rfStatus, "", null);
+    sendSetup({ t: "rf_deploy", path: rfDeployPath.value });
+  });
+
+  rfUnlinkBtn.addEventListener("click", function () {
+    if (rfUnlinkBtn.disabled) return;
+    rfBusy = true;
+    applyRfGating();
+    setStatus(rfStatus, "Unlinking…", "busy");
+    sendSetup({ t: "rf_unlink" });
+  });
+
+  function applyRfLinkResult(msg) {
+    rfBusy = false;
+    applyRfGating();
+    setStatus(rfStatus, msg.message, msg.ok ? "good" : "bad");
+    if (msg.ok) {
+      // Same rule ei_link's own result handler follows: the API key made
+      // its one trip to core (rf_client.py's/rf_store.py's "never stored
+      // beyond that one call" rule) and has no reason to still sit in the
+      // DOM.
+      rfApiKey.value = "";
+      applyRfStatus({ linked: true, workspace: msg.workspace,
+                      project: msg.project, version: null,
+                      model_file: null, active: null });
+    }
+  }
+
+  function applyRfUploadProgress(msg) {
+    rfProgress.classList.remove("hide");
+    rfProgress.textContent = "Uploaded " + msg.uploaded + " of " + msg.total
+      + (msg.failures && msg.failures.length
+         ? " (" + msg.failures.length + " failure(s))" : "");
+  }
+
+  function applyRfUploadResult(msg) {
+    rfBusy = false;
+    applyRfGating();
+    rfProgress.classList.add("hide");
+    setStatus(rfStatus, msg.message, msg.ok ? "good" : "bad");
+  }
+
+  var RF_TRAIN_STAGE_LABEL = {
+    generating_version: "Generating dataset version…", training: "Training…"
+  };
+
+  function applyRfTrainProgress(msg) {
+    rfProgress.classList.remove("hide");
+    rfProgress.textContent = RF_TRAIN_STAGE_LABEL[msg.stage] || msg.stage;
+  }
+
+  function applyRfTrainResult(msg) {
+    rfBusy = false;
+    applyRfGating();
+    rfProgress.classList.add("hide");
+    setStatus(rfStatus, msg.message, msg.ok ? "good" : "bad");
+    // rf_status isn't re-broadcast on its own after a train — refresh the
+    // linked line's version number locally rather than waiting for the
+    // tablet's next full reconnect.
+    if (msg.ok && msg.version && !rfLinked.classList.contains("hide")) {
+      var label = rfProjectLabel.textContent.split(" (v")[0].split(" — ")[0];
+      rfProjectLabel.textContent = label + " (v" + msg.version + ")";
+    }
+  }
+
+  var RF_DEPLOY_STAGE_LABEL = {
+    loading: "Loading…", downloading: "Downloading…",
+    extracting: "Extracting…", writing: "Writing…", done: "Done."
+  };
+
+  function applyRfDeployProgress(msg) {
+    rfProgress.classList.remove("hide");
+    rfProgress.textContent = RF_DEPLOY_STAGE_LABEL[msg.stage] || msg.stage;
+  }
+
+  function applyRfDeployResult(msg) {
+    rfBusy = false;
+    applyRfGating();
+    rfProgress.classList.add("hide");
+    setStatus(rfStatus, msg.message, msg.ok ? "good" : "bad");
+  }
+
+  function applyRfUnlinkResult(msg) {
+    rfBusy = false;
+    applyRfGating();
+    setStatus(rfStatus, msg.message, msg.ok ? "good" : "bad");
+    if (msg.ok) {
+      applyRfStatus({ linked: false, active: null });
+    }
+  }
+
   // --- action bar and the mode (doc sections 12.2, 9.1 — M2.6) ---------
 
   var modeSwitch = document.getElementById("modeSwitch");
@@ -4080,6 +4319,15 @@
       else if (msg.t === "ei_download_progress") applyEiDownloadProgress(msg);
       else if (msg.t === "ei_download_result") applyEiDownloadResult(msg);
       else if (msg.t === "ei_unlink_result") applyEiUnlinkResult(msg);
+      else if (msg.t === "rf_status") applyRfStatus(msg);
+      else if (msg.t === "rf_link_result") applyRfLinkResult(msg);
+      else if (msg.t === "rf_upload_progress") applyRfUploadProgress(msg);
+      else if (msg.t === "rf_upload_result") applyRfUploadResult(msg);
+      else if (msg.t === "rf_train_progress") applyRfTrainProgress(msg);
+      else if (msg.t === "rf_train_result") applyRfTrainResult(msg);
+      else if (msg.t === "rf_deploy_progress") applyRfDeployProgress(msg);
+      else if (msg.t === "rf_deploy_result") applyRfDeployResult(msg);
+      else if (msg.t === "rf_unlink_result") applyRfUnlinkResult(msg);
     };
     ws.onclose = function () {
       // A set_mode whose reply will now never arrive. Left true, the

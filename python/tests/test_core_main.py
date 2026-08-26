@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from websockets.sync.client import connect  # noqa: E402
 
 from hotpot.classifier import ei_client, ei_deploy, ei_store  # noqa: E402
+from hotpot.classifier import rf_client, rf_deploy, rf_store  # noqa: E402
 from hotpot.common import atomicio  # noqa: E402
 from hotpot.common import config  # noqa: E402
 from hotpot.common import cursorbus  # noqa: E402
@@ -3214,6 +3215,371 @@ class TestEdgeImpulseTab(CoreCase):
         # Refused, not just reported as failed -- the saved project must
         # still be there for the in-flight job to keep using.
         self.assertIsNotNone(ei_store.load_project(self.ei_project_path))
+
+
+class FakeRfClient:
+    """Stands in for classifier/rf_client.py, the same DI shape
+    FakeEiClient gives ei_client -- every method records its call and
+    raises whichever *_error is set, using the real rf_client.RFClientError
+    (core/main.py's `_handle_rf_*` handlers catch that exact class).
+    """
+
+    def __init__(self):
+        self.get_project_calls = []
+        self.upload_calls = []
+        self.generate_version_calls = []
+        self.train_calls = []
+        self.wait_calls = []
+
+        self.get_project_result = {"type": "single-label-classification"}
+        self.get_project_error = None
+        self.upload_progress_ticks = []
+        self.upload_result = {"uploaded": {"soya_chunks": 2}, "failures": []}
+        self.upload_error = None
+        self.generate_version_result = "3"
+        self.generate_version_error = None
+        self.train_job_id = "job-1"
+        self.train_error = None
+        self.wait_error = None
+
+    def get_project(self, workspace, project, api_key):
+        self.get_project_calls.append((workspace, project, api_key))
+        if self.get_project_error:
+            raise self.get_project_error
+        return self.get_project_result
+
+    def upload_captures(self, workspace, project, api_key, captures_dir,
+                        on_progress=None):
+        self.upload_calls.append((workspace, project, api_key, captures_dir))
+        for tick in self.upload_progress_ticks:
+            if on_progress:
+                on_progress(**tick)
+        if self.upload_error:
+            raise self.upload_error
+        return self.upload_result
+
+    def generate_version(self, workspace, project, api_key):
+        self.generate_version_calls.append((workspace, project, api_key))
+        if self.generate_version_error:
+            raise self.generate_version_error
+        return self.generate_version_result
+
+    def train(self, workspace, project, version, api_key, model_type):
+        self.train_calls.append((workspace, project, version, api_key, model_type))
+        if self.train_error:
+            raise self.train_error
+        return self.train_job_id
+
+    def wait_for_training(self, workspace, project, api_key, job_id, on_poll=None):
+        self.wait_calls.append((workspace, project, api_key, job_id))
+        if on_poll:
+            on_poll()
+        if self.wait_error:
+            raise self.wait_error
+
+
+class FakeRfDeploy:
+    """Stands in for classifier/rf_deploy.py, injected as `rf_deploy=` the
+    same way FakeEiDeploy stands in for ei_deploy.py."""
+
+    def __init__(self):
+        self.path_a_calls = []
+        self.path_b_calls = []
+        self.path_a_error = None
+        self.path_b_error = None
+        self.path_b_result = {"model_file": "m.onnx", "class_list_written": True}
+
+    def deploy_path_a(self, *, project_path, on_progress=None):
+        self.path_a_calls.append(project_path)
+        if on_progress:
+            on_progress("loading")
+        if self.path_a_error:
+            raise self.path_a_error
+        if on_progress:
+            on_progress("done")
+
+    def deploy_path_b(self, workspace, project, version, api_key, *,
+                      project_path, models_dir, model_filename, client,
+                      on_progress=None):
+        self.path_b_calls.append((workspace, project, version, api_key,
+                                  model_filename))
+        if on_progress:
+            on_progress("downloading")
+        if self.path_b_error:
+            raise self.path_b_error
+        if on_progress:
+            on_progress("done")
+        return self.path_b_result
+
+
+class TestRoboflowTab(CoreCase):
+    """`docs/ROBOFLOW_PATHWAY.md` §6 step 5's Capture-tab Roboflow panel:
+    `_handle_rf_link`/`_handle_rf_upload`/`_handle_rf_train`/
+    `_handle_rf_deploy`/`_handle_rf_unlink`. Same "wiring, not network
+    logic" scope TestEdgeImpulseTab has for the ei_* side -- a real
+    Roboflow call is never exercised here.
+    """
+
+    def setUp(self):
+        self.fake_rf = FakeRfClient()
+        self.fake_deploy = FakeRfDeploy()
+        self._rf_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._rf_dir.cleanup)
+        self.rf_project_path = Path(self._rf_dir.name) / "rf_project.json"
+        self.models_dir = Path(self._rf_dir.name) / "models"
+        super().setUp()
+        self.ws_ = self.ws()
+
+    def _extra_core_kwargs(self) -> dict:
+        return {"rf_project_path": self.rf_project_path,
+                "models_dir": self.models_dir, "rf_client": self.fake_rf,
+                "rf_deploy": self.fake_deploy}
+
+    def _rf_status(self):
+        return self.recv_until(self.ws_, lambda m: m.get("t") == "rf_status")
+
+    def test_join_seed_reports_unlinked_by_default(self):
+        status = self._rf_status()
+        self.assertFalse(status["linked"])
+        self.assertIsNone(status["workspace"])
+        self.assertIsNone(status["active"])
+
+    def test_link_verifies_and_saves_the_project(self):
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws",
+                                  "project": "hotpot-ingredients",
+                                  "api_key": "rf_key"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertEqual(reply["workspace"], "ws")
+        self.assertEqual(reply["project"], "hotpot-ingredients")
+        self.assertEqual(self.fake_rf.get_project_calls,
+                         [("ws", "hotpot-ingredients", "rf_key")])
+        saved = rf_store.load_project(self.rf_project_path)
+        self.assertEqual(saved["workspace"], "ws")
+        self.assertEqual(saved["api_key"], "rf_key")
+
+    def test_link_is_a_no_op_once_already_linked(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "already-linked")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws2",
+                                  "project": "proj2", "api_key": "k2"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
+        self.assertTrue(reply["ok"])
+        self.assertIn("Already linked", reply["message"])
+        self.assertEqual(self.fake_rf.get_project_calls, [])
+
+    def test_link_without_all_three_fields_is_refused_before_any_call(self):
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(self.fake_rf.get_project_calls, [])
+
+    def test_link_refuses_the_wrong_project_type(self):
+        # doc §3.1: the existing tray-detector project is object
+        # detection, the wrong type -- must not be linkable here.
+        self.fake_rf.get_project_result = {"type": "object-detection"}
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws",
+                                  "project": "tray-detector", "api_key": "k"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("object-detection", reply["message"])
+        self.assertIsNone(rf_store.load_project(self.rf_project_path))
+
+    def test_link_with_no_type_field_links_but_warns(self):
+        # Field name unconfirmed (doc §5) -- must not become impossible to
+        # link against once the real shape turns out different.
+        self.fake_rf.get_project_result = {}
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws",
+                                  "project": "proj", "api_key": "k"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertIn("Could not confirm", reply["message"])
+        self.assertIsNotNone(rf_store.load_project(self.rf_project_path))
+
+    def test_link_failure_surfaces_roboflows_own_message(self):
+        self.fake_rf.get_project_error = rf_client.RFClientError("invalid api key")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws",
+                                  "project": "proj", "api_key": "bad"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("invalid api key", reply["message"])
+
+    def test_upload_without_a_link_is_refused(self):
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_upload"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_upload_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("Link", reply["message"])
+        self.assertEqual(self.fake_rf.upload_calls, [])
+
+    def test_upload_pushes_captures_dir_and_reports_progress_then_result(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self.fake_rf.upload_progress_ticks = [
+            {"uploaded": 0, "total": 2, "failures": []},
+            {"uploaded": 2, "total": 2, "failures": []}]
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_upload"}))
+        progress = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_upload_progress")
+        self.assertEqual(progress["total"], 2)
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_upload_result")
+        self.assertTrue(result["ok"], result["message"])
+        self.assertEqual(result["uploaded"], {"soya_chunks": 2})
+        workspace, project, api_key, captures_dir = self.fake_rf.upload_calls[0]
+        self.assertEqual(api_key, "rf_key")
+        self.assertEqual(Path(captures_dir), coremain.CAPTURES_DIR)
+
+    def test_upload_failure_is_reported_not_raised(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self.fake_rf.upload_error = rf_client.RFClientError("no captured images")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_upload"}))
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_upload_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("no captured images", result["message"])
+
+    def test_train_without_a_link_is_refused(self):
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_train"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_train_result")
+        self.assertFalse(reply["ok"])
+        self.assertEqual(self.fake_rf.generate_version_calls, [])
+
+    def test_train_generates_a_version_then_trains_then_saves_it(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_train"}))
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_train_result")
+        self.assertTrue(result["ok"], result["message"])
+        self.assertEqual(result["version"], "3")
+        self.assertEqual(self.fake_rf.generate_version_calls,
+                         [("ws", "proj", "rf_key")])
+        self.assertEqual(self.fake_rf.train_calls,
+                         [("ws", "proj", "3", "rf_key", coremain.RF_DEFAULT_MODEL_TYPE)])
+        self.assertEqual(self.fake_rf.wait_calls, [("ws", "proj", "rf_key", "job-1")])
+        saved = rf_store.load_project(self.rf_project_path)
+        self.assertEqual(saved["version"], "3")
+
+    def test_train_with_an_explicit_model_type_overrides_the_default(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_train", "model_type": "accurate"}))
+        self.recv_until(self.ws_, lambda m: m.get("t") == "rf_train_result")
+        self.assertEqual(self.fake_rf.train_calls[0][4], "accurate")
+
+    def test_train_failure_is_reported_not_raised(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self.fake_rf.train_error = rf_client.RFClientError("insufficient credits")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_train"}))
+        result = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_train_result")
+        self.assertFalse(result["ok"])
+        self.assertIn("insufficient credits", result["message"])
+
+    def test_deploy_without_a_link_is_refused(self):
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_deploy"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_deploy_result")
+        self.assertFalse(reply["ok"])
+
+    def test_deploy_without_a_trained_version_is_refused(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_deploy"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_deploy_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("Train", reply["message"])
+        self.assertEqual(self.fake_deploy.path_a_calls, [])
+
+    def test_deploy_defaults_to_path_a(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key",
+                              version="3")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_deploy"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_deploy_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertEqual(len(self.fake_deploy.path_a_calls), 1)
+        self.assertEqual(self.fake_deploy.path_b_calls, [])
+
+    def test_deploy_path_b_is_selected_explicitly_and_names_the_onnx_file(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key",
+                              version="3")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_deploy", "path": "b"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_deploy_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        workspace, project, version, api_key, model_filename = self.fake_deploy.path_b_calls[0]
+        self.assertEqual((workspace, project, version, api_key), ("ws", "proj", "3", "rf_key"))
+        self.assertEqual(model_filename, coremain.RF_ONNX_FILENAME)
+
+    def test_deploy_path_b_with_no_class_list_written_still_ok_but_warns(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key",
+                              version="3")
+        self.fake_deploy.path_b_result = {"model_file": "m.onnx",
+                                          "class_list_written": False}
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_deploy", "path": "b"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_deploy_result")
+        self.assertTrue(reply["ok"])
+        self.assertIn("WARNING", reply["message"])
+
+    def test_deploy_failure_is_reported_not_raised(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key",
+                              version="3")
+        self.fake_deploy.path_a_error = rf_deploy.RfDeployError("no network")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_deploy"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_deploy_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("no network", reply["message"])
+
+    def test_two_jobs_cannot_run_at_once(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self.core._rf_active = "upload"
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_train"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_train_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("upload", reply["message"])
+
+    def test_unlink_drops_the_local_link(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_unlink"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_unlink_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertIsNone(rf_store.load_project(self.rf_project_path))
+
+    def test_unlink_with_nothing_linked_still_reports_ok(self):
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_unlink"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_unlink_result")
+        self.assertTrue(reply["ok"])
+        self.assertIn("Nothing", reply["message"])
+
+    def test_unlink_is_refused_while_a_job_is_in_flight(self):
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self.core._rf_active = "train"
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_unlink"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_unlink_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("train", reply["message"])
+        self.assertIsNotNone(rf_store.load_project(self.rf_project_path))
+
+    def test_an_edge_impulse_job_and_a_roboflow_job_can_run_at_once(self):
+        # The decision recorded in core/main.py's own comment beside
+        # `self._rf_active`: independent guards, not one shared lock.
+        rf_store.save_project(self.rf_project_path, "ws", "proj", "rf_key")
+        self.core._ei_active = "download"
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_unlink"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_unlink_result")
+        self.assertTrue(reply["ok"], reply["message"])
 
 
 class TestClassifyLive(CoreCase):

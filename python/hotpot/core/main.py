@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from hotpot.classifier import ei_client, ei_deploy, ei_store
+from hotpot.classifier import rf_client, rf_deploy, rf_store
 from hotpot.common import atomicio, config, cursorbus, geometry, health, log, wire
 from hotpot.core import (bin_grid, binmap, calibrator, cart, fsm,
                          geometry_store, hover, i18n, loadcell_cal, menu,
@@ -135,6 +136,31 @@ CAPTURES_DIR = Path(__file__).resolve().parents[3] / "datasets" / "captures"
 EI_PROJECT_PATH = ei_store.DEFAULT_PATH
 EI_PROJECT_NAME = "hotpot-ingredients"
 MODELS_DIR = Path(__file__).resolve().parents[3] / "models"
+
+# `docs/ROBOFLOW_PATHWAY.md` — a second training/deploy path beside Edge
+# Impulse, additive per the developer's own instruction (that doc's own
+# opening line): every ei_* thing above is untouched, and Roboflow is a
+# sibling set of files behind the same ClassifierBackend Protocol. The
+# Capture tab's Roboflow card drives rf_client.py/rf_store.py/rf_deploy.py
+# against these, exactly as EI_PROJECT_PATH/EI_PROJECT_NAME do for the ei_*
+# side above.
+#
+# **Unlike Edge Impulse, there is no username/password/TOTP flow at all**
+# (doc §6 step 6) — Roboflow links by workspace + project + one account
+# API key, so `_handle_rf_link` takes those three fields and nothing else.
+RF_PROJECT_PATH = rf_store.DEFAULT_PATH
+# Path B's ONNX filename — config/system.default.json's `classifier.
+# roboflow_model` names the same file (doc §6 step 7); duplicated here as
+# a plain constant rather than read through config.py for the same reason
+# EI_PROJECT_NAME isn't either: a Core built by a test must never depend
+# on config/system.json (this file's own standing rule for every path
+# parameter — see cal_path/bin_map_path/ei_project_path above).
+RF_ONNX_FILENAME = "hotpot-ingredients-rf.onnx"
+# UNVERIFIED (doc §5 — no live account to probe): Roboflow's own
+# `model_type` values for a classification project are not confirmed
+# against a real account. A tablet's Train button may override this via
+# `msg["model_type"]`; this is only the fallback when it doesn't.
+RF_DEFAULT_MODEL_TYPE = "classification"
 
 # Capture-tab label choices with no catalogue entry — these are never
 # billable (no price, never `resolved()` by BinMap) and so must never
@@ -418,6 +444,9 @@ class Core:
         models_dir: Path = MODELS_DIR,
         ei_client=ei_client,
         ei_deploy=ei_deploy,
+        rf_project_path: Path = RF_PROJECT_PATH,
+        rf_client=rf_client,
+        rf_deploy=rf_deploy,
     ) -> None:
         self.registry = health.Registry(on_change=self._on_pip_change)
         self.control = wire.Server(
@@ -631,6 +660,26 @@ class Core:
         # is the one thing stopping a SECOND tablet, or a second click
         # from the same one, from starting an overlapping job.
         self._ei_active: Optional[str] = None
+
+        # `docs/ROBOFLOW_PATHWAY.md` §6 step 5: the Roboflow sibling of the
+        # block just above, same DI shape and same reason (a test must
+        # never touch the network or a real state/rf_project.json).
+        # **Decision, per that doc's own step 5 prompt to "decide and
+        # write the decision, do not leave it accidental": an Edge Impulse
+        # job and a Roboflow job MAY run at the same time.** They touch
+        # different files (models/*.zip + tools/eim_cpp/vendor/ vs.
+        # models/*.onnx, or the `inference` package's own cache dir) and
+        # different accounts, so `_ei_active`/`_rf_active` are two
+        # independent guards, not one shared lock. What they must NOT be
+        # allowed to do is race each other to decide which model the
+        # LIVE classifier uses — and they can't: `classifier.backend`
+        # (config, read only by classifier/main.py's build_backend()) is
+        # what decides that, and a deploy on the path config isn't
+        # pointed at changes a file nothing is currently reading from.
+        self._rf_project_path = Path(rf_project_path)
+        self._rf_client = rf_client
+        self._rf_deploy = rf_deploy
+        self._rf_active: Optional[str] = None
 
         # M2 build item 5: which bins have ever had a real scale reading
         # applied to Cart. False means still on the M1 mock seed (or a
@@ -1018,7 +1067,7 @@ class Core:
         """
         return [self._pips_msg(), self._mode_msg(), self._camera_msg(),
                 self._geometry_msg(), self._projector_grid_msg(),
-                self._capture_msg(), self._ei_msg()]
+                self._capture_msg(), self._ei_msg(), self._rf_msg()]
 
     # -- the Live tab's MJPEG source (doc §12.3, §5.4 — M3 build item 3) ----
 
@@ -1147,6 +1196,21 @@ class Core:
             return
         if t == "ei_unlink":
             self._handle_ei_unlink(msg)
+            return
+        if t == "rf_link":
+            self._handle_rf_link(msg)
+            return
+        if t == "rf_upload":
+            self._handle_rf_upload(msg)
+            return
+        if t == "rf_train":
+            self._handle_rf_train(msg)
+            return
+        if t == "rf_deploy":
+            self._handle_rf_deploy(msg)
+            return
+        if t == "rf_unlink":
+            self._handle_rf_unlink(msg)
             return
         _log.debug("web: unhandled message type %r from a tablet", t)
 
@@ -3542,6 +3606,361 @@ class Core:
                   "there was one" if removed else "there was none")
         self.web.broadcast({
             "t": "ei_unlink_result", "ok": True,
+            "message": "Unlinked." if removed else "Nothing was linked."})
+
+    # -- Roboflow link/upload/train/deploy (docs/ROBOFLOW_PATHWAY.md §6) ----
+    # A second training/deploy path beside Edge Impulse, additive per the
+    # developer's own instruction — every _handle_ei_* method above and
+    # everything it drives is untouched. See RF_PROJECT_PATH's own comment
+    # for why linking needs only workspace/project/api_key, no
+    # username/password/TOTP.
+
+    def _rf_msg(self) -> Dict[str, Any]:
+        """What the Capture tab's Roboflow panel needs on join — the
+        Edge Impulse `_ei_msg`'s own shape, with workspace/project string
+        slugs in place of a numeric project id (doc §3.1: Roboflow names
+        projects with slugs, not an integer) and the current
+        version/model_file so the panel can show what is actually
+        deployed right now, not just what is linked.
+        """
+        project = rf_store.load_project(self._rf_project_path)
+        return {
+            "t": "rf_status",
+            "linked": project is not None,
+            "workspace": project["workspace"] if project else None,
+            "project": project["project"] if project else None,
+            "version": project["version"] if project else None,
+            "model_file": project["model_file"] if project else None,
+            "active": self._rf_active,
+        }
+
+    def _handle_rf_link(self, msg: Dict[str, Any]) -> None:
+        """Doc §3.1/§6 step 5: link once to a Roboflow project — no
+        create-a-new-project path at all (unlike Edge Impulse's
+        `_link_new`/`_link_existing` split), because doc §3.1 is explicit
+        that the project must already exist and be of type
+        `single-label-classification` — creating one blind here could as
+        easily create another `tray-detector`-shaped mistake (object
+        detection, the wrong type, doc §3.1's own cautionary example) as
+        adopt the right thing. `workspace`/`project`/`api_key` name an
+        EXISTING project; this call only verifies and saves the link.
+
+        Idempotent, same as `_handle_ei_link`: an already-linked project
+        is a no-op reporting the existing link.
+        """
+        existing = rf_store.load_project(self._rf_project_path)
+        if existing is not None:
+            self.web.broadcast({
+                "t": "rf_link_result", "ok": True, "linked": True,
+                "workspace": existing["workspace"], "project": existing["project"],
+                "message": (f"Already linked to "
+                            f"{existing['workspace']}/{existing['project']!r}.")})
+            return
+        if self._rf_active is not None:
+            self.web.broadcast({
+                "t": "rf_link_result", "ok": False,
+                "message": f"a {self._rf_active!r} job is already running"})
+            return
+
+        workspace = msg.get("workspace")
+        project_name = msg.get("project")
+        api_key = msg.get("api_key")
+        if not workspace or not project_name or not api_key:
+            self.web.broadcast({
+                "t": "rf_link_result", "ok": False,
+                "message": "Workspace, project and API key are all required."})
+            return
+
+        self._rf_active = "link"
+        try:
+            project = self._rf_client.get_project(workspace, project_name, api_key)
+        except rf_client.RFClientError as e:
+            self.web.broadcast({"t": "rf_link_result", "ok": False,
+                                "message": str(e)})
+            return
+        except Exception:      # noqa: BLE001 - a handler on the tablet's
+                                # own WebSocket thread must never crash it
+                                # silent; see _handle_ei_link's identical
+                                # catch-all for the same reasoning.
+            _log.exception("core: rf_link raised")
+            self.web.broadcast({
+                "t": "rf_link_result", "ok": False,
+                "message": "linking to Roboflow hit an internal error — see the log"})
+            return
+        finally:
+            self._rf_active = None
+
+        # Doc §3.1: the existing `tray-detector` project is object
+        # detection, the wrong type for this feature, and project types
+        # are fixed at creation. VERIFY: the response's own field name for
+        # this is unconfirmed (doc §5) — a present-but-mismatched `type`
+        # refuses outright (the concrete mistake this check exists to
+        # catch); an ABSENT `type` field only warns, since the field name
+        # itself may simply be wrong and this must not become impossible
+        # to link against once the real shape is confirmed.
+        rf_type = project.get("type")
+        if rf_type is not None and rf_type != "single-label-classification":
+            self.web.broadcast({
+                "t": "rf_link_result", "ok": False,
+                "message": (f"{workspace}/{project_name} is a {rf_type!r} "
+                            "project, not single-label-classification — "
+                            "wrong type for this feature (doc §3.1).")})
+            return
+
+        rf_store.save_project(self._rf_project_path, workspace, project_name, api_key)
+        _log.info("core: rf_link linked %s/%s%s", workspace, project_name,
+                  "" if rf_type == "single-label-classification"
+                  else " (project type unconfirmed — see rf_client VERIFY notes)")
+        self.web.broadcast({
+            "t": "rf_link_result", "ok": True, "linked": True,
+            "workspace": workspace, "project": project_name,
+            "message": (f"Linked to {workspace}/{project_name}."
+                        + ("" if rf_type == "single-label-classification" else
+                           " Could not confirm the project type from "
+                           "Roboflow's response — double-check it is "
+                           "single-label-classification by hand."))})
+
+    def _handle_rf_upload(self, msg: Dict[str, Any]) -> None:
+        """Doc §3.2/§6 step 3's dataset push — every image under
+        `datasets/captures/<label>/`, uploaded via the Roboflow SDK with
+        the label as the class annotation directly (no header, no prefix
+        gymnastics — see `rf_client.upload_image`'s own docstring for why
+        this is genuinely simpler than the Edge Impulse side). Same
+        progress-broadcast and partial-failure-is-reported-not-fatal shape
+        as `_handle_ei_upload`.
+        """
+        project = rf_store.load_project(self._rf_project_path)
+        if project is None:
+            self.web.broadcast({
+                "t": "rf_upload_result", "ok": False,
+                "message": "Link to Roboflow first."})
+            return
+        if self._rf_active is not None:
+            self.web.broadcast({
+                "t": "rf_upload_result", "ok": False,
+                "message": f"a {self._rf_active!r} job is already running"})
+            return
+
+        def progress(**fields) -> None:
+            self.web.broadcast({"t": "rf_upload_progress", **fields})
+
+        self._rf_active = "upload"
+        _log.info("core: rf_upload -> %s/%s from %s",
+                  project["workspace"], project["project"], CAPTURES_DIR)
+        try:
+            result = self._rf_client.upload_captures(
+                project["workspace"], project["project"], project["api_key"],
+                CAPTURES_DIR, on_progress=progress)
+        except rf_client.RFClientError as e:
+            self.web.broadcast({"t": "rf_upload_result", "ok": False,
+                                "message": str(e)})
+            return
+        except Exception:      # noqa: BLE001 - see _handle_rf_link's own
+                                # catch-all for why this must exist too.
+            _log.exception("core: rf_upload raised")
+            self.web.broadcast({
+                "t": "rf_upload_result", "ok": False,
+                "message": "uploading to Roboflow hit an internal error — see the log"})
+            return
+        finally:
+            self._rf_active = None
+
+        uploaded_total = sum(result["uploaded"].values())
+        _log.info("core: rf_upload -> %s/%s finished: %d image(s), per "
+                  "label %s, %d failure(s)%s",
+                  project["workspace"], project["project"], uploaded_total,
+                  result["uploaded"], len(result["failures"]),
+                  "" if not result["failures"] else f" — {result['failures']}")
+        self.web.broadcast({
+            "t": "rf_upload_result", "ok": True,
+            "uploaded": result["uploaded"], "failures": result["failures"],
+            "message": (f"Uploaded {uploaded_total} image(s) to "
+                        f"{project['workspace']}/{project['project']}."
+                        + (f" {len(result['failures'])} image(s) failed — "
+                           "local files are untouched, re-run Upload to "
+                           "retry." if result["failures"] else ""))})
+
+    def _handle_rf_train(self, msg: Dict[str, Any]) -> None:
+        """Doc §3.3's genuine improvement over Edge Impulse: training is a
+        real API call, not a manual Studio step. Generates a new dataset
+        version (`generate_version`, doc §5 V4), starts a train job against
+        it (`train`, V5), and blocks the tablet's own WebSocket thread
+        polling `wait_for_training` (V6) until it finishes — the same
+        "blocking is safe, this thread's whole job right now is showing a
+        working step" reasoning `_handle_ei_download`'s own wait already
+        relies on. The resulting version is saved to `rf_project.json`
+        immediately (before Deploy is even pressed), so a Deploy click
+        later always fetches what was actually just trained.
+
+        `msg.get("model_type")` overrides `RF_DEFAULT_MODEL_TYPE` — see
+        that constant's own VERIFY note; nothing about Roboflow's real
+        accepted values is confirmed.
+        """
+        project = rf_store.load_project(self._rf_project_path)
+        if project is None:
+            self.web.broadcast({
+                "t": "rf_train_result", "ok": False,
+                "message": "Link to Roboflow first."})
+            return
+        if self._rf_active is not None:
+            self.web.broadcast({
+                "t": "rf_train_result", "ok": False,
+                "message": f"a {self._rf_active!r} job is already running"})
+            return
+
+        model_type = msg.get("model_type") or RF_DEFAULT_MODEL_TYPE
+        workspace, project_name, api_key = (
+            project["workspace"], project["project"], project["api_key"])
+
+        def progress(stage: str) -> None:
+            self.web.broadcast({"t": "rf_train_progress", "stage": stage})
+
+        self._rf_active = "train"
+        _log.info("core: rf_train -> %s/%s starting (model_type=%r)",
+                  workspace, project_name, model_type)
+        try:
+            progress("generating_version")
+            version = self._rf_client.generate_version(workspace, project_name, api_key)
+            _log.info("core: rf_train -> %s/%s generated version %s",
+                      workspace, project_name, version)
+
+            progress("training")
+            job_id = self._rf_client.train(
+                workspace, project_name, version, api_key, model_type)
+            _log.info("core: rf_train -> %s/%s version %s job %s started",
+                      workspace, project_name, version, job_id)
+            self._rf_client.wait_for_training(
+                workspace, project_name, api_key, job_id,
+                on_poll=lambda: progress("training"))
+        except rf_client.RFClientError as e:
+            self.web.broadcast({"t": "rf_train_result", "ok": False,
+                                "message": str(e)})
+            return
+        except Exception:      # noqa: BLE001 - see _handle_rf_link's own
+                                # catch-all for why this must exist too.
+            _log.exception("core: rf_train raised")
+            self.web.broadcast({
+                "t": "rf_train_result", "ok": False,
+                "message": "training on Roboflow hit an internal error — see the log"})
+            return
+        finally:
+            self._rf_active = None
+
+        rf_store.save_project(self._rf_project_path, workspace, project_name,
+                              api_key, version=version,
+                              model_file=project.get("model_file"))
+        _log.info("core: rf_train -> %s/%s version %s finished training",
+                  workspace, project_name, version)
+        self.web.broadcast({
+            "t": "rf_train_result", "ok": True, "version": version,
+            "message": (f"Trained {workspace}/{project_name} version "
+                        f"{version}. Press Deploy to make it live.")})
+
+    def _handle_rf_deploy(self, msg: Dict[str, Any]) -> None:
+        """Doc §3.4/§6 step 4: get the trained model from "it exists in
+        Roboflow" to "the backend can load it" — the whole redeploy in one
+        click, same rule `_handle_ei_download`'s own docstring states for
+        why `ei_deploy.py` runs automatically rather than being a manual
+        step after this returns.
+
+        `msg["path"]` picks Path A (`"a"`, the default — doc §1's
+        recommendation, `inference.get_model()` cache-warmed right now
+        rather than left for the first live classify() to discover there
+        is no network) or Path B (`"b"`, `onnxruntime` over a fetched
+        `.onnx` — blocked on a paid Roboflow plan, doc §1). Which Path a
+        given rig actually uses is a `classifier.backend` config value
+        (`"roboflow"` vs `"roboflow_onnx"`, doc §6 step 7) that this
+        handler does not read — the operator presses Deploy for whichever
+        Path their config already names, same as Edge Impulse's own
+        Download button does not ask which backend is configured either.
+        """
+        project = rf_store.load_project(self._rf_project_path)
+        if project is None:
+            self.web.broadcast({
+                "t": "rf_deploy_result", "ok": False,
+                "message": "Link to Roboflow first."})
+            return
+        if not project.get("version"):
+            self.web.broadcast({
+                "t": "rf_deploy_result", "ok": False,
+                "message": "Train a model first — nothing to deploy yet."})
+            return
+        if self._rf_active is not None:
+            self.web.broadcast({
+                "t": "rf_deploy_result", "ok": False,
+                "message": f"a {self._rf_active!r} job is already running"})
+            return
+
+        path = (msg.get("path") or "a").lower()
+        workspace, project_name, api_key, version = (
+            project["workspace"], project["project"], project["api_key"],
+            project["version"])
+
+        def progress(stage: str) -> None:
+            self.web.broadcast({"t": "rf_deploy_progress", "stage": stage})
+
+        self._rf_active = "deploy"
+        _log.info("core: rf_deploy -> %s/%s version %s, path %s",
+                  workspace, project_name, version, path)
+        try:
+            if path == "b":
+                result = self._rf_deploy.deploy_path_b(
+                    workspace, project_name, version, api_key,
+                    project_path=self._rf_project_path,
+                    models_dir=self._models_dir,
+                    model_filename=RF_ONNX_FILENAME,
+                    client=self._rf_client, on_progress=progress)
+                warning = ("" if result["class_list_written"] else
+                           " WARNING: no class list could be read out of "
+                           "the download — classify() will fail until "
+                           f"{RF_ONNX_FILENAME.rsplit('.', 1)[0]}."
+                           "classes.json is added by hand (see "
+                           "rf_deploy.deploy_path_b's own docstring).")
+                message = (f"Deployed {result['model_file']} from "
+                          f"{workspace}/{project_name} version {version}."
+                          + warning)
+            else:
+                self._rf_deploy.deploy_path_a(
+                    project_path=self._rf_project_path, on_progress=progress)
+                message = (f"Warmed the local model cache for "
+                          f"{workspace}/{project_name} version {version} "
+                          "— live now.")
+        except rf_deploy.RfDeployError as e:
+            self.web.broadcast({"t": "rf_deploy_result", "ok": False,
+                                "message": str(e)})
+            return
+        except Exception:      # noqa: BLE001 - see _handle_rf_link's own
+                                # catch-all for why this must exist too.
+            _log.exception("core: rf_deploy raised")
+            self.web.broadcast({
+                "t": "rf_deploy_result", "ok": False,
+                "message": "deploying the Roboflow model hit an internal "
+                           "error — see the log"})
+            return
+        finally:
+            self._rf_active = None
+
+        _log.info("core: rf_deploy -> %s/%s version %s deployed (path %s)",
+                  workspace, project_name, version, path)
+        self.web.broadcast({"t": "rf_deploy_result", "ok": True,
+                            "message": message})
+
+    def _handle_rf_unlink(self, msg: Dict[str, Any]) -> None:
+        """Drops the saved local link (`rf_store.remove_project()`) — same
+        "purely local, never touches the remote project, still gated on
+        `_rf_active`" reasoning `_handle_ei_unlink`'s own docstring gives.
+        """
+        if self._rf_active is not None:
+            self.web.broadcast({
+                "t": "rf_unlink_result", "ok": False,
+                "message": f"a {self._rf_active!r} job is already running"})
+            return
+        removed = rf_store.remove_project(self._rf_project_path)
+        _log.info("core: rf_unlink dropped the local project link (%s) — "
+                  "the Roboflow project itself is untouched",
+                  "there was one" if removed else "there was none")
+        self.web.broadcast({
+            "t": "rf_unlink_result", "ok": True,
             "message": "Unlinked." if removed else "Nothing was linked."})
 
     def _check_calibration_complete(self) -> None:
