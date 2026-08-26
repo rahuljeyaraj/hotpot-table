@@ -386,7 +386,7 @@ private:
 	// band). 0 until setup() runs; nothing draws before then.
 	float _pageHeaderPx = 0.0f;
 
-	ofImage _brandLogo;   // "The Hotpottery" mark — see drawBrandMark
+	ofImage _brandLogo;   // "The Firepot" mark — see drawBrandMark
 	bool _brandLogoLoaded = false;
 	// The spice card's pepper — img/chilli.png, the developer's own
 	// artwork ("use this exact image"), pre-scaled once at load. See

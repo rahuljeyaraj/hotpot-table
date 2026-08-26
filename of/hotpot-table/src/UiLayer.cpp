@@ -1393,9 +1393,9 @@ void UiLayer::setup(){
 	// near-white background) rather than "dark", matching this surface's
 	// own hard invariant: the projected field stays above a white floor
 	// (doc §2, CLAUDE.md's "never black, never coloured, never patterned").
-	_brandLogoLoaded = _brandLogo.load("img/hotpottery-light-cropped.png");
+	_brandLogoLoaded = _brandLogo.load("img/firepot-light-cropped.png");
 	if(!_brandLogoLoaded){
-		ofLogError(kTag) << "could not load img/hotpottery-light-cropped.png"
+		ofLogError(kTag) << "could not load img/firepot-light-cropped.png"
 			<< " — no brand mark will draw";
 	}
 
