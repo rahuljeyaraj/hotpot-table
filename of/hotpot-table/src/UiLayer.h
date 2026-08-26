@@ -185,6 +185,15 @@ private:
 	// supplied, so it is a member now rather than the `static` it was
 	// while the pepper was a hand-built ofPath.
 	void drawChilli(float cx, float cy, float sizePx) const;
+	// 2026-08-26: the idle-table wave prompt. Developer: "keep on waving
+	// this exact hand to make people wave their hand above it to start.
+	// dont redraw the hand pic, just reuse it." So this draws
+	// `_idleHandIcon` (img/idle-hand.png) exactly as `drawChilli` draws
+	// the pepper — the wave itself is a rotation applied at draw time
+	// about the wrist, the same one loaded image every frame, never a
+	// second copy or a re-rendered frame. See the definition and the
+	// idleAttract gate in draw().
+	void drawIdleHand() const;
 	// The breathing term the buttons and the bin halos share — one sine,
 	// one clock, one period, so the whole table breathes together rather
 	// than in two rhythms. `phase` offsets it (the bins use a per-island
@@ -393,6 +402,11 @@ private:
 	// drawChilli and the load in setup().
 	ofImage _chilliIcon;
 	bool _chilliIconLoaded = false;
+	// The idle-table wave prompt — img/idle-hand.png, the developer's own
+	// artwork, same "use this exact image, don't redraw it" rule as the
+	// chilli. See drawIdleHand and the load in setup().
+	ofImage _idleHandIcon;
+	bool _idleHandIconLoaded = false;
 
 	std::array<BinTween, 8> _bins;
 	Spring _totalAmount{0.15f};

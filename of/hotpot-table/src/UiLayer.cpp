@@ -948,6 +948,30 @@ namespace {
 	//     stop reading as one right-aligned scale.
 	const float kChilliWidthFactor = 444.0f / 512.0f;
 	const float kChilliGapFactor = 0.26f;  // between peppers, x height
+
+	// --- the idle-table wave prompt ---------------------------------------
+	// 2026-08-26. Developer, over the artwork: "keep on waving this exact
+	// hand to make people wave their hand above it to start. dont redraw
+	// the hand pic, just reuse it." Same "developer's own artwork, draw it
+	// exactly" rule the chilli follows (see kChilliWidthFactor's own block)
+	// — drawIdleHand rotates the one loaded `_idleHandIcon` about its wrist
+	// each frame rather than swapping in a second image or rebuilding the
+	// shape, so "reuse it" holds for the wave motion too, not just the
+	// initial draw.
+	//
+	// Sized well short of the pot-gap column's own width (drawBrandMark's
+	// gapRightMM - gapLeftMM, 440mm / ~554px) so the swept arc of the wave
+	// never grazes a bin either side of it. Centred in the table's true
+	// geometric middle (TABLE_W_MM/2, TABLE_H_MM/2) — the one point on the
+	// surface both rows of bins leave clear, and where a real hand offered
+	// over the table would naturally land.
+	const float kIdleHandHeightPx = 220.0f;
+	// A hello-wave: side to side, not a full spin — +-kIdleHandWaveDeg about
+	// the wrist, one full swing every kIdleHandWavePeriodS. Unmeasured
+	// starting guesses, tunable once seen projected, same as every other
+	// new motion constant in this file.
+	const float kIdleHandWaveDeg = 16.0f;
+	const float kIdleHandWavePeriodS = 1.4f;
 	// The sweep's own fall clock — see `sweep01For`. The sweep rises with
 	// the wire value but falls only on this renderer's time: nothing for
 	// `kSweepFallDelayS` (long enough to swallow a tracker dropout or a
@@ -1433,6 +1457,18 @@ void UiLayer::setup(){
 		}
 	}
 
+	// The idle-table wave prompt — see drawIdleHand. No CPU pre-scale here
+	// the way the chilli gets one: that icon shrinks ~36x to a 14px glyph,
+	// where a single bilinear tap breaks its outline into speckle. This one
+	// draws close to native size (kIdleHandHeightPx), so GL's own bilinear
+	// minification is nowhere near that regime and a resize would only cost
+	// sharpness for nothing.
+	_idleHandIconLoaded = _idleHandIcon.load("img/idle-hand.png");
+	if(!_idleHandIconLoaded){
+		ofLogError(kTag) << "could not load img/idle-hand.png — the idle"
+			<< " table will show no wave prompt";
+	}
+
 	// VISUAL_LAYER.md §6's "phase-offset by a per-bin random seed" went
 	// through two revisions already (`ofRandom(TWO_PI)` per bin, then
 	// evenly-spaced-plus-jitter — both replaced entirely now, see this
@@ -1715,6 +1751,38 @@ void UiLayer::drawChilli(float cx, float cy, float sizePx) const {
 	// peppers alone: the colour is the information.
 	ofSetColor(255);
 	_chilliIcon.draw(cx - w * 0.5f, cy - h * 0.5f, w, h);
+}
+
+void UiLayer::drawIdleHand() const {
+	// See kIdleHandHeightPx's own block for why here and this size. Only
+	// called from draw()'s idleAttract branch — an idle table is the one
+	// state with nothing else claiming this spot.
+	if(!_idleHandIconLoaded){
+		return;
+	}
+	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
+	const float cy = mmToPxY(TABLE_H_MM * 0.5f);
+	const float h = kIdleHandHeightPx;
+	const float w = h * ((float)_idleHandIcon.getWidth()
+		/ (float)_idleHandIcon.getHeight());
+
+	// The artwork's wrist is its bottom edge (fingers point up, arm runs
+	// off the bottom of the frame — see the source PNG). Waving pivots at
+	// the wrist in life, not at the palm, so the rotation is built around
+	// that point: translate there, rotate, then draw the SAME unrotated
+	// image offset back up by its own height. No second image, no
+	// pre-rotated frame — one texture, transformed on the GPU each frame.
+	const float wristX = cx;
+	const float wristY = cy + h * 0.5f;
+	const float waveDeg = kIdleHandWaveDeg
+		* sinf(TWO_PI * ofGetElapsedTimef() / kIdleHandWavePeriodS);
+
+	ofSetColor(255);
+	ofPushMatrix();
+	ofTranslate(wristX, wristY);
+	ofRotateDeg(waveDeg);
+	_idleHandIcon.draw(-w * 0.5f, -h, w, h);
+	ofPopMatrix();
 }
 
 void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
@@ -3648,6 +3716,12 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		}
 		drawWidgets(state);
 		drawTopBanner(state);
+	}
+	else if(hasState && state.idleAttract){
+		// The one thing besides the halo and the brand mark allowed on an
+		// idle table — see drawIdleHand's own comment and the developer
+		// quote on the idleAttract gate above.
+		drawIdleHand();
 	}
 
 	// **Nothing is drawn for the cursor any more, 2026-08-25 (final).** A
