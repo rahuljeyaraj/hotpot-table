@@ -3700,10 +3700,23 @@ class Core:
     def _scale_trace_msg(self) -> Dict[str, Any]:
         """The Developer tab's live plot: one raw sample and one
         filtered (median-then-average) sample per bin, per tick
-        (2026-08-26). COUNTS, not grams — unlike `_bins_tab_msg`, this is
-        a signal-level diagnostic and must keep working on an
-        uncalibrated bin, which is the ordinary state of a bin nobody has
-        weighed a reference mass in yet.
+        (2026-08-26).
+
+        **GRAMS, not counts — changed the same day, on developer
+        request.** The first version sent counts on purpose (a
+        signal-level diagnostic that still works on an uncalibrated
+        bin), but a jump that "looks small" in counts can still be
+        several grams once divided by that bin's own counts_per_gram,
+        and two bins' counts are never directly comparable to each other
+        anyway (each has its own scale and sign). Grams is the unit the
+        display and the bill actually use, so the plot now shows the
+        real thing rather than a proxy for it. **Cost of the change,
+        accepted deliberately:** an unresolved/uncalibrated bin now
+        plots nothing — `grams`/`raw_grams` are `None` there, same as
+        everywhere else in this file — where the counts version would
+        have shown a signal with no unit attached. Watching an
+        uncalibrated cell's raw counts is what `capture()`'s own tare/
+        calibrate flow is for, not this card.
 
         Broadcast to every tablet on the same 10Hz tick as `bins`/`hands`
         regardless of whether anyone has the Developer tab open — unlike
@@ -3714,13 +3727,11 @@ class Core:
         `bins`' own per-tick payload.
         """
         reading = self.scale.read()
-        raw = reading.raw_counts
-        filtered = reading.counts
         return {
             "t": "scale_trace",
             "ts": reading.ts,
-            "raw": list(raw) if raw is not None else [None] * binmap.NUM_BINS,
-            "filtered": list(filtered) if filtered is not None else [None] * binmap.NUM_BINS,
+            "raw": [None if g is None else round(g, 2) for g in reading.raw_grams],
+            "filtered": [None if g is None else round(g, 2) for g in reading.grams],
         }
 
     def _handle_set_scale_filter(self, msg: Dict[str, Any]) -> None:

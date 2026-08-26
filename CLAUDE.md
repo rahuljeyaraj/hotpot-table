@@ -5534,3 +5534,47 @@ watching once it is: whether the plot's raw line, on a real noisy
 channel, visibly explains why the filtered line still isn't smooth
 enough — that's the diagnostic question this whole card exists to
 answer, and it has not been asked of real hardware yet.
+
+**Same day, first real use on the rig: `scale_trace`'s Y axis switched
+from raw counts to grams, on request.** Developer had this up on the
+real table (`state/loadcell_cal.json` on this machine now holds a real
+2026-08-26 calibration, all 8 bins, ref_mass_g 392 — the first real
+evidence this feature has had): bin 4's noise_counts_rms/counts_per_gram
+works out to ~1.09g rms, 3-7x every bin but 1/5, matching this file's own
+long history of flagging bin 4 as the noisy channel back to the very
+first M2 measurements. Even at `avg_window=50` the developer still saw
+5g+ swings on bin 4 — worth recording why that alone is informative:
+independent per-sample noise should fall by ~1/sqrt(50) under that much
+averaging, from ~1.09g down toward ~0.15g. Surviving at 5g+ means the
+noise isn't independent sample-to-sample — it's correlated (drift, a
+real disturbance, or an interference source with structure), which
+averaging can only lag behind, never remove. Diagnosis handed to the
+developer as the next thing to look at (raw-trace shape: ramp vs.
+spikes), not acted on in code — this file's own "ask before behavioral
+fixes" rule, since guessing at a masking workaround here would either
+hide a real hardware problem or paper over drift with more latency
+nobody asked for.
+
+That conversation is also what surfaced the counts-vs-grams gap:
+raw/filtered were in raw sensor counts, and reading "5g" off a
+counts-scaled, auto-fit chart needed doing the counts_per_gram division
+by hand. `_scale_trace_msg()` now sends grams directly (`reading.grams`/
+`reading.raw_grams`, already computed by `scale.py` — no new maths, just
+sending the field billing itself uses instead of the one it derives
+from). **Cost, accepted on request:** an unresolved/uncalibrated bin now
+plots nothing at all, where the counts version worked at any calibration
+state — the design tradeoff this session's own earlier "deliberately
+COUNTS, not grams" note argued for is reversed here, on the developer's
+explicit ask, not a change of mind about which is generally better.
+Chart's flat-signal pad floor dropped from 1 (a whole raw count, trivial)
+to 0.5g (real headroom now, needed so a genuinely sub-gram-quiet channel
+doesn't look artificially noisy); axis labels now read e.g. "301.2 g"
+instead of a bare integer.
+1 Python test rewritten (`test_scale_trace_carries_raw_and_filtered_grams_per_bin`,
+was `..._counts_per_bin` — now calibrates bin 0 first and asserts grams,
+plus a new assertion that an uncalibrated bin reads null rather than a
+meaningless raw-counts-as-grams number). 1200 tests pass, same 10
+pre-existing unrelated failures. `node --check` + DOM id cross-check +
+full-file tag-balance parse all clean, same as the first version.
+**Still not opened in a real browser** — the axis-label wording and the
+new pad floor are reasoned from the code, not looked at.

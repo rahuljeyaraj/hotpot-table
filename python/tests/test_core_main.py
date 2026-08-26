@@ -1398,17 +1398,22 @@ class TestScaleFilterAndTrace(ScaleRig, CoreCase):
         self.assertEqual(msg["median_window"], scale.DEFAULT_MEDIAN_WINDOW)
         self.assertEqual(msg["avg_window"], scale.DEFAULT_AVG_WINDOW)
 
-    def test_scale_trace_carries_raw_and_filtered_counts_per_bin(self):
-        self.feed([100, 0, 0, 0, 0, 0, 0, 0])
+    def test_scale_trace_carries_raw_and_filtered_grams_per_bin(self):
+        """GRAMS, not counts (changed 2026-08-26 on developer request) —
+        the unit the display and the bill actually use."""
+        self.calibrate_bin(0, ref_mass_g=300.0)
+        self.feed([self.grams_to_counts(300.0) if i == 0 else self.ZERO_COUNTS
+                   for i in range(8)])
         w = self.ws()
         self.recv_json(w)
         msg = self.trace_msg(
-            w, lambda m: m["raw"][0] is not None and m["raw"][0] == 100.0)
+            w, lambda m: m["raw"][0] is not None and abs(m["raw"][0] - 300.0) < 0.5)
         self.assertIsNotNone(msg, "no scale_trace with the fed value arrived")
-        self.assertEqual(msg["filtered"][0], 100.0)
-        # Untouched bins read zero (the fed value), not None — a real
-        # sample arrived for every bin on this tick, just all zeros.
-        self.assertEqual(msg["raw"][1], 0.0)
+        self.assertAlmostEqual(msg["filtered"][0], 300.0, delta=0.5)
+        # Bin 1 gets real counts fed too but was never calibrated — it
+        # must read null, not a meaningless raw-counts-as-grams number.
+        self.assertIsNone(msg["raw"][1])
+        self.assertIsNone(msg["filtered"][1])
 
     def test_scale_trace_is_all_none_before_any_sample(self):
         w = self.ws()

@@ -1057,16 +1057,23 @@
           <!-- 2026-08-26, developer report: the median filter alone still
                let the weight jump; a moving average helped but not
                enough. This card is the instrument for the next tuning
-               pass — raw vs. filtered counts, live, for one bin at a
+               pass — raw vs. filtered GRAMS, live, for one bin at a
                time, plus the two window sizes that shape the filtered
                line. `scale_trace` (core/main.py, ~10Hz) feeds the plot
-               for all 8 bins at once; only the selected bin is drawn. -->
+               for all 8 bins at once; only the selected bin is drawn.
+               Grams, not counts (changed same day, developer request):
+               this is the unit the display and the bill actually use,
+               so an unresolved/uncalibrated bin now plots nothing rather
+               than a signal with no unit attached — see
+               `_scale_trace_msg`'s own docstring for the tradeoff. -->
           <h2>Scale filter</h2>
-          <p>Raw load-cell counts against the filtered (median, then
-             moving-average) output core actually bills from. Median
-             rejects a single bad read; the average smooths the ordinary
-             sample-to-sample wobble a median cannot touch. Both window
-             sizes below apply live and persist across a restart.</p>
+          <p>Raw load-cell weight against the filtered (median, then
+             moving-average) weight core actually bills from — a bin with
+             no calibration yet plots nothing, same as its number on the
+             Bins tab. Median rejects a single bad read; the average
+             smooths the ordinary sample-to-sample wobble a median cannot
+             touch. Both window sizes below apply live and persist across
+             a restart.</p>
           <div class="scale-trace-toolbar">
             <label class="scale-trace-bin-label">Bin
               <select id="scaleTraceBin" class="bin-override"></select>
@@ -1696,7 +1703,10 @@
   // over HTTP and are worth gating (`pollCamInfo`'s own comment). The
   // history buffer is kept for the SELECTED bin only: switching bins
   // starts a fresh trace rather than replaying data that was never
-  // collected for the newly-picked one.
+  // collected for the newly-picked one. Both series are GRAMS (changed
+  // same day from raw counts, developer request) — an unresolved or
+  // uncalibrated bin's fields arrive `null` and simply draw no line,
+  // same as `_scale_trace_msg`'s own docstring explains server-side.
   var SCALE_TRACE_HISTORY_S = 30;
   var scaleTraceBinSel = document.getElementById("scaleTraceBin");
   var scaleTraceCanvas = document.getElementById("scaleTraceCanvas");
@@ -1754,12 +1764,14 @@
     if (!isFinite(lo) || !isFinite(hi)) {
       ctx.fillStyle = "#5a5d66";
       ctx.font = "13px sans-serif";
-      ctx.fillText("No samples yet — is the XIAO connected?", 12, h / 2);
+      ctx.fillText("No samples yet — is this bin calibrated and the XIAO connected?", 12, h / 2);
       return;
     }
     // A flat signal (lo === hi) would divide by zero below; give it some
     // headroom to draw a straight line in rather than a NaN-shaped blank.
-    var pad = Math.max(1, (hi - lo) * 0.08);
+    // 0.5g floor, not 1 (this is grams now, not counts — a 1g minimum pad
+    // would exaggerate flatness on a genuinely sub-gram-quiet channel).
+    var pad = Math.max(0.5, (hi - lo) * 0.08);
     lo -= pad; hi += pad;
     var vSpan = hi - lo;
     var marginL = 8, marginR = 8, marginT = 8, marginB = 8;
@@ -1789,8 +1801,8 @@
     ctx.fillStyle = "#5a5d66";
     ctx.font = "11px ui-monospace, monospace";
     ctx.textAlign = "right";
-    ctx.fillText(Math.round(hi), w - 4, marginT + 10);
-    ctx.fillText(Math.round(lo), w - 4, h - 4);
+    ctx.fillText(hi.toFixed(1) + " g", w - 4, marginT + 10);
+    ctx.fillText(lo.toFixed(1) + " g", w - 4, h - 4);
     ctx.textAlign = "left";
   }
 
