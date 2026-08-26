@@ -3807,16 +3807,67 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         self.assertIsNotNone(
             self.wait_for_state(states, lock, lambda m: m["bins"][3]["hl"] == "hover"),
             "bin 3 never went to hover")
-        # Stop sending — the pointer goes stale (POINTER_STALE_S) and
-        # hover clears on its own, same as a hand actually leaving.
+        # Stop sending — the pointer goes stale (POINTER_STALE_S), then
+        # HOVER_EXIT_GRACE_S has to run out on top of that before hover
+        # actually clears (see that constant: a brief gap must NOT read as
+        # "hand left", only a gap this long does), so the wait has to
+        # outlast both.
         got = self.wait_for_state(
-            states, lock, lambda m: m["bins"][3]["hl"] != "hover", timeout=2.0)
+            states, lock, lambda m: m["bins"][3]["hl"] != "hover",
+            timeout=coremain.POINTER_STALE_S + coremain.HOVER_EXIT_GRACE_S + 2.0)
         self.assertIsNotNone(got, "hover never cleared once sending stopped")
         self.assertFalse(got.get("fire_active"),
                          "fire_active must clear once no bin is hovered")
         with lock:
             ids = [e.get("id") for e in evts]
         self.assertIn("fire_stop", ids)
+
+    def test_a_brief_exit_and_return_does_not_replay_the_fire_cue(self):
+        # Developer report, 2026-08-26: picking from a bin is several
+        # in/out crossings (grab a pinch, pull the hand out to drop it,
+        # reach back in), and the raw per-frame hover used to play
+        # `fire_start`/`fire_stop` on every single one — "very distracting
+        # and noisy" — and blink the info box (`hl`) the same way.
+        # HOVER_EXIT_GRACE_S exists so a same-bin re-entry inside the
+        # window is invisible on the wire: `hl` stays "hover" throughout
+        # and no second `fire_start`/any `fire_stop` is sent.
+        states, evts, lock = self._hover_and_sound_sink()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(3)
+        for _ in range(20):
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+        self.assertIsNotNone(
+            self.wait_for_state(states, lock, lambda m: m["bins"][3]["hl"] == "hover"),
+            "bin 3 never went to hover")
+        with lock:
+            start_idx = len(states)   # only states from here on are in play
+
+        # The hand leaves the bin's airspace — an explicit ambient-only
+        # frame, i.e. "new information saying gone" (`_apply_cursor`'s own
+        # docstring), not a dropped datagram — for well under
+        # HOVER_EXIT_GRACE_S, then comes straight back to the same bin.
+        gap_end = time.time() + coremain.HOVER_EXIT_GRACE_S * 0.4
+        while time.time() < gap_end:
+            self.send_ambient(tx, 50.0, 50.0)
+            time.sleep(0.02)
+        for _ in range(10):
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+
+        # Give the state loop a little more time to have reacted, then
+        # check what actually went out while all of that happened.
+        time.sleep(0.2)
+        with lock:
+            seen_hl = {m["bins"][3]["hl"] for m in states[start_idx:]
+                       if m.get("bins") and len(m["bins"]) > 3}
+            ids = [e.get("id") for e in evts]
+        self.assertEqual(seen_hl, {"hover"},
+                         "hl must not have left \"hover\" during the brief gap")
+        self.assertEqual(ids.count("fire_start"), 1,
+                         "the brief exit/return must not replay fire_start")
+        self.assertNotIn("fire_stop", ids,
+                         "a same-bin re-entry inside the grace must not fire_stop")
 
     def test_the_staff_view_is_told_where_the_hands_are(self):
         # Doc section 12.3's hand markers.

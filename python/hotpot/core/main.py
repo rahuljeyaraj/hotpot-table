@@ -199,6 +199,31 @@ PHANTOM_IDLE_S = 5.0
 # and core agree about when a hand is "still here".
 POINTER_STALE_S = 0.35
 
+# How long a bin stays "hovered" (fire ring lit, `fire_burning` looping,
+# info box showing) after a hand actually leaves it, before `fire_stop`
+# fires and the info box clears — developer report, 2026-08-26: picking
+# from a bin is not one clean enter-then-leave, it is several — a pinch
+# taken out, a hand withdrawn to drop it in the bowl, a hand back in for
+# more — and wiring `fire_start`/`fire_stop` straight to the raw per-frame
+# hit test (the old behaviour) played the catch/put-out one-shots on every
+# one of those in/out crossings, which on a real pick is a burst of
+# several within a second or two: "very distracting and noisy". Same wire
+# field (`hl`/`fire_active`) drives the info box, so it was blinking on
+# the same crossings instead of "staying up for a few secs" the way a
+# diner reading it needs.
+#
+# The fix is hysteresis, the same shape `hover.DEFAULT_GRACE_MS` already
+# uses for dwell (`hover.py`'s "leaving resets after a 150ms grace"): a
+# hand ENTERING a bin (or a different bin) still wins instantly — no
+# reason to delay the exciting edge — but a hand LEAVING one is held for
+# this long before it counts, so a same-bin re-entry inside the window is
+# invisible on the wire (no new `fire_start`, no info-box flicker) and
+# only a hand that is actually gone for a couple of seconds clears it.
+# Seconds, not `hover.py`'s 150ms, because that grace only has to survive
+# one jittery tracker frame; this one has to survive an actual human hand
+# leaving the bin's airspace to drop what it picked.
+HOVER_EXIT_GRACE_S = 1.5
+
 # How long core waits for a classifier reply to one of doc section 4.7's
 # commands — the capture case is a whole burst (doc section 12.7: 10 frames
 # over 5 s) plus the JPEG writes.
@@ -657,6 +682,12 @@ class Core:
         self._pointer: Optional[cursorbus.Hand] = None
         self._pointer_at: Optional[float] = None
         self._hover_bin: Optional[int] = None
+        # When the raw hit test last stopped finding a hand over
+        # `_hover_bin`. None while a hand IS over it (or while no bin is
+        # hovered at all). Stamped once on leaving, same "measured from the
+        # edge, not refreshed per frame" shape as `DwellTracker._left_at` —
+        # see HOVER_EXIT_GRACE_S.
+        self._hover_left_at: Optional[float] = None
         self._widgets: list = []
 
         # The idle-table phantom hand (common/phantom.py, `_apply_phantom`).
@@ -1837,19 +1868,38 @@ class Core:
         # `phantom_pointer` — hover is the only thing a phantom hand may
         # ever drive.
         was = self._hover_bin
-        self._hover_bin = hover.bin_under(self.camera_grid.rects(),
-                                          pointer or phantom_pointer)
+        raw_hover_bin = hover.bin_under(self.camera_grid.rects(),
+                                        pointer or phantom_pointer)
+        if raw_hover_bin is not None:
+            # A hand IS over a bin this tick — wins immediately, same as
+            # before. This also covers switching directly from one bin to
+            # another (raw_hover_bin != was): the new bin still catches
+            # fire the instant it is entered, no HOVER_EXIT_GRACE_S delay
+            # on the exciting edge, only on leaving.
+            self._hover_bin = raw_hover_bin
+            self._hover_left_at = None
+        elif self._hover_bin is not None:
+            # Nothing under the hand right now, but a bin is still "lit"
+            # from a moment ago. Hold it rather than clearing on the spot
+            # — see HOVER_EXIT_GRACE_S for why (a pick is several quick
+            # in/out crossings, not one clean exit).
+            if self._hover_left_at is None:
+                self._hover_left_at = now
+            elif now - self._hover_left_at >= HOVER_EXIT_GRACE_S:
+                self._hover_bin = None
+                self._hover_left_at = None
         if self._hover_bin != was:
             # 2026-08-26, developer request: the bin "catches fire" the
-            # instant a hand enters it and "goes off" the instant it
-            # leaves — replaces the old `hover` tick (doc section 15.2)
-            # outright, not alongside it. Sent as one-shot `evt`s, same
-            # reasoning that sound always had: `state` repeats at 60Hz
-            # and a repeated sound would fire sixty times a second (doc
-            # section 4.4). The sustained crackle while a hand STAYS in
-            # a bin is `fire_active` on `state` instead (`_state_msg`),
-            # looped on oF's side (`AudioBus::setFireBurningActive`) —
-            # the same "state repeats, a discrete evt does not" split
+            # instant a hand enters it and "goes off" once it has been
+            # gone for HOVER_EXIT_GRACE_S — replaces the old `hover` tick
+            # (doc section 15.2) outright, not alongside it. Sent as
+            # one-shot `evt`s, same reasoning that sound always had:
+            # `state` repeats at 60Hz and a repeated sound would fire
+            # sixty times a second (doc section 4.4). The sustained
+            # crackle while a hand STAYS in a bin (grace included) is
+            # `fire_active` on `state` instead (`_state_msg`), looped on
+            # oF's side (`AudioBus::setFireBurningActive`) — the same
+            # "state repeats, a discrete evt does not" split
             # `idle_attract`/`attract` already uses for the idle simmer
             # bed.
             #
