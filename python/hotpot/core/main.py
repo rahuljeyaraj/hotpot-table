@@ -607,15 +607,6 @@ class Core:
         # mock pick/put-back on top of it) — see _apply_scale_to_cart().
         self._scale_baselined = [False] * cart.NUM_BINS
 
-        # 2026-08-26: the last `shown_g` value a REAL scale reading has
-        # actually been sounded for, per bin. Separate from cart.shown_g
-        # itself (pricing/display) on purpose — see _apply_scale_to_cart's
-        # settled-gating comment. Kept in sync with cart.shown_g's own
-        # resets by _reset_sound_shown_g(), called everywhere
-        # cart.reset_session() is (_end_session(), and fsm.exit_setting()'s
-        # call site, which does not go through _end_session()).
-        self._sound_shown_g = [0.0] * cart.NUM_BINS
-
         # The last (mode, cart_active) pair actually put on the wire. The
         # `mode` message is broadcast on change, not on a timer (M2.6 —
         # same model as _on_pip_change, no new clock), and this is what
@@ -1166,12 +1157,6 @@ class Core:
                         "charged. Exit anyway?")
                 else:
                     self.fsm.exit_setting()
-                    # exit_setting() re-baselines every bin's shown_g to 0
-                    # (cart.reset_session()) but does not go through
-                    # _end_session() — see _reset_sound_shown_g()'s own
-                    # docstring for why this has to be kept in sync here
-                    # too, not just at session end.
-                    self._reset_sound_shown_g()
                     self._send_evt({"t": "evt", "kind": "sound", "id": "mode_serving"})
                     # `exit_setting` sets `binmap.locked` (its own step 3,
                     # doc section 8.2: locked is true in serving mode).
@@ -1243,9 +1228,9 @@ class Core:
             return
         with self.state_lock:
             if t == "mock_pick":
-                self._sound_for_snap(self.cart.mock_pick(i, float(grams)))
+                self.cart.mock_pick(i, float(grams))
             else:
-                self._sound_for_snap(self.cart.mock_putback(i, float(grams)))
+                self.cart.mock_putback(i, float(grams))
 
     def _in_setting(self) -> bool:
         with self.state_lock:
@@ -1563,28 +1548,6 @@ class Core:
                 # in this line, so shown_g keeps snapping the instant the
                 # deadband is crossed (I5's rule, doc section 9.2).
                 self.cart.set_live_grams(i, g)
-                # **The SOUND is gated on `settled`, separately.** 2026-08-26,
-                # developer report: picking food played pick_confirm/putback
-                # several times for one pick. Root cause: while a hand is
-                # still moving (or the tray is still rocking right after —
-                # CLAUDE.md's per-channel table has several bins at
-                # 750-1500 counts RMS of noise), the raw removed-grams
-                # number can cross the 5g deadband line more than once in
-                # one continuous motion, and set_live_grams() above fires a
-                # fresh snap — and so a fresh sound — on every crossing.
-                # `reading.settled[i]` (core/scale.py section 9.5) already
-                # answers "has this bin's weight stopped moving," and was
-                # computed but never read by anything until now. Comparing
-                # against `_sound_shown_g[i]` (not just "did something
-                # change this tick") means several snaps that happen while
-                # still unsettled collapse into exactly one sound, played
-                # once motion actually stops, for the combined grams —
-                # never zero sounds, never several for one pick.
-                if reading.settled[i]:
-                    shown = self.cart.shown_g[i]
-                    if shown != self._sound_shown_g[i]:
-                        self._sound_for_snap(shown - self._sound_shown_g[i])
-                        self._sound_shown_g[i] = shown
             else:
                 # First real reading this bin has ever had: seed, not
                 # set, so the gap to the M1 mock seed never prices as a
@@ -2076,38 +2039,6 @@ class Core:
         """
         self.control.broadcast(msg, only=["of"])
 
-    def _sound_for_snap(self, delta: Optional[float]) -> None:
-        """Doc section 15.2's `pick_confirm`/`putback` — fired the instant
-        `cart.set_live_grams()` (or a mock pick/put-back riding the same
-        path) snaps `shown_g`, never on every scale tick. `delta` is that
-        method's own return value: positive is more removed (a pick),
-        negative is less removed (a put-back), None is "nothing snapped
-        this tick" and this is a no-op.
-
-        `gain` carries doc section 15.2's "pitch shifted by grams — small
-        pick high, big pick low" as a wire number rather than a decision
-        made here: AudioBus (oF) owns playback speed, this just hands it
-        the one number that decision needs.
-        """
-        if delta is None:
-            return
-        grams = abs(delta)
-        sound_id = "pick_confirm" if delta > 0 else "putback"
-        self._send_evt({"t": "evt", "kind": "sound", "id": sound_id,
-                        "grams": round(grams, 1)})
-
-    def _reset_sound_shown_g(self) -> None:
-        """Keeps `_sound_shown_g` (2026-08-26's settled-sound tracking, see
-        `_apply_scale_to_cart`) in sync with `cart.shown_g` every place the
-        latter gets re-baselined to 0. Call this everywhere
-        `cart.reset_session()` is called — skipping one leaves a stale
-        `_sound_shown_g[i]` above the freshly-zeroed `shown_g[i]`, and the
-        next real snap reads as a negative delta: a phantom `putback`
-        sound with nobody's hand anywhere near the bin.
-        """
-        for i in range(cart.NUM_BINS):
-            self._sound_shown_g[i] = 0.0
-
     def _end_session(self) -> None:
         """The order is over — re-baseline every bin onto what it weighs
         right now. Doc section 9.1's I6: "re-baseline, never re-tare."
@@ -2129,7 +2060,6 @@ class Core:
         Caller holds `state_lock`.
         """
         self.cart.reset_session()
-        self._reset_sound_shown_g()
         # M6: the checkout's own scratch state dies with the session, so
         # a previous diner's broth, spice or order code can never ride
         # into the next one. `_order` in particular is what the QR screen

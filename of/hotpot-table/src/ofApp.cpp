@@ -211,14 +211,6 @@ void ofApp::update(){
 		}
 		float gain = evt.data.value("gain", 1.0f);
 		float speed = 1.0f;
-		if(evt.data.contains("grams")){
-			// doc §15.2: "pick_confirm ... pitch shifted by grams — small
-			// pick high, big pick low." A straight-line map, clamped so
-			// an unusually large or tiny pick never inverts into an
-			// audibly wrong direction.
-			float grams = evt.data.value("grams", 0.0f);
-			speed = ofClamp(1.35f - grams / 150.0f, 0.75f, 1.35f);
-		}
 		if(evt.data.contains("rung")){
 			// doc §15.2's `dwell_tick`: "rising pitch ladder, 4 steps" —
 			// one clip, played faster each rung core reports.

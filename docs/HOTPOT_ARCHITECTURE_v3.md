@@ -269,7 +269,7 @@ Notes that are not optional:
 Separate from `state` because `state` repeats and a repeated sound would fire 60 times a second.
 
 ```json
-{"t":"evt","kind":"sound","id":"pick_confirm","gain":1.0}
+{"t":"evt","kind":"sound","id":"dwell_fire","gain":1.0}
 {"t":"evt","kind":"burst","at":[640,300],"style":"pick","strength":0.8}
 {"t":"evt","kind":"stream","from":[640,300],"to":[1660,940],"style":"price"}
 ```
@@ -1414,6 +1414,8 @@ All short, all non-annoying at the 200th repetition, all pre-rendered WAV in `of
 
 **2026-08-26, developer request: `hover` is superseded outright by the `fire_start`/`fire_burning`/`fire_stop` set below** — the bin "catches fire" on entry and "goes off" on exit, replacing the old soft tick rather than sitting alongside it. `core/main.py`'s `_apply_cursor` fires the two one-shots on `self._hover_bin`'s own edges (same spot the old `hover` evt fired from); `fire_burning` loops for as long as `state.fire_active` (`self._hover_bin is not None`) is true, mirroring `attract`/`idle_attract`'s own bool-drives-a-loop shape rather than inventing a second one.
 
+**2026-08-26, developer request: `pick_confirm`/`putback` are removed outright, not disabled** — the food pick-up/put-down sound. `Core` no longer sends either id; `AudioBus`/`ofApp.cpp`'s `grams`-driven pitch mapping (built only for this pair) went with it. `pick_confirm.wav`/`putback.wav` are deleted from `bin/data/audio/`. `fire_start`/`fire_stop` (above) remain the on-table feedback for a hand entering/leaving a bin.
+
 | id | When | Character |
 |---|---|---|
 | `fire_start` | pointer enters a bin | catches fire — one-shot |
@@ -1422,8 +1424,6 @@ All short, all non-annoying at the 200th repetition, all pre-rendered WAV in `of
 | `fire_burning_ambient` | held for as long as ANY hand (real or the idle-table phantom) is on the table at all, in or out of a bin | the same loop as `fire_burning`, quieter — the roaming cursor fireball's own crackle, independent of and concurrent with the bin one. oF-driven straight off `CursorLink::pointer()`, not a `state` field — the cursor flame already has no dependency on core's link either (2026-08-26) |
 | `dwell_tick` | every 300ms during a dwell | rising pitch ladder, 4 steps |
 | `dwell_fire` | dwell completes | clean confirm chime |
-| `pick_confirm` | weight settles, item added | a wooden *tok*, pitch shifted by grams — small pick high, big pick low |
-| `putback` | weight rises | the *tok* reversed |
 | `total_tick` | running total changes | tiny click per digit roll |
 | `mode_setting` | entering setting mode | two-tone descending |
 | `mode_serving` | leaving setting mode | two-tone ascending |

@@ -332,7 +332,7 @@ private:
 
 	// `evt` lines, link thread -> render thread. Capped the same way
 	// `state` is implicitly capped (only ever one, the latest) but events
-	// cannot collapse to "the latest" — a missed pick_confirm is a missed
+	// cannot collapse to "the latest" — a missed dwell_fire is a missed
 	// sound, not a stale one — so this is a bounded queue instead. The cap
 	// exists only so a render thread that stalls for a long time cannot
 	// grow this without limit; doc §4.4 already accepts a dropped evt as

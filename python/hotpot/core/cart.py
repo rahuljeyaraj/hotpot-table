@@ -143,11 +143,7 @@ class Cart:
 
         Returns the signed change in `shown_g` (positive: more removed,
         i.e. a pick; negative: less removed, i.e. a put-back) the instant
-        it snaps, or None on a tick that moved nothing visible. This is
-        doc section 15.2's `pick_confirm`/`putback` trigger — main.py
-        plays the sound off this return value rather than diffing
-        shown_g itself at the call site, so there is exactly one place
-        that decides what "the weight just settled" means.
+        it snaps, or None on a tick that moved nothing visible.
         """
         self._check_bin(i)
         self.live_g[i] = max(0.0, grams)

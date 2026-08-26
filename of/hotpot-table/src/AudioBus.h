@@ -32,8 +32,8 @@ public:
 	// scales the file's own recorded level (§15.2's `hover` wants "-18
 	// dB", carried as a gain in the 0..1 sense `ofSoundPlayer::setVolume`
 	// already uses, not literal decibels). `speed` is doc §15.2's
-	// "pick_confirm ... pitch shifted by grams" — the grams-to-speed
-	// mapping is ofApp's call (it owns the wire's `grams` field), this
+	// `dwell_tick` "rising pitch ladder, 4 steps" — the rung-to-speed
+	// mapping is ofApp's call (it owns the wire's `rung` field), this
 	// just plays at whatever speed it is handed.
 	void play(const std::string & id, float gain = 1.0f, float speed = 1.0f);
 
