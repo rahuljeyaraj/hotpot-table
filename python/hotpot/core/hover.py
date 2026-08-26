@@ -411,8 +411,10 @@ def button_row(ids: Sequence[Optional[str]]) -> Dict[str, Rect]:
     return {wid: rects[i] for i, wid in enumerate(ids) if wid is not None}
 
 
-def layout() -> Dict[str, Rect]:
-    """The cart screen's own two button rects: Cancel, then Next.
+def layout(include_language: bool = False) -> Dict[str, Rect]:
+    """The cart screen's own button rects: Cancel, then Next — and, once a
+    second locale is actually loaded, Language in the middle slot that
+    used to sit empty between them.
 
     **The ENDS of the row, with the middle slot empty** (developer,
     2026-08-25: "the button should be always fill the left and right slot
@@ -420,20 +422,32 @@ def layout() -> Dict[str, Rect]:
     then, with the Back slot empty on the argument that Back appears
     there on the very next screen — that argument is gone: a two-button
     row that leaves a hole on one side reads as a row missing a button
-    rather than as a row of two.
+    rather than as a row of two. A THREE-button row (the `zh.json` case)
+    fills all three slots instead, which is the same rule applied to a
+    row that now genuinely has three things in it rather than two and a
+    gap.
 
     Kept as a named function (rather than callers reaching for
     `button_row` directly) because it is the pair `UiLayer::setup()`'s
-    cross-file check and this module's own tests measure against.
+    cross-file check and this module's own tests measure against —
+    `include_language` defaults to `False` so every existing caller of
+    the bare two-button row is untouched.
 
-    Done/Language are NOT here. They were removed outright in 2026-08-13
-    (RIG_FEEDBACK items 4-7) and nothing has brought them back; the band
-    they used to sit in (`BAND_TOP_PX`..`BAND_BOTTOM_PX`) is the cart's
-    now. Those two constants and the three sizes above are kept because
-    they record what was measured on the rig about that band — see
-    `BAND_BOTTOM_PX`'s own comment, which is a finding, not a leftover.
+    Done is NOT here. It was removed outright in 2026-08-13 (RIG_FEEDBACK
+    items 4-7) and has nowhere to go until M6; the band it used to sit in
+    (`BAND_TOP_PX`..`BAND_BOTTOM_PX`) is the cart's now. Those two
+    constants and the three sizes above are kept because they record what
+    was measured on the rig about that band — see `BAND_BOTTOM_PX`'s own
+    comment, which is a finding, not a leftover.
+
+    **Language WAS removed alongside Done in the same 2026-08-13 pass**,
+    then brought back 2026-08-26 once `data/locales/zh.json` gave it
+    somewhere to switch to (see `widgets_for`'s own gate on
+    `locales_available`) — unlike Done, it never needed a new FSM edge to
+    mean something, so nothing else about its 2026-08-13 removal applied
+    to it once a second locale existed.
     """
-    return button_row([CANCEL, None, CONFIRM])
+    return button_row([CANCEL, LANGUAGE if include_language else None, CONFIRM])
 
 
 # --- M6: the option list the BROTH and SPICE screens share ----------------
@@ -642,7 +656,7 @@ def _nav_row(*, forward_key: str, forward_enabled: bool) -> List[Widget]:
 
 
 def broth_widgets(broths: Sequence[Any], *,
-                  selected_id: str = "") -> List[Widget]:
+                  selected_id: str = "", locale: Optional[str] = None) -> List[Widget]:
     """Doc section 18.1's BROTH screen: one full-height card per broth,
     plus the nav row (Back, Cancel, Next).
 
@@ -662,14 +676,24 @@ def broth_widgets(broths: Sequence[Any], *,
     `broths` are `menu.Broth`es; typed loosely so this module does not
     import `menu` (it imports nothing of core's but `geometry_store`, and
     keeping it that way is what lets `test_hover` run with no data files).
+
+    `locale` (2026-08-26) is passed straight through to `display_name()`
+    and the new `meta_text()`/`note_text()` — this module still does not
+    look anything up itself (see the module docstring's "keeps knowing
+    nothing about the session"), it just hands the caller's locale to the
+    objects that already know how to resolve themselves in it. `None`
+    (the default) is every existing caller: `display_name(None)` and
+    `meta_text(None)`/`note_text(None)` all fall back to English, same as
+    before this parameter existed.
     """
     rects = broth_card_rects(len(broths))
     out = [
         Widget(id=broth_widget_id(b.id), rect=rect, label_key="",
-               label=b.display_name(), kind="option", style="option",
+               label=b.display_name(locale), kind="option", style="option",
                enabled=True,
                selected=(b.id == selected_id),
-               info={"diet": b.diet, "meta": b.meta, "desc": b.note})
+               info={"diet": b.diet, "meta": b.meta_text(locale),
+                     "desc": b.note_text(locale)})
         for b, rect in zip(broths, rects)
     ]
     out.extend(_nav_row(forward_key="next",
@@ -678,7 +702,8 @@ def broth_widgets(broths: Sequence[Any], *,
 
 
 def spice_widgets(levels: Sequence[Any], *,
-                  selected_level: Optional[int] = None) -> List[Widget]:
+                  selected_level: Optional[int] = None,
+                  locale: Optional[str] = None) -> List[Widget]:
     """Doc section 18.1's SPICE screen. Redesigned twice on 2026-08-25 (a
     horizontal chili-strip, then a vertical slider) and, later the same
     day, reverted to `broth_widgets`' own shape. Developer: "no need
@@ -719,12 +744,12 @@ def spice_widgets(levels: Sequence[Any], *,
     rects = broth_card_rects(len(hottest_first))
     out = [
         Widget(id=spice_widget_id(s.level), rect=rect, label_key="",
-               label=s.display_name(), kind="option", style="option",
+               label=s.display_name(locale), kind="option", style="option",
                enabled=True,
                selected=(selected_level is not None
                          and int(s.level) == int(selected_level)),
                icon="chilli", icon_count=int(s.level),
-               info={"diet": "", "meta": "", "desc": s.note})
+               info={"diet": "", "meta": "", "desc": s.note_text(locale)})
         for s, rect in zip(hottest_first, rects)
     ]
     out.extend(_nav_row(forward_key="pay",
@@ -811,15 +836,31 @@ def widgets_for(*, selecting: bool, locales_available: int,
     `selecting`/`locales_available` are unchanged in shape (callers and
     tests do not move); `cart_active` is new and defaulted, so a caller
     that has not been updated gets the disabled pair rather than a crash.
+
+    **`locales_available` now actually does something (2026-08-26).**
+    Doc section 17.1: the projected Language button "is offered only when
+    there is somewhere to switch TO" (see `i18n.Locales.available`'s own
+    docstring) — with one locale file loaded it stays absent, exactly as
+    `test_locale_count_does_not_resurrect_language` pins; with two it
+    takes the cart row's middle slot, which has sat empty since Cancel
+    moved to the left end (2026-08-25). It is NOT gated by `cart_active`:
+    which language the table speaks is not something to hold hostage to
+    whether a diner has picked anything yet.
     """
-    rects = layout()
+    show_language = locales_available >= 2
+    rects = layout(include_language=show_language)
     enabled = bool(cart_active)
-    return [
+    out = [
         Widget(id=CANCEL, rect=rects[CANCEL], label_key="cancel",
                style="danger", enabled=enabled),
-        Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="next",
-               style="primary", enabled=enabled),
     ]
+    if show_language:
+        out.append(Widget(id=LANGUAGE, rect=rects[LANGUAGE],
+                          label_key="language", style="secondary",
+                          enabled=True))
+    out.append(Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="next",
+                      style="primary", enabled=enabled))
+    return out
 
 
 # ---------------------------------------------------------------------------

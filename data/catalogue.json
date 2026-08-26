@@ -18,7 +18,8 @@
       "class_name": "instant_noodle_block",
       "diet": "veg",
       "kcalPer100g": 450,
-      "description": "Chewy and light. Soaks up more of the broth than any other noodle here."
+      "description": "Chewy and light. Soaks up more of the broth than any other noodle here.",
+      "description_zh": "口感Q弹爽滑,轻盈不腻,比其他面条更能吸饱汤汁。"
     },
     {
       "id": "loose_straight_noodles",
@@ -36,7 +37,8 @@
       "class_name": "loose_straight_noodles",
       "diet": "veg",
       "kcalPer100g": 280,
-      "description": "Thick and properly chewy. The most filling thing on the table."
+      "description": "Thick and properly chewy. The most filling thing on the table.",
+      "description_zh": "面条粗厚,嚼劲十足,是全桌最顶饱的选择。"
     },
     {
       "id": "white_rusk",
@@ -54,7 +56,8 @@
       "class_name": "white_rusk",
       "diet": "veg",
       "kcalPer100g": 400,
-      "description": "Soft and airy. Drinks up the broth, so it arrives full of flavour."
+      "description": "Soft and airy. Drinks up the broth, so it arrives full of flavour.",
+      "description_zh": "软嫩蓬松,充分吸收汤汁,入口满是鲜香。"
     },
     {
       "id": "soya_chunks",
@@ -70,7 +73,8 @@
       "class_name": "soya_chunks",
       "diet": "nonveg",
       "kcalPer100g": 117,
-      "description": "Bouncy and mild. A safe pick if you would rather not chase strong flavours."
+      "description": "Bouncy and mild. A safe pick if you would rather not chase strong flavours.",
+      "description_zh": "口感弹牙,味道清淡,不喜浓烈口味的稳妥之选。"
     },
     {
       "id": "dried_small_shrimps",
@@ -86,7 +90,8 @@
       "class_name": "dried_small_shrimps",
       "diet": "nonveg",
       "kcalPer100g": 253,
-      "description": "Small but intense. Deeply savoury, so a little goes a long way."
+      "description": "Small but intense. Deeply savoury, so a little goes a long way.",
+      "description_zh": "个头虽小,味道浓郁鲜美,少量便足够提味。"
     },
     {
       "id": "small_round_rusk",
@@ -102,7 +107,8 @@
       "class_name": "small_round_rusk",
       "diet": "nonveg",
       "kcalPer100g": 202,
-      "description": "Dense and springy, with a real beefy bite. Filling."
+      "description": "Dense and springy, with a real beefy bite. Filling.",
+      "description_zh": "紧实弹牙,牛肉香浓郁,十分顶饱。"
     },
     {
       "id": "chicken_eggs",
@@ -119,7 +125,8 @@
       "class_name": "chicken_eggs",
       "diet": "egg",
       "kcalPer100g": 143,
-      "description": "Rich and mild. Cuts through a spicy broth nicely."
+      "description": "Rich and mild. Cuts through a spicy broth nicely.",
+      "description_zh": "口感浓郁细腻,能很好地中和辣汤的辛辣。"
     },
     {
       "id": "button_mushrooms",
@@ -137,7 +144,8 @@
       "class_name": "button_mushrooms",
       "diet": "veg",
       "kcalPer100g": 22,
-      "description": "Earthy and light. By far the lightest thing on the table."
+      "description": "Earthy and light. By far the lightest thing on the table.",
+      "description_zh": "带有天然菌香,清淡爽口,是全桌最清爽的选择。"
     },
     {
       "id": "dried_mango_strips",
@@ -153,7 +161,8 @@
       "class_name": "dried_mango_strips",
       "diet": "nonveg",
       "kcalPer100g": 300,
-      "description": "Smoky and salty with a firm chew. Strong, so take a little."
+      "description": "Smoky and salty with a firm chew. Strong, so take a little.",
+      "description_zh": "烟熏咸香,嚼劲十足,味道浓烈,建议少量尝试。"
     },
     {
       "id": "flat_round_cookies",
@@ -169,7 +178,8 @@
       "class_name": "flat_round_cookies",
       "diet": "nonveg",
       "kcalPer100g": 101,
-      "description": "Sweet and delicate. Light on the stomach."
+      "description": "Sweet and delicate. Light on the stomach.",
+      "description_zh": "口味清甜细腻,清爽不腻,易消化。"
     },
     {
       "id": "yellow_rusk",
@@ -186,7 +196,8 @@
       "class_name": "yellow_rusk",
       "diet": "veg",
       "kcalPer100g": 77,
-      "description": "Soft and starchy. Thickens the broth around it a little."
+      "description": "Soft and starchy. Thickens the broth around it a little.",
+      "description_zh": "软糯带淀粉感,会让周围的汤稍微变浓稠。"
     },
     {
       "id": "lotus_root_slices",
@@ -203,7 +214,8 @@
       "class_name": "lotus_root_slices",
       "diet": "veg",
       "kcalPer100g": 74,
-      "description": "Stays crunchy even after cooking. Mild, faintly sweet, never goes soft."
+      "description": "Stays crunchy even after cooking. Mild, faintly sweet, never goes soft.",
+      "description_zh": "煮后依旧爽脆,口味清淡微甜,不会变软。"
     }
   ]
 }

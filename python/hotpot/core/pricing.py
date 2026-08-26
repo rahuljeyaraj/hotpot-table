@@ -122,6 +122,26 @@ class Item:
     diet: str = ""
     kcal_per_100g: float = 0.0
     description: str = ""
+    # 2026-08-26: the `zh` half of `description`, added the day
+    # data/locales/zh.json landed and the info box needed something to
+    # show in it. Optional and NOT dict-shaped like `names` — `description`
+    # predates the locale switch and every existing catalogue entry, test
+    # fixture and the schema-7 validation above already assume it is a
+    # plain string, so this rides beside it exactly the way `pinyin` rides
+    # beside `names["zh"]` rather than replacing it with a `{"en":...,
+    # "zh":...}` map. See `description_text()`.
+    description_zh: str = ""
+
+    def description_text(self, locale: Optional[str] = None) -> str:
+        """The info box's guidance sentence, in `locale`. Same fallback
+        policy as `display_name()`/`Locales.translate()`: the `zh` string
+        is optional (a blank one is silently treated as "not translated
+        yet"), everything degrades to the required `en` sentence, and
+        nothing here can ever return a blank box.
+        """
+        if locale == "zh" and self.description_zh.strip():
+            return self.description_zh
+        return self.description
 
     def display_name(self, locale: Optional[str] = None) -> str:
         """The label the table prints. **Cannot return `id` or
@@ -221,6 +241,7 @@ class Catalogue:
                 diet=diet,
                 kcal_per_100g=float(it["kcalPer100g"]),
                 description=str(it["description"]).strip(),
+                description_zh=str(it.get("description_zh", "")).strip(),
             ))
         return cls(items)
 

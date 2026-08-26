@@ -71,6 +71,13 @@ class Broth:
     note: str
     swatch: str
     pinyin: str = ""
+    # 2026-08-26: `zh` siblings of `meta`/`note`, same reasoning as
+    # `pricing.Item.description_zh` — `meta`/`note` predate the locale
+    # switch as plain strings, so their translations ride beside them
+    # rather than turning both into `names`-style dicts. Optional; see
+    # `meta_text()`/`note_text()`.
+    meta_zh: str = ""
+    note_zh: str = ""
 
     def display_name(self, locale: Optional[str] = None) -> str:
         if locale:
@@ -78,6 +85,16 @@ class Broth:
             if name:
                 return name
         return self.names["en"]
+
+    def meta_text(self, locale: Optional[str] = None) -> str:
+        if locale == "zh" and self.meta_zh.strip():
+            return self.meta_zh
+        return self.meta
+
+    def note_text(self, locale: Optional[str] = None) -> str:
+        if locale == "zh" and self.note_zh.strip():
+            return self.note_zh
+        return self.note
 
 
 @dataclass(frozen=True)
@@ -99,6 +116,8 @@ class SpiceLevel:
     meta: str
     note: str
     pinyin: str = ""
+    meta_zh: str = ""
+    note_zh: str = ""
 
     def display_name(self, locale: Optional[str] = None) -> str:
         if locale:
@@ -106,6 +125,16 @@ class SpiceLevel:
             if name:
                 return name
         return self.names["en"]
+
+    def meta_text(self, locale: Optional[str] = None) -> str:
+        if locale == "zh" and self.meta_zh.strip():
+            return self.meta_zh
+        return self.meta
+
+    def note_text(self, locale: Optional[str] = None) -> str:
+        if locale == "zh" and self.note_zh.strip():
+            return self.note_zh
+        return self.note
 
 
 @dataclass
@@ -153,6 +182,8 @@ class Menu:
                 diet=diet, meta=meta, note=note,
                 swatch=str(raw.get("swatch", "#CCCCCC")),
                 pinyin=str(raw.get("pinyin", "")),
+                meta_zh=str(raw.get("meta_zh", "")).strip(),
+                note_zh=str(raw.get("note_zh", "")).strip(),
             ))
         if not broths:
             raise ValueError(f"{p}: no broths — BROTH would be a dead end")
@@ -173,6 +204,8 @@ class Menu:
             levels.append(SpiceLevel(
                 level=lvl, names={k: str(v) for k, v in names.items()},
                 meta=meta, note=note, pinyin=str(raw.get("pinyin", "")),
+                meta_zh=str(raw.get("meta_zh", "")).strip(),
+                note_zh=str(raw.get("note_zh", "")).strip(),
             ))
         if not levels:
             raise ValueError(f"{p}: no spice levels — SPICE would be a dead end")

@@ -8,7 +8,9 @@
       "pinyin": "jingdian malatang",
       "diet": "nonveg",
       "meta": "Very spicy",
+      "meta_zh": "非常辣",
       "note": "Numbing and fiery, built on Sichuan pepper and chilli. The boldest broth here.",
+      "note_zh": "麻辣鲜香,以四川花椒和辣椒为底,是全场最浓烈的汤底。",
       "swatch": "#C0392B"
     },
     {
@@ -17,7 +19,9 @@
       "pinyin": "sushi jungu tang",
       "diet": "veg",
       "meta": "Not spicy",
+      "meta_zh": "不辣",
       "note": "Deep and savoury with no meat at all. Earthy rather than rich.",
+      "note_zh": "浓郁鲜美,全素无肉,菌香清雅而不厚重。",
       "swatch": "#7A5C3E"
     },
     {
@@ -26,7 +30,9 @@
       "pinyin": "jiaoyuan gu tang",
       "diet": "nonveg",
       "meta": "Not spicy",
+      "meta_zh": "不辣",
       "note": "Milky and slow simmered. Rich on the tongue but completely mild.",
+      "note_zh": "汤色乳白,慢火熬制,口感浓郁却十分温和。",
       "swatch": "#D8CFC0"
     }
   ],
@@ -36,28 +42,36 @@
       "names": {"en": "No Spice", "zh": "不辣"},
       "pinyin": "bu la",
       "meta": "Level 0",
-      "note": "Plain broth, no chilli at all. A real choice here, not a fallback."
+      "meta_zh": "0级",
+      "note": "Plain broth, no chilli at all. A real choice here, not a fallback.",
+      "note_zh": "清汤原味,不含辣椒,是真正的选项而非退而求其次。"
     },
     {
       "level": 1,
       "names": {"en": "Mild", "zh": "微辣"},
       "pinyin": "wei la",
       "meta": "Level 1",
-      "note": "A gentle warmth. You taste the broth first and the chilli after."
+      "meta_zh": "1级",
+      "note": "A gentle warmth. You taste the broth first and the chilli after.",
+      "note_zh": "微微辛辣,先尝到汤底的鲜美,辣味随后而来。"
     },
     {
       "level": 2,
       "names": {"en": "Medium", "zh": "中辣"},
       "pinyin": "zhong la",
       "meta": "Level 2",
-      "note": "Properly spicy and still comfortable. The most ordered level."
+      "meta_zh": "2级",
+      "note": "Properly spicy and still comfortable. The most ordered level.",
+      "note_zh": "辣度适中,爽快不过火,是点单最多的选择。"
     },
     {
       "level": 3,
       "names": {"en": "Hot", "zh": "特辣"},
       "pinyin": "te la",
       "meta": "Level 3",
-      "note": "Serious heat. Worth choosing only if you already know you like it."
+      "meta_zh": "3级",
+      "note": "Serious heat. Worth choosing only if you already know you like it.",
+      "note_zh": "辣度强烈,建议确定自己能接受辣味后再选择。"
     }
   ]
 }

@@ -392,6 +392,26 @@ private:
 	ofTrueTypeFont _idleHandFont;  // 32px bold DejaVuSans
 	bool _fontsLoaded = false;
 
+	// 2026-08-26: locale-switched fonts. Doc §17.1: "Fonts: Inter for
+	// en, Noto Sans SC for zh. Two ofTrueTypeFont instances per size,
+	// selected by state.locale" — done here as ONE instance per size that
+	// gets RELOADED from the other language's file when `state.locale`
+	// changes, rather than two live members per role. That keeps every
+	// draw call above (`_nameFont`, `_buttonFont`, ...) exactly as it
+	// already reads them; only setup() and update() know a second locale
+	// exists. See loadFonts()'s own comment for what "reloaded" costs.
+	//
+	// Empty until setup() runs, which is also the sentinel that makes the
+	// FIRST update() after boot a no-op reload check rather than an
+	// unconditional one — see the call site.
+	std::string _loadedFontLocale;
+	// Loads every font member above from either the English (DejaVu)
+	// files or the single bundled Chinese one (Noto Sans SC), at each
+	// role's EXISTING px size — see UiLayer.cpp for why CJK does not get
+	// doc §17.1's "15% larger" bump yet. Returns whether every load
+	// succeeded, same contract setup() already had for `_fontsLoaded`.
+	bool loadFonts(const std::string & locale);
+
 	// How tall the page header actually is, measured from the loaded title
 	// face in setup() rather than fixed as a constant. The info box's band
 	// on the option and payment screens is `kInfoBoxHeightPx` minus this,

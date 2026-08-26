@@ -326,13 +326,24 @@ class TestStateBroadcast(CoreCase):
         self.assertEqual(len(msg["bins"]), 8)
         # RIG_FEEDBACK_2026-08-12.md items 4-7: Done/Cancel/Language were
         # removed outright 2026-08-13 (placeholders, developer's own call).
-        # 2026-08-24 replaced them with the cart's own Cancel/Confirm pair
-        # (VISUAL_LAYER.md section 8), which is present in every state —
-        # disabled here, since a table at boot has nothing picked.
+        # 2026-08-24 replaced Cancel/Confirm with the cart's own pair
+        # (VISUAL_LAYER.md section 8), present in every state — disabled
+        # here, since a table at boot has nothing picked. Language came
+        # back 2026-08-26 in the middle slot between them, once
+        # `data/locales/zh.json` gave it somewhere to switch to — this
+        # Core loads the real `data/`, so both locales are loaded here
+        # same as on the rig.
         self.assertEqual([w["id"] for w in msg["widgets"]],
-                         [coremain.hover.CANCEL, coremain.hover.CONFIRM])
+                         [coremain.hover.CANCEL, coremain.hover.LANGUAGE,
+                          coremain.hover.CONFIRM])
         for w in msg["widgets"]:
-            self.assertFalse(w["enabled"])
+            # Language is never gated on cart state (hover.widgets_for's
+            # own docstring) — which language the table speaks is not
+            # something to hold hostage to whether a diner has picked
+            # anything, unlike Cancel/Confirm, which have nothing to act
+            # on yet at boot.
+            if w["id"] != coremain.hover.LANGUAGE:
+                self.assertFalse(w["enabled"])
             self.assertEqual(len(w["rect"]), 4)
         self.assertEqual(msg["overlay"], {"kind": "none"})
         self.assertIn("style", msg["fluid"])
@@ -4137,8 +4148,11 @@ class TestHoverAndDwellOverTheWire(CoreCase):
 
     def test_the_cart_buttons_are_on_the_wire_once_a_session_starts(self):
         # 2026-08-24: the cart's Cancel/Confirm pair replaced the empty
-        # widget list Done/Cancel/Language left behind. Both are present in
-        # SELECTING, in that order (Cancel first, developer's own call).
+        # widget list Done/Cancel/Language left behind (Cancel first,
+        # developer's own call). Language rejoined them 2026-08-26 in the
+        # middle slot, once `data/locales/zh.json` gave it somewhere to
+        # switch to — see `test_shape_matches_doc_4_3` for the same shape
+        # at boot.
         c, msgs, lock = self.of_client()
         tx = self.cursor_sender()
         x, y = self.bin_centre(0)
@@ -4153,7 +4167,8 @@ class TestHoverAndDwellOverTheWire(CoreCase):
             recent = list(msgs[-5:])
         for m in recent:
             self.assertEqual([w["id"] for w in m["widgets"]],
-                             [coremain.hover.CANCEL, coremain.hover.CONFIRM])
+                             [coremain.hover.CANCEL, coremain.hover.LANGUAGE,
+                              coremain.hover.CONFIRM])
 
     def test_dwelling_confirm_on_an_empty_cart_fires_nothing(self):
         # With nothing picked both buttons are `enabled: false`, and a
@@ -4242,17 +4257,48 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         self.assertIs(self.core.fsm.state, fsm.State.BROTH)
         self.assertAlmostEqual(self.core.cart.shown_g[0], 54.0, places=3)
 
-    def test_neither_done_nor_language_came_back(self):
+    def test_done_stays_gone_but_language_is_real_now(self):
         # RIG_FEEDBACK items 4-7 removed three widgets; 2026-08-24 brought
-        # back a DIFFERENT pair, and only that pair. Done still has nowhere
-        # to go until M6 and there is still one locale file, so a `done` or
-        # `language` on the wire means the old set leaked back in.
+        # back a DIFFERENT pair. Done still has nowhere to go until M6, so
+        # a `done` on the wire still means the old set leaked back in.
+        # Language is no longer in that category, 2026-08-26 —
+        # `data/locales/zh.json` gave it somewhere to switch to, and this
+        # Core (real `data/`, not a fixture) loads it same as the rig
+        # will, so it belongs on the wire same as Cancel/Confirm.
         c, msgs, lock = self.of_client()
         self.wait_for_n(msgs, lock, 1)
         with lock:
             ids = [w["id"] for w in msgs[0]["widgets"]]
         self.assertNotIn(coremain.hover.DONE, ids)
-        self.assertNotIn(coremain.hover.LANGUAGE, ids)
+        self.assertIn(coremain.hover.LANGUAGE, ids)
+
+    def test_dwelling_language_cycles_the_locale_and_relabels_the_table(self):
+        """End to end: firing the LANGUAGE widget is `_fire_widget`'s own
+        dispatch to `_cycle_locale` (see that method's docstring —
+        "written to be correct anyway"), and the effect has to reach the
+        WIRE, not just `self.core.locale` — oF never resolves a string
+        itself (I2), so a locale flip nobody re-broadcasts is invisible on
+        the table.
+        """
+        self.assertEqual(self.core.locale, "en")
+        with self.core.state_lock:
+            self.core._fire_widget(coremain.hover.LANGUAGE)
+        self.assertEqual(self.core.locale, "zh")
+
+        c, msgs, lock = self.of_client()
+        self.wait_for_n(msgs, lock, 1)
+        with lock:
+            widgets = {w["id"]: w for w in msgs[-1]["widgets"]}
+        self.assertEqual(widgets[coremain.hover.CANCEL]["label"], "取消")
+        self.assertEqual(widgets[coremain.hover.LANGUAGE]["label"], "语言")
+
+        # Cycles rather than toggles (the docstring's own claim) — with
+        # exactly two locales loaded that is indistinguishable from a
+        # toggle, but going round returns to English rather than getting
+        # stuck on zh.
+        with self.core.state_lock:
+            self.core._fire_widget(coremain.hover.LANGUAGE)
+        self.assertEqual(self.core.locale, "en")
 
     # -- shared setup for the two dwell tests above -------------------------
 

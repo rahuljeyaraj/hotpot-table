@@ -1,0 +1,21 @@
+{
+  "_currency": {"symbol": "¥", "rate": 7.2, "decimals": 2},
+  "total": "总计",
+  "done": "完成",
+  "cancel": "取消",
+  "confirm": "确认",
+  "back": "返回",
+  "next": "下一步",
+  "pay": "支付",
+  "step_cart": "您的订单",
+  "step_broth": "选择汤底",
+  "step_spice": "选择辣度",
+  "step_pay": "扫码支付",
+  "paid": "已收款",
+  "token": "您的号码牌",
+  "token_hint": "请将碗交给工作人员",
+  "token_hint2": "号码叫到时我们会通知您",
+  "language": "语言",
+  "per_100g": "/100克",
+  "kcal_per_100g": "千卡 / 100克"
+}

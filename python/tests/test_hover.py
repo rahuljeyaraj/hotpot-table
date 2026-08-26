@@ -35,7 +35,7 @@ def frame(hands, seq=1):
     return cursorbus.CursorFrame(seq=seq, ts=0.0, hands=list(hands))
 
 
-def build_widgets(*, selecting: bool = True, locales_available: int = 2):
+def build_widgets(*, selecting: bool = True, locales_available: int = 1):
     """The real widget set, straight out of production's own `widgets_for()`.
 
     Was a hand-built stand-in while `widgets_for()` returned `[]`
@@ -47,6 +47,15 @@ def build_widgets(*, selecting: bool = True, locales_available: int = 2):
 
     `cart_active=True` because every test below is about a widget being
     dwellable, and an empty cart's buttons are deliberately disabled.
+
+    **`locales_available` defaults to 1, not 2 (2026-08-26).** It was 2
+    back when `widgets_for` ignored the parameter outright, so the value
+    was a don't-care; now that a second locale actually adds a third
+    widget (Language, in the middle slot), every existing call below that
+    does not pass this explicitly is testing the plain Cancel/Confirm
+    row it always meant to test, same as before Language existed. The
+    Language-specific behaviour has its own tests, which pass
+    `locales_available=2` explicitly — see `TestWhichWidgetsExist`.
     """
     return hover.widgets_for(selecting=selecting,
                              locales_available=locales_available,
@@ -176,28 +185,34 @@ class TestWhichWidgetsExist(unittest.TestCase):
     doc-section-8's cart "never moves" and a button that disappears is the
     same broken promise as a row that does.
 
-    Done/Language stay removed (RIG_FEEDBACK_2026-08-12.md items 4-7):
-    Done has nowhere to go until M6, and there is still one locale file.
+    Done stays removed (RIG_FEEDBACK_2026-08-12.md items 4-7): it has
+    nowhere to go until M6. **Language came back 2026-08-26**, the day
+    `data/locales/zh.json` gave it somewhere to switch to — see
+    `test_language_appears_once_a_second_locale_is_loaded` below and
+    `hover.widgets_for`'s own docstring on why `locales_available` is the
+    gate rather than `cart_active`.
     """
 
     def test_both_buttons_exist_outside_selecting(self):
         ids = [w.id for w in hover.widgets_for(selecting=False,
-                                               locales_available=2)]
+                                               locales_available=1)]
         self.assertEqual(ids, [hover.CANCEL, hover.CONFIRM])
 
     def test_both_buttons_exist_in_selecting_too(self):
         ids = [w.id for w in hover.widgets_for(selecting=True,
-                                               locales_available=2)]
+                                               locales_available=1)]
         self.assertEqual(ids, [hover.CANCEL, hover.CONFIRM])
 
     def test_an_empty_cart_disables_both(self):
-        for w in hover.widgets_for(selecting=True, locales_available=2,
+        # Only Cancel/Confirm — Language is deliberately not gated on
+        # cart_active, see test_language_is_never_disabled_by_cart_state.
+        for w in hover.widgets_for(selecting=True, locales_available=1,
                                    cart_active=False):
             with self.subTest(widget=w.id):
                 self.assertFalse(w.enabled)
 
     def test_a_picked_cart_enables_both(self):
-        for w in hover.widgets_for(selecting=True, locales_available=2,
+        for w in hover.widgets_for(selecting=True, locales_available=1,
                                    cart_active=True):
             with self.subTest(widget=w.id):
                 self.assertTrue(w.enabled)
@@ -206,7 +221,7 @@ class TestWhichWidgetsExist(unittest.TestCase):
         # `cart_active` is defaulted so an un-updated caller cannot crash.
         # It must default to the SAFE side: a caller that forgot to pass it
         # gets buttons that cannot fire, never buttons that can.
-        for w in hover.widgets_for(selecting=True, locales_available=2):
+        for w in hover.widgets_for(selecting=True, locales_available=1):
             with self.subTest(widget=w.id):
                 self.assertFalse(w.enabled)
 
@@ -214,6 +229,31 @@ class TestWhichWidgetsExist(unittest.TestCase):
         ids = [w.id for w in hover.widgets_for(selecting=True,
                                                locales_available=1)]
         self.assertNotIn(hover.LANGUAGE, ids)
+
+    def test_language_appears_once_a_second_locale_is_loaded(self):
+        # The day `zh.json` (or any second locale file) loads, this is the
+        # only thing that should have to change — doc section 17.1's own
+        # promise, `i18n.Locales.available`'s own docstring.
+        ids = [w.id for w in hover.widgets_for(selecting=True,
+                                               locales_available=2)]
+        self.assertEqual(ids, [hover.CANCEL, hover.LANGUAGE, hover.CONFIRM])
+
+    def test_language_sits_in_the_middle_slot(self):
+        slots = hover.button_slot_rects()
+        ws = {w.id: w for w in hover.widgets_for(selecting=True,
+                                                 locales_available=2)}
+        self.assertEqual(ws[hover.LANGUAGE].rect, slots[hover.SLOT_MIDDLE])
+
+    def test_language_is_never_disabled_by_cart_state(self):
+        # Which language the table speaks is not something to hold
+        # hostage to whether a diner has picked anything yet — unlike
+        # Cancel/Confirm, which have nothing to act on until they have.
+        for cart_active in (False, True):
+            with self.subTest(cart_active=cart_active):
+                ws = {w.id: w for w in hover.widgets_for(
+                    selecting=True, locales_available=2,
+                    cart_active=cart_active)}
+                self.assertTrue(ws[hover.LANGUAGE].enabled)
 
     def test_confirm_is_not_done(self):
         # M6's SELECTING -> BROTH edge is written against `DONE`; the cart's
@@ -460,6 +500,15 @@ class _FakeBroth:
     def display_name(self, locale=None):
         return self._name
 
+    # No `zh` variant on this fixture — same as `display_name` above,
+    # `locale` is accepted (broth_widgets/spice_widgets now pass it
+    # through unconditionally) and ignored.
+    def meta_text(self, locale=None):
+        return self.meta
+
+    def note_text(self, locale=None):
+        return self.note
+
 
 class _FakeSpice:
     def __init__(self, level, name):
@@ -468,6 +517,12 @@ class _FakeSpice:
 
     def display_name(self, locale=None):
         return self._name
+
+    def meta_text(self, locale=None):
+        return self.meta
+
+    def note_text(self, locale=None):
+        return self.note
 
 
 BROTHS = [_FakeBroth("mala", "Classic Mala Broth"),
