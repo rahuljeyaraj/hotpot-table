@@ -818,6 +818,141 @@ class TestScaleWiredIntoCart(ScaleRig, CoreCase):
         self.assertTrue(wait_for(overlay_is_error), "overlay never flagged the dead link")
 
 
+class TestPickSoundGatedOnSettled(CoreCase):
+    """2026-08-26, developer report: picking food played pick_confirm /
+    putback several times for one pick. `_apply_scale_to_cart` snaps
+    Cart's `shown_g` (and so fires the sound) on every crossing of the
+    5g deadband, and a real read can cross that line more than once
+    while the load cell is still moving/settling. The fix gates the
+    SOUND — never the pricing snap itself — on core/scale.py's own
+    `settled` flag, via `Core._sound_shown_g`.
+
+    Bypasses the real serial pipeline entirely (monkeypatches
+    `core.scale.read`) so this is about `_apply_scale_to_cart`'s own
+    logic, not calibration or timing — ScaleRig's real feed()/settle_ms
+    timing is exercised elsewhere (TestScaleWiredIntoCart).
+    """
+
+    BIN = 0
+
+    def _reading(self, grams, settled):
+        g = [None] * coremain.cart.NUM_BINS
+        g[self.BIN] = grams
+        s = [False] * coremain.cart.NUM_BINS
+        s[self.BIN] = settled
+        return coremain.scale.Reading(counts=None, grams=g, settled=s,
+                                       ts=0.0, age=0.0, stale=False)
+
+    def _apply(self, grams, settled):
+        self.core.scale.read = lambda: self._reading(grams, settled)
+        with self.core.state_lock:
+            self.core._apply_scale_to_cart()
+
+    def _sound_events(self):
+        events = []
+        lock = threading.Lock()
+
+        def on_msg(m):
+            if m.get("t") == "evt" and m.get("kind") == "sound":
+                with lock:
+                    events.append(m)
+
+        c = self.wire_client("of", on_message=on_msg)
+        self.assertTrue(c.wait_connected(DEADLINE), "of never got a welcome")
+        return events, lock
+
+    def test_several_unsettled_crossings_play_exactly_one_sound(self):
+        events, lock = self._sound_events()
+
+        # First-ever reading for this bin: seeds the baseline (start_g =
+        # live_g = grams, shown_g = 0). Never sounds — seeding isn't a pick.
+        self._apply(500.0, settled=False)
+        # Weight drops in several small steps, each on its own crossing the
+        # 5g deadband, all while still unsettled — a hand mid-pick, or
+        # load-cell noise on a settling tray, looks exactly like this.
+        self._apply(494.0, settled=False)    # removed=6,  6-0 >=5: snaps shown_g to 6
+        self._apply(487.0, settled=False)    # removed=13, 13-6 >=5: snaps shown_g to 13
+        self._apply(490.0, settled=False)    # removed=10, |10-13|<5: no snap, shown_g stays 13
+
+        with lock:
+            self.assertEqual(events, [],
+                              "a sound fired before the reading ever settled")
+
+        # Motion stops; the next read (same 490g the wobble left it at)
+        # reports settled.
+        self._apply(490.0, settled=True)
+
+        def one_sound():
+            with lock:
+                return len(events) == 1
+        self.assertTrue(wait_for(one_sound),
+                         "expected exactly one sound once the bin settled")
+        with lock:
+            evt = dict(events[0])
+        self.assertEqual(evt["id"], "pick_confirm")
+        # shown_g settled at 13 (the last real snap the deadband allowed,
+        # per the step-by-step trace above) — one sound for the combined
+        # 13g, not zero, not three, and not the raw 500->490=10g either.
+        self.assertAlmostEqual(evt["grams"], 13.0, places=3)
+
+    def test_a_settled_no_op_read_plays_nothing(self):
+        """A settled reading that repeats the already-announced shown_g
+        (nothing new happened) must not re-fire the last sound."""
+        events, lock = self._sound_events()
+        self._apply(500.0, settled=False)     # seed
+        self._apply(490.0, settled=True)       # one real, settled pick
+
+        def one_sound():
+            with lock:
+                return len(events) == 1
+        self.assertTrue(wait_for(one_sound), "the real pick never sounded")
+
+        self._apply(490.0, settled=True)       # same reading again
+        self._apply(490.0, settled=True)
+
+        with lock:
+            self.assertEqual(len(events), 1,
+                              "an unchanged settled reading re-fired the sound")
+
+    def test_exit_setting_resyncs_sound_tracking(self):
+        """A bin's sound tracking must not be left stale across a
+        setting-mode exit's re-baseline (cart.reset_session() sets
+        shown_g back to 0 there, outside _end_session()) — otherwise the
+        next real pick reads as a negative delta against the stale
+        tracked value and fires a phantom putback."""
+        events, lock = self._sound_events()
+        self._apply(500.0, settled=False)      # seed
+        self._apply(490.0, settled=True)       # real pick, sounds once
+
+        def one_sound():
+            with lock:
+                return len(events) == 1
+        self.assertTrue(wait_for(one_sound), "the real pick never sounded")
+
+        with self.core.state_lock:
+            self.core.cart.reset_session()
+            self.core._reset_sound_shown_g()
+
+        with lock:
+            events.clear()
+
+        # Next bin reading after the reset starts from the fresh baseline
+        # (490g, matching cart.live_g after reset_session()'s re-baseline)
+        # and drops 6g — a fresh, genuine pick, not a phantom putback.
+        self._apply(490.0, settled=False)      # re-seed after the reset
+        self._apply(484.0, settled=True)       # 6g removed, settled
+
+        def one_pick_sound():
+            with lock:
+                return len(events) == 1
+        self.assertTrue(wait_for(one_pick_sound),
+                         "the post-reset pick never sounded")
+        with lock:
+            evt = dict(events[0])
+        self.assertEqual(evt["id"], "pick_confirm",
+                          "stale sound tracking fired a phantom putback")
+
+
 class TestBinsTab(CoreCase):
     """M2 build item 4 (doc section 21): the staff view's Bins tab (doc
     section 12.4) — the periodic `bins` broadcast the 8 cards read, and
