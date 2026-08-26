@@ -14,8 +14,9 @@ namespace {
 
 	// 2026-08-26: the roaming fireball's own burning loop, quieter than
 	// the bin's (`kFireBurningGain` below) — "little smaller", per the
-	// developer, matching the visual size difference rather than a
-	// separate recording.
+	// developer, matching the visual size difference. Its clip
+	// (`fire_burning_ambient.mp3`) is a separate, developer-supplied
+	// recording as of 2026-08-26 — see AudioBus.h's note on it.
 	const float kHandFireGain = 0.45f;
 	const float kFireBurningGain = 1.0f;
 }
