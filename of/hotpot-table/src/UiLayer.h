@@ -226,6 +226,17 @@ private:
 	static void drawCenteredLitTo(const ofTrueTypeFont & f, const std::string & s,
 		float cx, float baseline, float splitX, const ofColor & dark,
 		const ofColor & lit);
+	// `drawCenteredLitTo`'s own sweep, split across TWO fonts for a label
+	// mixing ASCII and CJK bytes (today: the Language button's literal
+	// "EN | 中文" — see hasMixedScript). Splits the STRING once, at the
+	// first non-ASCII byte, and draws the ASCII half in `asciiFont`, the
+	// rest in `cjkFont`, both through `drawStringLitTo` against the same
+	// `splitX` so the sweep still reads as one continuous edge crossing
+	// the whole label rather than two buttons glued together.
+	static void drawBilingualCenteredLitTo(const ofTrueTypeFont & asciiFont,
+		const ofTrueTypeFont & cjkFont, const std::string & s,
+		float cx, float baseline, float splitX, const ofColor & dark,
+		const ofColor & lit);
 	// How far the dwell sweep has crossed this widget, 0..1 — latched
 	// against the one-frame gap between core clearing `dwell` and core
 	// marking `selected`. See `_sweepHoldUntil`.
@@ -353,6 +364,14 @@ private:
 	// leaves a margin inside a 155px button. 24px bold: still a heading,
 	// still read first, but sized to the control it sits in.
 	ofTrueTypeFont _buttonFont;     // 22px bold, a button's label
+	// 2026-08-26: the Language button's own "中文" half. Loaded ONCE in
+	// setup() and never touched by loadFonts()'s per-locale reload —
+	// unlike every other font member, this one label needs the ASCII
+	// face and the CJK face on screen AT THE SAME TIME regardless of
+	// which locale is active ("EN | 中文" reads the same in either), so
+	// it cannot be "whichever font the current locale loaded" the way
+	// every other role is. See drawWidget's hasMixedScript branch.
+	ofTrueTypeFont _buttonFontCjk; // 22px, Noto Sans SC, always loaded
 	ofTrueTypeFont _pageTitleFont;  // 26px bold, "Choose Your Broth"
 	// 20px bold, a broth/spice plate's name. Its own face rather than the
 	// title's, because the size is decided by the plate's label column

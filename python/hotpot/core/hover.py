@@ -855,9 +855,17 @@ def widgets_for(*, selecting: bool, locales_available: int,
                style="danger", enabled=enabled),
     ]
     if show_language:
+        # 2026-08-26, developer: put "EN | 中文" on the button itself,
+        # both sides, rather than a translated word that only ever shows
+        # the CURRENT language back at the diner. A literal `label`
+        # (never `label_key="language"` now — see Widget's own docstring
+        # on why `label` wins) so it reads the same in either locale;
+        # `UiLayer::drawWidget` special-cases any mixed-script label to
+        # draw the ASCII and CJK halves in their own fonts, since no
+        # single locale-selected font this table loads carries both.
         out.append(Widget(id=LANGUAGE, rect=rects[LANGUAGE],
-                          label_key="language", style="secondary",
-                          enabled=True))
+                          label_key="", label="EN | 中文",
+                          style="secondary", enabled=True))
     out.append(Widget(id=CONFIRM, rect=rects[CONFIRM], label_key="next",
                       style="primary", enabled=enabled))
     return out

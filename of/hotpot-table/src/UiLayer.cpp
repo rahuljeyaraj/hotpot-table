@@ -1079,6 +1079,24 @@ namespace {
 	// filled row" promise every slot makes. Truncated character-by-
 	// character (not word-by-word like the wrap helper) so a single very
 	// long word still yields something rather than overflowing whole.
+	// Pops exactly one whole UTF-8 codepoint off the end. `std::string::
+	// pop_back()` alone removes one BYTE, which cuts a multi-byte CJK
+	// codepoint in half and hands FreeType a dangling lead byte or a
+	// stray continuation byte — not a defined "one character shorter."
+	// 2026-08-26, the other half of the zh note-truncation report (see
+	// tokenizeForWrap's own comment for the main half): a note that
+	// genuinely needed truncateToWidth's ellipsis fallback would have
+	// come back with a mangled trailing glyph on top of being cut short.
+	void popBackUtf8(std::string & s){
+		if(s.empty()){
+			return;
+		}
+		s.pop_back();
+		while(!s.empty() && ((unsigned char)s.back() & 0xC0) == 0x80){
+			s.pop_back();
+		}
+	}
+
 	std::string truncateToWidth(const ofTrueTypeFont & font, const std::string & text,
 		float maxWidthPx){
 		if(!font.isLoaded() || font.getStringBoundingBox(text, 0, 0).width <= maxWidthPx){
@@ -1087,13 +1105,123 @@ namespace {
 		const std::string ellipsis = "...";
 		std::string result = text;
 		while(!result.empty()){
-			result.pop_back();
+			popBackUtf8(result);
 			std::string candidate = result + ellipsis;
 			if(font.getStringBoundingBox(candidate, 0, 0).width <= maxWidthPx){
 				return candidate;
 			}
 		}
 		return ellipsis;
+	}
+
+	// **The wrap helpers below break a string into "words" at whitespace
+	// — which is what English uses to mark where a line may legally
+	// break, and what Chinese does not have at all.** A zh note like
+	// "麻辣鲜香,以四川花椒和辣椒为底,是全场最浓烈的汤底。" carries no
+	// spaces, so the old `std::istringstream >> word` tokenizer read the
+	// entire sentence as ONE word — nothing for wrapToLines'/
+	// wrapNameToTwoLines' own break logic to break ON — and the whole
+	// sentence landed on a single line, which wrapToLines' ellipsis then
+	// truncated to whatever fit that one line's width. That is the
+	// "broth and spice level info is getting truncated" report,
+	// 2026-08-26: not a wrapping edge case, the wrap never ran at all.
+	//
+	// The fix is not a special case for Chinese — it is what CJK line-
+	// breaking actually allows: unlike English, almost any character
+	// boundary is a legal break point, so ONE CJK CHARACTER IS ITS OWN
+	// TOKEN, exactly as breakable as an English word is. An ASCII run
+	// still tokenizes on whitespace, unchanged, so English text (and the
+	// ASCII half of a mixed string like "0级" or a page title) wraps
+	// exactly as it always did.
+	bool tokenIsCjk(const std::string & token){
+		return !token.empty() && (unsigned char)token[0] >= 0x80;
+	}
+
+	// A label carrying both an ASCII letter/digit and a non-ASCII byte —
+	// today, only the Language button's literal "EN | 中文" (hover.py's
+	// own comment on why it is never translated per-locale). Used by
+	// `drawWidget` to route a button's label through
+	// `drawBilingualCenteredLitTo` instead of the ordinary single-font
+	// `drawCenteredLitTo`, since no font this table loads carries both
+	// scripts (loadFonts() swaps the whole set by locale).
+	bool hasMixedScript(const std::string & s){
+		bool sawAscii = false, sawNonAscii = false;
+		for(unsigned char c : s){
+			if(c >= 0x80){
+				sawNonAscii = true;
+			} else if(std::isalnum(c)){
+				sawAscii = true;
+			}
+			if(sawAscii && sawNonAscii){
+				return true;
+			}
+		}
+		return false;
+	}
+
+	std::vector<std::string> tokenizeForWrap(const std::string & text){
+		std::vector<std::string> words;
+		std::string cur;
+		for(size_t i = 0; i < text.size(); ){
+			const unsigned char c = (unsigned char)text[i];
+			if(c < 0x80){
+				if(std::isspace(c)){
+					if(!cur.empty()){
+						words.push_back(cur);
+						cur.clear();
+					}
+					i++;
+					continue;
+				}
+				cur += (char)c;
+				i++;
+				continue;
+			}
+			// Non-ASCII: flush any pending ASCII run, then take exactly
+			// one UTF-8 codepoint (by its lead byte's own length) as a
+			// token of its own — never split mid-codepoint.
+			if(!cur.empty()){
+				words.push_back(cur);
+				cur.clear();
+			}
+			size_t len = 1;
+			if((c & 0xE0) == 0xC0){
+				len = 2;
+			} else if((c & 0xF0) == 0xE0){
+				len = 3;
+			} else if((c & 0xF8) == 0xF0){
+				len = 4;
+			}
+			len = std::min(len, text.size() - i);
+			words.push_back(text.substr(i, len));
+			i += len;
+		}
+		if(!cur.empty()){
+			words.push_back(cur);
+		}
+		return words;
+	}
+
+	// Appends `token` to the growing line `cur`, WITHOUT a space when
+	// both sides of the join are CJK — two adjacent Chinese characters
+	// never take a space between them, that is what makes Chinese read
+	// as Chinese rather than as Chinese-with-gaps. Every other join
+	// (English-English, English-CJK, CJK-English) keeps the ordinary
+	// single space, so a mixed string like "千卡 / 100克" — a literal
+	// space in the source text either side of the ASCII "/" — still
+	// reassembles with that same spacing rather than losing it because
+	// one neighbour happened to be CJK.
+	void appendToken(std::string & cur, const std::string & token){
+		if(cur.empty()){
+			cur = token;
+			return;
+		}
+		const bool prevIsCjk = (unsigned char)cur.back() >= 0x80;
+		if(prevIsCjk && tokenIsCjk(token)){
+			cur += token;
+		} else {
+			cur += " " + token;
+		}
 	}
 
 	// `drawRectBorder` lived here and is deleted (2026-08-24): the cart
@@ -1122,30 +1250,26 @@ namespace {
 		if(!font.isLoaded() || font.getStringBoundingBox(text, 0, 0).width <= maxWidthPx){
 			return {text};
 		}
-		std::vector<std::string> words;
-		std::istringstream iss(text);
-		std::string w;
-		while(iss >> w){
-			words.push_back(w);
-		}
+		std::vector<std::string> words = tokenizeForWrap(text);
 		if(words.empty()){
 			return {text};
 		}
 		std::string line1;
 		size_t i = 0;
 		for(; i < words.size(); i++){
-			std::string candidate = line1.empty() ? words[i] : line1 + " " + words[i];
+			std::string candidate = line1;
+			appendToken(candidate, words[i]);
 			if(!line1.empty() && font.getStringBoundingBox(candidate, 0, 0).width > maxWidthPx){
 				break;
 			}
 			line1 = candidate;
 		}
 		if(line1.empty()){
-			line1 = words[i++];   // one overlong word — take it anyway, never emit an empty line
+			line1 = words[i++];   // one overlong word/character — take it anyway, never emit an empty line
 		}
 		std::string line2;
 		for(; i < words.size(); i++){
-			line2 = line2.empty() ? words[i] : line2 + " " + words[i];
+			appendToken(line2, words[i]);
 		}
 		if(line2.empty()){
 			return {line1};
@@ -1170,15 +1294,11 @@ namespace {
 		if(!font.isLoaded() || text.empty() || maxLines == 0){
 			return lines;
 		}
-		std::istringstream iss(text);
-		std::vector<std::string> words;
-		std::string w;
-		while(iss >> w){
-			words.push_back(w);
-		}
+		std::vector<std::string> words = tokenizeForWrap(text);
 		std::string cur;
 		for(size_t i = 0; i < words.size(); i++){
-			std::string candidate = cur.empty() ? words[i] : cur + " " + words[i];
+			std::string candidate = cur;
+			appendToken(candidate, words[i]);
 			if(!cur.empty()
 				&& font.getStringBoundingBox(candidate, 0, 0).width > maxWidthPx){
 				lines.push_back(cur);
@@ -1188,7 +1308,7 @@ namespace {
 					// truncateToWidth cut it, rather than dropping words
 					// silently.
 					for(size_t j = i + 1; j < words.size(); j++){
-						cur += " " + words[j];
+						appendToken(cur, words[j]);
 					}
 					break;
 				}
@@ -1250,13 +1370,18 @@ namespace {
 	// Generated by scanning every zh string this table can show —
 	// `data/locales/zh.json`'s values, `data/catalogue.json`'s
 	// `names.zh`/`description_zh`, `data/menu.json`'s `names.zh`/
-	// `meta_zh`/`note_zh` — for characters at or above U+2E80. 231 of
-	// them, 2026-08-26. **Regenerate this array whenever any of those
-	// files' zh text changes** — a character used on the table but not
-	// in this list draws as a missing-glyph box (FreeType's .notdef),
-	// exactly the failure a curated range exists to avoid; a superset is
-	// cheap (fewer than a thousand extra glyphs at worst), a subset is a
-	// silent box on the projected table.
+	// `meta_zh`/`note_zh`, PLUS the one CJK string that lives outside
+	// any locale file: the Language button's literal "EN | 中文" (see
+	// hover.py's `widgets_for` — it is deliberately NOT translated, so
+	// it is not in `zh.json` for this to have picked up on its own) —
+	// for characters at or above U+2E80. 232 of them, 2026-08-26.
+	// **Regenerate this array whenever any of those files' zh text
+	// changes, OR the button's own literal string changes** — a
+	// character used on the table but not in this list draws as a
+	// missing-glyph box (FreeType's .notdef), exactly the failure a
+	// curated range exists to avoid; a superset is cheap (fewer than a
+	// thousand extra glyphs at worst), a subset is a silent box on the
+	// projected table.
 	const std::uint32_t kCjkCodepoints[] = {
 		0x3002, 0x4E00, 0x4E0B, 0x4E0D, 0x4E2A, 0x4E2D, 0x4E38, 0x4E3A, 0x4E4B, 0x4E73,
 		0x4EA4, 0x4EBA, 0x4ED6, 0x4ED8, 0x4EE5, 0x4EEC, 0x4F1A, 0x4F5C, 0x4F9D, 0x4FBF,
@@ -1268,20 +1393,20 @@ namespace {
 		0x5AE9, 0x5B8C, 0x5B9A, 0x5B9E, 0x5C06, 0x5C0F, 0x5C11, 0x5C1D, 0x5DDD, 0x5DE5,
 		0x5DF1, 0x5DF2, 0x5E26, 0x5E38, 0x5E95, 0x5EA6, 0x5EFA, 0x5F39, 0x5F3A, 0x5F88,
 		0x5FAE, 0x5FEB, 0x603B, 0x60A8, 0x611F, 0x6162, 0x6210, 0x6211, 0x626B, 0x62C9,
-		0x62E9, 0x63A5, 0x63D0, 0x652F, 0x6536, 0x65B9, 0x65E0, 0x65E7, 0x65F6, 0x6613,
-		0x662F, 0x66F4, 0x6700, 0x6709, 0x6761, 0x6765, 0x677E, 0x684C, 0x6912, 0x6B21,
-		0x6B3E, 0x6B63, 0x6B65, 0x6BD4, 0x6C41, 0x6C42, 0x6C64, 0x6D53, 0x6D88, 0x6DC0,
-		0x6DE1, 0x6E05, 0x6E29, 0x6ED1, 0x6EE1, 0x706B, 0x70B9, 0x70C8, 0x70DF, 0x7136,
-		0x716E, 0x718F, 0x71AC, 0x723D, 0x7247, 0x724C, 0x7259, 0x725B, 0x7279, 0x751C,
-		0x767D, 0x7684, 0x76C8, 0x771F, 0x77E5, 0x7801, 0x786E, 0x7897, 0x7A0D, 0x7A20,
-		0x7A33, 0x7C73, 0x7C89, 0x7C97, 0x7CEF, 0x7D20, 0x7D27, 0x7EA7, 0x7EC6, 0x7ECF,
-		0x7ED9, 0x7F8E, 0x800C, 0x8089, 0x80F6, 0x80FD, 0x8106, 0x817B, 0x81EA, 0x8272,
-		0x82B1, 0x83C7, 0x83CC, 0x84EC, 0x85D5, 0x8611, 0x867D, 0x867E, 0x86CB, 0x8A00,
-		0x8BA1, 0x8BA2, 0x8BA4, 0x8BA9, 0x8BAE, 0x8BD5, 0x8BED, 0x8BF7, 0x8C46, 0x8DB3,
-		0x8F6F, 0x8F7B, 0x8F9B, 0x8FA3, 0x8FC7, 0x8FD4, 0x9000, 0x9002, 0x9009, 0x901A,
-		0x9053, 0x90C1, 0x91CD, 0x91CF, 0x94C3, 0x968F, 0x96C5, 0x975E, 0x9762, 0x9876,
-		0x9879, 0x98DF, 0x9971, 0x997C, 0x9999, 0x9AA8, 0x9C7C, 0x9C9C, 0x9CDD, 0x9E21,
-		0x9EBB,
+		0x62E9, 0x63A5, 0x63D0, 0x652F, 0x6536, 0x6587, 0x65B9, 0x65E0, 0x65E7, 0x65F6,
+		0x6613, 0x662F, 0x66F4, 0x6700, 0x6709, 0x6761, 0x6765, 0x677E, 0x684C, 0x6912,
+		0x6B21, 0x6B3E, 0x6B63, 0x6B65, 0x6BD4, 0x6C41, 0x6C42, 0x6C64, 0x6D53, 0x6D88,
+		0x6DC0, 0x6DE1, 0x6E05, 0x6E29, 0x6ED1, 0x6EE1, 0x706B, 0x70B9, 0x70C8, 0x70DF,
+		0x7136, 0x716E, 0x718F, 0x71AC, 0x723D, 0x7247, 0x724C, 0x7259, 0x725B, 0x7279,
+		0x751C, 0x767D, 0x7684, 0x76C8, 0x771F, 0x77E5, 0x7801, 0x786E, 0x7897, 0x7A0D,
+		0x7A20, 0x7A33, 0x7C73, 0x7C89, 0x7C97, 0x7CEF, 0x7D20, 0x7D27, 0x7EA7, 0x7EC6,
+		0x7ECF, 0x7ED9, 0x7F8E, 0x800C, 0x8089, 0x80F6, 0x80FD, 0x8106, 0x817B, 0x81EA,
+		0x8272, 0x82B1, 0x83C7, 0x83CC, 0x84EC, 0x85D5, 0x8611, 0x867D, 0x867E, 0x86CB,
+		0x8A00, 0x8BA1, 0x8BA2, 0x8BA4, 0x8BA9, 0x8BAE, 0x8BD5, 0x8BED, 0x8BF7, 0x8C46,
+		0x8DB3, 0x8F6F, 0x8F7B, 0x8F9B, 0x8FA3, 0x8FC7, 0x8FD4, 0x9000, 0x9002, 0x9009,
+		0x901A, 0x9053, 0x90C1, 0x91CD, 0x91CF, 0x94C3, 0x968F, 0x96C5, 0x975E, 0x9762,
+		0x9876, 0x9879, 0x98DF, 0x9971, 0x997C, 0x9999, 0x9AA8, 0x9C7C, 0x9C9C, 0x9CDD,
+		0x9E21, 0x9EBB,
 	};
 
 	// Same Latin1Supplement/CurrencySymbols pair `loadUiFont` uses, PLUS
@@ -1393,6 +1518,17 @@ void UiLayer::setup(){
 			<< " table will switch to boxes/blanks until this is fixed";
 	}
 	loadFonts("en");
+
+	// The Language button's own "中文" half — loaded here, once, and
+	// never reloaded by the locale switch above: it has to stay lit
+	// regardless of which set `loadFonts()` last chose, since the
+	// button's label mixes both scripts in either locale. Same size and
+	// same file `loadFonts` would use for a zh `_buttonFont`, just not
+	// swapped away when the table goes back to English.
+	if(!loadCjkFont(_buttonFontCjk, kCjkFontFile, 22)){
+		ofLogWarning(kTag) << "could not load the Language button's CJK half ("
+			<< kCjkFontFile << ") — its \"中文\" side will not draw";
+	}
 
 	// The page header's real height, from the face that draws it — one
 	// line of title, then the step dots on their OWN line (2026-08-25,
@@ -3025,10 +3161,24 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	// different near-whites would be three shades of "the same" colour.
 	const ofTrueTypeFont & face =
 		_buttonFont.isLoaded() ? _buttonFont : _nameFont;
-	drawCenteredLitTo(face, w.label, box.getCenter().x,
-		box.getCenter().y + face.getAscenderHeight() * 0.5f,
-		box.x + box.width * sweep01,
-		w.enabled ? ink : kWidgetDisabled, kOptionNameLitColor);
+	// 2026-08-26: the Language button's "EN | 中文" mixes ASCII and CJK
+	// in one label, and no single font this table loads carries both
+	// (loadFonts() swaps the WHOLE set between the DejaVu files and
+	// Noto Sans SC by locale — see that function's own comment). Routed
+	// by CONTENT (hasMixedScript), not by `w.id == "language"`, so any
+	// future bilingual label gets this for free.
+	if(hasMixedScript(w.label) && _buttonFontCjk.isLoaded()){
+		drawBilingualCenteredLitTo(face, _buttonFontCjk, w.label,
+			box.getCenter().x,
+			box.getCenter().y + face.getAscenderHeight() * 0.5f,
+			box.x + box.width * sweep01,
+			w.enabled ? ink : kWidgetDisabled, kOptionNameLitColor);
+	} else {
+		drawCenteredLitTo(face, w.label, box.getCenter().x,
+			box.getCenter().y + face.getAscenderHeight() * 0.5f,
+			box.x + box.width * sweep01,
+			w.enabled ? ink : kWidgetDisabled, kOptionNameLitColor);
+	}
 	ofSetColor(255);
 }
 
@@ -3353,6 +3503,39 @@ void UiLayer::drawCenteredLitTo(const ofTrueTypeFont & f, const std::string & s,
 	const ofRectangle bb = f.getStringBoundingBox(s, 0, 0);
 	drawStringLitTo(f, s, cx - bb.width * 0.5f - bb.x, baseline, splitX,
 		dark, lit);
+}
+
+void UiLayer::drawBilingualCenteredLitTo(const ofTrueTypeFont & asciiFont,
+	const ofTrueTypeFont & cjkFont, const std::string & s,
+	float cx, float baseline, float splitX, const ofColor & dark,
+	const ofColor & lit){
+	if(s.empty() || !asciiFont.isLoaded() || !cjkFont.isLoaded()){
+		return;
+	}
+	// One cut, at the first non-ASCII byte — "EN | 中文" splits into
+	// "EN | " and "中文", which is every case this exists for today (see
+	// hasMixedScript's own comment on why this is content-detected
+	// rather than special-cased by widget id).
+	size_t cut = s.size();
+	for(size_t i = 0; i < s.size(); i++){
+		if((unsigned char)s[i] >= 0x80){
+			cut = i;
+			break;
+		}
+	}
+	const std::string asciiPart = s.substr(0, cut);
+	const std::string cjkPart = s.substr(cut);
+	const float asciiW = asciiPart.empty() ? 0.0f
+		: asciiFont.getStringBoundingBox(asciiPart, 0, 0).width;
+	const float cjkW = cjkPart.empty() ? 0.0f
+		: cjkFont.getStringBoundingBox(cjkPart, 0, 0).width;
+	const float x0 = cx - (asciiW + cjkW) * 0.5f;
+	if(!asciiPart.empty()){
+		drawStringLitTo(asciiFont, asciiPart, x0, baseline, splitX, dark, lit);
+	}
+	if(!cjkPart.empty()){
+		drawStringLitTo(cjkFont, cjkPart, x0 + asciiW, baseline, splitX, dark, lit);
+	}
 }
 
 float UiLayer::sweep01For(const StateLink::Widget & w) const {

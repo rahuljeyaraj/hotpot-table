@@ -4290,7 +4290,11 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         with lock:
             widgets = {w["id"]: w for w in msgs[-1]["widgets"]}
         self.assertEqual(widgets[coremain.hover.CANCEL]["label"], "取消")
-        self.assertEqual(widgets[coremain.hover.LANGUAGE]["label"], "语言")
+        # Language's own label is literal ("EN | 中文", both sides,
+        # 2026-08-26) and does NOT go through the locale table — it reads
+        # the same in zh as it does in en. See hover.widgets_for's own
+        # comment on the widget.
+        self.assertEqual(widgets[coremain.hover.LANGUAGE]["label"], "EN | 中文")
 
         # Cycles rather than toggles (the docstring's own claim) — with
         # exactly two locales loaded that is indistinguishable from a
