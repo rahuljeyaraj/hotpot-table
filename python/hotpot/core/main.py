@@ -177,13 +177,6 @@ MODE_SETTING = "setting"
 NOT_IN_SETTING_MSG = ("Turn Serving off first — the table is still "
                       "serving.")
 
-# Doc section 15.2's `dwell_tick`: "every 300ms during a dwell, rising
-# pitch ladder, 4 steps." Independent of `hover.DEFAULT_DWELL_MS` as a
-# constant (a dwell configured to a non-default length still ticks on a
-# plain 300ms grid), but the doc's own 4-step count assumes the default
-# 1200ms dwell.
-DWELL_TICK_MS = 300.0
-
 # Doc section 8.6's `tracker.emit_hz`. Core's default rather than the
 # tracker's, because doc section 4.2 makes core the one place a client's
 # configuration lives — the tracker is told this in `welcome` and holds no
@@ -652,9 +645,6 @@ class Core:
         # would look identical to a dead tracker.
         self.cursor = cursorbus.Receiver("127.0.0.1", cursor_port)
         self.dwell = hover.DwellTracker(dwell_ms=dwell_ms)
-        # Doc section 15.2's `dwell_tick` ladder — see the emission site in
-        # `_apply_cursor` for what this tracks.
-        self._dwell_tick_ms = 0.0
         # The last cursor frame acted on, kept for the staff view's hand
         # markers (doc section 12.3). Not the raw datagram — `None` once
         # the hands have gone quiet, so a tablet does not draw a marker for
@@ -1875,29 +1865,11 @@ class Core:
             else:
                 self._send_evt({"t": "evt", "kind": "sound", "id": "fire_stop"})
 
-        dwell_target_before = self.dwell.active_id
+        # 2026-08-26, developer request: no sound at all during a dwell's
+        # progress — the doc section 15.2 `dwell_tick` rising-pitch ladder
+        # is gone outright, not muted. `_fire_widget` below is the only
+        # sound a dwell produces now, once it actually completes.
         fired = self.dwell.update(self._widgets, pointer, now)
-        # Doc section 15.2's `dwell_tick`, "every 300ms during a dwell,
-        # rising pitch ladder, 4 steps" (DEFAULT_DWELL_MS is 1200ms, so
-        # four 300ms rungs land exactly on the chime `dwell_fire` plays at
-        # the top). Read AFTER `update()`, off its own accumulator, so
-        # this never re-derives dwell timing with a second clock — the
-        # one thing hover.py's own module docstring says not to do.
-        if self.dwell.active_id != dwell_target_before:
-            self._dwell_tick_ms = 0.0
-        if self.dwell.active_id is not None:
-            rung_now = int(self.dwell.accumulated_ms // DWELL_TICK_MS)
-            rung_before = int(self._dwell_tick_ms // DWELL_TICK_MS)
-            if rung_now > rung_before:
-                # `rung` (1-based) is what lets AudioBus play the same
-                # clip at a rising pitch per step — the "ladder" is a
-                # single file plus a per-play speed change, not four
-                # separate recordings.
-                self._send_evt({"t": "evt", "kind": "sound", "id": "dwell_tick",
-                                "rung": rung_now})
-            self._dwell_tick_ms = self.dwell.accumulated_ms
-        else:
-            self._dwell_tick_ms = 0.0
         if fired is not None:
             self._fire_widget(fired)
 
@@ -2088,7 +2060,16 @@ class Core:
 
         Caller holds `state_lock`.
         """
-        self._send_evt({"t": "evt", "kind": "sound", "id": "dwell_fire"})
+        # 2026-08-26, developer request: the bottom nav buttons (Cancel/
+        # Back/Confirm/Language/Done) get no dwell-progress sound and no
+        # generic chime — one "single tap" the instant the dwell fires,
+        # nothing during the dwell itself. Broth/spice selection is NOT
+        # in this set — those fire their own "double tap" from
+        # `_choose_broth`/`_choose_spice` below, only when the choice
+        # actually changes.
+        if widget_id in (hover.CANCEL, hover.BACK, hover.CONFIRM,
+                         hover.LANGUAGE, hover.DONE):
+            self._send_evt({"t": "evt", "kind": "sound", "id": "single_tap"})
         if widget_id == hover.CANCEL:
             # **Void first, while `_order` still exists.** `_end_session`
             # clears it, so an order written on the payment screen and
@@ -2311,7 +2292,10 @@ class Core:
         if broth_id == self._broth_id:
             return
         self._broth_id = broth_id
-        self._send_evt({"t": "evt", "kind": "sound", "id": "broth_select"})
+        # 2026-08-26, developer request: broth/spice selection plays the
+        # "double tap" cue exactly once, when the choice is actually made
+        # — never during the dwell that led up to it.
+        self._send_evt({"t": "evt", "kind": "sound", "id": "double_tap"})
         _log.info("core: broth %s selected", broth_id)
 
     def _choose_spice(self, level: int) -> None:
@@ -2336,7 +2320,9 @@ class Core:
             return
         self._spice_level = level
         self._spice_chosen = True
-        self._send_evt({"t": "evt", "kind": "sound", "id": "spice_select"})
+        # Same "double tap" cue as broth — see `_choose_broth`'s own
+        # comment.
+        self._send_evt({"t": "evt", "kind": "sound", "id": "double_tap"})
         _log.info("core: spice level %d selected", level)
 
     def _write_order(self) -> None:

@@ -210,14 +210,12 @@ void ofApp::update(){
 			continue;
 		}
 		float gain = evt.data.value("gain", 1.0f);
-		float speed = 1.0f;
-		if(evt.data.contains("rung")){
-			// doc §15.2's `dwell_tick`: "rising pitch ladder, 4 steps" —
-			// one clip, played faster each rung core reports.
-			int rung = evt.data.value("rung", 1);
-			speed = ofClamp(0.9f + 0.12f * (float)(rung - 1), 0.9f, 1.5f);
-		}
-		_audio.play(id, gain, speed);
+		// `speed` used to carry doc §15.2's `dwell_tick` rising-pitch
+		// ladder (a `rung` field on the evt). 2026-08-26: core no longer
+		// sends `dwell_tick` at all — no dwell-progress sound, developer
+		// request — so nothing on the wire sets `rung` any more and this
+		// always plays at the clip's own recorded speed.
+		_audio.play(id, gain);
 	}
 	// doc §15.2's `attract` loop, driven off the same idle flag the UI
 	// already blanks itself on (StateLink::State::idleAttract) rather

@@ -31,10 +31,13 @@ public:
 	// One id at a time, the wire's own shape (doc §4.4's `evt`). `gain`
 	// scales the file's own recorded level (§15.2's `hover` wants "-18
 	// dB", carried as a gain in the 0..1 sense `ofSoundPlayer::setVolume`
-	// already uses, not literal decibels). `speed` is doc §15.2's
-	// `dwell_tick` "rising pitch ladder, 4 steps" — the rung-to-speed
-	// mapping is ofApp's call (it owns the wire's `rung` field), this
-	// just plays at whatever speed it is handed.
+	// already uses, not literal decibels). `speed` used to carry doc
+	// §15.2's `dwell_tick` rising-pitch ladder; 2026-08-26 that sound is
+	// gone outright (developer request: no dwell-progress sound at all),
+	// so every caller today leaves it at the default and every clip
+	// plays at its own recorded speed. Left as a parameter rather than
+	// deleted — a future cue that wants a pitch change has somewhere to
+	// plug into with no new plumbing.
 	void play(const std::string & id, float gain = 1.0f, float speed = 1.0f);
 
 	// Doc §15.2's `attract`, "idle loop, every 30s, almost inaudible

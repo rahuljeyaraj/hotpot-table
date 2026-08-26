@@ -33,17 +33,31 @@ AudioBus::Voice & AudioBus::voiceFor(const std::string & id){
 		return it->second;
 	}
 	Voice v;
-	v.loaded = v.player.load(std::string(kAudioDir) + id + ".wav");
+	// `id` doubles as the file's relative path with no extension (this
+	// class's own top comment). Every clip recorded for this app so far
+	// is a `.wav`, but 2026-08-26's `single_tap`/`double_tap` cues arrived
+	// as `.mp3` from the developer — tried second, not converted, since
+	// this app's actual Windows sound backend is Media Foundation
+	// (`OF_NO_FMOD` is defined — see ofConstants.h — which routes
+	// `ofSoundPlayer` to `ofMediaFoundationSoundPlayer`), and MF decodes
+	// MP3 natively with no extra work.
+	static const char * kExtensions[] = {".wav", ".mp3"};
+	for(const char * ext : kExtensions){
+		if(v.player.load(std::string(kAudioDir) + id + ext)){
+			v.loaded = true;
+			break;
+		}
+	}
 	if(v.loaded){
-		// One-shot default: overlapping triggers (dwell_tick's ladder, a
-		// fast run of pick_confirm) stack rather than cutting each other
-		// off. setAttractActive() below reconfigures both for the one id
-		// that loops instead of one-shotting.
+		// One-shot default: overlapping triggers (a fast run of the same
+		// confirmation tap) stack rather than cutting each other off.
+		// setAttractActive() below reconfigures both for the one id that
+		// loops instead of one-shotting.
 		v.player.setMultiPlay(true);
 		v.player.setLoop(false);
 	} else {
 		ofLogWarning(kTag) << "no audio for id '" << id << "' (" << kAudioDir
-			<< id << ".wav not found) - this event will play silence";
+			<< id << ".wav or .mp3 not found) - this event will play silence";
 	}
 	auto result = _voices.emplace(id, std::move(v));
 	return result.first->second;

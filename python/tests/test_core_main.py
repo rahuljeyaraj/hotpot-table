@@ -3611,7 +3611,7 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         while time.time() < end:
             self.send_pointer(tx, cx, cy)
             time.sleep(0.02)
-        self.assertFalse(any(e.get("id") == "dwell_fire" for e in evts),
+        self.assertFalse(any(e.get("id") == "single_tap" for e in evts),
                          "Confirm fired with an empty cart")
 
     def test_dwelling_confirm_finalises_the_cart_and_starts_the_checkout(self):
@@ -3661,10 +3661,10 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         cy = rects[coremain.hover.CONFIRM][1] + rects[coremain.hover.CONFIRM][3] / 2
         end = time.time() + DEADLINE
         while (time.time() < end
-               and not any(e.get("id") == "dwell_fire" for e in evts)):
+               and not any(e.get("id") == "single_tap" for e in evts)):
             self.send_pointer(tx, cx, cy)
             time.sleep(0.02)
-        self.assertTrue(any(e.get("id") == "dwell_fire" for e in evts),
+        self.assertTrue(any(e.get("id") == "single_tap" for e in evts),
                         "Confirm never fired with a live pick")
 
         self.assertEqual(len(seen), 1, "Confirm did not finalise the cart")
