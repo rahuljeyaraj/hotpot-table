@@ -310,6 +310,60 @@ the actual responses into this file** before step 3.
 | V1 | API key works, workspace/project resolve | `GET https://api.roboflow.com/?api_key=...` |
 | V2 | The classification project exists and reports its type | `GET https://api.roboflow.com/{workspace}/{project}?api_key=...` |
 | V3 | A single image uploads **with a class label attached** | one `project.upload(image_path, annotation="<class>", split="train")` — then look at it in the Roboflow UI and confirm the class actually stuck |
+
+**V1 and V2 run for real, 2026-08-26 — closing both notes.** Real
+responses, this account:
+
+```
+V1  GET https://api.roboflow.com/?api_key=...  ->
+{
+  "welcome": "Welcome to the Roboflow API.",
+  "instructions": "You are successfully authenticated.",
+  "docs": "https://docs.roboflow.com",
+  "workspace": "rahuls-workspace-mqtgo",
+  "workspaceId": "Kd3Xd8xZW6Wlp1jlKPfadCwrM5y2"
+}
+
+V2  GET https://api.roboflow.com/{workspace}/{project}?api_key=...  ->
+{
+  "workspace": {"name": "...", "url": "rahuls-workspace-mqtgo"},
+  "project": {
+    "id": "rahuls-workspace-mqtgo/<slug>",
+    "type": "object-detection" | "classification",   <- NESTED under "project", not top-level
+    "multilabel": false,   <- only present on a classification project;
+                               distinguishes single- vs multi-label
+    ...
+  },
+  "versions": [...]
+}
+```
+
+**This V2 shape is what a real, live incident was found against, the
+same day.** `core/main.py._handle_rf_link`'s original type check read
+`project.get("type")` at the TOP level, which is always `None` against
+this real shape (the field is one level down, under `project`) — so the
+check never once refused a wrong-type project. This table ended up
+linked to a real, pre-existing project, `rahuls-workspace-mqtgo/
+food-classifier` — **object detection** (Baked Potato/Burger/Crispy
+Chicken/Donut, unrelated to this feature) — with no refusal, and every
+subsequent image upload against it failed 100% of the time (the SDK's
+classification-shaped `annotation=<class name>` upload is the wrong
+shape for an object-detection project). Fixed: the check now reads the
+nested `project.type`/`project.multilabel` fields. Also newly confirmed:
+the literal string `"single-label-classification"` (this doc's own
+assumed value, §3.1) **never appears in a GET response at all** — only
+as a `type` value accepted by the CREATE endpoint. A real single-label
+project reports plain `type: "classification"` with `multilabel: false`
+over GET. See `rf_client.get_project`'s and `_handle_rf_link`'s own
+docstrings for the full account.
+
+A correct project (`rahuls-workspace-mqtgo/hotpot-ingredients`, type
+`single-label-classification`) was created via the CREATE endpoint the
+same day (`POST /{workspace}/projects?api_key=...`, body
+`{"name", "type": "single-label-classification", "license", "annotation"}`
+— **not yet wrapped in `rf_client.py`**, called ad hoc; wrapping it as a
+proper function is still owed if project creation ever needs to happen
+from the app itself rather than by hand).
 | V4 | Version generation returns a version number | SDK `generate_version()` |
 | V5 | Train starts and returns a job id | `POST /{workspace}/{project}/{version}/train` |
 | V6 | Job polling reports finished/failed distinguishably | `GET /{workspace}/{project}/jobs/{jobId}` |

@@ -3231,7 +3231,12 @@ class FakeRfClient:
         self.train_calls = []
         self.wait_calls = []
 
-        self.get_project_result = {"type": "single-label-classification"}
+        # Real, live-confirmed shape (2026-08-26): `type` nests under a
+        # `project` key, and a real single-label-classification project
+        # reports `type: "classification", multilabel: false` -- the
+        # string "single-label-classification" never appears in a GET
+        # response at all. See rf_client.get_project's own docstring.
+        self.get_project_result = {"project": {"type": "classification", "multilabel": False}}
         self.get_project_error = None
         self.upload_progress_ticks = []
         self.upload_result = {"uploaded": {"soya_chunks": 2}, "failures": []}
@@ -3377,15 +3382,45 @@ class TestRoboflowTab(CoreCase):
         self.assertEqual(self.fake_rf.get_project_calls, [])
 
     def test_link_refuses_the_wrong_project_type(self):
-        # doc §3.1: the existing tray-detector project is object
-        # detection, the wrong type -- must not be linkable here.
-        self.fake_rf.get_project_result = {"type": "object-detection"}
+        # doc §3.1: the existing tray-detector/food-classifier projects
+        # are object detection, the wrong type -- must not be linkable
+        # here. Nested shape, matching the real 2026-08-26 GET response --
+        # a flat {"type": "object-detection"} is exactly what the
+        # original, buggy `project.get("type")` read (always None on a
+        # real response) and would have silently LINKED instead of
+        # refusing; this is the live incident that found that bug.
+        self.fake_rf.get_project_result = {"project": {"type": "object-detection"}}
         self._rf_status()
         self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws",
                                   "project": "tray-detector", "api_key": "k"}))
         reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
         self.assertFalse(reply["ok"])
         self.assertIn("object-detection", reply["message"])
+        self.assertIsNone(rf_store.load_project(self.rf_project_path))
+
+    def test_link_accepts_the_real_single_label_classification_shape(self):
+        # Real GET shape (2026-08-26): type == "classification",
+        # multilabel == False -- the literal string
+        # "single-label-classification" never appears here at all.
+        self.fake_rf.get_project_result = {
+            "project": {"type": "classification", "multilabel": False}}
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws",
+                                  "project": "hotpot-ingredients", "api_key": "k"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
+        self.assertTrue(reply["ok"], reply["message"])
+        self.assertNotIn("Could not confirm", reply["message"])
+        self.assertIsNotNone(rf_store.load_project(self.rf_project_path))
+
+    def test_link_refuses_a_multilabel_classification_project(self):
+        self.fake_rf.get_project_result = {
+            "project": {"type": "classification", "multilabel": True}}
+        self._rf_status()
+        self.ws_.send(json.dumps({"t": "rf_link", "workspace": "ws",
+                                  "project": "multi-proj", "api_key": "k"}))
+        reply = self.recv_until(self.ws_, lambda m: m.get("t") == "rf_link_result")
+        self.assertFalse(reply["ok"])
+        self.assertIn("multi-label", reply["message"])
         self.assertIsNone(rf_store.load_project(self.rf_project_path))
 
     def test_link_with_no_type_field_links_but_warns(self):

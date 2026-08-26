@@ -170,10 +170,25 @@ def check_api_key(api_key: str) -> dict:
 
 def get_project(workspace: str, project: str, api_key: str) -> dict:
     """V2: `GET https://api.roboflow.com/{workspace}/{project}?api_key=...`
-    — confirms the project exists and reports its type
-    (`single-label-classification`, doc §3.1 — the existing `tray-detector`
-    project is object detection and is the WRONG type for this feature;
-    check the returned type before saving a link to it).
+    — confirms the project exists and reports its type (doc §3.1 — the
+    existing `tray-detector`/`food-classifier` projects are object
+    detection and are the WRONG type for this feature; check the returned
+    type before saving a link to it).
+
+    **VERIFIED LIVE 2026-08-26 (closing this V2 note for real).** The
+    response is NOT flat — `type` sits under a nested `project` key:
+    `{"workspace": {...}, "project": {"type": ..., "multilabel": ...,
+    ...}, "versions": [...]}`. For a real object-detection project,
+    `project["project"]["type"] == "object-detection"`; for a real
+    single-label-classification project (created via the CREATE endpoint
+    with `type="single-label-classification"`), the GET response reports
+    `type == "classification"` with `multilabel: false` — the string
+    `"single-label-classification"` is a CREATE-time value only and never
+    appears in a GET response. `core/main.py._handle_rf_link` reads the
+    nested shape; a flat `project.get("type")` here always read `None`
+    and is exactly the bug that let this table link to a real
+    object-detection project undetected — see that call site's own
+    comment for the incident.
     """
     return _request(
         "GET", f"{API_BASE}/{workspace}/{project}?api_key={api_key}")

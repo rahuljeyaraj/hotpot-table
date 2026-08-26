@@ -475,8 +475,17 @@ class Core:
         # -- M1 build item 3: the domain state the broadcaster sends ----
         data_dir = Path(data_dir)
         self.catalogue = pricing.Catalogue.load(data_dir / "catalogue.json")
-        self.locale = i18n.DEFAULT_LOCALE   # build item 4: English only, for now
-        self.locales = i18n.Locales.load(data_dir / "locales", locales=(self.locale,))
+        self.locale = i18n.DEFAULT_LOCALE
+        # 2026-08-26: was `locales=(self.locale,)` — English only, for M1.4's
+        # scope, deliberately loading nothing else. `Locales.load`'s own
+        # default `("en", "zh")` tolerates a missing file (`i18n.py`'s own
+        # docstring), so passing it explicitly here just means "load every
+        # locale this table might ever speak" and costs nothing on a rig
+        # that only has `en.json` — `available()` still comes back with one
+        # entry and the Language button stays gated off (`hover.widgets_for`).
+        # Now that `data/locales/zh.json` exists, this is the one line that
+        # makes it actually load.
+        self.locales = i18n.Locales.load(data_dir / "locales")
         self.bin_map_path = Path(bin_map_path)
         self.binmap = self._load_binmap()
         # -- M6: the checkout flow's own data ---------------------------
@@ -2113,12 +2122,14 @@ class Core:
             # it lays rects out and marks whichever id it was told is the
             # chosen one. That is what lets `test_hover` run with no core.
             return hover.broth_widgets(self.menu.broths,
-                                       selected_id=self._broth_id)
+                                       selected_id=self._broth_id,
+                                       locale=self.locale)
         if st is fsm.State.SPICE:
             return hover.spice_widgets(
                 self.menu.spice_levels,
                 selected_level=(self._spice_level
-                                if self._spice_chosen else None))
+                                if self._spice_chosen else None),
+                locale=self.locale)
         if st is fsm.State.CHECKOUT:
             return hover.checkout_widgets(
                 paid=self._order is not None and self._order.paid)
@@ -3692,30 +3703,57 @@ class Core:
 
         # Doc §3.1: the existing `tray-detector` project is object
         # detection, the wrong type for this feature, and project types
-        # are fixed at creation. VERIFY: the response's own field name for
-        # this is unconfirmed (doc §5) — a present-but-mismatched `type`
-        # refuses outright (the concrete mistake this check exists to
-        # catch); an ABSENT `type` field only warns, since the field name
-        # itself may simply be wrong and this must not become impossible
-        # to link against once the real shape is confirmed.
-        rf_type = project.get("type")
-        if rf_type is not None and rf_type != "single-label-classification":
+        # are fixed at creation.
+        #
+        # **VERIFIED LIVE 2026-08-26 (doc §5 V2, closing that VERIFY
+        # note) — the ORIGINAL check here (`project.get("type")`) never
+        # once refused a wrong-type project, and this is the concrete,
+        # live incident that found it.** `GET /{workspace}/{project}`
+        # nests the type one level down, under a `project` key
+        # (`{"workspace": {...}, "project": {"type": ..., "multilabel":
+        # ...}, "versions": [...]}`) — reading `type` off the top level
+        # always read `None`, which this code's own comment used to
+        # excuse as "unconfirmed, only warn." That silently let this
+        # table's link land on `rahuls-workspace-mqtgo/food-classifier`,
+        # a real, pre-existing OBJECT-DETECTION project (Baked Potato/
+        # Burger/Crispy Chicken/Donut, unrelated to this feature) —
+        # every upload against it then failed 100% of the time, because
+        # the SDK's classification-style `annotation=<class name>` upload
+        # is the wrong shape for an object-detection project.
+        # Also confirmed live, against a project deliberately created via
+        # the CREATE endpoint as `single-label-classification`: the GET
+        # response's `type` for THAT project reads plain `"classification"`
+        # — the literal string `"single-label-classification"` never
+        # appears in a GET response at all, only as a CREATE-time `type`
+        # value. Single- vs multi-label is the separate `multilabel` bool
+        # (`false` on the probed single-label project). The multi-label
+        # side of that is an inference from the create endpoint's error
+        # message naming both types separately, not a direct probe
+        # against a real multi-label project — treat it as strong, not
+        # V2-confirmed.
+        rf_project = project.get("project")
+        rf_project = rf_project if isinstance(rf_project, dict) else {}
+        rf_type = rf_project.get("type")
+        is_single_label = rf_type == "classification" and not rf_project.get("multilabel", False)
+        if rf_type is not None and not is_single_label:
+            reason = ("multi-label classification project" if rf_type == "classification"
+                       else f"{rf_type!r} project")
             self.web.broadcast({
                 "t": "rf_link_result", "ok": False,
-                "message": (f"{workspace}/{project_name} is a {rf_type!r} "
-                            "project, not single-label-classification — "
-                            "wrong type for this feature (doc §3.1).")})
+                "message": (f"{workspace}/{project_name} is a {reason}, not "
+                            "single-label-classification — wrong type for "
+                            "this feature (doc §3.1).")})
             return
 
         rf_store.save_project(self._rf_project_path, workspace, project_name, api_key)
         _log.info("core: rf_link linked %s/%s%s", workspace, project_name,
-                  "" if rf_type == "single-label-classification"
+                  "" if is_single_label
                   else " (project type unconfirmed — see rf_client VERIFY notes)")
         self.web.broadcast({
             "t": "rf_link_result", "ok": True, "linked": True,
             "workspace": workspace, "project": project_name,
             "message": (f"Linked to {workspace}/{project_name}."
-                        + ("" if rf_type == "single-label-classification" else
+                        + ("" if is_single_label else
                            " Could not confirm the project type from "
                            "Roboflow's response — double-check it is "
                            "single-label-classification by hand."))})
@@ -4466,7 +4504,7 @@ class Core:
                 # info or a widget's without caring which it got.
                 "meta": f"{round(item.kcal_per_100g)} "
                         f"{self.locales.translate('kcal_per_100g', self.locale)}",
-                "desc": item.description,
+                "desc": item.description_text(self.locale),
             }
         else:
             label, sub, price = "", "", 0.0
