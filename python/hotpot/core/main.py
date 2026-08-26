@@ -2292,10 +2292,11 @@ class Core:
         if broth_id == self._broth_id:
             return
         self._broth_id = broth_id
-        # 2026-08-26, developer request: broth/spice selection plays the
-        # "double tap" cue exactly once, when the choice is actually made
-        # — never during the dwell that led up to it.
-        self._send_evt({"t": "evt", "kind": "sound", "id": "double_tap"})
+        # 2026-08-26, developer request: one "single tap" cue everywhere
+        # (double_tap retired the same day) — plays exactly once, when
+        # the choice is actually made, never during the dwell that led
+        # up to it.
+        self._send_evt({"t": "evt", "kind": "sound", "id": "single_tap"})
         _log.info("core: broth %s selected", broth_id)
 
     def _choose_spice(self, level: int) -> None:
@@ -2320,9 +2321,9 @@ class Core:
             return
         self._spice_level = level
         self._spice_chosen = True
-        # Same "double tap" cue as broth — see `_choose_broth`'s own
+        # Same "single tap" cue as broth — see `_choose_broth`'s own
         # comment.
-        self._send_evt({"t": "evt", "kind": "sound", "id": "double_tap"})
+        self._send_evt({"t": "evt", "kind": "sound", "id": "single_tap"})
         _log.info("core: spice level %d selected", level)
 
     def _write_order(self) -> None:
