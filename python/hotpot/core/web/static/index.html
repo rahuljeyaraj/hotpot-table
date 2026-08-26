@@ -51,10 +51,6 @@
      distorting its aspect ratio; width follows from the source image. */
   .brand { display: flex; align-items: center; gap: 10px; }
   .brand-logo { height: 60px; width: auto; flex: none; display: block; }
-  .order {
-    font-size: 14px; font-weight: 400; color: var(--muted);
-    white-space: nowrap;
-  }
   .spacer { flex: 1; }
   .pips { display: flex; gap: 10px; }
   .pip {
@@ -177,22 +173,13 @@
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
-  /* --- Live tab (doc section 12.3, M3 build item 3) ----------------------
+  /* --- Shared camera feed wrapper (doc §5.4's scaling rule) --------------
      The MJPEG <img> at natural size, CSS-scaled to fit, with a <canvas>
      overlay sized to naturalWidth x naturalHeight and CSS-scaled
-     identically (doc §5.4's scaling rule) — the two share one wrapper so
-     "scaled identically" is a single CSS rule (width/height: 100%) rather
-     than two elements kept in sync by hand. No bin rects (M4) or dots
-     (M4) exist on the wire yet, so those chips' half of the overlay's
-     draw() still paints nothing. `hands` DOES exist on the wire now
-     (tracker/main.py's `landmarks`, M5) but is deliberately NOT drawn
-     here — the developer decided this tab does not need a hand-tracking
-     view; the raw MediaPipe output lives on the Developer tab instead
-     (RIG_FEEDBACK item 10). The naturalWidth rule has to be right before
-     there is anything to scale, not after. */
-  .live-shell {
-    max-width: 960px;
-  }
+     identically — the two share one wrapper so "scaled identically" is a
+     single CSS rule (width/height: 100%) rather than two elements kept in
+     sync by hand. Reused by the Setup, Developer and Capture tabs (the
+     Live tab, the original owner of this markup, is gone). */
   .live-feed-wrap {
     position: relative;
     aspect-ratio: 16 / 9;
@@ -256,25 +243,50 @@
 
   /* --- Bins tab (doc section 12.4) --------------------------------------
      8 cards: name, live grams (doc 12.9: 44px tabular-nums for the large
-     numeric), price/100g, a noise dot bar, and Tare/Calibrate. */
-  .bins-shell { max-width: 1100px; }
+     numeric), price/100g, a noise dot bar, and Tare/Calibrate. No width
+     cap here, unlike every other tab's *-shell — a card holds a
+     full-size crop thumbnail beside its info column now, and 4 of those
+     across in one row needs whatever width the tablet actually has. */
+  .bins-shell { max-width: none; }
   .serial-status {
     margin-bottom: 14px; font-size: 14px; color: var(--muted);
   }
   .serial-status.down { color: var(--red); }
+  /* Physical row is 4 bins (same reasoning as `.crop-grid`'s own forced
+     4 columns) — fixed, not auto-fill, so the layout always reads left-
+     to-right/top-to-bottom the same way the real table does. */
   .bins-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 12px;
   }
+  @media (max-width: 900px) {
+    .bins-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  /* Thumbnail on the left at its original full size, everything else
+     (name, grams, price, the override select, the noise bar,
+     Tare/Calibrate) in one column to its right. */
   .bin-card {
     background: var(--panel); border: 1px solid #2a2c31; border-radius: 8px;
     padding: 14px;
+    display: flex; align-items: flex-start; gap: 12px;
   }
+  .bin-card .bin-body { flex: 1 1 auto; min-width: 0; }
   .bin-card .bin-head {
     display: flex; justify-content: space-between; align-items: baseline;
     font-size: 14px; color: var(--muted); gap: 8px;
   }
   .bin-card .bin-name { color: var(--text); font-weight: 500; text-align: right; }
+  /* The live crop thumbnail — same rectified-frame cutout the Capture
+     tab's own .crop-card canvas shows (doc §12.7's rects), reused here
+     so an operator can see what a bin's camera crop actually looks like
+     without leaving the Bins tab. Same 240px square this card's crop
+     canvas rendered at before it sat beside the info column instead of
+     above it — the size didn't change, only the layout around it did. */
+  .bin-card .bin-crop {
+    flex: 0 0 240px;
+    width: 240px; aspect-ratio: 1 / 1; display: block;
+    background: #0f1012; border-radius: 6px; object-fit: contain;
+  }
   .bin-card .bin-grams {
     font-size: 44px; font-weight: 500; margin: 6px 0 0;
     font-variant-numeric: tabular-nums;
@@ -659,13 +671,11 @@
          operator already uses puts them. The second strip they used to
          live in cost a full row to say two words. -->
     <nav class="tabs">
-      <button class="tab active" data-tab="live">Live</button>
-      <button class="tab" data-tab="bins">Bins</button>
+      <button class="tab active" data-tab="bins">Bins</button>
       <button class="tab" data-tab="setup">Setup</button>
       <button class="tab" data-tab="capture">Capture</button>
       <button class="tab" data-tab="developer">Developer</button>
     </nav>
-    <div class="order" id="order">—</div>
     <div class="spacer"></div>
     <div class="action-note" id="modeNote"></div>
     <!-- ONE switch for the mode: Serving on or off, off being setting
@@ -683,25 +693,7 @@
     </div>
   </header>
   <main>
-    <section class="tab-panel active" data-tab="live">
-      <div class="live-shell">
-        <div class="live-feed-wrap">
-          <img id="liveImg" alt="">
-          <canvas id="liveOverlay"></canvas>
-          <div id="livePlaceholder" class="live-feed-placeholder">
-            Waiting for the camera…
-          </div>
-        </div>
-        <div class="chips">
-          <button class="chip" data-toggle="rects">rects</button>
-          <button class="chip" data-toggle="labels">labels</button>
-          <button class="chip" data-toggle="weights">weights</button>
-          <button class="chip" data-toggle="hands">hands</button>
-          <button class="chip" data-toggle="dots">dots</button>
-        </div>
-      </div>
-    </section>
-    <section class="tab-panel" data-tab="bins">
+    <section class="tab-panel active" data-tab="bins">
       <!-- Doc §12.4: 8 cards, live grams, a noise indicator, and a
            one-screen-at-a-time Tare/Calibrate wizard (#calBackdrop below).
            Grams here come straight from the load-cell reader, not the
@@ -1132,28 +1124,17 @@
     btn.addEventListener("click", function () { selectTab(btn.dataset.tab); });
   });
 
-  // --- Live tab (doc section 12.3, §5.4 — M3 build item 3) --------------
-  var liveImg = document.getElementById("liveImg");
-  var liveOverlay = document.getElementById("liveOverlay");
-  var livePlaceholder = document.getElementById("livePlaceholder");
-  var overlayCtx = liveOverlay.getContext("2d");
-
-  // The toggle chips. None has anything to gate yet — core sends no bin
-  // rects before M4, no hand cursor before M5, no dot pattern outside
-  // M4's calibration wizard — so drawOverlay() below reads this state but
-  // currently always clears to nothing. Persisted the same way the
-  // developer panel is (doc section 12.8's own precedent): an operator who
-  // turns "hands" off should not have it turn back on after a reload.
-  var TOGGLE_KEY_PREFIX = "hotpot.liveToggle.";
-  var toggleState = {};
   // Latest `landmarks` broadcast (tracker/main.py's `_maybe_send_landmarks`,
   // relayed verbatim by core, ~10Hz) — every raw MediaPipe hand skeleton,
   // in CAPTURE-resolution camera pixels, upstream of the homography, role
   // assignment and hysteresis that produce the reduced cursor oF draws.
-  // Read only by the Developer tab (RIG_FEEDBACK item 10 said the Live
-  // tab does not need a hand-tracking view at all — see that tab's own
-  // comment).
+  // Read only by the Developer tab.
   var latestLandmarks = [];
+  // devHands is the only remaining `.chip[data-toggle]` (the Live tab's
+  // five chips are gone). Persisted the same way the rest of the
+  // developer panel is (doc section 12.8's own precedent).
+  var TOGGLE_KEY_PREFIX = "hotpot.liveToggle.";
+  var toggleState = {};
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-toggle]"), function (btn) {
     var key = btn.dataset.toggle;
     // Default comes from the markup itself (class="on") rather than being
@@ -1169,22 +1150,9 @@
       toggleState[key] = !toggleState[key];
       btn.classList.toggle("on", toggleState[key]);
       try { localStorage.setItem(TOGGLE_KEY_PREFIX + key, toggleState[key] ? "1" : "0"); } catch (e) { /* ignore */ }
-      drawOverlay();
       drawDevOverlay();
     });
   });
-
-  // Once a table's corners are confirmed, the Live tab shows the same
-  // flattened (rectified) picture the Setup tab's resting view does —
-  // per the developer, "on confirm the image gets flattened to a
-  // rectangle both in setup view and live view." `confirmedCorners` and
-  // `camSize` are the Setup tab's own state (declared further down this
-  // script) and `drawRectifiedPreview` is its geometry helper; reused
-  // here rather than duplicated so the two tabs can never draw two
-  // different ideas of "flattened."
-  function liveShowsRectified() {
-    return !!confirmedCorners && !!liveImg.naturalWidth;
-  }
 
   // --- raw MediaPipe landmarks, Developer tab only (RIG_FEEDBACK item 10:
   // "draw every point that MediaPipe identifies", not a reduced cursor) --
@@ -1259,55 +1227,18 @@
     drawDevOverlay();
   }
 
-  // Doc §5.4: the canvas's own pixel buffer is sized to naturalWidth x
-  // naturalHeight — camera-space pixels, the same space bin rects and hand
-  // cursors will arrive in once M4/M5 put them on the wire — and the CSS
-  // rule above (`.live-feed-wrap canvas { width:100%; height:100% }`)
-  // scales that buffer onto the page identically to the <img> sitting
-  // under it. Getting the sizing right before either message exists is
-  // the point of doing it now: nothing here has to change when they do.
-  // With confirmed corners, the buffer is `camSize` instead (the
-  // rectified preview's own fixed W x H, same convention Setup uses) and
-  // the raw <img> is hidden — `roi-hidden`, shared with the Setup tab's
-  // own use of it (see that class's CSS comment).
-  function sizeOverlayToImage() {
-    if (!liveImg.naturalWidth || !liveImg.naturalHeight) return;
-    var w = liveImg.naturalWidth, h = liveImg.naturalHeight;
-    if (liveShowsRectified()) { w = stageSize[0]; h = stageSize[1]; }
-    if (liveOverlay.width !== w) liveOverlay.width = w;
-    if (liveOverlay.height !== h) liveOverlay.height = h;
-    liveImg.classList.toggle("roi-hidden", liveShowsRectified());
-    drawOverlay();
-  }
-
-  // The rectified preview when corners are confirmed; nothing before that
-  // (see the toggle-chip comment above). RIG_FEEDBACK: the Live tab does
-  // not need a hand-tracking view at all — it stayed the plain rectified
-  // picture it already was; MediaPipe's raw output lives on the
-  // Developer tab below instead, where the remaining chips (rects,
-  // labels, weights, dots) still have nothing to gate yet either.
-  function drawOverlay() {
-    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-    overlayCtx.clearRect(0, 0, liveOverlay.width, liveOverlay.height);
-    if (liveShowsRectified()) {
-      drawRectifiedPreview(overlayCtx, liveImg, confirmedCorners,
-                           liveOverlay.width, liveOverlay.height);
-    }
-  }
-
   // --- Developer tab (RIG_FEEDBACK item 10, first slice) -----------------
-  // Its own <img>/<canvas> pair, same reason the Setup tab has its own
-  // rather than sharing the Live tab's: doc §5.4's naturalWidth scaling
-  // has to be read off the element actually laid out on screen. Always
-  // the RAW feed, never the rectified preview — deliberately, and unlike
-  // the Live/Setup tabs: `landmarks` arrives in capture-resolution camera
-  // pixels (see `drawLandmarks`'s own comment on why), so this canvas has
-  // to stay in that same space regardless of whether the table has been
-  // calibrated at all. Sized once the image loads and left alone after —
-  // no periodic redraw loop is needed the way the Live tab's rectified
-  // view needs one, because the raw <img> paints itself natively (MJPEG)
-  // and the canvas only needs to redraw when a new `landmarks` message
-  // arrives (`applyLandmarks`, push-driven, ~10Hz).
+  // Its own <img>/<canvas> pair, same reason the Setup tab has its own:
+  // doc §5.4's naturalWidth scaling has to be read off the element
+  // actually laid out on screen. Always the RAW feed, never the rectified
+  // preview — deliberately, and unlike the Setup tab: `landmarks` arrives
+  // in capture-resolution camera pixels (see `drawLandmarks`'s own comment
+  // on why), so this canvas has to stay in that same space regardless of
+  // whether the table has been calibrated at all. Sized once the image
+  // loads and left alone after — no periodic redraw loop is needed,
+  // because the raw <img> paints itself natively (MJPEG) and the canvas
+  // only needs to redraw when a new `landmarks` message arrives
+  // (`applyLandmarks`, push-driven, ~10Hz).
   var devImg = document.getElementById("devImg");
   var devOverlay = document.getElementById("devOverlay");
   var devPlaceholder = document.getElementById("devPlaceholder");
@@ -1435,27 +1366,13 @@
     scheduleCameraRetry();
   });
 
-  // Own constant, not the Setup tab's SETUP_FRAME_MS — same forward-
-  // reference trap `LIVE_FRAME_MS`'s own comment below explains.
+  // Own constant, not the Setup tab's SETUP_FRAME_MS — MJPEG has no
+  // per-frame JS hook, so each rectified-preview redraw loop polls on its
+  // own timer, gated on its own tab being active.
   var CLS_FRAME_MS = 100;   // ~10fps, same budget as the other rectified redraw loops
   setInterval(function () {
     if (developerPanel.classList.contains("active")) drawClsOverlay();
   }, CLS_FRAME_MS);
-
-  // MJPEG has no per-frame JS hook (same reason the Setup tab's own tick
-  // exists) — needed here only while showing the rectified preview, which
-  // is drawn fresh from whatever the <img> currently holds; the plain raw
-  // feed needs no help, the browser paints the <img> itself natively.
-  // Own constant rather than the Setup tab's SETUP_FRAME_MS: that one is
-  // declared later in this script and `setInterval`'s delay argument is
-  // evaluated right here, at this statement, not lazily inside the
-  // callback — referencing it before its own `var` line runs would pass
-  // `undefined` instead of 100.
-  var LIVE_FRAME_MS = 100;   // ~10fps, same budget as the Setup tab's
-  var livePanel = document.querySelector('.tab-panel[data-tab="live"]');
-  setInterval(function () {
-    if (livePanel.classList.contains("active") && liveShowsRectified()) drawOverlay();
-  }, LIVE_FRAME_MS);
 
   var CAMERA_RETRY_MS = 3000;
   var cameraUrl = null;          // set once, from the join seed's `camera` message
@@ -1469,13 +1386,12 @@
     // what actually forces a new connection on retry — the doc section 21
     // M3 acceptance test's "the feed resumes automatically after restart"
     // needs this, not just the red pip camera's health link already gives.
-    // Three <img> elements on one MJPEG server, deliberately: the Live,
-    // Setup and Developer tabs are never more than one visible at a time,
-    // and each keeping its own element means doc §5.4's naturalWidth
-    // scaling is read off the element actually laid out on screen rather
-    // than off a hidden one whose layout box is zero.
+    // Several <img> elements on one MJPEG server, deliberately: the
+    // Setup, Developer and Capture tabs are never more than one visible
+    // at a time, and each keeping its own element means doc §5.4's
+    // naturalWidth scaling is read off the element actually laid out on
+    // screen rather than off a hidden one whose layout box is zero.
     var bust = "?t=" + Date.now();
-    liveImg.src = cameraUrl + bust;
     setupImg.src = cameraUrl + bust;
     devImg.src = cameraUrl + bust;
     clsImg.src = cameraUrl + bust;
@@ -1488,16 +1404,6 @@
       loadLiveImg();
     }, CAMERA_RETRY_MS);
   }
-
-  liveImg.addEventListener("load", function () {
-    livePlaceholder.classList.add("hide");
-    sizeOverlayToImage();
-  });
-  liveImg.addEventListener("error", function () {
-    livePlaceholder.textContent = "Camera offline — retrying…";
-    livePlaceholder.classList.remove("hide");
-    scheduleCameraRetry();
-  });
 
   var cameraInfoUrl = null;      // "http://host:port/info.json", set alongside cameraUrl
   var cameraControlsUrl = null;  // "http://host:port/controls.json"
@@ -1800,6 +1706,24 @@
       var card = document.createElement("div");
       card.className = "bin-card";
 
+      // The live crop thumbnail, same rect/rectified-frame source as the
+      // Capture tab's own .crop-card canvas (`captureRects`/`drawCrops()`,
+      // wired below) — the two never disagree since they read the same
+      // camera-grid rects and the same offscreen rectified copy. A direct
+      // child of the card, not the body below, so it sits in its own
+      // fixed-width column beside everything else rather than stacked
+      // above it.
+      var cropCanvas = document.createElement("canvas");
+      cropCanvas.className = "bin-crop";
+      card.appendChild(cropCanvas);
+
+      // Name, grams, price, the override select, the noise bar and the
+      // Tare/Calibrate buttons all live in this one column, to the right
+      // of the thumbnail.
+      var body = document.createElement("div");
+      body.className = "bin-body";
+      card.appendChild(body);
+
       var head = document.createElement("div");
       head.className = "bin-head";
       var idxEl = document.createElement("div");
@@ -1809,16 +1733,16 @@
       nameEl.textContent = "—";
       head.appendChild(idxEl);
       head.appendChild(nameEl);
-      card.appendChild(head);
+      body.appendChild(head);
 
       var gramsEl = document.createElement("div");
       gramsEl.className = "bin-grams unmeasured";
       gramsEl.textContent = "—";
-      card.appendChild(gramsEl);
+      body.appendChild(gramsEl);
 
       var priceEl = document.createElement("div");
       priceEl.className = "bin-price";
-      card.appendChild(priceEl);
+      body.appendChild(priceEl);
 
       // The manual fallback: auto-detect isn't reliable enough yet, so
       // an operator can pick the item directly. `applyBins()` guards
@@ -1831,10 +1755,10 @@
       var overrideLabel = document.createElement("div");
       overrideLabel.className = "bin-override-label";
       overrideLabel.textContent = "Item (auto-detect fallback)";
-      card.appendChild(overrideLabel);
+      body.appendChild(overrideLabel);
       var overrideSel = document.createElement("select");
       overrideSel.className = "bin-override";
-      card.appendChild(overrideSel);
+      body.appendChild(overrideSel);
       overrideSel.addEventListener("change", function () {
         sendCal({ t: "set_bin_override", bin: bin,
                   item_id: overrideSel.value || null });
@@ -1856,7 +1780,7 @@
       noiseLabel.textContent = "unmeasured";
       noiseRow.appendChild(dotsWrap);
       noiseRow.appendChild(noiseLabel);
-      card.appendChild(noiseRow);
+      body.appendChild(noiseRow);
 
       var actions = document.createElement("div");
       actions.className = "bin-actions";
@@ -1876,7 +1800,7 @@
       });
       actions.appendChild(tareBtn);
       actions.appendChild(calBtn);
-      card.appendChild(actions);
+      body.appendChild(actions);
 
       // Doc section 12.1's plain-language principle, applied to the one
       // thing the operator needs to know before Calibrate makes sense:
@@ -1885,7 +1809,7 @@
       // by tapping Calibrate and reading the refusal.
       var hintEl = document.createElement("div");
       hintEl.className = "bin-hint";
-      card.appendChild(hintEl);
+      body.appendChild(hintEl);
 
       binsGrid.appendChild(card);
       binCards[bin] = {
@@ -1893,6 +1817,7 @@
         dotEls: dotEls, noiseRow: noiseRow, noiseLabel: noiseLabel,
         hintEl: hintEl, tareBtn: tareBtn, calBtn: calBtn,
         overrideSel: overrideSel,
+        canvas: cropCanvas, ctx: cropCanvas.getContext("2d"),
       };
     })(bi);
   }
@@ -3064,14 +2989,9 @@
     // `confirmedCorners` seeds the NEXT editing session (not the current
     // one, if any is in progress — a broadcast must not reach into
     // cornersPoints while a handle might be held) and is what the
-    // rectified preview warps, on both this tab and the Live tab.
+    // rectified preview warps.
     confirmedCorners = (msg.corner_points && msg.corner_points.length === 4)
       ? msg.corner_points.map(function (p) { return p.slice(); }) : null;
-    // The Live tab reads confirmedCorners too (liveShowsRectified()) and
-    // has to switch to the flattened view the moment corners are
-    // confirmed, not wait for its <img> to next fire `load` — an
-    // operator watching the Live tab during Confirm should see it happen.
-    sizeOverlayToImage();
     sizeDevOverlay();
     sizeClsOverlay();
     geoCalibrated.textContent = msg.calibrated ? "yes" : "no";
@@ -3387,10 +3307,31 @@
   var rectifiedCanvas = document.createElement("canvas");
   var rectifiedCtx = rectifiedCanvas.getContext("2d");
 
+  // Shared by the Capture tab's crop cards and the Bins tab's own crop
+  // thumbnails (`binCards[i].canvas`, wired above) — both read the same
+  // `captureRects` and the same offscreen `rectifiedCanvas`, so the two
+  // tabs can never show two different ideas of what a bin's crop is.
+  function paintCrop(entry, rect) {
+    if (!entry || !entry.ctx) return;
+    entry.ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
+    if (!rect) return;
+    // Doc §12.7: "at the resolution the model will see." The canvas
+    // buffer is the rect's own pixel size; CSS scales it to the card.
+    if (entry.canvas.width !== Math.round(rect[2])) entry.canvas.width = Math.round(rect[2]);
+    if (entry.canvas.height !== Math.round(rect[3])) entry.canvas.height = Math.round(rect[3]);
+    try {
+      entry.ctx.drawImage(rectifiedCanvas, rect[0], rect[1], rect[2], rect[3],
+                          0, 0, entry.canvas.width, entry.canvas.height);
+    } catch (e) { /* the <img> has not decoded yet */ }
+  }
+
   function drawCrops() {
     if (!setupImg.naturalWidth || !confirmedCorners) {
       cropCards.forEach(function (c) {
         c.ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
+      });
+      binCards.forEach(function (c) {
+        if (c) c.ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
       });
       return;
     }
@@ -3398,19 +3339,8 @@
     if (rectifiedCanvas.height !== stageSize[1]) rectifiedCanvas.height = stageSize[1];
     drawRectifiedPreview(rectifiedCtx, setupImg, confirmedCorners,
                          rectifiedCanvas.width, rectifiedCanvas.height);
-    cropCards.forEach(function (c, i) {
-      var r = captureRects[i];
-      c.ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
-      if (!r) return;
-      // Doc §12.7: "at the resolution the model will see." The canvas
-      // buffer is the rect's own pixel size; CSS scales it to the card.
-      if (c.canvas.width !== Math.round(r[2])) c.canvas.width = Math.round(r[2]);
-      if (c.canvas.height !== Math.round(r[3])) c.canvas.height = Math.round(r[3]);
-      try {
-        c.ctx.drawImage(rectifiedCanvas, r[0], r[1], r[2], r[3],
-                        0, 0, c.canvas.width, c.canvas.height);
-      } catch (e) { /* the <img> has not decoded yet */ }
-    });
+    cropCards.forEach(function (c, i) { paintCrop(c, captureRects[i]); });
+    binCards.forEach(function (c, i) { paintCrop(c, captureRects[i]); });
   }
 
   var CROP_REFRESH_MS = 500;
