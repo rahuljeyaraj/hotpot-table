@@ -58,6 +58,20 @@ public:
 	// the loop itself off the boolean it already reads.
 	void setFireBurningActive(bool active);
 
+	// 2026-08-26, developer request: the roaming fireball — the hand's
+	// OWN cursor flame, drawn everywhere on the table (CursorLink's
+	// `pointer()`), not just inside a bin — gets the same burning sound,
+	// "little smaller than the bin fire which is very big". Same clip
+	// (`fire_burning_ambient.wav`, a plain copy of `fire_burning.wav`'s
+	// seamless-loop render) under a SEPARATE id so it can loop
+	// concurrently with, not instead of, the bin's own `fire_burning`
+	// voice — the two are independent `ofSoundPlayer`s the same way the
+	// two flames are independent draws (the cursor's own flame keeps
+	// following the hand even while it sits inside a lit bin). Quieter
+	// via `kHandFireGain`, matching the visual being smaller, not a
+	// different recording.
+	void setHandFireActive(bool active);
+
 private:
 	struct Voice {
 		ofSoundPlayer player;
@@ -73,4 +87,5 @@ private:
 	std::unordered_map<std::string, Voice> _voices;
 	bool _attractActive = false;
 	bool _fireBurningActive = false;
+	bool _handFireActive = false;
 };

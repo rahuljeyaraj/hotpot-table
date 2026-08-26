@@ -1419,6 +1419,7 @@ All short, all non-annoying at the 200th repetition, all pre-rendered WAV in `of
 | `fire_start` | pointer enters a bin | catches fire — one-shot |
 | `fire_burning` | held for as long as the pointer stays in that bin | sustained burning loop (`state.fire_active` drives it, not a discrete evt — same shape as `attract`/`idle_attract`) |
 | `fire_stop` | pointer leaves the bin | fire goes out — one-shot |
+| `fire_burning_ambient` | held for as long as ANY hand (real or the idle-table phantom) is on the table at all, in or out of a bin | the same loop as `fire_burning`, quieter — the roaming cursor fireball's own crackle, independent of and concurrent with the bin one. oF-driven straight off `CursorLink::pointer()`, not a `state` field — the cursor flame already has no dependency on core's link either (2026-08-26) |
 | `dwell_tick` | every 300ms during a dwell | rising pitch ladder, 4 steps |
 | `dwell_fire` | dwell completes | clean confirm chime |
 | `pick_confirm` | weight settles, item added | a wooden *tok*, pitch shifted by grams — small pick high, big pick low |

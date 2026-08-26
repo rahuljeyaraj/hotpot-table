@@ -241,6 +241,16 @@ void ofApp::update(){
 	// between, same "no stop shape in a one-shot evt, so drive it off
 	// the boolean instead" reasoning as the attract loop just above.
 	_audio.setFireBurningActive(hasState && state.fireActive);
+	// 2026-08-26: the roaming fireball's own quieter loop — driven
+	// straight off CursorLink, not `state`, because the cursor flame
+	// itself is (drawBin/UiLayer aside) CursorLink-driven and has no
+	// dependency on core's link at all (`cursorForUi` below reads
+	// `_cursor.hands()` directly). `pointer()` is non-null for a real
+	// tracked hand AND the idle-table phantom hand (the two are
+	// indistinguishable on this wire by design — see CursorLink.h), so
+	// the ambient crackle follows the same "hand present, real or
+	// phantom" rule the visual fireball already does.
+	_audio.setHandFireActive(_cursor.pointer() != nullptr);
 
 	// **The fluid simulation runs on EVERY page, 2026-08-25 (final).**
 	// It was briefly first-page-only ("after the first page is over, we no
