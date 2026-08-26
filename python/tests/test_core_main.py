@@ -3888,6 +3888,71 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         self.assertEqual(got["bins"][2]["picked"], 0)
         self.assertEqual(got["total"]["amount"], 0.0)
 
+    def _hover_and_sound_sink(self):
+        """A single `of` client capturing both `state` broadcasts and
+        one-shot sound `evt`s — needed together below since `_send_evt`
+        broadcasts with `only=["of"]` (main.py), so the sound sink has to
+        be a real `of`-named client, not a second unrelated one.
+        """
+        states = []
+        evts = []
+        lock = threading.Lock()
+
+        def on_msg(m):
+            with lock:
+                if m.get("t") == "state":
+                    states.append(m)
+                elif m.get("t") == "evt" and m.get("kind") == "sound":
+                    evts.append(m)
+
+        c = self.wire_client("of", on_message=on_msg)
+        self.assertTrue(c.wait_connected(DEADLINE), "of never got a welcome")
+        return states, evts, lock
+
+    def test_entering_a_bin_fires_fire_start_not_the_old_hover_tick(self):
+        # 2026-08-26, developer request: the bin "catches fire" the
+        # instant a hand enters it. `fire_start` replaces the old `hover`
+        # tick outright (_apply_cursor's own comment) — it must not still
+        # be on the wire alongside it.
+        states, evts, lock = self._hover_and_sound_sink()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(3)
+        for _ in range(30):
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+        got = self.wait_for_state(
+            states, lock, lambda m: m["bins"][3]["hl"] == "hover")
+        self.assertIsNotNone(got, "bin 3 never went to hover")
+        self.assertTrue(got.get("fire_active"),
+                        "fire_active must be true while a bin is hovered")
+        with lock:
+            ids = [e.get("id") for e in evts]
+        self.assertIn("fire_start", ids)
+        self.assertNotIn("hover", ids,
+                         "the old hover tick must be gone, not layered under fire_start")
+
+    def test_leaving_a_bin_fires_fire_stop_and_clears_fire_active(self):
+        # The other half: the flame "goes off" once the hand is gone.
+        states, evts, lock = self._hover_and_sound_sink()
+        tx = self.cursor_sender()
+        x, y = self.bin_centre(3)
+        for _ in range(30):
+            self.send_pointer(tx, x, y)
+            time.sleep(0.02)
+        self.assertIsNotNone(
+            self.wait_for_state(states, lock, lambda m: m["bins"][3]["hl"] == "hover"),
+            "bin 3 never went to hover")
+        # Stop sending — the pointer goes stale (POINTER_STALE_S) and
+        # hover clears on its own, same as a hand actually leaving.
+        got = self.wait_for_state(
+            states, lock, lambda m: m["bins"][3]["hl"] != "hover", timeout=2.0)
+        self.assertIsNotNone(got, "hover never cleared once sending stopped")
+        self.assertFalse(got.get("fire_active"),
+                         "fire_active must clear once no bin is hovered")
+        with lock:
+            ids = [e.get("id") for e in evts]
+        self.assertIn("fire_stop", ids)
+
     def test_the_staff_view_is_told_where_the_hands_are(self):
         # Doc section 12.3's hand markers.
         ws = self.ws()

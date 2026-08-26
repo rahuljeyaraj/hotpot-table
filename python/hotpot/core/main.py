@@ -1886,12 +1886,31 @@ class Core:
         was = self._hover_bin
         self._hover_bin = hover.bin_under(self.camera_grid.rects(),
                                           pointer or phantom_pointer)
-        if self._hover_bin is not None and self._hover_bin != was:
-            # Doc section 15.2's `hover`, "very soft tick, -18 dB". Sent
-            # as a one-shot `evt` rather than riding `state`, because
-            # `state` repeats at 60Hz and a repeated sound would fire
-            # sixty times a second (doc section 4.4's whole rationale).
-            self._send_evt({"t": "evt", "kind": "sound", "id": "hover"})
+        if self._hover_bin != was:
+            # 2026-08-26, developer request: the bin "catches fire" the
+            # instant a hand enters it and "goes off" the instant it
+            # leaves — replaces the old `hover` tick (doc section 15.2)
+            # outright, not alongside it. Sent as one-shot `evt`s, same
+            # reasoning that sound always had: `state` repeats at 60Hz
+            # and a repeated sound would fire sixty times a second (doc
+            # section 4.4). The sustained crackle while a hand STAYS in
+            # a bin is `fire_active` on `state` instead (`_state_msg`),
+            # looped on oF's side (`AudioBus::setFireBurningActive`) —
+            # the same "state repeats, a discrete evt does not" split
+            # `idle_attract`/`attract` already uses for the idle simmer
+            # bed.
+            #
+            # Switching directly from one bin to another (no frame with
+            # no bin in between) plays `fire_start` again for the new
+            # bin and no `fire_stop` for the old one — the new bin
+            # catching fire is the audible event; the old one's flame
+            # just isn't there anymore, same as the visual fire ring's
+            # own crossfade only ever targets the one currently-hovered
+            # bin.
+            if self._hover_bin is not None:
+                self._send_evt({"t": "evt", "kind": "sound", "id": "fire_start"})
+            else:
+                self._send_evt({"t": "evt", "kind": "sound", "id": "fire_stop"})
 
         dwell_target_before = self.dwell.active_id
         fired = self.dwell.update(self._widgets, pointer, now)
@@ -3755,6 +3774,14 @@ class Core:
                 # mark — the hidden UI is itself the "this table is idle"
                 # signal the developer asked for, 2026-08-26.
                 "idle_attract": self._phantom_active,
+                # 2026-08-26: whether a hand is currently inside a bin —
+                # oF loops `fire_burning` for exactly as long as this is
+                # true (`AudioBus::setFireBurningActive`), the same
+                # bool-on-`state`-drives-a-loop shape `idle_attract`
+                # already uses for `attract`. The one-shot catch/put-out
+                # cues (`fire_start`/`fire_stop`) are `evt`s, sent where
+                # `self._hover_bin` changes, just above.
+                "fire_active": self._hover_bin is not None,
                 "screen": self._screen_msg(),
                 "locale": self.locale,
                 # M8 hasn't built the fluid renderer yet; the shape is correct

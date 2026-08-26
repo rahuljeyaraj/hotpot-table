@@ -1412,9 +1412,13 @@ One process owning the output device also means there is never a contention prob
 
 All short, all non-annoying at the 200th repetition, all pre-rendered WAV in `of/hotpot-table/bin/data/audio/`.
 
+**2026-08-26, developer request: `hover` is superseded outright by the `fire_start`/`fire_burning`/`fire_stop` set below** — the bin "catches fire" on entry and "goes off" on exit, replacing the old soft tick rather than sitting alongside it. `core/main.py`'s `_apply_cursor` fires the two one-shots on `self._hover_bin`'s own edges (same spot the old `hover` evt fired from); `fire_burning` loops for as long as `state.fire_active` (`self._hover_bin is not None`) is true, mirroring `attract`/`idle_attract`'s own bool-drives-a-loop shape rather than inventing a second one.
+
 | id | When | Character |
 |---|---|---|
-| `hover` | pointer enters a bin | very soft tick, −18 dB |
+| `fire_start` | pointer enters a bin | catches fire — one-shot |
+| `fire_burning` | held for as long as the pointer stays in that bin | sustained burning loop (`state.fire_active` drives it, not a discrete evt — same shape as `attract`/`idle_attract`) |
+| `fire_stop` | pointer leaves the bin | fire goes out — one-shot |
 | `dwell_tick` | every 300ms during a dwell | rising pitch ladder, 4 steps |
 | `dwell_fire` | dwell completes | clean confirm chime |
 | `pick_confirm` | weight settles, item added | a wooden *tok*, pitch shifted by grams — small pick high, big pick low |

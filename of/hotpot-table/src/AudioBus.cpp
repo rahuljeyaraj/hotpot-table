@@ -52,6 +52,26 @@ void AudioBus::play(const std::string & id, float gain, float speed){
 	v.player.play();
 }
 
+void AudioBus::setFireBurningActive(bool active){
+	if(active == _fireBurningActive){
+		return;   // state.fireActive repeats every tick (doc §4.3); only edges act
+	}
+	_fireBurningActive = active;
+
+	Voice & v = voiceFor("fire_burning");
+	if(!v.loaded){
+		return;
+	}
+	if(active){
+		v.player.setLoop(true);
+		v.player.setMultiPlay(false);
+		v.player.setVolume(1.0f);
+		v.player.play();
+	} else {
+		v.player.stop();
+	}
+}
+
 void AudioBus::setAttractActive(bool active){
 	if(active == _attractActive){
 		return;   // state.idleAttract repeats every tick (doc §4.3); only edges act

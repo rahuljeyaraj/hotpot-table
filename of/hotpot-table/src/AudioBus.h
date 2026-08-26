@@ -45,6 +45,19 @@ public:
 	// off the same boolean it already reads to blank the idle UI.
 	void setAttractActive(bool active);
 
+	// 2026-08-26. The bin "burning" loop — doc's fire_start/fire_burning/
+	// fire_stop set, developer request. `fire_burning` is the sustained
+	// crackle for as long as a hand STAYS in a bin; `fire_start`/
+	// `fire_stop` are the catch/put-out one-shots and arrive as ordinary
+	// `evt`s through `play()` like any other cue (main.py sends them on
+	// `self._hover_bin`'s own edges, replacing the old `hover` tick
+	// outright). Same start/stop-on-the-edge shape as setAttractActive,
+	// driven every frame off `state.fireActive` (`self._hover_bin is not
+	// None`) rather than a discrete evt, for the identical reason: there
+	// is no "stop" shape in §4.4's one-shot events, so oF starts/stops
+	// the loop itself off the boolean it already reads.
+	void setFireBurningActive(bool active);
+
 private:
 	struct Voice {
 		ofSoundPlayer player;
@@ -59,4 +72,5 @@ private:
 
 	std::unordered_map<std::string, Voice> _voices;
 	bool _attractActive = false;
+	bool _fireBurningActive = false;
 };

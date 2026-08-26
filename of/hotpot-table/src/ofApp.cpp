@@ -233,6 +233,14 @@ void ofApp::update(){
 	// on why. `hasState` guards it the same way it guards `_ui.update`
 	// above: no link yet must not read as "confirmed idle".
 	_audio.setAttractActive(hasState && state.idleAttract);
+	// doc §15.2/2026-08-26: the bin "burning" loop — sustained for
+	// exactly as long as a hand stays inside a bin (`state.fireActive`,
+	// core's `self._hover_bin is not None`). The catch/put-out one-shots
+	// (`fire_start`/`fire_stop`) already went through the `evt` loop
+	// above like any other cue; this is only the sustained crackle in
+	// between, same "no stop shape in a one-shot evt, so drive it off
+	// the boolean instead" reasoning as the attract loop just above.
+	_audio.setFireBurningActive(hasState && state.fireActive);
 
 	// **The fluid simulation runs on EVERY page, 2026-08-25 (final).**
 	// It was briefly first-page-only ("after the first page is over, we no

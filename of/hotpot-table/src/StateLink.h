@@ -252,6 +252,16 @@ public:
 		// arrived without it must not blank a table that is actually
 		// serving.
 		bool idleAttract = false;
+		// 2026-08-26: whether a hand is currently inside a bin —
+		// core's `self._hover_bin is not None`. AudioBus loops
+		// `fire_burning` for exactly as long as this is true
+		// (`setFireBurningActive`), the same bool-drives-a-loop shape
+		// `idleAttract` already uses for `attract`. The one-shot
+		// catch/put-out cues (`fire_start`/`fire_stop`) arrive as `evt`s
+		// instead, same split as `attract`/no discrete idle-attract evt.
+		// Defaults false: a line that arrived without it must not leave
+		// a stale loop playing.
+		bool fireActive = false;
 	};
 
 	// who="of" (doc §4.1 process names / health.py's PROCESSES tuple).
