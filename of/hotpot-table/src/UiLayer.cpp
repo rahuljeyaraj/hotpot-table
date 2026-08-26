@@ -972,6 +972,14 @@ namespace {
 	// new motion constant in this file.
 	const float kIdleHandWaveDeg = 16.0f;
 	const float kIdleHandWavePeriodS = 1.4f;
+	// "Wave to start" — the prompt's own text, drawn below the icon by
+	// drawIdleHand. Size picked to read at the hand icon's own distance
+	// (across the room, not arm's reach), same reasoning as
+	// kIdleHandHeightPx; not shared with `kPageTitlePx` (23px), which is
+	// sized for a header a diner is already standing at the table for.
+	const int kIdleHandTextPx = 32;
+	const float kIdleHandTextGapPx = 24.0f;   // wrist to the text's cap line
+	const ofColor kIdleHandTextColor(0x2B, 0x21, 0x18);   // the plate's own ink
 	// The sweep's own fall clock — see `sweep01For`. The sweep rises with
 	// the wire value but falls only on this renderer's time: nothing for
 	// `kSweepFallDelayS` (long enough to swallow a tracker dropout or a
@@ -1264,6 +1272,7 @@ void UiLayer::setup(){
 	ok = loadUiFont(_cardNoteFont, kRegularFontFile, kCardNotePx) && ok;
 	ok = loadUiFont(_tokenFont, kMonoBoldFontFile, kTokenPx) && ok;
 	ok = loadUiFont(_devFont, kFontFile, 16) && ok;
+	ok = loadUiFont(_idleHandFont, kFontFile, kIdleHandTextPx) && ok;
 	_fontsLoaded = ok;
 	if(!_fontsLoaded){
 		ofLogError(kTag) << "could not load " << kFontFile << " or " << kMonoFontFile
@@ -1783,6 +1792,18 @@ void UiLayer::drawIdleHand() const {
 	ofRotateDeg(waveDeg);
 	_idleHandIcon.draw(-w * 0.5f, -h, w, h);
 	ofPopMatrix();
+
+	// "Wave to start" — outside the pushed matrix on purpose: the prompt
+	// reads as an instruction sitting beside the hand, not a limb of it,
+	// so it stays put while the hand rocks rather than rotating with it.
+	// Anchored off `wristY`, not the hand's rotated extent, for the same
+	// reason — a fixed point the wave motion never moves.
+	if(_idleHandFont.isLoaded()){
+		ofSetColor(kIdleHandTextColor);
+		drawCentered(_idleHandFont, "Wave to start", cx,
+			wristY + kIdleHandTextGapPx + _idleHandFont.getAscenderHeight());
+		ofSetColor(255);
+	}
 }
 
 void UiLayer::drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,

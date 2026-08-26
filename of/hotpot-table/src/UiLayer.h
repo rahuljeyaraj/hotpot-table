@@ -384,6 +384,12 @@ private:
 	};
 	mutable std::map<std::string, SweepAnim> _sweepAnim;
 	ofTrueTypeFont _devFont;       // 16px, "Developer overlay"
+	// "Wave to start" — the idle-hand prompt's own label, below the icon.
+	// Its own face rather than reusing `_pageTitleFont`: that one is sized
+	// for a header a diner is already standing at the table reading, and
+	// this line has to read from across the room, the same distance the
+	// hand icon itself is sized for. See drawIdleHand.
+	ofTrueTypeFont _idleHandFont;  // 32px bold DejaVuSans
 	bool _fontsLoaded = false;
 
 	// How tall the page header actually is, measured from the loaded title
