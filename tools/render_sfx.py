@@ -173,25 +173,43 @@ def make_dwell_fire(rng: random.Random) -> List[float]:
     return _overlay_at(_pad_to(a, 0.06), b, 0.06)
 
 
-def _wood_tok(freq: float, rng: random.Random) -> List[float]:
-    body = _sine_hit(freq, 0.14, decay_per_sec=28, amp=0.5)
-    click = [v * 0.15 for v in _lowpass(_white_noise(0.01, rng), 4000)]
-    return _overlay_at(body, click, 0.0)
+_NOTE_RATIO = 2 ** (2 / 12)  # a whole tone / major second, "one note"
+
+
+def _ceramic_tone(freq_scale: float, rng: random.Random) -> List[float]:
+    """One note of the `pick_confirm`/`putback` chime — an inharmonic
+    two-partial hit (a porcelain-bowl clink) plus a brief lowpassed noise
+    click. `freq_scale` moves both partials together so the envelope and
+    0.20s duration stay fixed and only the pitch moves — a real note
+    change, not the clip played back faster.
+    """
+    tone = _mix(
+        _sine_hit(660 * freq_scale, 0.20, decay_per_sec=34, amp=0.45),
+        _sine_hit(1520 * freq_scale, 0.10, decay_per_sec=60, amp=0.14))
+    click = [0.18 * v * math.exp(-90 * i / SAMPLE_RATE)
+             for i, v in enumerate(_lowpass(_white_noise(0.025, rng), 900))]
+    return _overlay_at(tone, click, 0.0)
 
 
 def make_pick_confirm(rng: random.Random) -> List[float]:
-    """"a wooden tok, pitch shifted by grams" — the shift itself is
-    AudioBus's `speed` param (ofApp.cpp maps the wire's `grams`); this is
-    the tok at its base pitch.
+    """Developer spec (2026-08-26, after auditioning four candidate
+    families on the rig): the ceramic chime, second note a whole tone
+    ABOVE the first — pitch shift by grams (ofApp.cpp) still applies on
+    top of this at playback, same as every id here.
     """
-    return _wood_tok(220, rng)
+    base = _ceramic_tone(1.0, rng)
+    higher = _ceramic_tone(_NOTE_RATIO, rng)
+    return _concat(base, higher, gap_s=0.035)
 
 
 def make_putback(rng: random.Random) -> List[float]:
-    """"the tok reversed" — literally: pick_confirm's own samples, played
-    back to front.
+    """The same chime, second note a whole tone BELOW the first — no
+    longer `pick_confirm` played backwards (that read as the same event
+    as the pick; a rising vs. falling two-note phrase does not).
     """
-    return list(reversed(make_pick_confirm(rng)))
+    base = _ceramic_tone(1.0, rng)
+    lower = _ceramic_tone(1.0 / _NOTE_RATIO, rng)
+    return _concat(base, lower, gap_s=0.035)
 
 
 def make_total_tick(rng: random.Random) -> List[float]:
