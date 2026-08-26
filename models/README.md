@@ -232,3 +232,37 @@ they are not in the project notes these entries were seeded from. Both are
 recoverable from the Roboflow project's version history; fill them in when
 convenient, because "which dataset version produced the deployed weights" is
 exactly the question this log exists to answer.
+
+---
+
+## Roboflow classification pathway — planned, no trained model yet
+
+**No entry here yet, and this section is not one — there is nothing to
+attach a filename, a dataset version or a metric to.** `docs/
+ROBOFLOW_PATHWAY.md` is the plan; per that plan's own §6, this session
+built steps 1-7 (`classifier/backend_rf.py`, `rf_store.py`, `rf_client.py`,
+`rf_deploy.py`, the `core/main.py` wire handlers, the staff view's
+Roboflow card, and `build_backend()`'s `"roboflow"`/`"roboflow_onnx"`
+dispatch) — all of it code, reasoned from Roboflow's published docs, and
+**none of it run against a real Roboflow account**. §5's V1-V8 probes were
+not performed (no account access in this session). `classifier.backend`
+stays `"stub"` (config/system.default.json); nothing here is live.
+
+This is a **new project of type `single-label-classification`** in
+whichever workspace the developer chooses (plan §3.1 — the existing
+`tray-detector` project above is object detection and is the wrong type,
+by construction; `core/main.py`'s `_handle_rf_link` refuses to link to a
+mismatched type when Roboflow's response actually says so).
+
+When step 9's rig work actually links, uploads, trains and deploys a real
+model, add an entry HERE in this file's own established format
+(workspace, project, project type, dataset version, model type, **the
+class list read out of the deployed artifact, not assumed** — same rule
+the `hotpot-ingredients` Edge Impulse entry above already follows —
+training config, validation metrics, confusion matrix if Roboflow reports
+one, date, artifact filename/size, and a Current marker) and check the
+class list against `data/catalogue.json`'s `class_name` values before
+trusting any of it live, the same check the Edge Impulse entry's own
+`dried_small_shrimps` gap (above) exists to remind future sessions to
+make. Do not backfill this section with placeholder numbers — an
+unrecorded field is `(unrecorded)`, never a guess (this file's own rule).

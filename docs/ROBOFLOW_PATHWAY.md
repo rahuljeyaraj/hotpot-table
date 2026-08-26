@@ -1,7 +1,15 @@
 # ROBOFLOW PATHWAY — a second training/deploy path beside Edge Impulse
 
-**Status: plan only. No code written. Nothing here has been run against a
-live Roboflow account, a real camera, or the rig.**
+**Status, updated 2026-08-26: steps 1-7 of §6's build are code-complete
+(one session, developer instruction: "implement the whole feature before
+reporting back" — so this ran through without the usual per-step
+stop-and-report). Step 8 (provenance) has an honest placeholder in
+`models/README.md` rather than a real entry, and step 9 (the rig) has not
+been touched at all. See "SESSION LOG — 2026-08-26" at the end of this
+file for exactly what was built, what is still only reasoned from
+documentation, and what is still owed. Nothing here has been run against
+a live Roboflow account, a real camera, or the rig — every VERIFY note
+this document and the new code carry is still open.**
 
 Developer instruction (2026-08-26): *"instead of edge impulse make a
 pathway to roboflow, u can keep the edge impulse interface as it is, but
@@ -773,3 +781,97 @@ Local inference      from inference import get_model
 - [Roboflow blog — Deploy Computer Vision Models Offline](https://blog.roboflow.com/deploy-computer-vision-models-offline/)
 - [OpenVINO — CPU device requirements (AVX2 from 2026.0)](https://docs.openvino.ai/2025/openvino-workflow/running-inference/inference-devices-and-modes/cpu-device.html)
 - [roboflow/inference on GitHub](https://github.com/roboflow/inference)
+
+---
+
+## SESSION LOG — 2026-08-26
+
+Developer instruction: implement §6's whole build in one pass rather than
+the usual one-step-per-session/stop-and-report rhythm this file's own
+build order asks for. This log is that rhythm compressed into one entry
+instead of nine, so a future session can still tell what happened and in
+what order.
+
+**Built, all code-complete, one commit per pair of steps:**
+
+- **Step 1** — `classifier/backend_rf.py`: `RoboflowInferenceBackend`
+  (Path A) and `RoboflowOnnxBackend` (Path B), both raising
+  `backend_ei.ClassifierBackendError`, both lazy-loaded, both re-reading
+  their class list from the artifact rather than hardcoding it. 34 tests
+  (`test_backend_rf.py`), including the BGR->RGB and resize-to-input-size
+  mutation checks §6 step 1 asked for by name.
+- **Step 2** — `classifier/rf_store.py`: `state/rf_project.json`, ported
+  from `ei_store.py` per that step's own instruction. 10 tests.
+- **Step 3** — `classifier/rf_client.py`: REST (`_urlopen` test seam,
+  `_bounded_call`'s DNS-hang backstop) for link verification and
+  train/poll, plus a `roboflow`-SDK factory seam for image upload and
+  dataset-version generation (the two operations Roboflow only documents
+  as SDK calls). 24 tests.
+- **Step 4** — `classifier/rf_deploy.py`: Path A cache-warms
+  (`RoboflowInferenceBackend.warm()`, added for this) at deploy time;
+  Path B fetches weights, best-effort extracts a bundled class list into
+  a `<model>.classes.json` sidecar, wipes the previous deploy's files on
+  a filename change. 12 tests.
+- **Step 5** — `core/main.py`: `_handle_rf_link`/`_handle_rf_upload`/
+  `_handle_rf_train`/`_handle_rf_deploy`/`_handle_rf_unlink`, `rf_status`
+  on join, same DI shape (`rf_client=`/`rf_deploy=`/`rf_project_path=`)
+  every other network-touching subsystem in this file already has. The
+  §6 step 5 "decide and write the decision" prompt on concurrent EI/RF
+  jobs is answered in the code, next to `self._rf_active`: independent
+  guards, may run at once. 25 tests (`TestRoboflowTab`).
+- **Step 6** — `core/web/static/index.html`'s `#rfCard`, directly below
+  `#eiCard`, no username/password/TOTP fields (one account key). Verified
+  the way this file's history says every staff-view change here is:
+  `node --check` on the extracted script (clean), every `getElementById`
+  cross-checked against the DOM by script (102 calls, 0 missing), a
+  full-file tag-balance parse (clean) — and this pass is what caught
+  `#rfUnlinked.hide`/`#rfLinked.hide` missing their own CSS rule before
+  it shipped, the exact "`.hide` toggled with no matching selector" bug
+  this file's own CLAUDE.md history already recorded twice (M4l, M4o).
+- **Step 7** — `build_backend()` gained `"roboflow"`/`"roboflow_onnx"`,
+  falling back to `"stub"` on anything else exactly as before. 6 new
+  tests (`TestBuildBackend` — this codebase had no dedicated test for
+  `build_backend()`'s dispatch at all before this, EI values included;
+  now all five are covered). `config/system.default.json` gained
+  `classifier.roboflow_model`. `python/requirements.txt` gained
+  `roboflow`/`inference`/`onnxruntime` entries in the house comment
+  style — **commented out, not installed**, both because §5's probes
+  were never run to confirm a version floor and because §4.3's own
+  warning (`inference`'s dependency tree can silently downgrade `penv`'s
+  numpy/opencv/mediapipe pins) means installing either should be a
+  deliberate, separate action, never a side effect of a routine
+  `pip install -r requirements.txt`.
+- **Step 8** — `models/README.md` gained a section saying plainly that
+  there is no trained model and therefore no entry, not a fabricated one
+  with placeholder metrics. See that file for what step 9 needs to fill
+  in once a real model exists.
+
+`python -m unittest discover -s python/tests`: 1298 tests, same ~9-10
+pre-existing unrelated failures this repo's test-suite history already
+documents (the spice-icon `TestCheckoutFlow`/`test_hover` cases,
+`test_calibrator`'s documented stale-link flake).
+
+**Not done, and this is the load-bearing caveat for the whole session:**
+
+- **§5's V1-V8 probes were never run.** No Roboflow account/API key was
+  available in this session. Every REST/SDK shape in `rf_client.py` and
+  `rf_deploy.py` below a VERIFY comment is reasoned from Roboflow's
+  published docs only — the exact position this repo's own `ei_client.py`
+  was in before a live run found and fixed one missing query parameter
+  (that module's own docstring, still the standing proof of why this
+  matters). Do not trust a real Link/Upload/Train/Deploy click against
+  this code until those probes have been run for real and the real
+  responses pasted into §5's table above.
+- **§1's Path A vs Path B decision was not made** — both were built, per
+  this document's own §1 recommendation, so the choice stays a config
+  value (`classifier.backend`) rather than a rewrite. Still open question
+  #1 in §9.
+- **No `inference`/`onnxruntime`/`roboflow` package has been installed
+  anywhere, including in a throwaway venv** — §4.3's own "verify first"
+  step is untouched. `test_backend_rf.py`/`test_rf_client.py` prove the
+  logic around each package's API, not the real package.
+- **Step 9, the rig, is completely untouched** — no camera, no real
+  account, no physical trays, nothing projected. Every one of step 9's
+  nine acceptance items is still open.
+- The staff view's `#rfCard` has not been opened in a real browser or
+  driven through a DOM shim — static checks only (see step 6 above).

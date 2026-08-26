@@ -58,3 +58,48 @@ qrcode>=8.0
 # installed by hand on the dev machine, which is exactly how a rig ends up
 # with a dependency nobody has written down.
 mediapipe>=0.10
+
+# docs/ROBOFLOW_PATHWAY.md — a second classifier training/deploy path
+# beside Edge Impulse, additive, off `classifier.backend`. Neither of
+# these two is a hard dependency of anything above: both are imported
+# lazily inside backend_rf.py's classify() (same seam pyserial/mediapipe
+# get above), so this whole tree — including test_backend_rf.py — stays
+# importable and testable with neither installed.
+#
+# **DO NOT `pip install` either of these into `penv` (the interpreter
+# that actually runs this app on the rig — see CLAUDE.md's 2026-08-24
+# session notes) as a first move.** `inference` in particular pulls a
+# large tree (torch, transformers, onnxruntime, its own numpy/opencv
+# pins) that can silently downgrade `penv`'s existing numpy/opencv/
+# mediapipe and break the tracker and camera process with no obvious
+# connection to this feature — doc §4.3's own explicit warning. Install
+# into a throwaway venv first, confirm classify() actually works there,
+# THEN decide whether it can safely share `penv`.
+#
+# roboflow>=1.1 — classifier/rf_client.py's SDK half (labeled image
+# upload, dataset version generation, Path B's weights download — see
+# that module's own docstring for why these two operations use the SDK
+# rather than a guessed raw-REST shape). UNVERIFIED version floor: no
+# live install has been checked against this codebase yet (doc §5).
+#
+# inference — Path A (backend_rf.RoboflowInferenceBackend), Roboflow's
+# own supported local-deployment route: `get_model()` downloads and
+# caches weights on first use, later calls are offline. UNVERIFIED
+# version floor, same reason as `roboflow` above; also unverified on the
+# ODYSSEY deploy board — doc §4.1's own real AVX2 risk (OpenVINO's CPU
+# plugin requires AVX2 from release 2026.0), unmeasurable until that
+# board is in hand.
+#
+# onnxruntime — Path B (backend_rf.RoboflowOnnxBackend). Plain CPU
+# execution provider, no AVX2 hard requirement unlike `inference`'s
+# OpenVINO path (falls back to slower generic kernels instead) — doc §1's
+# reason Path B stays "one config value away" rather than being dropped.
+# UNVERIFIED version floor.
+#
+# Commented out, not installed by default: `classifier.backend` stays
+# "stub" (config/system.default.json) until a Path is chosen and doc §5's
+# probes have been run. Uncomment whichever Path applies once that's
+# done.
+# roboflow>=1.1
+# inference
+# onnxruntime

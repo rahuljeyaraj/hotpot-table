@@ -102,6 +102,12 @@ models/**/*.bin
 # rule as every other weight file here: re-downloadable, provenance logged in
 # models/README.md, never in git.
 models/**/*.task
+# docs/ROBOFLOW_PATHWAY.md §6 step 4's Path B sidecar
+# (classifier/rf_deploy.py's `<model>.classes.json`, read by
+# backend_rf.RoboflowOnnxBackend) — tied to one specific deployed .onnx the
+# same way the weights themselves are, not source data, same re-downloadable/
+# not-diffed category as every pattern above it.
+models/**/*.classes.json
 
 # The log itself stays tracked.
 !models/README.md

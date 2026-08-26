@@ -54,7 +54,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from hotpot.classifier import backend_ei, backend_stub
+from hotpot.classifier import backend_ei, backend_rf, backend_stub
 from hotpot.common import atomicio, config, framebus, geometry, health, log, wire
 
 _log = logging.getLogger("hotpot.classifier")
@@ -596,18 +596,26 @@ class Classifier:
 
 def build_backend(cfg: Dict[str, Any]) -> Any:
     """Doc section 19.4's selection line: "Selected by `config.classifier.
-    backend`." Three values today — `"stub"` (the committed default,
+    backend`." Five values today — `"stub"` (the committed default,
     config/system.default.json), `"ei_cpp"` (this project's native-binary
     substitute for doc section 19.4's `ImageImpulseRunner`, see backend_ei.
-    py's own module docstring for why), and anything else falls back to
-    `"stub"` with a loud warning rather than crashing the process a typo'd
-    config value would otherwise take down.
+    py's own module docstring for why), `"roboflow"`/`"roboflow_onnx"`
+    (`docs/ROBOFLOW_PATHWAY.md` §6 step 7 — Path A/Path B of the second,
+    additive training/deploy path beside Edge Impulse, see backend_rf.py's
+    own module docstring), and anything else falls back to `"stub"` with a
+    loud warning rather than crashing the process a typo'd config value
+    would otherwise take down. **Keep the existing fallback behaviour
+    exactly** — that rule predates this addition and still applies to it.
     """
     name = config.get(cfg, "classifier.backend", "stub")
     if name == "stub":
         return backend_stub.StubBackend()
     if name == "ei_cpp":
         return backend_ei.EiCppBackend()
+    if name == "roboflow":
+        return backend_rf.RoboflowInferenceBackend()
+    if name == "roboflow_onnx":
+        return backend_rf.RoboflowOnnxBackend()
     _log.warning("classifier: unknown classifier.backend %r — using the "
                 "stub instead of refusing to start", name)
     return backend_stub.StubBackend()

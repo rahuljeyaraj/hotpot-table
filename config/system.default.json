@@ -39,6 +39,7 @@
   "classifier": {
     "backend": "stub",
     "model": "models/ingredients-x86_64.eim",
+    "roboflow_model": "models/hotpot-ingredients-rf.onnx",
     "live_hz": 2,
     "enabled": true
   },

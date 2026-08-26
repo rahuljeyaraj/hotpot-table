@@ -698,5 +698,43 @@ class TestFrameAveraging(unittest.TestCase):
         self.assertEqual(got.shape, dot_field().shape)
 
 
+class TestBuildBackend(unittest.TestCase):
+    """`build_backend()`'s `classifier.backend` dispatch (doc section
+    19.4; `docs/ROBOFLOW_PATHWAY.md` §6 step 7 for the two `roboflow*`
+    values). No network, no `inference`/`onnxruntime` package needed —
+    every backend's own `__init__` is cheap by design (backend_ei.py's and
+    backend_rf.py's own "construction must never be what fails" rule); a
+    backend only touches its heavy dependency inside `classify()`, which
+    nothing here calls.
+    """
+
+    def test_stub_is_the_default_with_no_config_at_all(self):
+        backend = cmain.build_backend({})
+        self.assertIsInstance(backend, cmain.backend_stub.StubBackend)
+
+    def test_explicit_stub(self):
+        backend = cmain.build_backend({"classifier": {"backend": "stub"}})
+        self.assertIsInstance(backend, cmain.backend_stub.StubBackend)
+
+    def test_ei_cpp(self):
+        backend = cmain.build_backend({"classifier": {"backend": "ei_cpp"}})
+        self.assertIsInstance(backend, backend_ei.EiCppBackend)
+
+    def test_roboflow_is_path_a(self):
+        backend = cmain.build_backend({"classifier": {"backend": "roboflow"}})
+        self.assertIsInstance(backend, cmain.backend_rf.RoboflowInferenceBackend)
+
+    def test_roboflow_onnx_is_path_b(self):
+        backend = cmain.build_backend(
+            {"classifier": {"backend": "roboflow_onnx"}})
+        self.assertIsInstance(backend, cmain.backend_rf.RoboflowOnnxBackend)
+
+    def test_an_unknown_value_falls_back_to_stub_with_a_warning_not_a_crash(self):
+        # The existing fallback rule, unchanged by adding the two new
+        # values — a typo'd config value must never take the process down.
+        backend = cmain.build_backend({"classifier": {"backend": "not-a-real-backend"}})
+        self.assertIsInstance(backend, cmain.backend_stub.StubBackend)
+
+
 if __name__ == "__main__":
     unittest.main()
