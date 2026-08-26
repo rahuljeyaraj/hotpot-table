@@ -2666,12 +2666,21 @@ void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
 	// subline is the operator's word for which state it is. Both audiences
 	// are looking at the same table (doc §12.1's no-jargon rule applies
 	// here more than anywhere — this surface has no operator filter on it).
-	const float lineGap = 8.0f;
-	const float blockH = _nameFont.getAscenderHeight() + lineGap
-		+ _detailFont.getAscenderHeight();
-	const float localTop = (h - blockH) * 0.5f;
-	drawCentered(_nameFont, headline, cx, yTop + localTop + _nameFont.getAscenderHeight());
-	drawCentered(_detailFont, subline, cx, yTop + h - localTop);
+	// An empty subline (setting mode — headline alone is the whole message
+	// now) centres the headline on its own rather than leaving it high in
+	// a block sized for a second line nobody is drawing.
+	if(subline.empty()){
+		drawCentered(_nameFont, headline, cx,
+			yTop + (h + _nameFont.getAscenderHeight()) * 0.5f);
+	}
+	else{
+		const float lineGap = 8.0f;
+		const float blockH = _nameFont.getAscenderHeight() + lineGap
+			+ _detailFont.getAscenderHeight();
+		const float localTop = (h - blockH) * 0.5f;
+		drawCentered(_nameFont, headline, cx, yTop + localTop + _nameFont.getAscenderHeight());
+		drawCentered(_detailFont, subline, cx, yTop + h - localTop);
+	}
 	ofSetColor(255);
 }
 
@@ -2745,7 +2754,7 @@ void UiLayer::drawTopBanner(const StateLink::State & state) const {
 	}
 	if(state.mode == "setting"){
 		drawBanner(kSettingBannerFill, kSettingBannerInk,
-			"NOT SERVING", "setting the table");
+			"NOT SERVING", "");
 		return;
 	}
 	if(state.overlayKind == "error"){
