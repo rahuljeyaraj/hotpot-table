@@ -29,6 +29,22 @@ constant**: if the ~280ms lag is visible on the projected surface, the
 first move is median-of-3 here, not a board mod (see CLAUDE.md, decided
 2026-08-11). Nothing in this file may hardcode 5.
 
+A moving average sits on top of the median, default width 3
+------------------------------------------------------------
+2026-08-26, developer report: the median alone still lets the displayed
+weight jump — a lone bad HX711 read is an outlier a median discards, but
+this rig's own per-channel noise (four of eight bins at 1-2g rms once
+calibrated, CLAUDE.md's M2 section) is not an outlier, it is ordinary
+wobble, and a median cannot smooth that out at all. `avg_window`
+averages the last `avg_window` MEDIAN outputs, not raw counts — same
+"constructor parameter, never a constant" discipline as
+`median_window`, and for the same reason: whatever value is right is a
+rig measurement away, not a guess. It costs settling time on top of the
+median's own ~280ms, roughly `avg_window` extra median-periods before a
+step fully crosses — accepted on purpose, per the developer, as better
+than a jumping number. `DEFAULT_AVG_WINDOW` is unmeasured; tune it
+against real jitter on the table, not against this docstring.
+
 One slot, no queue
 ------------------
 Doc section 9.5: the thread writes the latest sample into a single slot
@@ -81,6 +97,23 @@ LINE_PREFIX = "raw"
 # Doc section 9.5. A parameter everywhere below, never a constant — see
 # the rate finding in the module docstring.
 DEFAULT_MEDIAN_WINDOW = 5
+
+# 2026-08-26, developer report: the median alone still lets the displayed
+# weight jump around. A moving average is a SECOND stage, applied to the
+# median's own output rather than to raw counts — a lone bad HX711 read
+# is still discarded by the median before it can be smeared across
+# several ticks of averaging, and only the residual sample-to-sample
+# wobble (this rig's own measured 1-2g rms on four of the eight channels,
+# CLAUDE.md's M2 section) gets the extra smoothing. Same "constructor
+# parameter, never a constant" discipline as median_window, for the same
+# reason: this rig's own rate and noise numbers were wrong once already
+# (see the module docstring above) and the right value is a rig
+# measurement away, not a guess to freeze into code.
+# **Unmeasured.** Chosen only as "a bit more smoothing is worth a bit
+# more settling time" — confirm against real jitter on the table before
+# trusting this number, and see settle_ms's own comment for how the two
+# interact.
+DEFAULT_AVG_WINDOW = 3
 
 # Doc section 9.5 / 8.6: "settled when its gram value has stayed within
 # ±2g for settle_ms (default 300ms)".
@@ -159,9 +192,10 @@ def parse_line(line: Any) -> Optional[List[int]]:
 class Reading:
     """One snapshot of the slot, as the main loop sees it.
 
-    `counts` are median-filtered, not raw. `grams[i] is None` means bin i
-    cannot be weighed — stale link, or an uncalibrated cell — and must
-    contribute nothing to a price rather than 0.0 g (doc section 21, M2).
+    `counts` are median-filtered and then moving-averaged, not raw.
+    `grams[i] is None` means bin i cannot be weighed — stale link, or an
+    uncalibrated cell — and must contribute nothing to a price rather
+    than 0.0 g (doc section 21, M2).
     """
 
     counts: Optional[List[float]]
@@ -220,6 +254,7 @@ class ScaleReader:
         cal: Optional[loadcell_cal.Calibration] = None,
         baud: int = DEFAULT_BAUD,
         median_window: int = DEFAULT_MEDIAN_WINDOW,
+        avg_window: int = DEFAULT_AVG_WINDOW,
         settle_ms: float = DEFAULT_SETTLE_MS,
         settle_tol_g: float = DEFAULT_SETTLE_TOL_G,
         stale_s: float = DEFAULT_STALE_S,
@@ -227,6 +262,8 @@ class ScaleReader:
     ) -> None:
         if median_window < 1:
             raise ValueError("median_window must be at least 1")
+        if avg_window < 1:
+            raise ValueError("avg_window must be at least 1")
         self.port = port
         self.baud = baud
         # An all-uncalibrated Calibration is the correct default and not a
@@ -234,6 +271,7 @@ class ScaleReader:
         # None grams, and doc section 9.1 sends that boot to UNCALIBRATED.
         self.cal = cal if cal is not None else loadcell_cal.Calibration()
         self.median_window = median_window
+        self.avg_window = avg_window
         self.settle_ms = settle_ms
         self.settle_tol_g = settle_tol_g
         self.stale_s = stale_s
@@ -249,6 +287,7 @@ class ScaleReader:
         self._settle: List[_Settle] = [_Settle() for _ in range(NUM_BINS)]
 
         self._window: Deque[List[int]] = deque(maxlen=median_window)
+        self._avg: Deque[List[float]] = deque(maxlen=avg_window)
         self._rate: Deque[float] = deque(maxlen=RATE_WINDOW)
         self._collectors: List[List[List[int]]] = []
 
@@ -381,10 +420,20 @@ class ScaleReader:
             # instead of discarding it.
             median = [float(statistics.median([s[i] for s in self._window]))
                       for i in range(NUM_BINS)]
-            self._counts = median
+            # Second stage, on the median's own output rather than on raw
+            # counts (DEFAULT_AVG_WINDOW's own comment): the residual
+            # sample-to-sample wobble a median cannot remove — it is not an
+            # outlier, so there is nothing for a median to discard — gets a
+            # plain moving average on top. `self._counts` is this, not the
+            # median alone, so it is what `read()`, settle, and everything
+            # downstream see; `capture()` is untouched, still raw samples.
+            self._avg.append(median)
+            smoothed = [sum(m[i] for m in self._avg) / len(self._avg)
+                       for i in range(NUM_BINS)]
+            self._counts = smoothed
             self._ts = now
             self.samples += 1
-            self._update_settle(self.cal.grams_all(median), now)
+            self._update_settle(self.cal.grams_all(smoothed), now)
 
     def _update_settle(self, grams: Sequence[Optional[float]],
                        now: float) -> None:

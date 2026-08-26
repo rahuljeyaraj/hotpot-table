@@ -124,7 +124,17 @@ class TestParseLine(unittest.TestCase):
 
 
 class TestMedianFilter(unittest.TestCase):
-    """Doc section 9.5's smoothing."""
+    """Doc section 9.5's smoothing.
+
+    Every reader here is built with `avg_window=1` — the moving average
+    (`TestMovingAverage`, below) is a second stage on top of this one, and
+    a default `avg_window` would blend these exact-value assertions
+    across several median outputs instead of checking the median alone.
+    `avg_window=1` is not a special "off" flag, it is the parameter's own
+    identity value (average of one thing is that thing), so this isolates
+    the stage under test the same way each test here already pins
+    `median_window` down explicitly.
+    """
 
     def setUp(self):
         self.cal = calibrated(counts_per_gram=100.0)
@@ -133,7 +143,8 @@ class TestMedianFilter(unittest.TestCase):
         """Median, not mean — the doc's stated reason. A mean would move
         every one of the five samples' output.
         """
-        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=5)
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=5,
+                              avg_window=1)
         for c in (1000, 1000, 999_999, 1000, 1000):
             r.feed([c] * 8, now=1000.0)
         self.assertEqual(r.read(now=1000.0).counts[0], 1000.0)
@@ -143,7 +154,8 @@ class TestMedianFilter(unittest.TestCase):
         spans 465ms. If the lag shows on the table the fix is a smaller
         window here — which is only possible if nothing hardcodes 5.
         """
-        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=3)
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=3,
+                              avg_window=1)
         for c in (100, 200, 300, 400, 500):
             r.feed([c] * 8, now=1000.0)
         # Last three are 300/400/500; a window of 5 would give 300.
@@ -151,12 +163,14 @@ class TestMedianFilter(unittest.TestCase):
 
     def test_a_partly_filled_window_still_reads(self):
         """First sample after open must not wait for five."""
-        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=5)
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=5,
+                              avg_window=1)
         r.feed([500] * 8, now=1000.0)
         self.assertEqual(r.read(now=1000.0).counts[0], 500.0)
 
     def test_each_channel_is_filtered_independently(self):
-        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=3)
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=3,
+                              avg_window=1)
         r.feed([10, 20, 30, 40, 50, 60, 70, 80], now=1000.0)
         r.feed([11, 21, 31, 41, 51, 61, 71, 81], now=1000.1)
         r.feed([12, 22, 32, 42, 52, 62, 72, 82], now=1000.2)
@@ -171,6 +185,88 @@ class TestMedianFilter(unittest.TestCase):
         r = scale.ScaleReader("COM-TEST")
         with self.assertRaises(ValueError):
             r.feed([1, 2, 3])
+
+
+class TestMovingAverage(unittest.TestCase):
+    """2026-08-26: a second low-pass stage on top of the median, added
+    because the median alone still let the displayed weight jump around
+    on ordinary channel noise — not an outlier, so nothing for a median
+    to discard. `avg_window` averages the median's own output.
+    """
+
+    def setUp(self):
+        self.cal = calibrated(counts_per_gram=100.0)
+
+    def test_avg_window_of_one_is_the_plain_median(self):
+        """The identity case: averaging one value is that value, so this
+        must reproduce median-of-3 exactly with no second stage visible.
+        """
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=3,
+                              avg_window=1)
+        for c in (100, 200, 300, 400, 500):
+            r.feed([c] * 8, now=1000.0)
+        self.assertEqual(r.read(now=1000.0).counts[0], 400.0)
+
+    def test_the_average_runs_over_median_outputs_not_raw_counts(self):
+        """median_window=1 makes the median stage a no-op (the median of
+        one sample is that sample), which isolates what avg_window alone
+        does: the last 3 raw values, averaged.
+        """
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=1,
+                              avg_window=3)
+        for c in (100, 200, 300, 400, 500):
+            r.feed([c] * 8, now=1000.0)
+        # Last three raw samples are 300/400/500 -> mean 400.
+        self.assertEqual(r.read(now=1000.0).counts[0], 400.0)
+
+    def test_a_partly_filled_avg_window_still_reads(self):
+        """First sample after open must not wait for avg_window samples,
+        the same rule median_window already follows."""
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=1,
+                              avg_window=5)
+        r.feed([500] * 8, now=1000.0)
+        self.assertEqual(r.read(now=1000.0).counts[0], 500.0)
+
+    def test_a_single_outlier_is_still_rejected_before_averaging(self):
+        """The two stages compose: the median discards the spike, so the
+        average only ever sees clean values and is not dragged toward it.
+        """
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=5,
+                              avg_window=3)
+        for c in (1000, 1000, 1000, 1000, 1000):
+            r.feed([c] * 8, now=1000.0)
+        r.feed([999_999] * 8, now=1000.1)
+        self.assertEqual(r.read(now=1000.1).counts[0], 1000.0)
+
+    def test_each_channel_is_averaged_independently(self):
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=1,
+                              avg_window=2)
+        r.feed([10, 20, 30, 40, 50, 60, 70, 80], now=1000.0)
+        r.feed([12, 22, 32, 42, 52, 62, 72, 82], now=1000.1)
+        self.assertEqual(r.read(now=1000.1).counts,
+                         [11.0, 21.0, 31.0, 41.0, 51.0, 61.0, 71.0, 81.0])
+
+    def test_avg_window_of_zero_is_refused(self):
+        with self.assertRaises(ValueError):
+            scale.ScaleReader("COM-TEST", avg_window=0)
+
+    def test_settle_is_evaluated_against_the_averaged_value(self):
+        """The settle detector must see what read() sees — otherwise a
+        bin could report `settled` against a number the display never
+        actually showed.
+        """
+        r = scale.ScaleReader("COM-TEST", cal=self.cal, median_window=1,
+                              avg_window=3, settle_ms=1.0, settle_tol_g=2.0)
+        # Averaged over 3, this steps 100g -> 100g -> 100g -> then a
+        # value far enough that the AVERAGE (not the raw sample) crosses
+        # the tolerance band, restarting the settle window.
+        for k in range(4):
+            r.feed([10000] * 8, now=1000.0 + k * 0.01)
+        self.assertTrue(r.read(now=1000.03).settled[0])
+        r.feed([10000 + 100 * 50] * 8, now=1000.04)   # +50g raw, one sample
+        # Averaged over the last 3 (100, 100, 150g raw) -> ~116.7g, still
+        # more than 2g from the 100g ref, so settle must have restarted.
+        self.assertFalse(r.read(now=1000.04).settled[0])
 
 
 class TestGrams(unittest.TestCase):

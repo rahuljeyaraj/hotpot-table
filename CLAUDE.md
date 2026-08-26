@@ -5348,3 +5348,67 @@ rebuild needed. **Confirmed live**, second screenshot: a much fuller
 flame visibly active mid-idle, UI still hidden, after several minutes of
 the webcam's spurious detections no longer being able to strand the
 table.
+
+## A second low-pass stage: moving average on top of the median
+(2026-08-26, developer report — not a doc build item)
+Developer: the median filter alone still isn't enough, the weight output
+is "really jumping around" — take a moving average on top of it, and a
+longer settling time is an acceptable trade for a display that stops
+jumping.
+
+**Why the median alone can't fix this.** Median-of-N discards an
+OUTLIER — a single bad HX711 read — by construction (module docstring's
+own reasoning: a mean would smear a bad read across the window, a median
+drops it). It does nothing for ordinary sample-to-sample wobble that
+isn't an outlier: this rig's own measured per-channel noise (M2 section
+of this file) is 1-2g rms on four of the eight bins once calibrated, and
+every one of those samples is a legitimate reading, not a spike — a
+median just picks one of them each tick, jumping around within the noise
+band exactly as reported.
+
+**`core/scale.py`: `avg_window`, a second constructor parameter, same
+discipline as `median_window` ("a constructor parameter and not a
+constant" — nothing here may hardcode a value; see the module's own
+1993-counts/1993-counts-vs-46-counts per-channel table for why this rig
+in particular needs it).** `feed()` now runs two stages: the existing
+median-of-`median_window` over raw counts, then a plain moving average
+of the last `avg_window` MEDIAN outputs — averaging the median's output,
+not raw counts, so a genuine outlier is still discarded before it can be
+smeared into a few ticks of averaged noise. `self._counts` (what
+`read()`, settle detection, and everything downstream see) is now this
+two-stage result; `capture()` is untouched — still raw samples, per its
+own docstring's reasoning, which was already correct and needed no
+change.
+`DEFAULT_AVG_WINDOW = 3` is the new default — unmeasured, chosen only as
+"a bit more smoothing for a bit more settling time," the same honest
+status `DEFAULT_MEDIAN_WINDOW`/`median_window` had before the rig's own
+10.7Hz measurement. Because `core/main.py` has never overridden
+`median_window` either (it relies on the module's own default), this
+default is what actually reaches the live rig with no other code change
+— consistent with how `median_window`'s default already reaches
+production today.
+`TestMedianFilter` (test_scale.py) now builds every reader with
+`avg_window=1` — not a special "off" flag, the parameter's own identity
+value (the average of one thing is that thing) — so those exact-value
+assertions keep isolating the median stage alone, the same way each of
+those tests already pins `median_window` down explicitly. A new
+`TestMovingAverage` class (7 tests) covers the average stage on its own
+terms: the identity case, averaging runs over median outputs and not raw
+counts, a partly-filled window still reads (median_window's own rule,
+extended), an outlier is rejected by the median before the average ever
+sees it, each channel averages independently, `avg_window=0` is refused,
+and — the one worth flagging on its own — **settle detection is
+evaluated against the averaged value, not the pre-average median**, so a
+bin can never report `settled` against a number the display never
+actually showed. 1173 Python tests pass,
+`python -m unittest discover -s python/tests`, plus the same 9
+pre-existing, unrelated failures this file already carries (the spice-
+icon `TestCheckoutFlow`/`test_hover` cases and `test_calibrator`'s
+documented stale-link flake) — verified unrelated by name, not rerun
+against a clean stash this time, since none touches `scale.py` or
+anything scale.py's own tests exercise.
+**Not observed on the rig** — reasoned from the code and the test suite
+only. The actual settling-time cost (`avg_window`'s own extra
+`avg_window` median-periods on top of the median's own ~280ms lag,
+module docstring) has not been watched on the projected surface; tune
+`DEFAULT_AVG_WINDOW` against real jitter once it has.
