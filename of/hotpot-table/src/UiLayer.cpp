@@ -2776,6 +2776,30 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 		drawn.push_back(binIdx);
 	}
 
+	// **Empty-cart guidance.** Doc §8's rule above ("rows above the filled
+	// ones draw nothing") leaves a first-time diner looking at blank space
+	// under "Your Order" with nothing telling them what to do. Core
+	// resolves the wording per I2 (`cart_hint`, `_screen_msg`) and only
+	// while the cart is empty — `state.screen.hint` is "" the instant a
+	// pick lands, so the guidance and the cart's own rows can never show
+	// at once without oF having to re-derive that from `drawn` itself.
+	if(drawn.empty() && _infoFont.isLoaded() && !state.screen.hint.empty()){
+		const float maxWidth = kCartWidthPx - 2.0f * kCartPadXPx;
+		std::vector<std::string> lines =
+			wrapToLines(_infoFont, state.screen.hint, maxWidth, 2);
+		const float lineH = _infoFont.getAscenderHeight()
+			+ fabsf(_infoFont.getDescenderHeight()) + kInfoBoxLineGapPx;
+		const float blockH = lineH * (float)lines.size() - kInfoBoxLineGapPx;
+		float baselineY = kCartTopPx + (rowsBottom - kCartTopPx - blockH) * 0.5f
+			+ _infoFont.getAscenderHeight();
+		ofSetColor(kInfoBoxTextColor);
+		for(const std::string & line : lines){
+			drawCentered(_infoFont, line, cx, baselineY);
+			baselineY += lineH;
+		}
+		ofSetColor(255);
+	}
+
 	for(size_t k = 0; k < drawn.size(); k++){
 		const int binIdx = drawn[k];
 		const StateLink::Bin & b = state.bins[binIdx];

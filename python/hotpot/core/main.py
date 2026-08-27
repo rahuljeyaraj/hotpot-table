@@ -4412,6 +4412,12 @@ class Core:
                     if paid else "")
             hint2 = (self.locales.translate("token_hint2", self.locale)
                      if paid else "")
+        elif st is fsm.State.SELECTING and not self.cart.is_active():
+            # An empty cart is otherwise a blank column under the title —
+            # nothing on screen tells a first-time diner what to do. Only
+            # while empty: the moment a pick lands, the cart itself is the
+            # instruction, and the two must never show at once.
+            hint = self.locales.translate("cart_hint", self.locale)
         return {
             "title": self.locales.translate(key, self.locale),
             "step": step,
