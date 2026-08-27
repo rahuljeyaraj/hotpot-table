@@ -117,14 +117,6 @@ void ofApp::setup(){
 	_fluid.setup(PROJ_W_PX, PROJ_H_PX, kFluidSimScale);
 	_audio.setup();
 
-	// Developer sound effect volume slider — see ofApp.h's own comment on
-	// why this is a real ofxGui widget rather than a keyboard shortcut:
-	// ofApp's mouse callbacks are all deliberately empty (v3 §7.1), so a
-	// dragged ofxPanel doesn't collide with anything else reading the
-	// mouse. Starts at 100 (unity gain, AudioBus's own default).
-	_devPanel.setup("Developer");
-	_devPanel.add(_volumeSlider.setup("Volume", 100.0f, 0.0f, 100.0f));
-
 	// who="of" per doc §4.1's process names (health.py's PROCESSES tuple).
 	// Runs its own thread from here on — see StateLink's class comment for
 	// why setup() itself must never block.
@@ -249,10 +241,9 @@ void ofApp::update(){
 	// the ambient crackle follows the same "hand present, real or
 	// phantom" rule the visual fireball already does.
 	_audio.setHandFireActive(_cursor.pointer() != nullptr);
-	// Developer volume slider — read every frame rather than only on a
-	// ofxGui value-changed callback, matching this file's existing "poll,
-	// don't subscribe" style for per-frame state (state/cursor above).
-	_audio.setMasterVolume(_volumeSlider / 100.0f);
+	// Developer mute, 'm' toggles (see ofApp.h's comment on why this is a
+	// plain on/off rather than a slider).
+	_audio.setMasterVolume(_audioMuted ? 0.0f : 1.0f);
 	// Steps any loop currently easing to silence (AudioBus::fadeOutLoop,
 	// from one of the three setXActive edges above) — must run every
 	// frame regardless of `hasState`, same reasoning as the `evt` drain:
@@ -426,7 +417,7 @@ void ofApp::draw(){
 	// --- layers 4-5: halo, then UI (both inside UiLayer::draw) ---------
 	_ui.draw(hasState, state, _link.isConnected(), _link.secondsSinceLastState(),
 		ofGetFrameRate(), _devOverlayVisible,
-		_cursor.hands(), cursorForUi);
+		_cursor.hands(), cursorForUi, _audioMuted);
 	// RIG_FEEDBACK item 11 diagnostic: confirmed fixed on the rig,
 	// 2026-08-13 — see kDrawSkeleton's own comment.
 	if(kDrawSkeleton){
@@ -443,16 +434,6 @@ void ofApp::draw(){
 	std::function<void()> aboveLightPass = nullptr;
 	_stage.compositeAndWarp(_ui.cutoutRectsPx(),
 		mmToPxX(CUTOUT_CORNER_RADIUS_MM), false, aboveLightPass);
-
-	// Drawn AFTER the keystone warp, in real window/mouse space — unlike
-	// the fps/link/seq text (UiLayer::drawDevOverlay, drawn inside
-	// beginContent/endContent and so warped with everything else), this
-	// panel has to be draggable, and ofxGui's mouse listeners read raw
-	// window coordinates that only line up with what's on screen here,
-	// post-warp.
-	if(_devOverlayVisible){
-		_devPanel.draw();
-	}
 
 	if(_screenshotPending){
 		_screenshotPending = false;
@@ -495,6 +476,13 @@ void ofApp::keyPressed(int key){
 	}
 	if(key == 'd' || key == 'D'){
 		_devOverlayVisible = !_devOverlayVisible;
+	}
+	// m added for sound effect volume control: this rig has no flat
+	// preview surface to put a draggable slider on (see ofApp.h's comment
+	// on _audioMuted), so on/off is what a keyboard toggle can offer.
+	if(key == 'm' || key == 'M'){
+		_audioMuted = !_audioMuted;
+		ofLogNotice("ofApp") << "audio: " << (_audioMuted ? "MUTED" : "on");
 	}
 	// f added 2026-08-14: the all-bins-lit flame diagnostic — see
 	// UiLayer::setForceAllBinsLit() for what it is for and what each

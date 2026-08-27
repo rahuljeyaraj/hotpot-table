@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ofMain.h"
-#include "ofxGui.h"
 #include "AudioBus.h"
 #include "CursorLink.h"
 #include "FluidLayer.h"
@@ -56,10 +55,13 @@ private:
 	bool _devOverlayVisible = false;   // 'd' toggles; off by default (diner-facing table)
 	float _statTimer = 0.0f;
 
-	// Developer-only sound effect volume control, same 'd' gate as the
-	// fps/link/seq readout — only drawn (and so only draggable) while
-	// _devOverlayVisible is true. 0..100 on screen, divided by 100 into
-	// AudioBus::setMasterVolume's 0..1 gain.
-	ofxPanel _devPanel;
-	ofxFloatSlider _volumeSlider;
+	// Developer sound effect mute, 'm' toggles. A draggable ofxGui volume
+	// slider was tried first but doesn't work on this rig: everything
+	// past Stage::compositeAndWarp() draws in raw window pixels, never
+	// keystoned onto the table, so a widget drawn there (unlike the fps/
+	// link/seq text, which is drawn INSIDE beginContent/endContent and so
+	// gets warped like everything else) lands off the visible table
+	// entirely. A plain on/off mute has no positioning problem — its
+	// state just prints as text in the same already-warped readout.
+	bool _audioMuted = false;
 };

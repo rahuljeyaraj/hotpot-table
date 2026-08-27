@@ -3927,10 +3927,11 @@ void UiLayer::drawSkeleton(const std::vector<SkeletonLink::Hand> & hands) const 
 }
 
 void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
-	bool connected, float fps) const {
-	char buf[128];
-	snprintf(buf, sizeof(buf), "fps %.0f  link %s  seq %lld",
-		fps, connected ? "up" : "down", hasState ? (long long)state.seq : -1LL);
+	bool connected, float fps, bool audioMuted) const {
+	char buf[160];
+	snprintf(buf, sizeof(buf), "fps %.0f  link %s  seq %lld  audio %s",
+		fps, connected ? "up" : "down", hasState ? (long long)state.seq : -1LL,
+		audioMuted ? "MUTED (m)" : "on (m)");
 	ofSetColor(140, 140, 140);
 	_devFont.drawString(buf, 16, 1080.0f - 16.0f);
 	ofSetColor(255);
@@ -3939,7 +3940,7 @@ void UiLayer::drawDevOverlay(bool hasState, const StateLink::State & state,
 void UiLayer::draw(bool hasState, const StateLink::State & state,
 	bool connected, float staleSeconds, float fps, bool showDevOverlay,
 	const std::vector<CursorLink::Hand> & hands,
-	const CursorLink::Hand * pointer) const {
+	const CursorLink::Hand * pointer, bool audioMuted) const {
 	if(!_fontsLoaded){
 		drawConnectionIndicator(connected, staleSeconds);
 		return;
@@ -4111,6 +4112,6 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 
 	drawConnectionIndicator(connected, staleSeconds);
 	if(showDevOverlay){
-		drawDevOverlay(hasState, state, connected, fps);
+		drawDevOverlay(hasState, state, connected, fps, audioMuted);
 	}
 }

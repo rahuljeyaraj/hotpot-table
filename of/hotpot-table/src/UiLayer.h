@@ -41,7 +41,8 @@ public:
 	void draw(bool hasState, const StateLink::State & state,
 		bool connected, float staleSeconds, float fps, bool showDevOverlay,
 		const std::vector<CursorLink::Hand> & hands = {},
-		const CursorLink::Hand * pointer = nullptr) const;
+		const CursorLink::Hand * pointer = nullptr,
+		bool audioMuted = false) const;
 
 	// Stage's light pass needs exactly these rects, in stage px, and they
 	// must be the SAME rects the plates are drawn against — that identity
@@ -290,7 +291,7 @@ private:
 	void drawTopBanner(const StateLink::State & state) const;
 	void drawBrandMark() const;
 	void drawDevOverlay(bool hasState, const StateLink::State & state,
-		bool connected, float fps) const;
+		bool connected, float fps, bool audioMuted) const;
 	std::string _priceText(double amount) const;
 
 	// Set once per draw() from state.total.text (the one locale-resolved
