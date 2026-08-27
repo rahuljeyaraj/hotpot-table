@@ -98,15 +98,25 @@ public:
 	// is still meant to be immediate — only going quiet is smoothed).
 	void setHandFireActive(bool active);
 
+	// Developer volume slider (UiLayer's dev overlay). `volume01` is
+	// clamped to 0..1 and multiplies every gain this class plays at from
+	// here on — one-shots (`play()`) and loops alike. Applied immediately
+	// to any loop already sounding, not just the next start/fade edge, so
+	// dragging the slider while `attract`/`fire_burning`/`fire_burning_
+	// ambient` is playing is heard live rather than on the next edge.
+	void setMasterVolume(float volume01);
+	float getMasterVolume() const { return _masterVolume; }
+
 private:
 	struct Voice {
 		ofSoundPlayer player;
 		bool loaded = false;
 		// Fade-out state, `startLoop`/`fadeOutLoop`/`update`'s own. Unused
 		// by `play()`'s one-shots.
-		float activeGain = 1.0f;   // volume once fully faded in
+		float activeGain = 1.0f;   // volume once fully faded in, before master
 		bool fadingOut = false;
 		float fadeElapsed = 0.0f;
+		bool isLoop = false;   // set by startLoop; distinguishes from a one-shot Voice
 	};
 
 	// Starts (or resumes) a looping voice at `gain`. Does not restart
@@ -133,4 +143,5 @@ private:
 	bool _attractActive = false;
 	bool _fireBurningActive = false;
 	bool _handFireActive = false;
+	float _masterVolume = 1.0f;
 };

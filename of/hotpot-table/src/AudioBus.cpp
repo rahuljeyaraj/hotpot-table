@@ -1,6 +1,7 @@
 #include "AudioBus.h"
 
 #include "ofLog.h"
+#include "ofMath.h"
 
 namespace {
 	const char * kTag = "AudioBus";
@@ -77,7 +78,7 @@ void AudioBus::play(const std::string & id, float gain, float speed){
 	if(!v.loaded){
 		return;   // logged once already, in voiceFor
 	}
-	v.player.setVolume(gain);
+	v.player.setVolume(gain * _masterVolume);
 	v.player.setSpeed(speed);
 	v.player.play();
 }
@@ -97,12 +98,13 @@ void AudioBus::update(float dt){
 			continue;
 		}
 		float t = v.fadeElapsed / kLoopFadeOutS;
-		v.player.setVolume(v.activeGain * (1.0f - t));
+		v.player.setVolume(v.activeGain * _masterVolume * (1.0f - t));
 	}
 }
 
 void AudioBus::startLoop(Voice & v, float gain){
 	v.activeGain = gain;
+	v.isLoop = true;
 	v.fadingOut = false;
 	if(!v.player.isPlaying()){
 		v.player.setLoop(true);
@@ -113,7 +115,7 @@ void AudioBus::startLoop(Voice & v, float gain){
 	// a fade in progress" path (hand back in view before kLoopFadeOutS
 	// ran out), and the loop must jump straight back to full volume, not
 	// resume climbing from wherever the fade had gotten to.
-	v.player.setVolume(gain);
+	v.player.setVolume(gain * _masterVolume);
 }
 
 void AudioBus::fadeOutLoop(Voice & v){
@@ -155,6 +157,22 @@ void AudioBus::setHandFireActive(bool active){
 		startLoop(v, kHandFireGain);
 	} else {
 		fadeOutLoop(v);
+	}
+}
+
+void AudioBus::setMasterVolume(float volume01){
+	_masterVolume = ofClamp(volume01, 0.0f, 1.0f);
+	// Live loops react immediately rather than waiting for their next
+	// start/fade edge — one-shots are left alone (a `play()` already in
+	// flight keeps the gain it was triggered at, same as any other sound
+	// mid-playback) since only `isLoop` voices are the sustained ones a
+	// developer would actually hear the slider move on.
+	for(auto & entry : _voices){
+		Voice & v = entry.second;
+		if(!v.isLoop || !v.player.isPlaying() || v.fadingOut){
+			continue;
+		}
+		v.player.setVolume(v.activeGain * _masterVolume);
 	}
 }
 

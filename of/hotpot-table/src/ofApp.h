@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
+#include "ofxGui.h"
 #include "AudioBus.h"
 #include "CursorLink.h"
 #include "FluidLayer.h"
@@ -54,4 +55,11 @@ private:
 	bool _screenshotPending = false;
 	bool _devOverlayVisible = false;   // 'd' toggles; off by default (diner-facing table)
 	float _statTimer = 0.0f;
+
+	// Developer-only sound effect volume control, same 'd' gate as the
+	// fps/link/seq readout — only drawn (and so only draggable) while
+	// _devOverlayVisible is true. 0..100 on screen, divided by 100 into
+	// AudioBus::setMasterVolume's 0..1 gain.
+	ofxPanel _devPanel;
+	ofxFloatSlider _volumeSlider;
 };
