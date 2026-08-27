@@ -4,7 +4,7 @@
     "web_port": 8090,
     "locale": "en",
     "conf_floor": 0.65,
-    "deadband_g": 5.0,
+    "deadband_g": 10.0,
     "settle_ms": 300,
     "dwell_ms": 1200
   },
