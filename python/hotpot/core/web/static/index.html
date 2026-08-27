@@ -332,6 +332,18 @@
   }
   .bin-override:disabled { opacity: 0.4; cursor: not-allowed; }
   .bin-override-label { font-size: 11px; color: var(--muted); margin-top: 10px; }
+  /* Restock alert (2026-08-27): a resolved bin whose weight has dropped
+     below core's RESTOCK_THRESHOLD_G. Empty/hidden otherwise — `.show`
+     is set only when core's `low_stock` flag is true, same on/off
+     pattern the serial-status line already uses (`.down`). The whole
+     card gets a red outline too, so the alert is visible at a glance
+     across a row of cards, not only when reading one closely. */
+  .bin-restock {
+    display: none; margin-top: 8px; padding: 6px 8px; border-radius: 6px;
+    background: #402626; color: var(--red); font-size: 13px; font-weight: 600;
+  }
+  .bin-restock.show { display: block; }
+  .bin-card.low-stock { border-color: var(--red); }
 
   /* --- Setup tab (doc section 12.6, M4 build item 4) --------------------
      Three things in one column, in the order an operator does them:
@@ -2033,6 +2045,12 @@
       priceEl.className = "bin-price";
       body.appendChild(priceEl);
 
+      // Restock alert — empty/hidden until `applyBins()` sees this
+      // bin's `low_stock` flag true (core/main.py's RESTOCK_THRESHOLD_G).
+      var restockEl = document.createElement("div");
+      restockEl.className = "bin-restock";
+      body.appendChild(restockEl);
+
       // The manual fallback: auto-detect isn't reliable enough yet, so
       // an operator can pick the item directly. `applyBins()` guards
       // this against the 10Hz `bins` broadcast while the select is open
@@ -2102,7 +2120,9 @@
 
       binsGrid.appendChild(card);
       binCards[bin] = {
+        card: card,
         nameEl: nameEl, gramsEl: gramsEl, priceEl: priceEl,
+        restockEl: restockEl,
         dotEls: dotEls, noiseRow: noiseRow, noiseLabel: noiseLabel,
         hintEl: hintEl, tareBtn: tareBtn, calBtn: calBtn,
         overrideSel: overrideSel,
@@ -2219,6 +2239,10 @@
         c.gramsEl.classList.remove("unmeasured");
       }
       c.priceEl.textContent = b.sub || "";
+      var lowStock = !!b.low_stock;
+      c.restockEl.textContent = lowStock ? "Low stock — restock this bin" : "";
+      c.restockEl.classList.toggle("show", lowStock);
+      c.card.classList.toggle("low-stock", lowStock);
       var dots = b.noise_dots;
       var known = dots !== null && dots !== undefined;
       c.noiseRow.classList.toggle("noisy", !!b.noisy);

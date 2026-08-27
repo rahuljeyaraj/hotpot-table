@@ -186,6 +186,14 @@ BINS_BROADCAST_EVERY = 6
 NOISE_DOTS = 8
 NOISE_BAR_SPAN_MULT = 2.0
 
+# Bins tab restock alert (2026-08-27, developer request — not a doc
+# build item). A resolved bin whose live weight has dropped below this
+# many grams needs the item topped up before the next diner reaches for
+# it. Unmeasured, chosen as a round number well above load-cell noise on
+# every channel this file has ever recorded (worst case ~5-7g rms) so a
+# quiet, empty-ish bin cannot flicker the alert on and off.
+RESTOCK_THRESHOLD_G = 50.0
+
 # Doc section 4.3's `mode` field, both values. Derived from fsm.State, not
 # stored: two places that can disagree about which mode the table is in is
 # exactly the bug M2.6 exists to remove.
@@ -4124,6 +4132,11 @@ class Core:
                 "noise_g": None if noise_g is None else round(noise_g, 1),
                 "noisy": noise_g is not None and noise_g > settle_tol_g,
                 "noise_dots": _noise_dots(noise_g, settle_tol_g),
+                # Restock alert: only for a bin that actually holds a
+                # known item and has a real weight to judge — an
+                # uncalibrated or unresolved bin has nothing to restock.
+                "low_stock": (resolved and grams is not None
+                              and grams < RESTOCK_THRESHOLD_G),
             })
         return {
             "t": "bins",

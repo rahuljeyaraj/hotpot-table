@@ -935,6 +935,7 @@ class TestBinsTab(CoreCase):
             self.assertIsNone(b["noise_g"])
             self.assertIsNone(b["noise_dots"])
             self.assertFalse(b["noisy"])
+            self.assertFalse(b["low_stock"])
             # Seeded 1:1 from the catalogue at conf 1.0 (core/main.py's
             # _seed_binmap) — the Bins tab shows a name even though it
             # cannot show grams yet.
@@ -991,6 +992,55 @@ class TestBinsTab(CoreCase):
         b5 = msg["bins"][5]
         self.assertTrue(b5["tared"])
         self.assertAlmostEqual(b5["grams"], 500, delta=5)
+
+    def test_low_stock_flags_a_resolved_bin_under_the_restock_threshold(self):
+        """2026-08-27, developer request: a Bins-tab restock alert. A
+        resolved bin above coremain.RESTOCK_THRESHOLD_G must not be
+        flagged; the same bin, once its live weight drops under it, must
+        be — and an uncalibrated bin (grams still None) must never be
+        flagged just because None fails a plain "< 50" comparison.
+        """
+        counts = self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        self.enter_setting(w)
+
+        zero_counts = self.EMPTY[5]
+        w.send(json.dumps({"t": "tare", "bin": 5}))
+        self.assertTrue(self.cal_result(w, 5, "tare")["ok"])
+        loaded_counts = int(self.CPG * 500.0)
+        counts[5] = loaded_counts
+        w.send(json.dumps({"t": "calibrate", "bin": 5, "ref_mass_g": 500}))
+        self.assertTrue(self.cal_result(w, 5, "calibrate")["ok"])
+        counts_per_gram = (loaded_counts - zero_counts) / 500.0
+
+        msg = self.bins_msg(w, lambda m: m["bins"][5]["calibrated"])
+        b5 = msg["bins"][5]
+        self.assertAlmostEqual(b5["grams"], 500, delta=5)
+        self.assertFalse(b5["low_stock"], "500g is well above the restock threshold")
+
+        # 20g left in the bin — restock it. Counts are computed off the
+        # fit's own zero point and counts_per_gram, not a bare multiple
+        # of CPG (CPG only sets the CALIBRATION point's counts; the
+        # actual fit also folds in the tare's zero_counts).
+        counts[5] = round(zero_counts + counts_per_gram * 20.0)
+        msg = self.bins_msg(w, lambda m: m["bins"][5]["grams"] is not None
+                             and m["bins"][5]["grams"] < 50)
+        b5 = msg["bins"][5]
+        self.assertTrue(b5["low_stock"], "20g is under the restock threshold")
+
+    def test_low_stock_is_false_for_an_uncalibrated_bin(self):
+        """An uncalibrated bin's `grams` is None (never 0) — this must
+        not read as "below the threshold" just because None is falsy in
+        the wrong comparison.
+        """
+        self.feed(self.EMPTY)
+        w = self.ws()
+        self.recv_json(w)
+        msg = self.bins_msg(w)
+        for b in msg["bins"]:
+            self.assertIsNone(b["grams"])
+            self.assertFalse(b["low_stock"])
 
     def test_bad_bin_index_is_ignored_not_a_crash(self):
         self.feed(self.EMPTY)
