@@ -1033,14 +1033,7 @@
       <div class="dev-shell">
         <div class="setup-card">
           <h2>MediaPipe hand skeleton</h2>
-          <p>Raw 21-point MediaPipe output (`tracker/main.py`'s
-             `landmarks`, relayed by core verbatim, ~10Hz), drawn on the
-             RAW camera feed rather than the rectified one so this view
-             stays independent of calibration entirely — MediaPipe
-             detection happens upstream of the homography, which is
-             exactly why this exists: to answer "does MediaPipe see a
-             hand at all" without anything else (a bad calibration, oF's
-             own cursor logic) able to hide the answer.</p>
+          <p>Raw 21-point MediaPipe output</p>
           <div class="live-feed-wrap">
             <img id="devImg" alt="">
             <canvas id="devOverlay"></canvas>
