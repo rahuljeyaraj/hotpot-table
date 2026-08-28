@@ -40,7 +40,7 @@ Everyone else seemed to know. The staff knew. The regulars knew. The answers exi
 
 # The table is the screen
 
-The tabletop is plywood with eight bins set into it. A projector hangs above, and a camera hangs next to it. Everything you see — ingredient names, prices, your running cart, the whole checkout — is light thrown down onto the wood, and the camera watches your hands so the table knows what you're reaching for.
+The tabletop is a sheet of projector screen fabric stretched over plywood, with eight bins set into it. That fabric is doing real work: it pulls far more colour out of the projector than bare wood ever would, which is what lets a ring of fire read as fire instead of a smudge. A projector hangs above, mounted as close to the ceiling as it will go so its throw covers the whole table, and a camera sits up there with it. Everything you see — ingredient names, prices, your running cart, the whole checkout — is light landing on that surface, and the camera watches your hands so the table knows what you're reaching for.
 
 That's the design brief in one line: a person at a hot pot stand has a bowl in one hand and tongs in the other, so everything has to happen where their hands already are.
 
@@ -48,11 +48,11 @@ That's the design brief in one line: a person at a hot pot stand has a bowl in o
 
 # It waits like something alive
 
-With the stand empty, the table idles. A soft ring of light breathes around each of the eight bins, slightly out of step with each other, so the whole surface moves like it's thinking. A flame drifts lazily across the wood on its own, wandering from bin to bin as though somebody invisible is browsing. Underneath it all there's the low crackle of a fire.
+With the stand empty, the table idles. A soft ring of light breathes around each of the eight bins, slightly out of step with each other, so the whole surface moves like it's thinking. A flame drifts lazily across the table on its own, wandering from bin to bin as though somebody invisible is browsing. Underneath it all there's the low crackle of a fire.
 
 Walk up, put a hand over the table, and it comes to attention. All eight bins label themselves at once: the name of what's in them, and the price per 100 g underneath.
 
-Instant Noodles, $1.50. Lotus Root Slices, $1.40. Dried Eel Strips, $5.00. Now you know what you're looking at, and roughly what it'll cost you, before you've picked anything up.
+Instant Noodles, $1.50. Lotus Root Slices, $1.40. Dried Eel Strips, $5.00. You know what everything is and exactly what it costs before you pick up a single thing.
 
 # Reach for a bin and it catches fire
 
@@ -67,7 +67,7 @@ At the same time, the middle of the table fills up with the thing you're pointin
 
 That last one is the whole reason this project exists. *Lotus Root Slices: stays crunchy even after cooking. Mild, faintly sweet, never goes soft.* *Dried Shrimp: small but intense. Deeply savoury, so a little goes a long way.* *Fish Balls: bouncy and mild. A safe pick if you would rather not chase strong flavours.*
 
-You can stand there and read about six ingredients before committing to one. Nobody is waiting on you, nobody has to be flagged down, and the queue behind you has no idea you're doing it.
+Move your hand along the row and you can read your way through all eight before you commit to one.
 
 # The bowl fills and the bill fills with it
 
@@ -97,17 +97,19 @@ Each one says whether it's spicy and whether it's vegetarian right on the card, 
 
 # Then how hot you want it
 
-Spice is a row of three chillies. Touch the leftmost and one lights up; touch the rightmost and all three do. Mild sits on the left and is chosen for you, so you can carry straight on if you're happy with it.
+Spice uses the same three stacked cards, and stacks them by heat. Hot sits at the top of the table, furthest away. Mild sits at the bottom, closest to you, and comes already chosen — so anyone happy with mild simply carries on.
 
-- **Mild** — a gentle warmth. You taste the broth first and the chilli after.
-- **Medium** — properly spicy and still comfortable. The most ordered level.
+Each card counts its own heat in chillies: one for mild, two for medium, three for hot.
+
 - **Hot** — serious heat. Worth choosing only if you already know you like it.
+- **Medium** — properly spicy and still comfortable. The most ordered level.
+- **Mild** — a gentle warmth. You taste the broth first and the chilli after.
 
-Three filling chillies say the same thing in any language, which is rather the point.
+A row of chillies says the same thing in every language, which is rather the point.
 
 # Pay from where you're standing
 
-The table adds up your ingredients, your broth and your spice, shows you the total, and puts a QR code on the wood in front of you.
+The table adds up your ingredients, your broth and your spice, shows you the total, and projects a QR code onto the table in front of you.
 
 Scan it with your phone and you get an itemised receipt — every ingredient with its weight and its price, the broth you picked, the spice level you picked, and the total at the bottom. Pay on the phone, and the table notices immediately.
 
@@ -132,14 +134,14 @@ One switch at the top says **Serving**. On, and the table is open for business. 
 
 # What it's made of
 
-The tabletop rests on eight load cells, one under each bin, read by a **Seeed Studio XIAO ESP32S3** that streams all eight channels up to the host over USB. The host is an **ASUS NUC 14**, running the brains in Python and the projected table itself in openFrameworks. Above the table, a short-throw projector and a webcam, with Google's MediaPipe doing the hand tracking.
+The tabletop rests on eight load cells, one under each bin, read by a **Seeed Studio XIAO ESP32S3** that streams all eight channels up to the host over USB. The host is an **ASUS NUC 14**, running the brains in Python and the projected table itself in openFrameworks. Above it all, an ordinary projector mounted almost against the ceiling — high enough that its throw covers the full table — and a webcam beside it, with Google's MediaPipe doing the hand tracking.
 
 Everything past this point is the engineering. If you want to build one, the next section is the parts and the wiring. If you want to know how it works, the section after that is the architecture, the calibration, and the fire.
 
 # Gallery
 
 [IMAGE: hero — the whole table lit, all 8 bins named and priced]
-*It's a sheet of plywood. Turn the lights off and it stops behaving like one.*
+*Plywood, a sheet of projector screen fabric, and a projector bolted near the ceiling. Everything else is light.*
 
 [IMAGE: a bin on fire under a hovering hand]
 *Reach for the beef balls and the beef balls reach back.*
