@@ -173,69 +173,84 @@ Everything past this point is the engineering. If you want to build one, the nex
 *Nobody's here, so it plays with fire by itself.*
 
 
-# Build one: the shopping list
+# Bill of materials
 
-Two thirds of this project is software. The hardware third comes to a surprisingly short list: everything on it is either something you can buy in an afternoon or something you can cut out of a sheet of plywood.
+**Sensing and wiring.**
 
-**The surface.**
+- 1 x [Seeed Studio XIAO ESP32S3](https://robu.in/product/seeed-studio-xiao-esp32s3-2-4ghz-wifi-ble-5-0/)
+- 8 x [Phaeton CZL-611N 1 kg screw-fastened load cell](https://robu.in/product/phaeton-load-cell-sensor-czl-611n-1kg-screw-fastened/), one per bin
+- 8 x [SmartElex HX711 load cell amplifier](https://robu.in/product/smartelex-load-cell-amplifier-hx711/), one per cell
+- 1 x [5 x 7 cm universal prototype board, 2.54 mm pitch](https://robu.in/product/5-x-7-cm-universal-pcb-prototype-board-single-sided-2-54mm-hole-pitch/), the carrier the XIAO sits on
+- 1 x [2.54 mm 1x40 female single row header strip](https://robu.in/product/2-54mm-1x40-pin-female-single-row-header-strip-pack-of-10/), so the XIAO plugs in and pulls out
+- [4-pin 2.54 mm pluggable screw terminal blocks](https://robu.in/product/4-pin-2-54mm-pitch-pluggable-screw-terminal-block-pack-of-3/), every board-to-board connection lands on one of these
+- [PCT-215 5-pole lever connectors](https://robu.in/product/pct-215-0-08-2-5mm-5-pole-wire-connector-terminal-block-with-spring-lock-lever-for-cable-connection/), to split 3V3, ground and the clock four ways
+- 26 AWG ultra flexible silicone wire in [red](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-red/), [black](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-black/), [blue](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-blue/), [yellow](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-yellow/), [green](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-green/) and [white](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-white/)
 
-- One sheet of plywood, 60 x 36 inches, which is the 1524 x 914.4 mm the code works in
-- Projector screen fabric to stretch over it, enough to wrap the edges
-- Eight bins, 200 x 255 mm each, deep enough to hold a tray of ingredients
-- A frame or a pair of trestles to stand it on at counter height
+**Light, camera and computer.**
 
-**The weighing.**
+- 1 x ASUS NUC 14 running Windows 11
+- 1 x [WZATCO Yuva Go Plus projector](https://www.amazon.in/gp/aw/d/B0F8N74NVN/), 1080p native, 9000 lumens, with 4D keystone on the projector itself
+- 1 x [Lenovo 300 FHD webcam](https://www.amazon.in/LenovoTM-Megapixel-Ultra-Wide-Rotation-GXC1B34793/dp/B08KT89BWX/), 1080p, 95 degree lens, on a flexible mount
+- 1 x [HDMI cable](https://www.amazon.in/dp/B0CRPB7LK6) long enough to reach the ceiling
+- 2 x [USB extension cable](https://www.amazon.in/dp/B0GY4PSF54), one for the camera and one for the XIAO
 
-- Eight load cells, one per bin. [FILL: exact model] A 5 kg bar cell is the right size for a bin of ingredients: a full tray plus a tong going in lands well inside that range.
-- Eight HX711 breakout boards, one per cell
-- One Seeed Studio XIAO ESP32S3
-- A USB-C cable long enough to reach from under the table to the host
-- Ribbon or hookup wire, and a soldering iron
+**The table.**
 
-**The light and the eye.**
+- 6 mm plywood, cut to 1524 x 914.4 mm
+- [Projector screen fabric](https://www.amazon.in/dp/B0C9ZQYXRP) to cover it
+- 8 x [bins](https://www.amazon.in/dp/B0FNRT5DJY)
+- 1 kg of [eSUN PLA, 1.75 mm, gold](https://robu.in/product/esun-pla-1-75mm-3d-printing-filament-1kg-gold/) for the printed parts
+- A table to stand it all on
 
-- One projector, 1920 x 1080, HDMI [FILL: exact model]
-- A ceiling mount that gets it as high as your room allows
-- One USB 3 webcam, 1920 x 1080 [FILL: exact model]
-- A bracket to hold the camera next to the projector
+# Print the mounts first
 
-**The computer.**
+Every printed part is in `hardware/3d-printed/` in the repo, as `.3mf` plates ready to slice. All of them are PLA.
 
-- One ASUS NUC 14, running Windows 11
-- A monitor and keyboard for the build, plus any device with a browser for the staff dashboard afterwards
+- `load_base.3mf`, 145 x 160 x 10 mm. A cross-shaped base that sits on the table and carries the load cell. **Print 8**, one per bin.
+- `load_plate_short.3mf`, 200 x 25 x 35 mm. **Print 16**, two per bin.
+- `load_plate_long.3mf`, 25 x 254 x 35 mm. **Print 16**, two per bin.
+- `corner_plug.3mf`, 25 x 25 x 7 mm. **Print 32**, four per bin.
+- `pillar.3mf`, a 40 x 40 x 70 mm tapered leg. **Print 12.** These hold the plywood up.
+- `lotus_root.3mf`, a 100 mm slice, 10 mm thick.
 
-# The tabletop is really a jig for the projector
+Two short rails, two long rails and four corner plugs make up one bin's platform, and the finished frame is 200 x 255 mm, which is the bin footprint the whole system is built around. Each frame sits on its own load cell, and each load cell sits on a base on the table.
 
-The plywood is doing two jobs. It holds the bins, and it fixes their positions in millimetres so that the projector, the camera and the load cells are all describing the same eight rectangles.
+# Cut the plywood
+
+The plywood is the projection surface. It is 6 mm thick and it does not carry any weight: it stands on the twelve printed pillars, at the height of the bin tops, and each bin comes up through its own opening.
 
 [IMAGE: docs/img/table-cutting-plan.svg]
-*The cutting plan. Two rows of four, symmetric about the centre, with a gap up the middle for the pot.*
+*Two rows of four, symmetric about the centre, with a wide column up the middle.*
 
-Both chains have to add up, and the code checks them at compile time in `TableGeometry.h`:
+Cut the sheet to 1524 x 914.4 mm, which is 60 x 36 inches, then cut the eight openings at the positions in the plan. Both chains have to add up:
 
 ```
 across:  92 + 200 + 50 + 200 + 440 + 200 + 50 + 200 + 92 = 1524 mm
 front to back:      177 + 255 + 50 + 255 + 177.4         = 914.4 mm
 ```
 
-The 440 mm in the middle of the first chain is the gap the pot sits in. The 50 mm terms are the gaps between the bins of a pair. Everything else is a bin or an edge margin.
+The 440 mm column up the middle stays solid. That is where the table projects the ingredient details, the cart and the checkout buttons.
 
-**Round the corners of every cutout to a 20 mm radius.** The projector paints a black rectangle with matching rounded corners over each opening, so a square cut leaves four bright triangles of light landing on the food.
+- Cut every opening at 200 x 255 mm
+- Round each corner to a 20 mm radius
+- Number the bins on the underside before you go any further: 0 to 3 are the far row, left to right as the diner sees it, and 4 to 7 are the near row in the same direction. Bin N and bin N+4 share a column.
 
-**Cut the openings at exactly 200 x 255 mm.** The black fill is drawn 10 mm larger on all four sides, which swallows the saw kerf and the last millimetre of alignment error at the same time.
+Cover the top with projector screen fabric and cut the openings through it.
 
-**Number the bins the way the firmware does.** Bins 0 to 3 are the far row, left to right as the diner sees it. Bins 4 to 7 are the near row, same direction. Bin N and bin N+4 share a column. Write the numbers on the underside in marker before you wire anything, because everything from here on refers to them.
-
-Stretch the screen fabric over the finished top. The fabric is what turns plywood into a projection surface, and it is the difference between a table that looks lit and a table that looks like painted wood.
-
-# Eight cells, one clock
-
-Each load cell is a four-wire bridge that goes into its own HX711. The HX711s all share a single clock line, so the XIAO strobes once and reads eight channels in the same conversion cycle. Each board gets its own data line back.
+# Wire the load cells
 
 [IMAGE: docs/img/firepot-loadcells.png]
-*Eight identical channels. One shared clock, eight separate data lines, one USB cable out. The KiCad source for this sheet is in the Schematics section below and at `hardware/firepot-loadcells/` in the repo.*
+*Eight identical channels. One shared clock, eight separate data lines, one USB cable out. The KiCad source is in the Schematics section below, and at `hardware/firepot-loadcells/` in the repo.*
 
-The data pins are fixed in firmware, and the index is the bin number:
+Every connection in this build is a screw terminal or a lever connector, so the whole harness comes apart again.
+
+- Solder the female header strip to the 5 x 7 cm prototype board and plug the XIAO into it
+- Land every board-to-board run on a 4-pin pluggable screw terminal block
+- Split 3V3, ground and the clock with PCT-215 lever connectors: one feed in, four out, which is one island of four HX711s per connector
+
+Each load cell has four wires going to its own HX711: red to `E+`, black to `E-`, green to `A+`, white to `A-`. Check the colours against your own cell.
+
+Each HX711 then takes 3V3 and ground from the rails, shares the clock on `D0` with all seven others, and returns its own data line to the XIAO:
 
 ```
 D3  / GPIO4     bin 0    far left
@@ -248,23 +263,24 @@ D8  / GPIO7     bin 6    near centre-right
 D7  / GPIO44    bin 7    near right
 ```
 
-That looks scrambled written down and is tidy in the flesh. The eight bins sit as two islands of four, and each island holds one pair from each row. `D3` to `D6` serve the left island, `D7` to `D10` the right. The right island counts backwards because `D10` down to `D7` sit top to bottom on that header, which keeps the harness in physical order and means you can trace a wire with a finger instead of a multimeter.
+The eight bins sit as two islands of four, each island holding one pair from each row. `D3` to `D6` run to the left island and `D7` to `D10` to the right, and the right island counts backwards because `D10` down to `D7` sit top to bottom on that header. Wire it in that order and the harness stays in physical order.
 
-The clock is `D0`, which is `GPIO1`, tied to the `SCK` pin of all eight boards. `D1` and `D2` are left spare, and `D2` is worth leaving spare in particular: it is `GPIO3`, a strapping pin, sampled at reset.
+Leave `D1` and `D2` unused. `D2` is `GPIO3`, a strapping pin sampled at reset.
 
-**Mount each cell whichever way round suits the frame.** Several of the eight under this table sit upside down relative to their neighbours. Calibration computes a signed counts-per-gram value per bin, so an inverted cell comes out with a negative scale factor and reads grams like every other one. The operator is only ever asked for a mass.
+Mount each cell whichever way round suits the frame. Calibration works out the sign per bin.
 
-# Flashing the XIAO
+# Flash the XIAO
 
-The firmware is a PlatformIO project. Plug the XIAO in and:
+Clone the repository and flash the firmware with [PlatformIO](https://platformio.org/):
 
 ```
-cd firmware/loadcells
+git clone https://github.com/rahuljeyaraj/hotpot-table
+cd hotpot-table/firmware/loadcells
 pio run -t upload
 pio device monitor
 ```
 
-A healthy board says this and then never stops talking:
+A working board prints this and then keeps going:
 
 ```
 # hx711 loadcell aggregator, 8 cells, raw counts
@@ -274,9 +290,7 @@ A healthy board says this and then never stops talking:
 raw 83422 -211904 84001 82755 -210338 83190 84772 83006
 ```
 
-One line per conversion cycle, at 115200 baud, about 10.7 lines a second. Anything starting with `#` is a diagnostic, and the host parser accepts a line only if it is the literal word `raw` followed by exactly eight integers, so the two can never be confused.
-
-**The startup probe is the part worth waiting for.** Before it reads anything, the firmware watches all eight data lines for half a second and reports which ones answered. When one stays quiet it names the pin and characterises the line:
+If a cell is missing, the probe names the pin and says which of two faults it is:
 
 ```
 # probe: no data line activity from bins 2 5 (D10/GPIO9 D6/GPIO43)
@@ -284,124 +298,110 @@ One line per conversion cycle, at 115200 baud, about 10.7 lines a second. Anythi
 #   bin 5 D6/GPIO43 driven-high
 ```
 
-`floating` means an open data wire or an HX711 with no power: nothing is driving that line at all. `driven-high` means the board has power and is holding the line up because it has no conversion ready. The first is a soldering job, the second is usually a clock problem or a dead board. That one word saves an evening.
+- `floating`: an open data wire, or an HX711 with no power. Check that terminal block.
+- `driven-high`: the board has power and is holding the line up. Check the clock reaching it, and the board itself.
 
-**The LED on the XIAO says what the USB port cannot.** The ESP32S3's USB is a ROM peripheral, so a COM port appears whether the sketch is running, hung, or crashed. The LED is the honest answer:
+Once the lid is on, read the XIAO's LED instead:
 
-- Solid on: still inside `setup()`, or `setup()` never finished
-- Slow blink, roughly once a second: cells read, lines going out
-- Triple flash, repeating: the board is alive and a cell has stopped reporting
+- Solid on: still starting up
+- Slow blink, about once a second: cells read, data going out
+- Triple flash, repeating: alive, with a cell that has stopped reporting
 
-The blink is driven by lines actually sent rather than by a timer, so it stops the instant the data does.
+# Hang the projector and the camera
 
-# Hanging the projector and the camera
+Mount the projector as close to the ceiling as the bracket allows, aimed straight down, far enough back that its image covers the full 1524 mm width. Square the image on the table with the projector's own 4D keystone. The app draws to a 1920 x 1080 rectangle and puts nothing between that and the lens.
 
-Mount the projector as close to the ceiling as the bracket allows, aimed straight down, far enough back that its image covers the whole 1524 mm width. An ordinary projector does this from a normal ceiling height. The image is 1920 x 1080 and the code treats that rectangle as the stage: every position in the whole system is expressed in it.
+Mount the camera next to the projector, looking at the same table. On this build the camera hangs at 180 degrees.
 
-Put the camera up there with the projector, looking at the same table. On this build the camera is mounted at 180 degrees, and the dashboard shows the feed exactly as the camera produces it. That sounds like it would be confusing to work with and turns out to be the opposite, for a reason that shows up during calibration: the four corner handles carry fixed physical roles, so you place the one marked near-left on the corner that is physically near and left, reading the real table rather than the screen.
+Run the HDMI cable to the projector, and the two USB extensions down to the camera and the XIAO. Give the camera a USB 3 port on the host.
 
-**The room lighting matters more than you would expect.** The projected field is the light in the finished piece. Dim the room and the table gains contrast.
+# Install the software
 
-# Installing the software
+**openFrameworks.** Download [openFrameworks 0.12.1](https://openframeworks.cc/download/) for Visual Studio and unzip it. Clone the repository into its `apps/myApps/` folder, which is where the project expects to be:
 
 ```
+cd openFrameworks/apps/myApps
 git clone https://github.com/rahuljeyaraj/hotpot-table
+```
+
+The fluid solver behind the fire is an addon that comes separately. Clone it into `openFrameworks/addons/`:
+
+```
+cd openFrameworks/addons
+git clone https://github.com/moostrik/ofxFlowTools
+```
+
+`ofxGui`, `ofxOsc` and `ofxNetwork` are already in that folder. Open `hotpot-table/of/hotpot-table/hotpot-table.sln` in Visual Studio and build the **Debug** configuration, which is the binary the launcher starts. Set `HOTPOT_OF_BIN` if you would rather it ran something else.
+
+**Python.** One interpreter for the whole tree:
+
+```
 cd hotpot-table
 pip install -r python/requirements.txt
 ```
 
-That pulls five things: `websockets` for the staff dashboard, `pyserial` for the load cell link, `opencv-python-headless` for the camera and its MJPEG stream, `qrcode` for the checkout code, and `mediapipe` for the hand tracking. Use one interpreter for the whole tree.
+**Three values for your own rig.**
 
-**The projected table is an openFrameworks app and builds separately.** You need openFrameworks 0.12.1 and Visual Studio 2022. Four addons: `ofxFlowTools`, which is the fluid solver behind the fire and comes from GitHub rather than the oF release, plus `ofxGui`, `ofxOsc` and `ofxNetwork`, which ship with oF. Open `of/hotpot-table/hotpot-table.sln` and build it.
+- `SCALE_PORT` in `python/hotpot/core/main.py` is the XIAO's serial port, `COM5` here. `pio device monitor` names yours.
+- `camera.windows_device_index` in `config/system.json` picks the webcam, `0` by default. Raise it if the host has another camera it prefers.
+- `of/hotpot-table/bin/data/display.txt` picks the monitor, as the projector's desktop origin in `x,y` form. Start the app once and it writes the file and logs every monitor it found with its origin. Put the projector's in. This rig's reads `-1920,144`.
 
-**Build the Debug configuration.** The launcher looks for `bin/hotpot-table_debug.exe` on Windows. Point the `HOTPOT_OF_BIN` environment variable somewhere else if you would rather run Release, and remember that a Release-only rebuild leaves the launcher starting yesterday's Debug binary.
-
-Three things to set for your own rig:
-
-- **The serial port.** `SCALE_PORT` in `python/hotpot/core/main.py` is `COM5`, which is this rig's XIAO. Change it to yours.
-- **The camera.** `camera.windows_device_index` in `config/system.json`, `0` by default. Raise it if the NUC has another camera it prefers.
-- **The display.** `of/hotpot-table/bin/data/display.txt` holds the projector's desktop origin as `x,y`. Start the app once, read the monitor list it logs, and write the projector's origin into the file.
-
-That last one earns its own file for a reason worth knowing before it bites you. GLFW's monitor index shifts between runs: two consecutive restarts with the same three monitors and the same cables produced different index-to-position mappings, and the table quietly opened on the developer's own screen. Windows ties the desktop origin to the port and the EDID, and that origin held identical across every restart, so the origin is what gets matched. The app rewrites the file with the resolved origin each time it starts.
-
-`of/hotpot-table/bin/data/keystone.json` holds four corner points if you want to square the image in software. Leave it alone and the app uses the untransformed rectangle, which is right when you have aimed the projector properly.
-
-# Starting it
-
-One command starts everything:
+# Start it
 
 ```
 python run.py
 ```
 
-The launcher brings the camera up first, core second, and everything else third, waiting for each process to print `HOTPOT-READY <name>` before it starts the next tier. It merges every process's output into one stream, colours and prefixes each line with the name of the process that wrote it, and writes the same thing to `logs/hotpot-<date>.log`.
+That starts and supervises everything, waits for each process to report ready before starting the next, and writes one merged log to the terminal and to `logs/hotpot-<date>.log`.
 
-Four flags cover the rest of a working day:
-
-- `python run.py --replace` stops whatever is running and starts fresh, which is the one you will type most
+- `python run.py --replace` stops whatever is running and starts fresh
 - `python run.py --stop` stops a detached instance
-- `python run.py --only core,of` starts a subset, which is how you work on the table itself with the camera unplugged
+- `python run.py --only core,of` starts the table alone, with the camera unplugged
 - `python run.py --no-restart` leaves a crashed process dead so you can read its traceback
 
-A process that dies gets restarted on a backoff starting at one second and doubling to ten. Five failures inside sixty seconds and the launcher marks it failed and leaves it alone. Every child runs in its own process group, so one Ctrl-C takes the grandchildren with it and you never end up hunting for the orphan still holding the camera.
+Open the dashboard at `http://<the-host>:8090` from any device on the same network. Use a phone or a tablet, because the rest of the setup happens standing at the table.
 
-**The dashboard is at `http://<the-nuc>:8090`** from any device on the same network. Open it on a phone and prop the phone somewhere you can reach, because the next part needs you standing at the table rather than at the keyboard.
+# Calibrate the geometry
 
-# Calibration is three steps, in this order
+Three steps in the dashboard's **Setup** tab, in the order the cards appear. Turn the **Serving** switch off first: every one of them is refused while it is on.
 
-Three coordinate systems have to agree: what the camera sees, where the trays physically are, and where the projector puts light. Getting them to agree is three steps in the dashboard's **Setup** tab, done in order, all with the **Serving** switch turned off. Serving off is what stops the table billing while you reach across the bins.
+**One: mark the four corners.** Tap `Set table corners`. A quad appears on the live camera feed with a handle at each corner. Drag each handle onto the matching real corner of the table. The handles have fixed roles, near-left, near-right, far-right, far-left, so read the real table rather than the screen. Holding a handle brings up a 4x magnifier. Tap `Confirm`.
 
-**Step one: mark the four corners.** Tap `Set table corners` and a quad appears on the live camera feed with a handle at each corner. Drag each handle onto the corresponding real corner of the table. The handles have fixed physical roles, near-left, near-right, far-right, far-left, and they keep those roles wherever you drag them, which is what makes the whole step immune to how the camera is mounted. Hold a handle and you get a magnifier at about four times, because the corner of a table under a ceiling camera is a few pixels wide and worth seeing properly. `Confirm` sends all four points and solves the homography from them directly.
+The Setup and Live tabs now show a flattened, top-down view of the table. The next step needs it.
 
-Confirming changes the picture: the Setup tab and the Live tab both switch to a flattened, top-down rectangle. You are now looking at the table square on, which is what the next step needs.
+**Two: lay the bin grid on it.** Tap `Load measured layout` to put the grid up, then drag its lines onto the trays. It is four horizontal lines and eight vertical ones: a horizontal line sets a whole row's edge, a vertical line sets a whole column's edge. `Undo` steps back. Tap `Save` when it sits right.
 
-**Step two: lay the bin grid over it.** The eight bins are described as four horizontal lines and eight vertical ones rather than as eight rectangles. Drag a horizontal line and a whole row's edge moves. Drag a vertical line and a whole column's edge moves. Two bins in the same row can therefore never disagree about the edge they share, which is the failure that eight independent rectangles produce: one bin sitting three pixels higher than its row-mates, invisible in a list of numbers and obvious on the table.
+**Three: nudge the projector grid.** This step is done standing at the table watching the light, not watching the screen.
 
-`Load measured layout` seeds the grid from the CAD dimensions so you are adjusting rather than starting from nothing. `Undo` steps back. `Save` is explicit, so a half-finished drag never reaches anything.
+Tap `Load measured layout` on the projector grid card first, or there will be nothing to nudge. Then click one of the twelve lines in the list, or Tab to it, and press the arrow keys. Up and down move the horizontal line you selected, left and right move a vertical one, one pixel per press and ten with Shift held. Each press reaches the projector immediately and there is nothing to save. Work through the lines until the projected rings sit on the real bins.
 
-This grid is dragged on the flattened view, which is the same picture the classifier crops from. What you position here is pixel for pixel what gets photographed.
+# Calibrate the scales
 
-**Step three: nudge the projector grid onto the real light.** The third card is the same four-plus-eight grid for the projector's side of the system, and this is the step to do standing at the table looking at the table.
+**Serving** stays off for this too.
 
-Click a line in the list, or Tab to it, and press the arrow keys. Up and down move a row's line, left and right move a column's line, one stage pixel per press and ten with Shift held. Every single press goes straight to the projector and the light moves while your finger is still on the key. Adjust until the projected rings sit on the real bins.
+Go to the **Bins** tab, empty all eight bins, and tap `Tare all 8 bins`. It zeroes every bin from one 2-second reading.
 
-**The two grids are never computed from each other**, and that is deliberate. The camera and the projector are two different devices with two different lenses and two different mounting errors, related by a single flat homography that models neither of them perfectly. A value carried across that homography and never checked in the space it is actually used looks completely fine and can still be wrong. So each grid is set by whoever is looking at the space it describes: the camera grid against the camera's picture, the projector grid against the light on the table.
+Then, per bin, tap `Calibrate`, put a known weight in that bin, and confirm. The field is prefilled with 500 g, so a 500 g kitchen weight is the quickest thing to reach for. A result under ten counts per gram is refused, which means the cell has come loose or the weight was too light.
 
-# Zeroing and calibrating eight scales
+Finally, set what each bin holds from the dropdown on its card.
 
-Same rule as Setup: **Serving** off, because you are about to put your hands in the bins.
-
-Go to the **Bins** tab. Empty every bin, then press `Tare all 8 bins`. All eight zero at once, since "the bins are empty" tends to be true of all of them at the same moment. Each bin takes a two second median rather than an instant reading.
-
-Then, per bin: put a known weight in, type its mass in grams, press `Calibrate`. A 500 g kitchen weight is ideal. If the result comes back under ten counts per gram the calibration is refused and says so, because that means the cell has come loose or the reference weight was too light to measure against the noise.
-
-Some things worth knowing about the numbers you will now be watching:
-
-- The HX711s run at their default ten samples per second, and the rig delivers about 10.7 lines a second in practice
-- A median of five raw readings discards the occasional bad conversion, and a three-wide moving average on top of that smooths the ordinary per-channel wobble, which on this rig ran one to two grams RMS on half the bins once calibrated
-- Those two filters cost settling time: a step change takes roughly 280 ms to cross, which is the price of a number that stays still
-- A bin has settled when it has held within two grams for 300 ms
-- Under a 10 g change nothing bills at all, which is the deadband that keeps a nudged tray off the receipt
-- A reading older than half a second is treated as stale, and a stale bin reports nothing rather than reporting zero, because a frozen 0 g looks exactly like a bin a diner just emptied
-
-Finally, tell the table what is in each bin. Every bin card has a dropdown listing the catalogue, and picking one is the whole job. Drop below 50 g and that card raises a restock alert.
-
-# Your first bowl
+# Check it
 
 Turn **Serving** on and stand at the table.
 
-- The eight rings should be breathing gold, and a small flame should be wandering from bin to bin on its own
-- Put a hand over the table and all eight bins should label themselves with a name and a price per 100 g
-- Move your hand over a bin and the flame should transfer to it, with the ingredient's details filling the middle of the table
-- Take something and the cart should appear along the near edge, with a weight and a price that match the kitchen scales you calibrated against
-- Put it back and both numbers should come down again
+- Eight rings breathing gold, and a flame wandering from bin to bin
+- A hand over the table brings up all eight names and prices
+- A hand over one bin moves the flame onto it and fills the middle column with that ingredient's details
+- Something taken from a bin appears in the cart with a weight that matches your kitchen scales
+- Putting it back takes it off again
 
-**If you want to see all of that before the load cells exist**, start with `python run.py --only core,of` and open the **Developer** tab. It has a mock pick and put-back button per bin, each cycling through a set of realistic weights, and those buttons drive the entire table: cart, checkout, token number and all, with nothing under the plywood but air. It is also the fastest way to walk the whole flow when you are changing something at the far end of it.
+To check the table before the load cells are wired, start `python run.py --only core,of` and open the **Developer** tab. It has a `Pick` and a `Put back` button per bin, and they drive the whole flow through to the token number.
+
+[IMAGE: the printed frame, base and load cell assembled under one bin]
+*One bin's worth: a cross base on the table, the cell, and a 200 x 255 frame on top of it.*
 
 [IMAGE: the dashboard Setup tab mid-calibration, corner quad on the live feed]
 *Step one. Four handles, four fixed roles, and a magnifier for the corner you are holding.*
 
 [IMAGE: the projected grid slightly off the bins, arrow keys mid-nudge]
-*Step three, and the only one that has to be done standing at the table.*
-
-That is the whole build. The next section is the part I actually enjoyed: how the fire works, why the table is its own light source, and the two shader bugs that ate a week.
+*Step three, and the only one done standing at the table.*
