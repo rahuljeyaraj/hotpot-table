@@ -32,7 +32,7 @@ There's a hot pot stall in a Singapore hawker centre that I ate at all the way t
 
 I ate there constantly, and I was guessing every single time.
 
-Some bins I could read on sight. Others held a pale, smooth sphere that could have been fish, could have been pork, could have been a very confident potato. So I picked by shape. I found out what things tasted like about forty minutes later, in a broth I'd chosen off a sign written in a language I can't read, at a price I discovered at the till.
+Some bins I could read on sight. Others held a pale, smooth sphere that could have been fish, could have been pork, could have been a very confident potato. So I picked by shape. I learned what any of it tasted like only once it came back cooked, in a broth I'd chosen off a sign written in a language I can't read, at a price I found out at the till.
 
 Everyone else seemed to know. The staff knew. The regulars knew. The answers existed — they were just somewhere other than where I was standing, which was at the stand, holding tongs, holding up the queue.
 
@@ -40,7 +40,7 @@ Everyone else seemed to know. The staff knew. The regulars knew. The answers exi
 
 # The table is the screen
 
-The tabletop is a sheet of projector screen fabric stretched over plywood, with eight bins set into it. That fabric is doing real work: it pulls far more colour out of the projector than bare wood ever would, which is what lets a ring of fire read as fire instead of a smudge. A projector hangs above, mounted as close to the ceiling as it will go so its throw covers the whole table, and a camera sits up there with it. Everything you see — ingredient names, prices, your running cart, the whole checkout — is light landing on that surface, and the camera watches your hands so the table knows what you're reaching for.
+The tabletop is a sheet of projector screen fabric stretched over plywood, with eight bins set into it. A projector hangs above, mounted as close to the ceiling as it will go so its throw covers the whole table, and a camera sits up there with it. Everything you see — ingredient names, prices, your running cart, the whole checkout — is light landing on that surface, and the camera watches your hands so the table knows what you're reaching for.
 
 That's the design brief in one line: a person at a hot pot stand has a bowl in one hand and tongs in the other, so everything has to happen where their hands already are.
 
@@ -48,7 +48,9 @@ That's the design brief in one line: a person at a hot pot stand has a bowl in o
 
 # It waits like something alive
 
-With the stand empty, the table idles. A soft ring of light breathes around each of the eight bins, slightly out of step with each other, so the whole surface moves like it's thinking. A flame drifts lazily across the table on its own, wandering from bin to bin as though somebody invisible is browsing. Underneath it all there's the low crackle of a fire.
+Every bin wears a soft golden ring that breathes — brightening and fading slowly, each one a little out of step with its neighbours, so the surface is never entirely still. That glow is a constant of the table, there whether the stand is busy or deserted.
+
+What gives away an empty table is the fireball. Left to itself, a small flame wanders the surface, drifting from bin to bin at browsing pace, as though someone invisible were working along the row and taking their time about it. Underneath, the low crackle of a fire.
 
 Walk up, put a hand over the table, and it comes to attention. All eight bins label themselves at once: the name of what's in them, and the price per 100 g underneath.
 
@@ -56,9 +58,11 @@ Instant Noodles, $1.50. Lotus Root Slices, $1.40. Dried Eel Strips, $5.00. You k
 
 # Reach for a bin and it catches fire
 
-Hold your hand over any bin and a ring of flame wraps around it, following you as you move. Each bin burns in its own colour, so the one you're about to touch is unmistakable from across the table. The fire lights as you arrive and dies down as you leave, with the sound to match.
+Put a hand over the table and the wandering flame becomes yours. The fireball leaves off drifting and tracks your palm instead, staying with you wherever you move.
 
-At the same time, the middle of the table fills up with the thing you're pointing at:
+Carry it over a bin and the fire changes hands. The ball goes out, the bin's golden ring gives way to a burning one, and it is the bin that's alight now — in a colour of its own, so the one you're about to reach into is unmistakable from anywhere around the table. Lift your hand away and the flame comes back to you, the bin settling behind you into its slow gold breathing again.
+
+While a bin is burning, the middle of the table fills with the thing you're pointing at:
 
 - **What it is** — the full name, in large type
 - **Veg, non-veg, or egg** — a coloured dot with the word beside it
@@ -97,15 +101,13 @@ Each one says whether it's spicy and whether it's vegetarian right on the card, 
 
 # Then how hot you want it
 
-Spice uses the same three stacked cards, and stacks them by heat. Hot sits at the top of the table, furthest away. Mild sits at the bottom, closest to you, and comes already chosen — so anyone happy with mild simply carries on.
-
-Each card counts its own heat in chillies: one for mild, two for medium, three for hot.
+Spice arrives as the same three cards, stacked by heat. Hot sits at the top of the table, furthest from you; mild at the bottom, nearest to hand. Each card counts its own heat in chillies — one, two, three — so the ranking reads at a glance from anywhere in the queue.
 
 - **Hot** — serious heat. Worth choosing only if you already know you like it.
 - **Medium** — properly spicy and still comfortable. The most ordered level.
 - **Mild** — a gentle warmth. You taste the broth first and the chilli after.
 
-A row of chillies says the same thing in every language, which is rather the point.
+Pick one and the table moves on to the total. A row of chillies means the same thing in every language, which is rather the point.
 
 # Pay from where you're standing
 
@@ -121,7 +123,7 @@ Everything above is what a diner sees. The staff run the table from a browser on
 
 One switch at the top says **Serving**. On, and the table is open for business. Off, and it stops billing so staff can reach across the bins, swap trays and work on the table without anything registering as a customer's pick.
 
-**Bins.** Eight cards, one per bin, with the live weight of each updating continuously. Each card carries a dropdown to say what's in that bin, so refilling bin 3 with something new is a two-second job. When a bin runs low, the card raises a restock alert, which means nobody has to keep walking the stand to check. This tab is also home to the scales themselves: an empty bin can be zeroed, and any bin can be calibrated against a known weight. Zeroing can be done to all eight at once, since "the bins are empty" is a thing that tends to be true of all of them at the same time.
+**Bins.** Eight cards, one per bin, each showing its live weight as it changes. A dropdown on every card says what that bin currently holds, so refilling bin 3 with something different is a two-second job. Let a bin fall below 50 g and its card raises a restock alert, which saves anyone the walk to go and look. The scales themselves live here too: an empty bin can be zeroed, and any bin can be calibrated against a known weight. Zeroing runs on all eight at once, since "the bins are empty" tends to be true of the lot of them at the same moment.
 
 **Setup.** This is the tab that teaches the table where it is. The staff mark the four corners of the physical table on a live camera view, then lay a grid over it to say where each bin sits, and finally nudge a second grid — with the arrow keys, watching the actual projected light on the actual table — until the light lines up with the real bins. It's the one job that has to be done by a human looking at the real thing, and it's built to be done that way.
 
