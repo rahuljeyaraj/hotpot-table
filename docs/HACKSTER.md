@@ -1,19 +1,25 @@
 <!--
 HACKSTER TRANSCRIPTION KEY — not part of the article, do not paste.
 
-  # Heading        -> Hackster "H" button (only one level exists)
-  **bold**         -> B
-  *italic*         -> i
-  `inline`         -> Hackster "#" button (inline code)
-  ```block```      -> Hackster "</>" button (block code)
-  > quote          -> quote button
-  - bullet         -> bullet button (NEVER nested — one level only)
-  [text](url)      -> link button
-  [IMAGE: ...]     -> image embed
-  [VIDEO: ...]     -> video embed
+Nothing in this file is Hackster syntax. Hackster has no markdown at
+all. The markup below is only a NOTE TO YOU saying which toolbar
+BUTTON to press after pasting each piece of text in.
 
-Sub-structure below a heading is faked with **bold lead-ins**, because
-Hackster has no H2/H3. Do not nest bullets; flatten them instead.
+  WHAT YOU SEE HERE          WHICH BUTTON TO PRESS THERE
+  a line starting with #  ->  the H button (only one heading level)
+  **bold**                ->  the B button
+  *italic*                ->  the i button
+  `text in backticks`     ->  the # button   (inline code)
+  a ``` fenced block      ->  the </> button (block code)
+  a line starting with >  ->  the quote button
+  a line starting with -  ->  the bullet button (one level, never nested)
+  [text](url)             ->  the link button
+  [IMAGE: ...]            ->  the image embed
+  [VIDEO: ...]            ->  the video embed
+
+Strip the markers as you go — paste the plain words, select them, press
+the button. Sub-structure below a heading is faked with bold lead-ins,
+because Hackster has no second heading level. Never nest bullets.
 -->
 
 # The Fire Pot: reimagining hotpot
