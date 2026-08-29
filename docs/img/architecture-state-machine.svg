@@ -1,64 +1,647 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 970" width="1200" height="970">
-<rect width="1200" height="970" fill="#ffffff"/>
-<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
-<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="32.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">The state machine</text>
-<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">Eight states. Three edges end a session, and all three call the same function to do it.</text>
-<rect x="560" y="120" width="300" height="74" rx="10" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.6"/>
-<text x="710.0" y="165.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">BOOT</text>
-<rect x="80" y="250" width="300" height="74" rx="10" fill="#efe8fb" stroke="#6a4bbd" stroke-width="2.6"/>
-<text x="230.0" y="294.82" font-family="Helvetica,Arial,sans-serif" font-size="27.6" fill="#6a4bbd" text-anchor="middle" font-weight="bold">UNCALIBRATED</text>
-<rect x="560" y="250" width="300" height="74" rx="10" fill="#ddefe1" stroke="#2f7d43" stroke-width="2.6"/>
-<text x="710.0" y="295.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#2f7d43" text-anchor="middle" font-weight="bold">IDLE</text>
-<rect x="560" y="400" width="300" height="74" rx="10" fill="#ddefe1" stroke="#2f7d43" stroke-width="2.6"/>
-<text x="710.0" y="445.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#2f7d43" text-anchor="middle" font-weight="bold">SELECTING</text>
-<rect x="560" y="560" width="300" height="74" rx="10" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.6"/>
-<text x="710.0" y="605.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">BROTH</text>
-<rect x="560" y="700" width="300" height="74" rx="10" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.6"/>
-<text x="710.0" y="745.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">SPICE</text>
-<rect x="560" y="840" width="300" height="74" rx="10" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.6"/>
-<text x="710.0" y="885.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">CHECKOUT</text>
-<rect x="80" y="700" width="300" height="74" rx="10" fill="#fdf0cf" stroke="#a5761b" stroke-width="2.6"/>
-<text x="230.0" y="745.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#a5761b" text-anchor="middle" font-weight="bold">SETTING</text>
-<line x1="710" y1="194" x2="710" y2="248" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<path d="M 610 194 C 585 235, 300 245, 258 252" fill="none" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="430" y="210" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="end" font-weight="normal">no geometry saved</text>
-<text x="726" y="222" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="start" font-weight="normal">geometry on disk</text>
-<path d="M 380 268 C 460 268, 480 268, 556 276" fill="none" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<rect x="411.6" y="242.52" width="112.80000000000001" height="24.3" fill="#ffffff" rx="3"/>
-<text x="468" y="258" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">calibrated</text>
-<line x1="710" y1="324" x2="710" y2="396" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<rect x="768.736" y="347.488" width="162.52800000000002" height="25.92" fill="#ffffff" rx="3"/>
-<text x="850" y="364" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#1a1a1a" text-anchor="middle" font-weight="bold">a hand arrives</text>
-<line x1="660" y1="474" x2="660" y2="556" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="644" y="521.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#1a1a1a" text-anchor="end" font-weight="bold">Next</text>
-<line x1="660" y1="634" x2="660" y2="696" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="644" y="671.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#1a1a1a" text-anchor="end" font-weight="bold">Next</text>
-<line x1="660" y1="774" x2="660" y2="836" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="644" y="811.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#1a1a1a" text-anchor="end" font-weight="bold">Pay</text>
-<line x1="760" y1="556" x2="760" y2="478" stroke="#1f6f8b" stroke-width="2.2" stroke-linecap="round" marker-end="url(#ac)"/>
-<text x="776" y="523.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#1f6f8b" text-anchor="start" font-weight="normal">Back</text>
-<line x1="760" y1="696" x2="760" y2="638" stroke="#1f6f8b" stroke-width="2.2" stroke-linecap="round" marker-end="url(#ac)"/>
-<text x="776" y="673.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#1f6f8b" text-anchor="start" font-weight="normal">Back</text>
-<line x1="760" y1="836" x2="760" y2="778" stroke="#1f6f8b" stroke-width="2.2" stroke-linecap="round" marker-end="url(#ac)"/>
-<text x="776" y="813.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#1f6f8b" text-anchor="start" font-weight="normal">Back</text>
-<path d="M 560 877 C 452 877, 448 300, 556 292" fill="none" stroke="#2f7d43" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="548" y="934" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#2f7d43" text-anchor="end" font-weight="bold">paid</text>
-<line x1="1050" y1="437" x2="1050" y2="877" stroke="#b03030" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="7 5"/>
-<line x1="860" y1="437" x2="1050" y2="437" stroke="#b03030" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="7 5"/>
-<line x1="860" y1="597" x2="1050" y2="597" stroke="#b03030" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="7 5"/>
-<line x1="860" y1="737" x2="1050" y2="737" stroke="#b03030" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="7 5"/>
-<line x1="860" y1="877" x2="1050" y2="877" stroke="#b03030" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="7 5"/>
-<path d="M 1050 437 C 1050 340, 1000 292, 864 288" fill="none" stroke="#b03030" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="7 5" marker-end="url(#ab)"/>
-<text x="1064" y="660" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#b03030" text-anchor="start" font-weight="bold">Cancel</text>
-<text x="1064" y="684" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#b03030" text-anchor="start" font-weight="normal">offered on</text>
-<text x="1064" y="706" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#b03030" text-anchor="start" font-weight="normal">all four</text>
-<path d="M 556 384 C 440 470, 235 585, 186 698" fill="none" stroke="#a5761b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<path d="M 186 698 C 235 585, 440 470, 556 384" fill="none" stroke="#a5761b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="310" y="505" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="end" font-weight="bold">Serving off</text>
-<text x="310" y="528" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="end" font-weight="bold">Serving on</text>
-<text x="310" y="549" font-family="Helvetica,Arial,sans-serif" font-size="15.6" fill="#a5761b" text-anchor="end" font-weight="normal">from any state</text>
-<path d="M 150 700 L 150 332" fill="none" stroke="#a5761b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="100" y="520" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="start" font-weight="bold">Serving on,</text>
-<text x="100" y="542" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="start" font-weight="normal">geometry</text>
-<text x="100" y="564" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="start" font-weight="normal">still missing</text>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 1200 970"
+   width="1200"
+   height="970"
+   version="1.1"
+   id="svg36"
+   sodipodi:docname="architecture-state-machine.svg"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview36"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.83195876"
+     inkscape:cx="600.39033"
+     inkscape:cy="485"
+     inkscape:window-width="1920"
+     inkscape:window-height="1009"
+     inkscape:window-x="2552"
+     inkscape:window-y="174"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg36" />
+  <rect
+     width="1200"
+     height="970"
+     fill="#ffffff"
+     id="rect1" />
+  <defs
+     id="defs4">
+    <marker
+       id="a"
+       viewBox="0 0 10 10"
+       refX="9"
+       refY="5"
+       markerWidth="7"
+       markerHeight="7"
+       orient="auto-start-reverse">
+      <path
+         d="M 0 0 L 10 5 L 0 10 z"
+         fill="#1a1a1a"
+         id="path1" />
+    </marker>
+    <marker
+       id="ao"
+       viewBox="0 0 10 10"
+       refX="9"
+       refY="5"
+       markerWidth="7"
+       markerHeight="7"
+       orient="auto-start-reverse">
+      <path
+         d="M 0 0 L 10 5 L 0 10 z"
+         fill="#cc5500"
+         id="path2" />
+    </marker>
+    <marker
+       id="ac"
+       viewBox="0 0 10 10"
+       refX="9"
+       refY="5"
+       markerWidth="7"
+       markerHeight="7"
+       orient="auto-start-reverse">
+      <path
+         d="M 0 0 L 10 5 L 0 10 z"
+         fill="#1f6f8b"
+         id="path3" />
+    </marker>
+    <marker
+       id="ab"
+       viewBox="0 0 10 10"
+       refX="9"
+       refY="5"
+       markerWidth="7"
+       markerHeight="7"
+       orient="auto-start-reverse">
+      <path
+         d="M 0 0 L 10 5 L 0 10 z"
+         fill="#b03030"
+         id="path4" />
+    </marker>
+  </defs>
+  <text
+     x="40"
+     y="52"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="32.4"
+     fill="#1a1a1a"
+     text-anchor="start"
+     font-weight="bold"
+     id="text4">The state machine</text>
+  <text
+     x="40"
+     y="82"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="20.4"
+     fill="#6b6b6b"
+     text-anchor="start"
+     font-weight="normal"
+     id="text5">Eight states. Three edges end a session, and all three call the same function to do it.</text>
+  <rect
+     x="560"
+     y="120"
+     width="300"
+     height="74"
+     rx="10"
+     fill="#fbf7f0"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     id="rect5" />
+  <text
+     x="710.0"
+     y="165.5"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="30"
+     fill="#1a1a1a"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text6">BOOT</text>
+  <rect
+     x="80"
+     y="250"
+     width="300"
+     height="74"
+     rx="10"
+     fill="#efe8fb"
+     stroke="#6a4bbd"
+     stroke-width="2.6"
+     id="rect6" />
+  <text
+     x="230.0"
+     y="294.82"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="27.6"
+     fill="#6a4bbd"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text7">UNCALIBRATED</text>
+  <rect
+     x="560"
+     y="250"
+     width="300"
+     height="74"
+     rx="10"
+     fill="#ddefe1"
+     stroke="#2f7d43"
+     stroke-width="2.6"
+     id="rect7" />
+  <text
+     x="710.0"
+     y="295.5"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="30"
+     fill="#2f7d43"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text8">IDLE</text>
+  <rect
+     x="560"
+     y="400"
+     width="300"
+     height="74"
+     rx="10"
+     fill="#ddefe1"
+     stroke="#2f7d43"
+     stroke-width="2.6"
+     id="rect8" />
+  <text
+     x="710.0"
+     y="445.5"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="30"
+     fill="#2f7d43"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text9">SELECTING</text>
+  <rect
+     x="560"
+     y="560"
+     width="300"
+     height="74"
+     rx="10"
+     fill="#fbf7f0"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     id="rect9" />
+  <text
+     x="710.0"
+     y="605.5"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="30"
+     fill="#1a1a1a"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text10">BROTH</text>
+  <rect
+     x="560"
+     y="700"
+     width="300"
+     height="74"
+     rx="10"
+     fill="#fbf7f0"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     id="rect10" />
+  <text
+     x="710.0"
+     y="745.5"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="30"
+     fill="#1a1a1a"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text11">SPICE</text>
+  <rect
+     x="560"
+     y="840"
+     width="300"
+     height="74"
+     rx="10"
+     fill="#fbf7f0"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     id="rect11" />
+  <text
+     x="710.0"
+     y="885.5"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="30"
+     fill="#1a1a1a"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text12">CHECKOUT</text>
+  <rect
+     x="80"
+     y="700"
+     width="300"
+     height="74"
+     rx="10"
+     fill="#fdf0cf"
+     stroke="#a5761b"
+     stroke-width="2.6"
+     id="rect12" />
+  <text
+     x="230.0"
+     y="745.5"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="30"
+     fill="#a5761b"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text13">SETTING</text>
+  <line
+     x1="710"
+     y1="194"
+     x2="710"
+     y2="248"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="line13" />
+  <path
+     d="M 557.11276,150.72862 C 191.95167,148.45725 225.47708,210.1425 225.54647,250.79802"
+     fill="none"
+     stroke="#1a1a1a"
+     stroke-width="2.4"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="path13"
+     sodipodi:nodetypes="cc" />
+  <text
+     x="430"
+     y="210"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#6b6b6b"
+     text-anchor="end"
+     font-weight="normal"
+     id="text14">no geometry saved</text>
+  <text
+     x="726"
+     y="222"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#6b6b6b"
+     text-anchor="start"
+     font-weight="normal"
+     id="text15">geometry on disk</text>
+  <path
+     d="M 380 268 C 460 268, 480 268, 556 276"
+     fill="none"
+     stroke="#1a1a1a"
+     stroke-width="2.4"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="path15" />
+  <rect
+     x="411.6"
+     y="242.52"
+     width="112.80000000000001"
+     height="24.3"
+     fill="#ffffff"
+     rx="3"
+     id="rect15" />
+  <text
+     x="468"
+     y="258"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="18"
+     fill="#6b6b6b"
+     text-anchor="middle"
+     font-weight="normal"
+     id="text16">calibrated</text>
+  <line
+     x1="710"
+     y1="324"
+     x2="710"
+     y2="396"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="line16" />
+  <rect
+     x="768.736"
+     y="347.488"
+     width="162.52800000000002"
+     height="25.92"
+     fill="#ffffff"
+     rx="3"
+     id="rect16" />
+  <text
+     x="850"
+     y="364"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#1a1a1a"
+     text-anchor="middle"
+     font-weight="bold"
+     id="text17">a hand arrives</text>
+  <line
+     x1="660"
+     y1="474"
+     x2="660"
+     y2="556"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="line17" />
+  <text
+     x="644"
+     y="521.0"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="20.4"
+     fill="#1a1a1a"
+     text-anchor="end"
+     font-weight="bold"
+     id="text18">Next</text>
+  <line
+     x1="660"
+     y1="634"
+     x2="660"
+     y2="696"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="line18" />
+  <text
+     x="644"
+     y="671.0"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="20.4"
+     fill="#1a1a1a"
+     text-anchor="end"
+     font-weight="bold"
+     id="text19">Next</text>
+  <line
+     x1="660"
+     y1="774"
+     x2="660"
+     y2="836"
+     stroke="#1a1a1a"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="line19" />
+  <text
+     x="644"
+     y="811.0"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="20.4"
+     fill="#1a1a1a"
+     text-anchor="end"
+     font-weight="bold"
+     id="text20">Pay</text>
+  <line
+     x1="760"
+     y1="556"
+     x2="760"
+     y2="478"
+     stroke="#1f6f8b"
+     stroke-width="2.2"
+     stroke-linecap="round"
+     marker-end="url(#ac)"
+     id="line20" />
+  <text
+     x="776"
+     y="523.0"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="20.4"
+     fill="#1f6f8b"
+     text-anchor="start"
+     font-weight="normal"
+     id="text21">Back</text>
+  <line
+     x1="760"
+     y1="696"
+     x2="760"
+     y2="638"
+     stroke="#1f6f8b"
+     stroke-width="2.2"
+     stroke-linecap="round"
+     marker-end="url(#ac)"
+     id="line21" />
+  <text
+     x="776"
+     y="673.0"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="20.4"
+     fill="#1f6f8b"
+     text-anchor="start"
+     font-weight="normal"
+     id="text22">Back</text>
+  <line
+     x1="760"
+     y1="836"
+     x2="760"
+     y2="778"
+     stroke="#1f6f8b"
+     stroke-width="2.2"
+     stroke-linecap="round"
+     marker-end="url(#ac)"
+     id="line22" />
+  <text
+     x="776"
+     y="813.0"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="20.4"
+     fill="#1f6f8b"
+     text-anchor="start"
+     font-weight="normal"
+     id="text23">Back</text>
+  <path
+     d="M 560,877 C 382.28501,875.79802 377.08302,293.99009 556,292"
+     fill="none"
+     stroke="#2f7d43"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="path23"
+     sodipodi:nodetypes="cc" />
+  <text
+     x="548"
+     y="934"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="21.6"
+     fill="#2f7d43"
+     text-anchor="end"
+     font-weight="bold"
+     id="text24">paid</text>
+  <line
+     x1="1050"
+     y1="437"
+     x2="1050"
+     y2="877"
+     stroke="#b03030"
+     stroke-width="2.4"
+     stroke-linecap="round"
+     stroke-dasharray="7 5"
+     id="line24" />
+  <line
+     x1="860"
+     y1="437"
+     x2="1050"
+     y2="437"
+     stroke="#b03030"
+     stroke-width="1.8"
+     stroke-linecap="round"
+     stroke-dasharray="7 5"
+     id="line25" />
+  <line
+     x1="860"
+     y1="597"
+     x2="1050"
+     y2="597"
+     stroke="#b03030"
+     stroke-width="1.8"
+     stroke-linecap="round"
+     stroke-dasharray="7 5"
+     id="line26" />
+  <line
+     x1="860"
+     y1="737"
+     x2="1050"
+     y2="737"
+     stroke="#b03030"
+     stroke-width="1.8"
+     stroke-linecap="round"
+     stroke-dasharray="7 5"
+     id="line27" />
+  <line
+     x1="860"
+     y1="877"
+     x2="1050"
+     y2="877"
+     stroke="#b03030"
+     stroke-width="1.8"
+     stroke-linecap="round"
+     stroke-dasharray="7 5"
+     id="line28" />
+  <path
+     d="M 1050 437 C 1050 340, 1000 292, 864 288"
+     fill="none"
+     stroke="#b03030"
+     stroke-width="2.4"
+     stroke-linecap="round"
+     stroke-dasharray="7 5"
+     marker-end="url(#ab)"
+     id="path28" />
+  <text
+     x="1064"
+     y="660"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="20.4"
+     fill="#b03030"
+     text-anchor="start"
+     font-weight="bold"
+     id="text28">Cancel</text>
+  <text
+     x="1064"
+     y="684"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#b03030"
+     text-anchor="start"
+     font-weight="normal"
+     id="text29">offered on</text>
+  <text
+     x="1064"
+     y="706"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#b03030"
+     text-anchor="start"
+     font-weight="normal"
+     id="text30">all four</text>
+  <path
+     d="M 556 384 C 440 470, 235 585, 186 698"
+     fill="none"
+     stroke="#a5761b"
+     stroke-width="2.4"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="path30" />
+  <path
+     d="M 186 698 C 235 585, 440 470, 556 384"
+     fill="none"
+     stroke="#a5761b"
+     stroke-width="2.4"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="path31" />
+  <text
+     x="310"
+     y="505"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#a5761b"
+     text-anchor="end"
+     font-weight="bold"
+     id="text31">Serving off</text>
+  <text
+     x="310"
+     y="528"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#a5761b"
+     text-anchor="end"
+     font-weight="bold"
+     id="text32">Serving on</text>
+  <text
+     x="310"
+     y="549"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="15.6"
+     fill="#a5761b"
+     text-anchor="end"
+     font-weight="normal"
+     id="text33">from any state</text>
+  <path
+     d="M 150 700 L 150 332"
+     fill="none"
+     stroke="#a5761b"
+     stroke-width="2.4"
+     stroke-linecap="round"
+     marker-end="url(#a)"
+     id="path33" />
+  <text
+     x="100"
+     y="520"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#a5761b"
+     text-anchor="start"
+     font-weight="bold"
+     id="text34">Serving on,</text>
+  <text
+     x="100"
+     y="542"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#a5761b"
+     text-anchor="start"
+     font-weight="normal"
+     id="text35">geometry</text>
+  <text
+     x="100"
+     y="564"
+     font-family="Helvetica,Arial,sans-serif"
+     font-size="19.2"
+     fill="#a5761b"
+     text-anchor="start"
+     font-weight="normal"
+     id="text36">still missing</text>
 </svg>
