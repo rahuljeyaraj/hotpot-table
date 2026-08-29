@@ -507,31 +507,14 @@ MediaPipe would not see a hand on this table. The first theory came with a sixty
 
 What worked was denoising a hand-sized window rather than the whole table. And once MediaPipe has found a hand through a particular crop, it keeps tracking it through that same crop and loses it the instant you hand it a differently framed one. So the tracker carries a window that follows the hand, rather than a picture that happens to contain it.
 
-# Three things that did not work
+# Future improvements
 
-**The automatic calibration.** Project dots, photograph them, solve. It is the right idea and it needs a dark room, which this project never had. Three rig sessions of white balance loops and threshold sweeps later it was replaced with four handles you drag onto the table's real corners. 2,668 lines deleted, 173 added.
-
-[IMAGE: docs/img/architecture-shader-bugs.svg]
-*One resolution pair, two lookups across it, and both of them missing the scale.*
-
-**Two shaders in the fluid addon.** The fire's density field is twice the resolution of the grid the physics runs on, and two shaders read across that gap without saying so. One made the flame's weight come from half its own coordinates. The other erased three quarters of the fire on every pass, twenty passes a frame.
-
-The good part is where the second one was hiding. Every shader in that addon is written twice in the same file, once for old OpenGL and once for new. This app never asks for a GL version, so it gets the old one, so the modern half is dead code on this machine. The modern half was correct. The bug sat in its twin, twenty lines below, in the half that actually runs.
-
-**The classifier.** It looks at a bin and says what is in it, and it validates at 99.69%. On the real table four bins came up wrong and two of them confidently said the same thing.
-
-Nothing mysterious there once you look at what that number measured: images from one capture session, split in half. It says the model can separate those photographs. It says nothing about a tray refilled by different hands on a different afternoon. So the committed configuration points at a stub, the live pass only runs while Serving is off, and what actually identifies a bin in front of a diner is a dropdown a staff member sets in two seconds.
-
-Which is fine. The load cells were always the part that had to be right.
-
-# What is still owed
-
-- Two-hand tracking is switched off rather than fixed.
-- The classifier needs captures across several days, and one ingredient has no images at all.
-- Half the tuning constants are single-session numbers that work on this rig, with these hands, under this light.
-- Every colour is unverified against the projector until someone looks. This rig has already turned an authored amber into red and a gold into muddy brown.
-
-The table works. That list is the difference between working and being left running unattended in a restaurant.
+- **Automatic camera-to-projector mapping.** Drop the four hand-dragged corner handles and let the two devices align themselves.
+- **The camera finds the table and the bins by itself.** No manual grid, no measured layout file - point it at the table and it works out where every bin is.
+- **More languages.** Two is enough to prove the idea; a real restaurant floor needs more.
+- **Four-point load cells for the larger bins.** A single cell under a big tray reads unevenly; four per bin would weigh the bigger ingredients honestly.
+- **A synthesised flame sound.** Every other effect is a recorded clip, but the fire changes shape every frame - its sound should be generated from the sim, not played back.
+- **Support more than one camera-projector pair.** Re-architect so several pairs can run side by side and cover a longer table.
 
 # The bowl I would order now
 
