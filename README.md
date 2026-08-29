@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo/hotpottery-light-cropped.png" alt="The Fire Pot" width="360">
+  <img src="assets/logo/firepot-dark.png" alt="The Firepot — reimagining hotpot" width="460">
 </p>
 
-<h1 align="center">The Fire Pot</h1>
+<h1 align="center">The Firepot</h1>
 
 <p align="center">
   A dining table that weighs your food, prices it as you pick, and sets itself on fire. Responsibly.
