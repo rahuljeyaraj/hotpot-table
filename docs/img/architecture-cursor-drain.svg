@@ -1,98 +1,95 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 1090" width="1180" height="1090">
-<rect width="1180" height="1090" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 950" width="1180" height="950">
+<rect width="1180" height="950" fill="#ffffff"/>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
-<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#1a1a1a" text-anchor="start" font-weight="bold">Why the cursor goes over UDP</text>
-<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">Six datagrams sent while the render thread is stalled, and what each transport does with them.</text>
-<text x="60" y="150" font-family="Helvetica,Arial,sans-serif" font-size="23" fill="#b03030" text-anchor="start" font-weight="bold">If cursors were queued, the way TCP queues them</text>
+<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="32.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">Why the cursor goes over UDP</text>
+<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">Six datagrams sent while the render thread is stalled, and what each transport does with them.</text>
+<text x="60" y="150" font-family="Helvetica,Arial,sans-serif" font-size="27.6" fill="#b03030" text-anchor="start" font-weight="bold">If cursors were queued, the way TCP queues them</text>
 <rect x="171.76470588235293" y="175" width="571.7647058823529" height="82" rx="5" fill="#f4f1ec" stroke="#b8b8b8" stroke-width="1.4" stroke-dasharray="6 6"/>
-<text x="457.6470588235294" y="198" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="middle" font-weight="normal">the render thread stalls for 200 ms</text>
+<text x="457.6470588235294" y="198" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="middle" font-weight="normal">the render thread stalls for 200 ms</text>
 <circle cx="219.41176470588235" cy="232" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="219.41176470588235" y="239" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">1</text>
+<text x="219.41176470588235" y="239" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">1</text>
 <circle cx="320.0" cy="232" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="320.0" y="239" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">2</text>
+<text x="320.0" y="239" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">2</text>
 <circle cx="420.5882352941176" cy="232" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="420.5882352941176" y="239" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">3</text>
+<text x="420.5882352941176" y="239" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">3</text>
 <circle cx="521.1764705882354" cy="232" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="521.1764705882354" y="239" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">4</text>
+<text x="521.1764705882354" y="239" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">4</text>
 <circle cx="621.7647058823529" cy="232" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="621.7647058823529" y="239" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">5</text>
+<text x="621.7647058823529" y="239" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">5</text>
 <circle cx="717.0588235294117" cy="232" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="717.0588235294117" y="239" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">6</text>
+<text x="717.0588235294117" y="239" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">6</text>
 <line x1="120" y1="298" x2="1060" y2="298" stroke="#1a1a1a" stroke-width="2.0" stroke-linecap="round"/>
 <line x1="140.0" y1="291" x2="140.0" y2="305" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
-<rect x="116.08" y="316.24" width="47.84" height="21.6" fill="#ffffff" rx="3"/>
-<text x="140.0" y="330" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">0 ms</text>
+<rect x="112.496" y="313.488" width="55.008" height="25.92" fill="#ffffff" rx="3"/>
+<text x="140.0" y="330" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">0 ms</text>
 <line x1="404.70588235294116" y1="291" x2="404.70588235294116" y2="305" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
-<rect x="371.82588235294116" y="316.24" width="65.76" height="21.6" fill="#ffffff" rx="3"/>
-<text x="404.70588235294116" y="330" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">100 ms</text>
+<rect x="366.44988235294113" y="313.488" width="76.512" height="25.92" fill="#ffffff" rx="3"/>
+<text x="404.70588235294116" y="330" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">100 ms</text>
 <line x1="669.4117647058823" y1="291" x2="669.4117647058823" y2="305" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
-<rect x="636.5317647058823" y="316.24" width="65.76" height="21.6" fill="#ffffff" rx="3"/>
-<text x="669.4117647058823" y="330" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">200 ms</text>
+<rect x="631.1557647058823" y="313.488" width="76.512" height="25.92" fill="#ffffff" rx="3"/>
+<text x="669.4117647058823" y="330" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">200 ms</text>
 <line x1="934.1176470588235" y1="291" x2="934.1176470588235" y2="305" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
-<rect x="901.2376470588235" y="316.24" width="65.76" height="21.6" fill="#ffffff" rx="3"/>
-<text x="934.1176470588235" y="330" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">300 ms</text>
+<rect x="895.8616470588236" y="313.488" width="76.512" height="25.92" fill="#ffffff" rx="3"/>
+<text x="934.1176470588235" y="330" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">300 ms</text>
 <path d="M 219.41176470588235 254 C 219.41176470588235 330, 770.0 310, 770.0 366" fill="none" stroke="#b03030" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
 <circle cx="770.0" cy="390" r="21" fill="#fadddd" stroke="#b03030" stroke-width="2.0"/>
-<text x="770.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#b03030" text-anchor="middle" font-weight="bold">1</text>
+<text x="770.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#b03030" text-anchor="middle" font-weight="bold">1</text>
 <path d="M 320.0 254 C 320.0 330, 816.0 310, 816.0 366" fill="none" stroke="#b03030" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
 <circle cx="816.0" cy="390" r="21" fill="#fadddd" stroke="#b03030" stroke-width="2.0"/>
-<text x="816.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#b03030" text-anchor="middle" font-weight="bold">2</text>
+<text x="816.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#b03030" text-anchor="middle" font-weight="bold">2</text>
 <path d="M 420.5882352941176 254 C 420.5882352941176 330, 862.0 310, 862.0 366" fill="none" stroke="#b03030" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
 <circle cx="862.0" cy="390" r="21" fill="#fadddd" stroke="#b03030" stroke-width="2.0"/>
-<text x="862.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#b03030" text-anchor="middle" font-weight="bold">3</text>
+<text x="862.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#b03030" text-anchor="middle" font-weight="bold">3</text>
 <path d="M 521.1764705882354 254 C 521.1764705882354 330, 908.0 310, 908.0 366" fill="none" stroke="#b03030" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
 <circle cx="908.0" cy="390" r="21" fill="#fadddd" stroke="#b03030" stroke-width="2.0"/>
-<text x="908.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#b03030" text-anchor="middle" font-weight="bold">4</text>
+<text x="908.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#b03030" text-anchor="middle" font-weight="bold">4</text>
 <path d="M 621.7647058823529 254 C 621.7647058823529 330, 954.0 310, 954.0 366" fill="none" stroke="#b03030" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
 <circle cx="954.0" cy="390" r="21" fill="#fadddd" stroke="#b03030" stroke-width="2.0"/>
-<text x="954.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#b03030" text-anchor="middle" font-weight="bold">5</text>
+<text x="954.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#b03030" text-anchor="middle" font-weight="bold">5</text>
 <path d="M 717.0588235294117 254 C 717.0588235294117 330, 1000.0 310, 1000.0 366" fill="none" stroke="#b03030" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
 <circle cx="1000.0" cy="390" r="21" fill="#fadddd" stroke="#b03030" stroke-width="2.0"/>
-<text x="1000.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#b03030" text-anchor="middle" font-weight="bold">6</text>
-<text x="60" y="464" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#b03030" text-anchor="start" font-weight="normal">All six arrive on the frame after the stall, in order. The hand visibly replays 200 ms of its own history.</text>
-<text x="60" y="590" font-family="Helvetica,Arial,sans-serif" font-size="23" fill="#2f7d43" text-anchor="start" font-weight="bold">Drain to latest, which is what runs</text>
+<text x="1000.0" y="397" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#b03030" text-anchor="middle" font-weight="bold">6</text>
+<text x="60" y="464.0" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#b03030" text-anchor="start" font-weight="normal">All six arrive on the frame after the stall, in order. The hand visibly replays 200 ms of its own history.</text>
+<text x="60" y="590" font-family="Helvetica,Arial,sans-serif" font-size="27.6" fill="#2f7d43" text-anchor="start" font-weight="bold">Drain to latest, which is what runs</text>
 <rect x="171.76470588235293" y="615" width="571.7647058823529" height="82" rx="5" fill="#f4f1ec" stroke="#b8b8b8" stroke-width="1.4" stroke-dasharray="6 6"/>
-<text x="457.6470588235294" y="638" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="middle" font-weight="normal">the render thread stalls for 200 ms</text>
+<text x="457.6470588235294" y="638" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="middle" font-weight="normal">the render thread stalls for 200 ms</text>
 <circle cx="219.41176470588235" cy="672" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="219.41176470588235" y="679" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">1</text>
+<text x="219.41176470588235" y="679" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">1</text>
 <circle cx="320.0" cy="672" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="320.0" y="679" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">2</text>
+<text x="320.0" y="679" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">2</text>
 <circle cx="420.5882352941176" cy="672" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="420.5882352941176" y="679" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">3</text>
+<text x="420.5882352941176" y="679" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">3</text>
 <circle cx="521.1764705882354" cy="672" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="521.1764705882354" y="679" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">4</text>
+<text x="521.1764705882354" y="679" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">4</text>
 <circle cx="621.7647058823529" cy="672" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="621.7647058823529" y="679" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">5</text>
+<text x="621.7647058823529" y="679" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">5</text>
 <circle cx="717.0588235294117" cy="672" r="21" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="717.0588235294117" y="679" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#cc5500" text-anchor="middle" font-weight="bold">6</text>
+<text x="717.0588235294117" y="679" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#cc5500" text-anchor="middle" font-weight="bold">6</text>
 <line x1="120" y1="738" x2="1060" y2="738" stroke="#1a1a1a" stroke-width="2.0" stroke-linecap="round"/>
 <line x1="140.0" y1="731" x2="140.0" y2="745" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
-<rect x="116.08" y="756.24" width="47.84" height="21.6" fill="#ffffff" rx="3"/>
-<text x="140.0" y="770" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">0 ms</text>
+<rect x="112.496" y="753.488" width="55.008" height="25.92" fill="#ffffff" rx="3"/>
+<text x="140.0" y="770" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">0 ms</text>
 <line x1="404.70588235294116" y1="731" x2="404.70588235294116" y2="745" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
-<rect x="371.82588235294116" y="756.24" width="65.76" height="21.6" fill="#ffffff" rx="3"/>
-<text x="404.70588235294116" y="770" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">100 ms</text>
+<rect x="366.44988235294113" y="753.488" width="76.512" height="25.92" fill="#ffffff" rx="3"/>
+<text x="404.70588235294116" y="770" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">100 ms</text>
 <line x1="669.4117647058823" y1="731" x2="669.4117647058823" y2="745" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
-<rect x="636.5317647058823" y="756.24" width="65.76" height="21.6" fill="#ffffff" rx="3"/>
-<text x="669.4117647058823" y="770" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">200 ms</text>
+<rect x="631.1557647058823" y="753.488" width="76.512" height="25.92" fill="#ffffff" rx="3"/>
+<text x="669.4117647058823" y="770" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">200 ms</text>
 <line x1="934.1176470588235" y1="731" x2="934.1176470588235" y2="745" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
-<rect x="901.2376470588235" y="756.24" width="65.76" height="21.6" fill="#ffffff" rx="3"/>
-<text x="934.1176470588235" y="770" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">300 ms</text>
+<rect x="895.8616470588236" y="753.488" width="76.512" height="25.92" fill="#ffffff" rx="3"/>
+<text x="934.1176470588235" y="770" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">300 ms</text>
 <line x1="219.41176470588235" y1="694" x2="219.41176470588235" y2="806" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
-<text x="219.41176470588235" y="848" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
+<text x="219.41176470588235" y="848" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
 <line x1="320.0" y1="694" x2="320.0" y2="806" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
-<text x="320.0" y="848" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
+<text x="320.0" y="848" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
 <line x1="420.5882352941176" y1="694" x2="420.5882352941176" y2="806" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
-<text x="420.5882352941176" y="848" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
+<text x="420.5882352941176" y="848" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
 <line x1="521.1764705882354" y1="694" x2="521.1764705882354" y2="806" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
-<text x="521.1764705882354" y="848" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
+<text x="521.1764705882354" y="848" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
 <line x1="621.7647058823529" y1="694" x2="621.7647058823529" y2="806" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 5"/>
-<text x="621.7647058823529" y="848" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
+<text x="621.7647058823529" y="848" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">discard</text>
 <line x1="717.0588235294117" y1="694" x2="717.0588235294117" y2="806" stroke="#2f7d43" stroke-width="2.6" stroke-linecap="round"/>
 <circle cx="717.0588235294117" cy="830" r="22" fill="#ddefe1" stroke="#2f7d43" stroke-width="2.6"/>
-<text x="717.0588235294117" y="837" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#2f7d43" text-anchor="middle" font-weight="bold">6</text>
-<text x="60" y="904" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#2f7d43" text-anchor="start" font-weight="normal">Read the socket until it is empty, keep the highest seq. The hand appears where it actually is.</text>
-<line x1="60" y1="970" x2="1120" y2="970" stroke="#b8b8b8" stroke-width="1.6" stroke-linecap="round"/>
-<text x="60" y="1010" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">Two rules, and they are different. WITHIN one drain: keep the highest seq. ACROSS drains: refuse any seq at or below</text>
-<text x="60" y="1040" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">one already accepted, because UDP reorders and a datagram that lost its race arrives after its own successor.</text>
+<text x="717.0588235294117" y="837" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#2f7d43" text-anchor="middle" font-weight="bold">6</text>
+<text x="60" y="904.0" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#2f7d43" text-anchor="start" font-weight="normal">Read the socket until it is empty, keep the highest seq. The hand appears where it actually is.</text>
 </svg>

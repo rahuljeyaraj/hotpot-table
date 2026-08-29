@@ -1,50 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 1320" width="1160" height="1320">
-<rect width="1160" height="1320" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 840" width="1160" height="840">
+<rect width="1160" height="840" fill="#ffffff"/>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
-<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#1a1a1a" text-anchor="start" font-weight="bold">Ten and a half readings a second</text>
-<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">The architecture document said 78 Hz. The rig says 10.7, and every number below follows from that.</text>
+<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="32.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">Ten and a half readings a second</text>
+<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">The architecture document said 78 Hz. The rig says 10.7, and every number below follows from that.</text>
 <rect x="90" y="130" width="620" height="92" rx="8" fill="#dceef4" stroke="#1f6f8b" stroke-width="2.2"/>
 <text x="400.0" y="171.22" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1f6f8b" text-anchor="middle" font-weight="bold">the serial line</text>
 <text x="400.0" y="198.42" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">raw 83422 -211904 84001 82755 ...</text>
-<text x="740" y="168" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">one line per conversion cycle</text>
-<text x="740" y="193" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">115200 baud, 8 signed integers</text>
+<text x="740" y="168.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">one line per conversion cycle</text>
+<text x="740" y="198.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">115200 baud, 8 signed integers</text>
 <line x1="400.0" y1="222" x2="400.0" y2="268" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<rect x="445.44" y="238.24" width="209.12" height="21.6" fill="#ffffff" rx="3"/>
-<text x="550.0" y="252" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">one sample every 93 ms</text>
+<rect x="425.728" y="235.488" width="248.544" height="25.92" fill="#ffffff" rx="3"/>
+<text x="550.0" y="252" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="middle" font-weight="normal">one sample every 93 ms</text>
 <rect x="90" y="270" width="620" height="92" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
 <text x="400.0" y="311.22" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">median of the last 5 samples</text>
 <text x="400.0" y="338.42" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">discards a single bad HX711 read</text>
-<text x="740" y="308" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">spans 465 ms of wall clock,</text>
-<text x="740" y="333" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">takes about 280 ms to cross a step</text>
+<text x="740" y="308.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">spans 465 ms of wall clock,</text>
+<text x="740" y="338.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">takes about 280 ms to cross a step</text>
 <line x1="400.0" y1="362" x2="400.0" y2="404" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
 <rect x="90" y="406" width="620" height="96" rx="8" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
 <text x="400.0" y="449.22" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#cc5500" text-anchor="middle" font-weight="bold">moving average of the last 3 medians</text>
 <text x="400.0" y="476.42" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">smooths the wobble a median cannot</text>
-<text x="740" y="444" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">the residual noise is not an outlier,</text>
-<text x="740" y="469" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">so a median has nothing to drop</text>
+<text x="740" y="444.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">the residual noise is not an outlier,</text>
+<text x="740" y="474.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">so a median has nothing to drop</text>
 <line x1="400.0" y1="502" x2="400.0" y2="544" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
 <rect x="90" y="546" width="620" height="92" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
 <text x="400.0" y="587.22" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">counts to grams, per bin</text>
 <text x="400.0" y="614.4200000000001" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">the calibration set on the Bins tab</text>
-<text x="740" y="584" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">an uncalibrated bin answers None,</text>
-<text x="740" y="609" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">so it contributes nothing to a price</text>
+<text x="740" y="584.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">an uncalibrated bin answers None,</text>
+<text x="740" y="614.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">so it contributes nothing to a price</text>
 <line x1="400.0" y1="638" x2="400.0" y2="680" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
 <rect x="90" y="682" width="620" height="116" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
 <text x="400.0" y="723.72" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">one slot, under one lock</text>
 <text x="400.0" y="750.9200000000001" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">the newest reading, overwriting the last</text>
 <text x="400.0" y="773.9200000000001" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read by the 60 Hz loop</text>
-<text x="740" y="720" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">a queue would let the table bill</text>
-<text x="740" y="745" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">from weights that are seconds old.</text>
-<text x="740" y="770" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">Reading one sample nine times in a</text>
-<text x="740" y="795" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">row is correct at 10.7 Hz</text>
-<line x1="60" y1="870" x2="1100" y2="870" stroke="#b8b8b8" stroke-width="1.6" stroke-linecap="round"/>
-<text x="60" y="914" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1a1a1a" text-anchor="start" font-weight="bold">Settled, and why it anchors</text>
-<text x="60" y="954" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">A bin counts as settled once its gram value has stayed within 2 g of the value the window OPENED at, for 300 ms.</text>
-<text x="60" y="984" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">Compared against the previous sample instead, a slow pour of 1 g per sample sits inside a 2 g step forever and</text>
-<text x="60" y="1014" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">the bin reads settled while food is still going in. At 10.7 Hz, 300 ms is about four samples.</text>
-<text x="60" y="1082" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#cc5500" text-anchor="start" font-weight="bold">Staleness cannot bill</text>
-<text x="60" y="1122" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">A reading older than half a second means the XIAO is gone, and every bin answers None from then on. Unplugging</text>
-<text x="60" y="1152" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">the board raises from inside the read, and the thread catches it and reopens on a ladder that starts at one second</text>
-<text x="60" y="1182" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">and doubles to ten. A dead reader thread would be worse than a dead device: staleness is what makes the fault</text>
-<text x="60" y="1212" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">visible, and it only keeps working as long as something is still trying.</text>
+<text x="740" y="720.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">a queue would let the table bill</text>
+<text x="740" y="750.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">from weights that are seconds old.</text>
+<text x="740" y="780.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">Reading one sample nine times in a</text>
+<text x="740" y="810.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">row is correct at 10.7 Hz</text>
 </svg>

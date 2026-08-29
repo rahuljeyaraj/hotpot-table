@@ -1,75 +1,75 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1040" width="1240" height="1040">
-<rect width="1240" height="1040" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 850" width="1240" height="850">
+<rect width="1240" height="850" fill="#ffffff"/>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
-<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#1a1a1a" text-anchor="start" font-weight="bold">The frame ring in shared memory</text>
-<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">One writer, two readers, no lock. The order of the three writes is the whole mechanism.</text>
+<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="32.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">The frame ring in shared memory</text>
+<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">One writer, two readers, no lock. The order of the three writes is the whole mechanism.</text>
 <rect x="80" y="120" width="480" height="96" rx="8" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
 <text x="320.0" y="152.72" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#cc5500" text-anchor="middle" font-weight="bold">header,  64 bytes</text>
 <text x="320.0" y="178.92" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">magic HPTF, version 3, 1920, 1080, 3, 8</text>
 <text x="320.0" y="200.92" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="middle" font-weight="normal">write_counter : u64</text>
-<text x="660" y="150" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="start" font-weight="bold">camera writes, in this order:</text>
-<text x="660" y="186" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#1a1a1a" text-anchor="start" font-weight="normal">1.  the pixels into the slot</text>
-<text x="660" y="218" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#1a1a1a" text-anchor="start" font-weight="normal">2.  the slot header (frame_id, ts_ns)</text>
-<text x="660" y="250" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#1a1a1a" text-anchor="start" font-weight="normal">3.  write_counter, last</text>
-<text x="660" y="300" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">Step 3 is what publishes the frame, so it</text>
-<text x="660" y="324" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">happens after everything it publishes.</text>
+<text x="660" y="150" font-family="Helvetica,Arial,sans-serif" font-size="25.2" fill="#1a1a1a" text-anchor="start" font-weight="bold">camera writes, in this order:</text>
+<text x="660" y="186.0" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#1a1a1a" text-anchor="start" font-weight="normal">1.  the pixels into the slot</text>
+<text x="660" y="224.4" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#1a1a1a" text-anchor="start" font-weight="normal">2.  the slot header (frame_id, ts_ns)</text>
+<text x="660" y="262.8" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#1a1a1a" text-anchor="start" font-weight="normal">3.  write_counter, last</text>
+<text x="660" y="300" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">Step 3 is what publishes the frame, so it</text>
+<text x="660" y="324" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">happens after everything it publishes.</text>
 <rect x="80" y="380" width="118" height="46" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="139.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
-<text x="139.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
+<text x="139.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
+<text x="139.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
 <rect x="80" y="432" width="118" height="144" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="139.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 0</text>
-<text x="139.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
-<text x="139.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
+<text x="139.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 0</text>
+<text x="139.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
+<text x="139.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
 <rect x="210" y="380" width="118" height="46" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="269.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
-<text x="269.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
+<text x="269.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
+<text x="269.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
 <rect x="210" y="432" width="118" height="144" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="269.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 1</text>
-<text x="269.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
-<text x="269.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
+<text x="269.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 1</text>
+<text x="269.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
+<text x="269.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
 <rect x="340" y="380" width="118" height="46" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="399.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
-<text x="399.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
+<text x="399.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
+<text x="399.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
 <rect x="340" y="432" width="118" height="144" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="399.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 2</text>
-<text x="399.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
-<text x="399.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
+<text x="399.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 2</text>
+<text x="399.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
+<text x="399.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
 <rect x="470" y="380" width="118" height="46" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="529.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
-<text x="529.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
+<text x="529.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
+<text x="529.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
 <rect x="470" y="432" width="118" height="144" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="529.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 3</text>
-<text x="529.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
-<text x="529.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
+<text x="529.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 3</text>
+<text x="529.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
+<text x="529.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
 <rect x="600" y="380" width="118" height="46" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="659.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
-<text x="659.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
+<text x="659.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
+<text x="659.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
 <rect x="600" y="432" width="118" height="144" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="659.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 4</text>
-<text x="659.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
-<text x="659.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
+<text x="659.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 4</text>
+<text x="659.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
+<text x="659.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
 <rect x="730" y="380" width="118" height="46" rx="5" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.0"/>
-<text x="789.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
-<text x="789.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
+<text x="789.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
+<text x="789.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
 <rect x="730" y="432" width="118" height="144" rx="5" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.0"/>
-<text x="789.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#cc5500" text-anchor="middle" font-weight="bold">slot 5</text>
-<text x="789.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
-<text x="789.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
+<text x="789.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#cc5500" text-anchor="middle" font-weight="bold">slot 5</text>
+<text x="789.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
+<text x="789.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
 <rect x="860" y="380" width="118" height="46" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="919.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
-<text x="919.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
+<text x="919.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
+<text x="919.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
 <rect x="860" y="432" width="118" height="144" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="919.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 6</text>
-<text x="919.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
-<text x="919.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
+<text x="919.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 6</text>
+<text x="919.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
+<text x="919.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
 <rect x="990" y="380" width="118" height="46" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="1049.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
-<text x="1049.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
+<text x="1049.0" y="402" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">frame_id</text>
+<text x="1049.0" y="419" font-family="Helvetica,Arial,sans-serif" font-size="16.8" fill="#6b6b6b" text-anchor="middle" font-weight="normal">ts_ns</text>
 <rect x="990" y="432" width="118" height="144" rx="5" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.0"/>
-<text x="1049.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 7</text>
-<text x="1049.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
-<text x="1049.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
-<text x="80" y="356" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="start" font-weight="normal">8 slots, each one whole 1920 x 1080 BGR frame</text>
+<text x="1049.0" y="492" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">slot 7</text>
+<text x="1049.0" y="518" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">6.2 MB</text>
+<text x="1049.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
+<text x="80" y="356" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#6b6b6b" text-anchor="start" font-weight="normal">8 slots, each one whole 1920 x 1080 BGR frame</text>
 <line x1="789.0" y1="340" x2="789.0" y2="374" stroke="#cc5500" stroke-width="2.6" stroke-linecap="round" marker-end="url(#ao)"/>
 <rect x="120" y="600" width="420" height="216" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
 <text x="330.0" y="640" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">a reader (tracker, classifier)</text>
@@ -87,8 +87,4 @@
 <text x="900.0" y="713.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">about 260 ms before the writer laps it, so a torn</text>
 <text x="900.0" y="736.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read should never happen. A check that cannot fail</text>
 <text x="900.0" y="759.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">proves nothing, so the tests force one by hand.</text>
-<line x1="60" y1="890" x2="1180" y2="890" stroke="#b8b8b8" stroke-width="1.6" stroke-linecap="round"/>
-<text x="60" y="928" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="start" font-weight="normal">core never imports this module, and that omission is the enforcement: pixels reach exactly the two processes</text>
-<text x="60" y="958" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="start" font-weight="normal">that analyse them, and the process holding the prices works only in grams and rectangles. A camera that dies</text>
-<text x="60" y="988" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="start" font-weight="normal">and comes back creates a NEW segment, so every reader opens the ring lazily and reopens it after any failure.</text>
 </svg>

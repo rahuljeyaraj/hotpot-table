@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 1620" width="1280" height="1620">
-<rect width="1280" height="1620" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 1085" width="1280" height="1085">
+<rect width="1280" height="1085" fill="#ffffff"/>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
-<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#1a1a1a" text-anchor="start" font-weight="bold">Two shaders and one resolution pair</text>
-<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">The fire's density field is 1280 x 720. Its simulation grid is 640 x 360. Both shaders read across that gap.</text>
-<text x="60" y="150" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1a1a1a" text-anchor="start" font-weight="bold">ftBuoyancyShader: the weight term came from half the coordinates</text>
-<text x="110" y="240" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="start" font-weight="bold">the shader renders here</text>
-<text x="110" y="262" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="start" font-weight="normal">the sim grid, 640 x 360</text>
+<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="32.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">Two shaders and one resolution pair</text>
+<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">The fire's density field is 1280 x 720. Its simulation grid is 640 x 360. Both shaders read across that gap.</text>
+<text x="60" y="150" font-family="Helvetica,Arial,sans-serif" font-size="26.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">ftBuoyancyShader: the weight term came from half the coordinates</text>
+<text x="110" y="240" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="start" font-weight="bold">the shader renders here</text>
+<text x="110" y="262" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="start" font-weight="normal">the sim grid, 640 x 360</text>
 <rect x="110" y="280" width="268.8" height="151.2" rx="6" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.4"/>
-<text x="560" y="240" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#cc5500" text-anchor="start" font-weight="bold">and samples this</text>
-<text x="560" y="262" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="start" font-weight="normal">the density field, 1280 x 720</text>
+<text x="560" y="240" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#cc5500" text-anchor="start" font-weight="bold">and samples this</text>
+<text x="560" y="262" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="start" font-weight="normal">the density field, 1280 x 720</text>
 <rect x="560" y="280" width="537.6" height="302.4" rx="6" fill="#fdf1e6" stroke="#cc5500" stroke-width="2.4"/>
 <rect x="560" y="280" width="268.8" height="151.2" rx="6" fill="none" stroke="#b03030" stroke-width="1.8" stroke-dasharray="7 5"/>
 <path d="M 288.0 358.0 C 418.0 234.0, 588.0 234.0, 718.0 358.0" fill="none" stroke="#b03030" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ab)"/>
@@ -16,44 +16,28 @@
 <circle cx="278.0" cy="364.0" r="10" fill="#1a1a1a" stroke="#1a1a1a" stroke-width="2.0"/>
 <circle cx="728.0" cy="364.0" r="10" fill="#b03030" stroke="#b03030" stroke-width="2.0"/>
 <circle cx="896.0" cy="448.0" r="10" fill="#2f7d43" stroke="#2f7d43" stroke-width="2.0"/>
-<text x="262.0" y="404.0" font-family="Consolas,Menlo,monospace" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="bold">st = (400, 200)</text>
+<text x="262.0" y="404.0" font-family="Consolas,Menlo,monospace" font-size="20.4" fill="#1a1a1a" text-anchor="middle" font-weight="bold">st = (400, 200)</text>
 <circle cx="570" cy="616.4" r="9" fill="#b03030" stroke="#b03030" stroke-width="2.0"/>
-<text x="590" y="622.4" font-family="Consolas,Menlo,monospace" font-size="18" fill="#b03030" text-anchor="start" font-weight="bold">upstream reads here:  texture2DRect(tex_density, st)</text>
+<text x="590" y="622.4" font-family="Consolas,Menlo,monospace" font-size="21.6" fill="#b03030" text-anchor="start" font-weight="bold">upstream reads here:  texture2DRect(tex_density, st)</text>
 <circle cx="570" cy="652.4" r="9" fill="#2f7d43" stroke="#2f7d43" stroke-width="2.0"/>
-<text x="590" y="658.4" font-family="Consolas,Menlo,monospace" font-size="18" fill="#2f7d43" text-anchor="start" font-weight="bold">the patch reads here:  st * densityScale,  which is (2, 2)</text>
-<text x="110" y="622.4" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#b03030" text-anchor="start" font-weight="normal">The dashed square is the only</text>
-<text x="110" y="644.4" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#b03030" text-anchor="start" font-weight="normal">part of the density field the</text>
-<text x="110" y="666.4" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#b03030" text-anchor="start" font-weight="normal">unscaled read can ever reach.</text>
-<text x="110" y="700" font-family="Consolas,Menlo,monospace" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="bold">buoyancy_force = timestep * dtemp * fluid_buoyancy - density * fluid_weight</text>
-<text x="110" y="744" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">Density is the term that weighs the flame down. Read at the raw fragment coordinate it puts a phantom weight at</text>
-<text x="110" y="773" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">double the coordinates of wherever the flame actually is, and leaves three quarters of the canvas weightless. On</text>
-<text x="110" y="802" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">the table that reads as bins behaving differently depending on where they sit. Hue was ruled out first, by setting</text>
-<text x="110" y="831" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">all eight fire rings to a single colour and looking again: the asymmetry was exactly the same.</text>
-<line x1="60" y1="900" x2="1220" y2="900" stroke="#b8b8b8" stroke-width="1.6" stroke-linecap="round"/>
-<text x="60" y="950" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1a1a1a" text-anchor="start" font-weight="bold">ftJacobiDiffusionShader: the obstacle lookup clamped, and wiped the canvas</text>
-<rect x="110" y="1000" width="480" height="200" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="350.0" y="1044" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">the GLSL 4.10 variant</text>
-<text x="350.0" y="1072.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal"></text>
-<text x="350.0" y="1096.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">vec2 st2 = st * scale;</text>
-<text x="350.0" y="1120.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">texture(tex_obstacle, st2)</text>
-<text x="350.0" y="1144.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal"></text>
-<text x="350.0" y="1168.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">correct, upstream, dead code here</text>
-<rect x="620" y="1000" width="480" height="200" rx="8" fill="#fadddd" stroke="#b03030" stroke-width="2.2"/>
-<text x="860.0" y="1044" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#b03030" text-anchor="middle" font-weight="bold">the GLSL 1.20 variant</text>
-<text x="860.0" y="1072.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal"></text>
-<text x="860.0" y="1096.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal">texture2DRect(tex_obstacle, st)</text>
-<text x="860.0" y="1120.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal"></text>
-<text x="860.0" y="1144.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal">the raw coordinate, no scale,</text>
-<text x="860.0" y="1168.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal">and this is the one that runs</text>
-<text x="110" y="1256" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">Every shader in the addon defines both variants, side by side in the same header, through two macros. Which one</text>
-<text x="110" y="1285" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">compiles is decided by ofIsGLProgrammableRenderer(), and this app asks for no GL version at all, so openFrameworks</text>
-<text x="110" y="1314" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">hands it the fixed-function renderer and the 1.20 half is what the projector has been running all along.</text>
-<text x="110" y="1343" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal"></text>
-<text x="110" y="1372" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">The obstacle textures sit at simulation resolution while this pass renders at density resolution. Sampling them at</text>
-<text x="110" y="1401" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">the raw coordinate clamps every fragment past 640 x 360 onto the texture's own 1 px border, which holds 1.0, which</text>
-<text x="110" y="1430" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">means solid obstacle here, which makes the shader write zero and return. Three quarters of the density field was</text>
-<text x="110" y="1459" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">erased on every diffusion pass, twenty passes a frame.</text>
-<text x="110" y="1488" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal"></text>
-<text x="110" y="1517" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">The symptom was that diffusion at any strength above zero left the buffer blank rather than blurred. It was read as</text>
-<text x="110" y="1546" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">a grid-size problem for a day, and the fluid was rebuilt at twice the resolution to get around it.</text>
+<text x="590" y="658.4" font-family="Consolas,Menlo,monospace" font-size="21.6" fill="#2f7d43" text-anchor="start" font-weight="bold">the patch reads here:  st * densityScale,  which is (2, 2)</text>
+<text x="110" y="622.4" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#b03030" text-anchor="start" font-weight="normal">The dashed square is the only</text>
+<text x="110" y="644.4" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#b03030" text-anchor="start" font-weight="normal">part of the density field the</text>
+<text x="110" y="666.4" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#b03030" text-anchor="start" font-weight="normal">unscaled read can ever reach.</text>
+<text x="110" y="700" font-family="Consolas,Menlo,monospace" font-size="21.6" fill="#1a1a1a" text-anchor="start" font-weight="bold">buoyancy_force = timestep * dtemp * fluid_buoyancy - density * fluid_weight</text>
+<text x="60" y="800" font-family="Helvetica,Arial,sans-serif" font-size="26.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">ftJacobiDiffusionShader: the obstacle lookup clamped, and wiped the canvas</text>
+<rect x="110" y="850" width="480" height="200" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
+<text x="350.0" y="894" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">the GLSL 4.10 variant</text>
+<text x="350.0" y="922.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal"></text>
+<text x="350.0" y="946.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">vec2 st2 = st * scale;</text>
+<text x="350.0" y="970.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">texture(tex_obstacle, st2)</text>
+<text x="350.0" y="994.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal"></text>
+<text x="350.0" y="1018.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">correct, upstream, dead code here</text>
+<rect x="620" y="850" width="480" height="200" rx="8" fill="#fadddd" stroke="#b03030" stroke-width="2.2"/>
+<text x="860.0" y="894" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#b03030" text-anchor="middle" font-weight="bold">the GLSL 1.20 variant</text>
+<text x="860.0" y="922.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal"></text>
+<text x="860.0" y="946.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal">texture2DRect(tex_obstacle, st)</text>
+<text x="860.0" y="970.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal"></text>
+<text x="860.0" y="994.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal">the raw coordinate, no scale,</text>
+<text x="860.0" y="1018.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal">and this is the one that runs</text>
 </svg>

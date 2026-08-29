@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1360" width="1240" height="1360">
-<rect width="1240" height="1360" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 775" width="1240" height="775">
+<rect width="1240" height="775" fill="#ffffff"/>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
-<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#1a1a1a" text-anchor="start" font-weight="bold">One hand, one window, seven hundred pixels</text>
-<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">MediaPipe's tracking state is bound to the exact framing it was given, and that decided this whole mechanism.</text>
+<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="32.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">One hand, one window, seven hundred pixels</text>
+<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">MediaPipe's tracking state is bound to the exact framing it was given, and that decided this whole mechanism.</text>
 <rect x="110.0" y="150.0" width="844.8" height="475.2" rx="6" fill="#faf7f2" stroke="#1a1a1a" stroke-width="2.4"/>
-<text x="110.0" y="134.0" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="start" font-weight="normal">the camera frame, 1920 x 1080</text>
+<text x="110.0" y="134.0" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#6b6b6b" text-anchor="start" font-weight="normal">the camera frame, 1920 x 1080</text>
 <rect x="158.4" y="167.6" width="748.0" height="440.0" rx="6" fill="#ffffff" stroke="#b8b8b8" stroke-width="2.0" stroke-dasharray="8 6"/>
 <rect x="176.0" y="176.4" width="308.0" height="308.0" rx="6" fill="none" stroke="#1f6f8b" stroke-width="1.6" stroke-dasharray="5 5"/>
 <rect x="176.0" y="290.8" width="308.0" height="308.0" rx="6" fill="none" stroke="#1f6f8b" stroke-width="1.6" stroke-dasharray="5 5"/>
@@ -14,27 +14,11 @@
 <rect x="589.6" y="290.8" width="308.0" height="308.0" rx="6" fill="none" stroke="#1f6f8b" stroke-width="1.6" stroke-dasharray="5 5"/>
 <rect x="387.2" y="268.8" width="308.0" height="308.0" rx="6" fill="#fff3e8" stroke="#cc5500" stroke-width="3.0"/>
 <circle cx="541.2" cy="422.8" r="13" fill="#cc5500" stroke="#cc5500" stroke-width="2.0"/>
-<text x="565.2" y="429.8" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#cc5500" text-anchor="start" font-weight="bold">landmark 8, the index fingertip</text>
+<text x="565.2" y="429.8" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#cc5500" text-anchor="start" font-weight="bold">landmark 8, the index fingertip</text>
 <line x1="110.0" y1="665.2" x2="164.0" y2="665.2" stroke="#b8b8b8" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="8 6"/>
-<text x="180.0" y="671.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">the table's own footprint, padded by 200 px on every side</text>
+<text x="180.0" y="671.2" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#1a1a1a" text-anchor="start" font-weight="normal">the table's own footprint, padded by 200 px on every side</text>
 <line x1="110.0" y1="697.2" x2="164.0" y2="697.2" stroke="#1f6f8b" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="5 5"/>
-<text x="180.0" y="703.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">scan tiles: 700 px wide, 470 px apart, so they overlap by a third</text>
+<text x="180.0" y="703.2" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#1a1a1a" text-anchor="start" font-weight="normal">scan tiles: 700 px wide, 470 px apart, so they overlap by a third</text>
 <line x1="110.0" y1="729.2" x2="164.0" y2="729.2" stroke="#cc5500" stroke-width="3.0" stroke-linecap="round"/>
-<text x="180.0" y="735.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">a committed window: 700 px, re-centred on its own last hit every tick</text>
-<line x1="60" y1="780" x2="1180" y2="780" stroke="#b8b8b8" stroke-width="1.6" stroke-linecap="round"/>
-<text x="60" y="826" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1a1a1a" text-anchor="start" font-weight="bold">Three things measured on this rig, against a real hand</text>
-<text x="60" y="868" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">1.  Denoising a HAND-SIZED crop finds a cold hand reliably: 20 out of 20 at two different positions. Denoising the</text>
-<text x="60" y="897" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">      whole table crop the same way scored 20 out of 20 at one position and 0 out of 20 at another, in the same live</text>
-<text x="60" y="926" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">      session. That is not a fix, it is a trap for whoever tries it next.</text>
-<text x="60" y="955" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal"></text>
-<text x="60" y="984" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">2.  Once a hand is found through a given crop, MediaPipe keeps tracking it through that same crop with the denoise</text>
-<text x="60" y="1013" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">      removed entirely. Acquiring is expensive; staying locked on is cheap.</text>
-<text x="60" y="1042" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal"></text>
-<text x="60" y="1071" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">3.  Hand the SAME landmarker a differently framed crop and the lock is gone on the very next call, 0 out of 5, even</text>
-<text x="60" y="1100" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">      denoised. A window that SHIFTS, same size, re-centred to follow the hand, survives. That is the only reason</text>
-<text x="60" y="1129" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">      continuous tracking works here without re-running the palm detector from scratch every single frame.</text>
-<text x="60" y="1226" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#cc5500" text-anchor="start" font-weight="bold">Which is why two hands are switched off</text>
-<text x="60" y="1266" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">With two slots and one real hand, one slot stays free forever, so the round robin alternates between servicing the</text>
-<text x="60" y="1295" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">hand and scanning for a second one. Every scan tile is a different crop, and by finding 3 above, every scan turn</text>
-<text x="60" y="1324" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">reset the tracked hand's lock. The cursor pulsed: on, off, on, off, worst at the edges. max_hands is 1.</text>
+<text x="180.0" y="735.2" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#1a1a1a" text-anchor="start" font-weight="normal">a committed window: 700 px, re-centred on its own last hit every tick</text>
 </svg>

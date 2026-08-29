@@ -13,9 +13,11 @@ rejected).
 
 The PNG beside each SVG exists because not every viewer renders SVG. It
 is produced by wrapping the SVG in a one-line HTML page and screenshotting
-it with headless Edge, since this machine has no rsvg, no Inkscape and no
-ImageMagick. `EDGE` below is where Edge lives on this rig; override it
-with the HOTPOT_EDGE environment variable if yours differs.
+it with a headless Chromium, since this machine has no rsvg, no Inkscape
+and no ImageMagick. `BROWSERS` below is the search list (Chrome first:
+this rig's Edge hands headless screenshots off to a running instance and
+shoots its error page). Override with the HOTPOT_BROWSER environment
+variable if yours lives elsewhere.
 """
 
 from __future__ import annotations
@@ -33,12 +35,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "img"
 
-EDGE = os.environ.get(
-    "HOTPOT_EDGE",
-    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+BROWSERS = [
+    p for p in (
+        os.environ.get("HOTPOT_BROWSER"),
+        os.environ.get("HOTPOT_EDGE"),  # kept for old callers
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    ) if p
+]
 
 FONT = "Helvetica,Arial,sans-serif"
 MONO = "Consolas,Menlo,monospace"
+
+# Every label is drawn ~20% larger than its call-site size. Text-only footers
+# under the grey rule were dropped, so the drawing has the room.
+FS = 1.2
 
 INK = "#1a1a1a"
 MUTED = "#6b6b6b"
@@ -118,11 +130,11 @@ class Svg:
             f'stroke="{stroke}" stroke-width="{sw}"/>')
 
     def text(self, x, y, s, size=18, fill=INK, anchor="start", weight="normal",
-             font=None, italic=False):
+             font=None, italic=False, scale=FS):
         st = ' font-style="italic"' if italic else ""
         self.parts.append(
             f'<text x="{x}" y="{y}" font-family="{font or FONT}" '
-            f'font-size="{size}" fill="{fill}" text-anchor="{anchor}" '
+            f'font-size="{size * scale:g}" fill="{fill}" text-anchor="{anchor}" '
             f'font-weight="{weight}"{st}>{esc(s)}</text>')
 
     # -- composites -------------------------------------------------------
@@ -131,6 +143,8 @@ class Svg:
             head_size=21, body_size=16, head_fill=None, body_fill=MUTED,
             rx=8, dash=None, head_font=None, body_font=None, top=None):
         """A labelled box. `lines[0]` is the heading, the rest are notes."""
+        # A box's own labels are already large relative to its walls; the FS
+        # bump is for the free-standing captions and pin labels, not here.
         self.rect(x, y, w, h, fill=fill, stroke=stroke, sw=sw, rx=rx, dash=dash)
         cx = x + w / 2.0
         n = len(lines)
@@ -139,26 +153,27 @@ class Svg:
         ty = (top if top is not None
               else y + (h - block) / 2.0 + head_size * 0.82)
         self.text(cx, ty, lines[0], head_size, head_fill or stroke,
-                  anchor="middle", weight="bold", font=head_font)
+                  anchor="middle", weight="bold", font=head_font, scale=1)
         for i, s in enumerate(lines[1:], start=1):
             self.text(cx, ty + head_size * 0.2 + gap * i, s, body_size,
-                      body_fill, anchor="middle", font=body_font)
+                      body_fill, anchor="middle", font=body_font, scale=1)
 
     def caption(self, x, y, lines, size=16, fill=MUTED, anchor="start",
                 gap=None, weight="normal", font=None):
-        gap = gap or size + 6
+        gap = (gap or size + 6) * FS
         for i, s in enumerate(lines):
             self.text(x, y + gap * i, s, size, fill, anchor=anchor,
                       weight=weight, font=font)
 
     def label_on_line(self, x, y, s, size=16, fill=INK, anchor="middle",
-                      pad=6, weight="bold", bg="#ffffff"):
-        w = len(s) * size * 0.56 + pad * 2
+                      pad=6, weight="bold", bg="#ffffff", scale=FS):
+        sz = size * scale
+        w = len(s) * sz * 0.56 + pad * 2
         lx = {"middle": x - w / 2, "start": x - pad, "end": x - w + pad}[anchor]
         self.parts.append(
-            f'<rect x="{lx}" y="{y - size * 0.86}" width="{w}" '
-            f'height="{size * 1.35}" fill="{bg}" rx="3"/>')
-        self.text(x, y, s, size, fill, anchor=anchor, weight=weight)
+            f'<rect x="{lx}" y="{y - sz * 0.86}" width="{w}" '
+            f'height="{sz * 1.35}" fill="{bg}" rx="3"/>')
+        self.text(x, y, s, size, fill, anchor=anchor, weight=weight, scale=scale)
 
     def save(self, name):
         self.parts.append("</svg>")
@@ -171,7 +186,7 @@ class Svg:
 
 # ---------------------------------------------------------------- 1. processes
 def processes():
-    W, H = 1140, 1560
+    W, H = 1200, 1280
     s = Svg(W, H, "Five processes and four transports",
             "run.py starts every one of them and waits for each to say it is ready before starting the next.")
 
@@ -223,8 +238,11 @@ def processes():
     # serial down the right edge
     s.path(f"M {R + CW / 2} 213 L {R + CW / 2} 690 L {L + FULL - 150} 690 L {L + FULL - 150} 738",
            stroke=COOL, sw=2.4, arrow="ac")
-    s.label_on_line(R + CW / 2 + 168, 420, "USB serial, 115200 baud", 16, COOL)
-    s.label_on_line(R + CW / 2 + 168, 444, "about 10.7 lines a second", 16, COOL)
+    # squeezed between the serial rail and the MJPEG line: no room for the bump
+    s.label_on_line(R + CW / 2 + 168, 420, "USB serial, 115200 baud", 16, COOL,
+                    scale=1)
+    s.label_on_line(R + CW / 2 + 168, 444, "about 10.7 lines a second", 16,
+                    COOL, scale=1)
 
     # tracker -> core (TCP)
     s.line(L + 115, 676, L + 115, 738, arrow="a", sw=2.4)
@@ -258,7 +276,7 @@ def processes():
     s.caption(58, 796, ["UDP 8770", "cursor", "datagrams"], 16, ACCENT)
     # tracker -> core UDP
     s.line(L + 175, 676, L + 175, 738, arrow="ao", stroke=ACCENT, sw=2.2)
-    s.label_on_line(L + 175 + 92, 700, "UDP 8771", 15, ACCENT)
+    s.label_on_line(L + 175 + 55, 700, "UDP 8771", 15, ACCENT)
 
     # camera -> browser MJPEG
     s.path(f"M {L + CW} 308 L {R + CW + 44} 308 L {R + CW + 44} 1016 L {R + CW + 4} 1016",
@@ -272,21 +290,12 @@ def processes():
     s.line(L + 250, 1082, L + 250, 1146, arrow="ac", stroke=COOL, sw=2.4)
     s.label_on_line(L + 250, 1122, "HDMI", 16, COOL)
 
-    # legend
-    s.line(60, 1300, W - 60, 1300, stroke=RULE, sw=1.6)
-    s.text(60, 1342, "Why four transports and not one", 21, INK, weight="bold")
-    s.caption(60, 1380, [
-        "Shared memory carries frames, because 6 MB of pixels thirty times a second belongs in a page table, not a socket.",
-        "TCP carries control, because a lost \"turn serving off\" wedges the table.",
-        "UDP carries cursors, because a lost cursor packet is worthless 16 ms later and a queued one is worse than lost.",
-        "One serial line carries all eight load cells, because the XIAO shares a single clock across eight HX711 boards.",
-    ], 17, INK, gap=30)
     s.save("architecture-processes.svg")
 
 
 # ------------------------------------------------------------- 2. cursor drain
 def drain():
-    W, H = 1180, 1090
+    W, H = 1180, 950
     s = Svg(W, H, "Why the cursor goes over UDP",
             "Six datagrams sent while the render thread is stalled, and what each transport does with them.")
 
@@ -341,17 +350,12 @@ def drain():
         "Read the socket until it is empty, keep the highest seq. The hand appears where it actually is.",
     ], 19, GOOD, gap=28)
 
-    s.line(60, 970, W - 60, 970, stroke=RULE, sw=1.6)
-    s.caption(60, 1010, [
-        "Two rules, and they are different. WITHIN one drain: keep the highest seq. ACROSS drains: refuse any seq at or below",
-        "one already accepted, because UDP reorders and a datagram that lost its race arrives after its own successor.",
-    ], 18, INK, gap=30)
     s.save("architecture-cursor-drain.svg")
 
 
 # ------------------------------------------------------------------ 3. the ring
 def ring():
-    W, H = 1240, 1040
+    W, H = 1240, 850
     s = Svg(W, H, "The frame ring in shared memory",
             "One writer, two readers, no lock. The order of the three writes is the whole mechanism.")
 
@@ -409,18 +413,12 @@ def ring():
            "proves nothing, so the tests force one by hand."],
           head_size=21, body_size=17, body_fill=INK, top=ry + 40)
 
-    s.line(60, 890, W - 60, 890, stroke=RULE, sw=1.6)
-    s.caption(60, 928, [
-        "core never imports this module, and that omission is the enforcement: pixels reach exactly the two processes",
-        "that analyse them, and the process holding the prices works only in grams and rectangles. A camera that dies",
-        "and comes back creates a NEW segment, so every reader opens the ring lazily and reopens it after any failure.",
-    ], 17, INK, gap=30)
     s.save("architecture-frame-ring.svg")
 
 
 # ---------------------------------------------------------- 4. coordinate spaces
 def spaces():
-    W, H = 1100, 1500
+    W, H = 1100, 1010
     s = Svg(W, H, "Four coordinate spaces",
             "Stage pixels are canonical. Everything on the wire is already in them.")
 
@@ -466,28 +464,12 @@ def spaces():
            "two shaders read across it without saying so."],
           head_size=24, body_size=18, body_fill=INK)
 
-    # the rule
-    s.line(60, 1050, W - 60, 1050, stroke=RULE, sw=1.6)
-    s.text(60, 1094, "The rule that holds it together", 22, INK, weight="bold")
-    s.caption(60, 1136, [
-        "The tracker applies H itself and puts stage pixels on the wire. Core hit-tests stage pixels against stage",
-        "rectangles. openFrameworks draws stage pixels. So the three processes cannot disagree about where a",
-        "hand is, because only one of them ever holds the matrix.",
-    ], 18, INK, gap=30)
-
-    s.text(60, 1276, "And the trap underneath it", 22, ACCENT, weight="bold")
-    s.caption(60, 1318, [
-        "A homography that reports rms_px 0.0 from n_points 4 can still point nowhere near the real table, and this",
-        "rig has produced exactly that. Four points always fit a plane projection perfectly, so the error figure is",
-        "measuring nothing. There is no verify() on the geometry store and there must not be one: the only check",
-        "that can fail is a person looking at the light on the actual table.",
-    ], 18, INK, gap=30)
     s.save("architecture-coordinate-spaces.svg")
 
 
 # ------------------------------------------------------------------ 5. two grids
 def grids():
-    W, H = 1160, 1380
+    W, H = 1160, 995
     s = Svg(W, H, "Two bin grids, never derived from each other",
             "Four horizontal lines and eight vertical ones. A line belongs to a whole row or a whole column.")
 
@@ -520,7 +502,7 @@ def grids():
 
     # two stores
     top = 600
-    s.box(80, top, 480, 320,
+    s.box(80, top, 480, 340,
           ["state/bin_grid_camera.json", "", "", "", "", "", "", ""],
           fill=COOL_FILL, stroke=COOL, head_fill=COOL, head_size=21,
           head_font=MONO, top=top + 42)
@@ -536,7 +518,7 @@ def grids():
         "Needs the camera and the four corners.",
     ], 18, INK, gap=25)
 
-    s.box(600, top, 480, 320,
+    s.box(600, top, 480, 340,
           ["state/bin_grid_projector.json", "", "", "", "", "", "", ""],
           fill=ACCENT_FILL, stroke=ACCENT, head_fill=ACCENT, head_size=21,
           head_font=MONO, top=top + 42)
@@ -557,27 +539,12 @@ def grids():
     s.text(580, 562, "same shape,", 18, MUTED, anchor="middle", weight="bold")
     s.text(580, 586, "two files", 18, MUTED, anchor="middle", weight="bold")
 
-    s.line(60, 990, W - 60, 990, stroke=RULE, sw=1.6)
-    s.text(60, 1034, "Why two, and why one is never computed from the other",
-           22, INK, weight="bold")
-    s.caption(60, 1076, [
-        "A camera and a projector are two devices pointed at one table, related by a single flat homography that cannot",
-        "model either one's lens distortion or its mounting error. A rectangle carried from one space into the other looks",
-        "right and can still be wrong in a way nothing catches. So a grid is only ever set by whoever is looking at the",
-        "space it describes: the camera grid by someone dragging on the camera's own picture, the projector grid by",
-        "someone watching light on plywood. Both start from the same seed off the CAD chain, and neither reads the other again.",
-    ], 18, INK, gap=31)
-
-    s.text(60, 1290, "The version this replaced was eight rectangles dragged one at a time, which let bin 0's top edge and",
-           17, MUTED)
-    s.text(60, 1318, "bin 1's top edge disagree by a few pixels: invisible in a list of numbers, very visible on the table.",
-           17, MUTED)
     s.save("architecture-two-grids.svg")
 
 
 # ------------------------------------------------------------------------ 6. fsm
 def fsm():
-    W, H = 1140, 1460
+    W, H = 1200, 970
     s = Svg(W, H, "The state machine",
             "Eight states. Three edges end a session, and all three call the same function to do it.")
 
@@ -653,29 +620,12 @@ def fsm():
            arrow="a")
     s.text(352, 690, "Serving on", 16, "#a5761b", weight="bold")
 
-    s.line(60, 1010, W - 60, 1010, stroke=RULE, sw=1.6)
-    s.text(60, 1054, "Two predicates, not one", 22, INK, weight="bold")
-    s.caption(60, 1094, [
-        "serving    IDLE, SELECTING, BROTH, SPICE, CHECKOUT.    The table is open for business.",
-        "weighing   IDLE, SELECTING.    The load cells may still move the cart.",
-    ], 19, INK, gap=32)
-    s.caption(60, 1176, [
-        "They had the same answer until the checkout chain existed. A diner choosing a broth is very much being served, and",
-        "must not be weighed: a hand brushing a tray, or the cells drifting a gram while the QR code is up, would change a",
-        "total already agreed to. Going BACK to the cart un-freezes it, which is the entire point of that edge.",
-    ], 18, MUTED, gap=30)
-    s.caption(60, 1310, [
-        "Cancel, paid, and the exit from Serving off all call one shared reset_session(), so no path can do two of its three",
-        "steps and forget the third. The exit adds a fourth step ahead of them: read every bin's weight again first. Weighing",
-        "is switched off throughout Serving off, so without it a tray swapped during the mode gets baselined at the old",
-        "tray's weight and the next diner is billed for the swap.",
-    ], 18, INK, gap=30)
     s.save("architecture-state-machine.svg")
 
 
 # --------------------------------------------------------------- 7. cart weights
 def weights():
-    W, H = 1240, 940
+    W, H = 1240, 670
     s = Svg(W, H, "Price is a subtraction, never an accumulation",
             "One bin, one session. Three arrays of eight floats, and every price derived fresh from two of them.")
 
@@ -746,27 +696,12 @@ def weights():
     s.text(tx(65), oy + ph + 40, "some of it tipped back", 17, MUTED,
            anchor="middle")
 
-    # the formula
-    s.line(60, 660, W - 60, 660, stroke=RULE, sw=1.6)
-    s.text(60, 702, "removed_g = start_g - live_g", 21, INK, weight="bold",
-           font=MONO)
-    s.text(500, 702, "price = removed_g / 100 x the rate per 100 g", 21, INK,
-           weight="bold", font=MONO)
-    s.caption(60, 752, [
-        "Recomputed from scratch on every tick, from two absolute weights. Nothing anywhere adds up individual pick",
-        "events, which is what makes tipping food back work at all: it is the same subtraction with a smaller answer.",
-        "shown_g snaps to live_g only once they differ by more than the 10 g deadband, so a bin's price holds still while",
-        "the cell wobbles. The floor is real: four of the eight channels sit at 750 to 1500 counts of noise.",
-    ], 18, INK, gap=30)
-
-    s.text(60, 900, "A bin the scale cannot weigh reports None, never 0.0. A frozen 0.0 would read as a bin somebody just emptied.",
-           18, ACCENT, weight="bold")
     s.save("architecture-cart-weights.svg")
 
 
 # --------------------------------------------------------------- 8. scale filter
 def scalefilter():
-    W, H = 1160, 1320
+    W, H = 1160, 840
     s = Svg(W, H, "Ten and a half readings a second",
             "The architecture document said 78 Hz. The rig says 10.7, and every number below follows from that.")
 
@@ -818,28 +753,12 @@ def scalefilter():
            "Reading one sample nine times in a",
            "row is correct at 10.7 Hz"])
 
-    s.line(60, 870, W - 60, 870, stroke=RULE, sw=1.6)
-
-    s.text(60, 914, "Settled, and why it anchors", 22, INK, weight="bold")
-    s.caption(60, 954, [
-        "A bin counts as settled once its gram value has stayed within 2 g of the value the window OPENED at, for 300 ms.",
-        "Compared against the previous sample instead, a slow pour of 1 g per sample sits inside a 2 g step forever and",
-        "the bin reads settled while food is still going in. At 10.7 Hz, 300 ms is about four samples.",
-    ], 18, INK, gap=30)
-
-    s.text(60, 1082, "Staleness cannot bill", 22, ACCENT, weight="bold")
-    s.caption(60, 1122, [
-        "A reading older than half a second means the XIAO is gone, and every bin answers None from then on. Unplugging",
-        "the board raises from inside the read, and the thread catches it and reopens on a ladder that starts at one second",
-        "and doubles to ten. A dead reader thread would be worse than a dead device: staleness is what makes the fault",
-        "visible, and it only keeps working as long as something is still trying.",
-    ], 18, INK, gap=30)
     s.save("architecture-scale-filter.svg")
 
 
 # ------------------------------------------------------------------- 9. the FBO
 def fbo():
-    W, H = 1180, 1300
+    W, H = 1180, 815
     s = Svg(W, H, "The light pass is drawn last, and that is the whole trick",
             "Five layers into one framebuffer, then one warp onto the projector.")
 
@@ -874,30 +793,12 @@ def fbo():
     s.box(X, 702, CW, 78, ["keystone warp, then the window"],
           head_size=22, fill=COOL_FILL, stroke=COOL, head_fill=COOL)
 
-    s.line(60, 850, W - 60, 850, stroke=RULE, sw=1.6)
-    s.text(60, 894, "Why the order matters more than the numbering",
-           22, INK, weight="bold")
-    s.caption(60, 936, [
-        "The projected field is the room's only light AND the entire interface. A bin's interior has to stay flat pure white,",
-        "in every mode, always: that white is what lights the food, and it is also the background of the training photographs",
-        "the classifier takes of its own trays. Anything patterned in a cutout would be lighting the food with the UI.",
-        "",
-        "Drawing the light pass third would rely on every future halo and every future UI change happening to keep out of a",
-        "cutout. Drawing it as the final write of the frame makes it true by construction. In practice nothing sees a",
-        "difference: the halo wraps the bin and the plate text sits outside it, so nothing paints into a cutout anyway.",
-        "Only one of the two orders survives someone editing this file next year.",
-    ], 18, INK, gap=30)
-
-    s.text(60, 1210, "The one thing the light pass has ever been allowed to skip is the black field for dot calibration, and that",
-           17, MUTED)
-    s.text(60, 1238, "calibration was deleted. The exception in the code outlived the feature it was carved out for.",
-           17, MUTED)
     s.save("architecture-light-pass.svg")
 
 
 # -------------------------------------------------------------- 10. stage layout
 def stage():
-    W, H = 1220, 1140
+    W, H = 1220, 845
     s = Svg(W, H, "The 440 mm centre column, in pixels",
             "Stage space is 1920 x 1080. Every band below is derived from the bin chain, so moving a bin moves them all.")
 
@@ -965,22 +866,12 @@ def stage():
     s.text(px(1920), py(0) - 16, "1920", 16, MUTED, anchor="end")
     s.text(px(1920) + 12, py(1080), "1080", 16, MUTED)
 
-    s.line(60, 830, W - 60, 830, stroke=RULE, sw=1.6)
-    s.caption(60, 872, [
-        "The banner and the info box start at the same y and never share a frame. A banner means the table is doing",
-        "something whole-table, which outranks describing whichever bin a hand happens to be over.",
-        "",
-        "The buttons are 76 px tall and about 155 px wide, which is roughly 123 by 64 mm of plywood, or a credit card.",
-        "They sit centred in the 177 mm margin between the near row and the diner's own edge of the table. A hand is not a",
-        "mouse: a tracked landmark wanders a few pixels a frame even on a still hand, so a dwell target has to be far",
-        "larger than a tablet's 44 px rule.",
-    ], 18, INK, gap=30)
     s.save("architecture-centre-column.svg")
 
 
 # ------------------------------------------------------------ 11. tracker window
 def tracker():
-    W, H = 1240, 1360
+    W, H = 1240, 775
     s = Svg(W, H, "One hand, one window, seven hundred pixels",
             "MediaPipe's tracking state is bound to the exact framing it was given, and that decided this whole mechanism.")
 
@@ -1021,36 +912,12 @@ def tracker():
                sw=3.0 if dash is None else 2.2, dash=dash)
         s.text(px(0) + 70, y, label, 18, INK)
 
-    y0 = 780
-    s.line(60, y0, W - 60, y0, stroke=RULE, sw=1.6)
-    s.text(60, y0 + 46, "Three things measured on this rig, against a real hand",
-           22, INK, weight="bold")
-    s.caption(60, y0 + 88, [
-        "1.  Denoising a HAND-SIZED crop finds a cold hand reliably: 20 out of 20 at two different positions. Denoising the",
-        "      whole table crop the same way scored 20 out of 20 at one position and 0 out of 20 at another, in the same live",
-        "      session. That is not a fix, it is a trap for whoever tries it next.",
-        "",
-        "2.  Once a hand is found through a given crop, MediaPipe keeps tracking it through that same crop with the denoise",
-        "      removed entirely. Acquiring is expensive; staying locked on is cheap.",
-        "",
-        "3.  Hand the SAME landmarker a differently framed crop and the lock is gone on the very next call, 0 out of 5, even",
-        "      denoised. A window that SHIFTS, same size, re-centred to follow the hand, survives. That is the only reason",
-        "      continuous tracking works here without re-running the palm detector from scratch every single frame.",
-    ], 18, INK, gap=29)
-
-    s.text(60, y0 + 446, "Which is why two hands are switched off", 22, ACCENT,
-           weight="bold")
-    s.caption(60, y0 + 486, [
-        "With two slots and one real hand, one slot stays free forever, so the round robin alternates between servicing the",
-        "hand and scanning for a second one. Every scan tile is a different crop, and by finding 3 above, every scan turn",
-        "reset the tracked hand's lock. The cursor pulsed: on, off, on, off, worst at the edges. max_hands is 1.",
-    ], 18, INK, gap=29)
     s.save("architecture-hand-window.svg")
 
 
 # ---------------------------------------------------------------- 12. the shaders
 def shaders():
-    W, H = 1280, 1620
+    W, H = 1280, 1085
     s = Svg(W, H, "Two shaders and one resolution pair",
             "The fire's density field is 1280 x 720. Its simulation grid is 640 x 360. Both shaders read across that gap.")
 
@@ -1099,18 +966,11 @@ def shaders():
 
     s.text(110, 700, "buoyancy_force = timestep * dtemp * fluid_buoyancy - density * fluid_weight",
            18, INK, weight="bold", font=MONO)
-    s.caption(110, 744, [
-        "Density is the term that weighs the flame down. Read at the raw fragment coordinate it puts a phantom weight at",
-        "double the coordinates of wherever the flame actually is, and leaves three quarters of the canvas weightless. On",
-        "the table that reads as bins behaving differently depending on where they sit. Hue was ruled out first, by setting",
-        "all eight fire rings to a single colour and looking again: the asymmetry was exactly the same.",
-    ], 18, INK, gap=29)
 
-    s.line(60, 900, W - 60, 900, stroke=RULE, sw=1.6)
-    s.text(60, 950, "ftJacobiDiffusionShader: the obstacle lookup clamped, and wiped the canvas",
+    s.text(60, 800, "ftJacobiDiffusionShader: the obstacle lookup clamped, and wiped the canvas",
            22, INK, weight="bold")
 
-    cy = 1000
+    cy = 850
     s.box(110, cy, 480, 200,
           ["the GLSL 4.10 variant",
            "",
@@ -1129,19 +989,6 @@ def shaders():
           head_size=21, body_size=18, body_fill=BAD, top=cy + 44,
           fill=BAD_FILL, stroke=BAD, head_fill=BAD)
 
-    s.caption(110, 1256, [
-        "Every shader in the addon defines both variants, side by side in the same header, through two macros. Which one",
-        "compiles is decided by ofIsGLProgrammableRenderer(), and this app asks for no GL version at all, so openFrameworks",
-        "hands it the fixed-function renderer and the 1.20 half is what the projector has been running all along.",
-        "",
-        "The obstacle textures sit at simulation resolution while this pass renders at density resolution. Sampling them at",
-        "the raw coordinate clamps every fragment past 640 x 360 onto the texture's own 1 px border, which holds 1.0, which",
-        "means solid obstacle here, which makes the shader write zero and return. Three quarters of the density field was",
-        "erased on every diffusion pass, twenty passes a frame.",
-        "",
-        "The symptom was that diffusion at any strength above zero left the buffer blank rather than blurred. It was read as",
-        "a grid-size problem for a day, and the fluid was rebuilt at twice the resolution to get around it.",
-    ], 18, INK, gap=29)
     s.save("architecture-shader-bugs.svg")
 
 
@@ -1166,7 +1013,7 @@ DIAGRAMS = {
 
 
 def rasterise(svg_name: str) -> None:
-    """SVG to PNG via headless Edge. The size is read back out of the
+    """SVG to PNG via a headless Chromium. The size is read back out of the
     file's own width/height so the PNG is always 1:1 with the drawing.
     """
     svg = OUT / svg_name
@@ -1175,9 +1022,10 @@ def rasterise(svg_name: str) -> None:
     if not m:
         print(f"  no width/height in {svg_name}, skipping the png")
         return
-    if not Path(EDGE).exists():
-        print(f"  Edge not found at {EDGE}, skipping the png "
-              "(set HOTPOT_EDGE)")
+    browser = next((b for b in BROWSERS if Path(b).exists()), None)
+    if browser is None:
+        print("  no Chrome or Edge found, skipping the png "
+              "(set HOTPOT_BROWSER)")
         return
     png = svg.with_suffix(".png")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1186,12 +1034,18 @@ def rasterise(svg_name: str) -> None:
             '<html><body style="margin:0">'
             f'<img src="{svg.as_uri()}" style="width:100vw;display:block">'
             "</body></html>", encoding="utf-8")
+        # --user-data-dir forces a standalone instance: without it this rig's
+        # Edge hands the job to the running browser and screenshots nothing,
+        # or its "file not found" page.
         subprocess.run(
-            [EDGE, "--headless", "--disable-gpu", f"--screenshot={png}",
+            [browser, "--headless", "--disable-gpu", "--no-first-run",
+             "--hide-scrollbars", f"--user-data-dir={Path(tmp) / 'prof'}",
+             f"--screenshot={png}",
              f"--window-size={m.group(1)},{m.group(2)}",
              "--default-background-color=FFFFFFFF", wrap.as_uri()],
             capture_output=True)
-    print(f"       {png.relative_to(ROOT)}")
+    ok = png.exists() and png.stat().st_size > 0
+    print(f"       {png.relative_to(ROOT)}" + ("" if ok else "  (FAILED)"))
 
 
 def main(argv=None) -> int:

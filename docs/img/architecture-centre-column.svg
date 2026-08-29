@@ -1,56 +1,48 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1220 1140" width="1220" height="1140">
-<rect width="1220" height="1140" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1220 845" width="1220" height="845">
+<rect width="1220" height="845" fill="#ffffff"/>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
-<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#1a1a1a" text-anchor="start" font-weight="bold">The 440 mm centre column, in pixels</text>
-<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">Stage space is 1920 x 1080. Every band below is derived from the bin chain, so moving a bin moves them all.</text>
+<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="32.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">The 440 mm centre column, in pixels</text>
+<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">Stage space is 1920 x 1080. Every band below is derived from the bin chain, so moving a bin moves them all.</text>
 <rect x="96.0" y="140.0" width="1056.0" height="594.0" rx="6" fill="#faf7f2" stroke="#1a1a1a" stroke-width="2.4"/>
 <rect x="159.745" y="255.005" width="138.60000000000002" height="165.66" rx="6" fill="#ffffff" stroke="#cc5500" stroke-width="2.2"/>
-<text x="229.04500000000002" y="346.505" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold">0</text>
+<text x="229.04500000000002" y="346.505" font-family="Helvetica,Arial,sans-serif" font-size="31.2" fill="#cc5500" text-anchor="middle" font-weight="bold">0</text>
 <rect x="332.995" y="255.005" width="138.60000000000002" height="165.66" rx="6" fill="#ffffff" stroke="#cc5500" stroke-width="2.2"/>
-<text x="402.295" y="346.505" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold">1</text>
+<text x="402.295" y="346.505" font-family="Helvetica,Arial,sans-serif" font-size="31.2" fill="#cc5500" text-anchor="middle" font-weight="bold">1</text>
 <rect x="776.46" y="255.005" width="138.60000000000002" height="165.66" rx="6" fill="#ffffff" stroke="#cc5500" stroke-width="2.2"/>
-<text x="845.7600000000001" y="346.505" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold">2</text>
+<text x="845.7600000000001" y="346.505" font-family="Helvetica,Arial,sans-serif" font-size="31.2" fill="#cc5500" text-anchor="middle" font-weight="bold">2</text>
 <rect x="949.655" y="255.005" width="138.60000000000002" height="165.66" rx="6" fill="#ffffff" stroke="#cc5500" stroke-width="2.2"/>
-<text x="1018.955" y="346.505" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold">3</text>
+<text x="1018.955" y="346.505" font-family="Helvetica,Arial,sans-serif" font-size="31.2" fill="#cc5500" text-anchor="middle" font-weight="bold">3</text>
 <rect x="159.745" y="453.115" width="138.60000000000002" height="165.66" rx="6" fill="#ffffff" stroke="#cc5500" stroke-width="2.2"/>
-<text x="229.04500000000002" y="544.615" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold">4</text>
+<text x="229.04500000000002" y="544.615" font-family="Helvetica,Arial,sans-serif" font-size="31.2" fill="#cc5500" text-anchor="middle" font-weight="bold">4</text>
 <rect x="332.995" y="453.115" width="138.60000000000002" height="165.66" rx="6" fill="#ffffff" stroke="#cc5500" stroke-width="2.2"/>
-<text x="402.295" y="544.615" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold">5</text>
+<text x="402.295" y="544.615" font-family="Helvetica,Arial,sans-serif" font-size="31.2" fill="#cc5500" text-anchor="middle" font-weight="bold">5</text>
 <rect x="776.46" y="453.115" width="138.60000000000002" height="165.66" rx="6" fill="#ffffff" stroke="#cc5500" stroke-width="2.2"/>
-<text x="845.7600000000001" y="544.615" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold">6</text>
+<text x="845.7600000000001" y="544.615" font-family="Helvetica,Arial,sans-serif" font-size="31.2" fill="#cc5500" text-anchor="middle" font-weight="bold">6</text>
 <rect x="949.655" y="453.115" width="138.60000000000002" height="165.66" rx="6" fill="#ffffff" stroke="#cc5500" stroke-width="2.2"/>
-<text x="1018.955" y="544.615" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold">7</text>
+<text x="1018.955" y="544.615" font-family="Helvetica,Arial,sans-serif" font-size="31.2" fill="#cc5500" text-anchor="middle" font-weight="bold">7</text>
 <rect x="471.54" y="151.0" width="304.865" height="93.50000000000001" rx="5" fill="#fdf6dd" stroke="#a5761b" stroke-width="2.0"/>
-<text x="623.9725" y="195.75" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#a5761b" text-anchor="middle" font-weight="bold">brand mark</text>
-<text x="623.9725" y="215.75" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">20 to 190</text>
+<text x="623.9725" y="195.75" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#a5761b" text-anchor="middle" font-weight="bold">brand mark</text>
+<text x="623.9725" y="215.75" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">20 to 190</text>
 <rect x="471.54" y="258.8" width="304.865" height="153.175" rx="5" fill="#eef6f9" stroke="#1f6f8b" stroke-width="2.0"/>
-<text x="623.9725" y="376.5" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1f6f8b" text-anchor="middle" font-weight="bold">info box</text>
-<text x="623.9725" y="394.1" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">216 to 494</text>
+<text x="623.9725" y="376.5" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#1f6f8b" text-anchor="middle" font-weight="bold">info box</text>
+<text x="623.9725" y="394.1" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">216 to 494</text>
 <rect x="471.54" y="258.8" width="304.865" height="57.2" rx="5" fill="#fadddd" stroke="#b03030" stroke-width="2.2" stroke-dasharray="7 5"/>
-<text x="623.9725" y="283.9" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="bold">mode banner</text>
-<text x="623.9725" y="305.9" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#b03030" text-anchor="middle" font-weight="normal">216 to 320, instead of the box</text>
+<text x="623.9725" y="283.9" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#b03030" text-anchor="middle" font-weight="bold">mode banner</text>
+<text x="623.9725" y="305.9" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#b03030" text-anchor="middle" font-weight="normal">216 to 320, instead of the box</text>
 <rect x="471.54" y="418.57500000000005" width="304.865" height="140.8" rx="5" fill="#fdf1e6" stroke="#cc5500" stroke-width="2.0"/>
-<text x="623.9725" y="486.975" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#cc5500" text-anchor="middle" font-weight="bold">the cart, 8 rows of 32 px</text>
-<text x="623.9725" y="506.975" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">506 to 762</text>
+<text x="623.9725" y="486.975" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#cc5500" text-anchor="middle" font-weight="bold">the cart, 8 rows of 32 px</text>
+<text x="623.9725" y="506.975" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">506 to 762</text>
 <rect x="471.54" y="559.375" width="304.865" height="59.400000000000006" rx="5" fill="#fdf1e6" stroke="#cc5500" stroke-width="2.0"/>
-<text x="623.9725" y="587.075" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#cc5500" text-anchor="middle" font-weight="bold">total</text>
-<text x="623.9725" y="607.075" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">762 to 870</text>
+<text x="623.9725" y="587.075" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#cc5500" text-anchor="middle" font-weight="bold">total</text>
+<text x="623.9725" y="607.075" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">762 to 870</text>
 <rect x="471.54" y="655.46" width="304.865" height="41.800000000000004" rx="5" fill="#ddefe1" stroke="#2f7d43" stroke-width="2.0"/>
-<text x="623.9725" y="674.36" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#2f7d43" text-anchor="middle" font-weight="bold">three button slots</text>
-<text x="623.9725" y="694.36" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal">937 to 1013</text>
+<text x="623.9725" y="674.36" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#2f7d43" text-anchor="middle" font-weight="bold">three button slots</text>
+<text x="623.9725" y="694.36" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">937 to 1013</text>
 <line x1="471.54" y1="774.0" x2="776.405" y2="774.0" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round"/>
 <line x1="471.54" y1="767.0" x2="471.54" y2="781.0" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round"/>
 <line x1="776.405" y1="767.0" x2="776.405" y2="781.0" stroke="#1a1a1a" stroke-width="1.8" stroke-linecap="round"/>
-<text x="623.9725" y="804.0" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#1a1a1a" text-anchor="middle" font-weight="bold">554 px  =  440 mm</text>
-<text x="96.0" y="124.0" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="start" font-weight="normal">0, 0</text>
-<text x="1152.0" y="124.0" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="end" font-weight="normal">1920</text>
-<text x="1164.0" y="734.0" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#6b6b6b" text-anchor="start" font-weight="normal">1080</text>
-<line x1="60" y1="830" x2="1160" y2="830" stroke="#b8b8b8" stroke-width="1.6" stroke-linecap="round"/>
-<text x="60" y="872" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">The banner and the info box start at the same y and never share a frame. A banner means the table is doing</text>
-<text x="60" y="902" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">something whole-table, which outranks describing whichever bin a hand happens to be over.</text>
-<text x="60" y="932" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal"></text>
-<text x="60" y="962" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">The buttons are 76 px tall and about 155 px wide, which is roughly 123 by 64 mm of plywood, or a credit card.</text>
-<text x="60" y="992" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">They sit centred in the 177 mm margin between the near row and the diner's own edge of the table. A hand is not a</text>
-<text x="60" y="1022" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">mouse: a tracked landmark wanders a few pixels a frame even on a still hand, so a dwell target has to be far</text>
-<text x="60" y="1052" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">larger than a tablet's 44 px rule.</text>
+<text x="623.9725" y="804.0" font-family="Helvetica,Arial,sans-serif" font-size="22.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold">554 px  =  440 mm</text>
+<text x="96.0" y="124.0" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="start" font-weight="normal">0, 0</text>
+<text x="1152.0" y="124.0" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="end" font-weight="normal">1920</text>
+<text x="1164.0" y="734.0" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="start" font-weight="normal">1080</text>
 </svg>
