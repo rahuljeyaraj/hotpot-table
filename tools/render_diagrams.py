@@ -734,17 +734,19 @@ def scalefilter():
 
 # ------------------------------------------------------------------- 9. the FBO
 def fbo():
-    W, H = 1180, 815
-    s = Svg(W, H, "The light pass is drawn last, and that is the whole trick",
-            "Five layers into one framebuffer, then one warp onto the projector.")
+    W, H = 880, 616
+    s = Svg(W, H)
 
     X, CW = 90, 700
+    s.text(X, 56, "Five layers into one framebuffer. Layer 3 is stamped last of all.",
+           18, MUTED)
+
     rows = [
-        (150, "1", "table background", "#E8E6E1, a warm near-white, cleared first", PANEL, INK),
-        (250, "2", "the fluid", "the fire, drawn under MULTIPLY so it DARKENS the table", "#f6e6dd", ACCENT),
-        (350, "4", "the halo", "a golden ring wrapped around each bin", "#fdf6dd", "#a5761b"),
-        (450, "5", "the UI", "plate names, prices, the info box, the cart, the buttons", PANEL, INK),
-        (570, "3", "THE LIGHT PASS", "flat 255,255,255 over every tray cutout, opaque, corners rounded", "#ffffff", COOL),
+        (100, "5", "the UI", "plate names, prices, the info box, the cart, the buttons", PANEL, INK),
+        (200, "4", "the halo", "a golden ring wrapped around each bin", "#fdf6dd", "#a5761b"),
+        (300, "3", "THE LIGHT PASS", "flat 255,255,255 over every tray cutout, opaque, corners rounded", "#ffffff", COOL),
+        (400, "2", "the fluid", "the fire, drawn under MULTIPLY so it DARKENS the table", "#f6e6dd", ACCENT),
+        (500, "1", "table background", "#E8E6E1, a warm near-white, cleared first", PANEL, INK),
     ]
     for y, num, name, note, fill, stroke in rows:
         h = 84
@@ -754,20 +756,6 @@ def fbo():
                weight="bold")
         s.text(X + 90, y + 36, name, 23, stroke, weight="bold")
         s.text(X + 90, y + 64, note, 17, MUTED)
-
-    s.text(X + CW + 30, 194, "numbered bottom to top,", 17, MUTED)
-    s.text(X + CW + 30, 218, "the way the eye reads them", 17, MUTED)
-
-    s.path(f"M {X + CW + 16} 492 C {X + CW + 120} 492, {X + CW + 120} 600, {X + CW + 16} 606",
-           stroke=COOL, sw=2.6, arrow="ac")
-    s.caption(X + CW + 34, 530, [
-        "layer 3 is drawn",
-        "structurally LAST",
-    ], 19, COOL, gap=26)
-
-    s.line(X + CW / 2, 654, X + CW / 2, 700, arrow="a", sw=2.6)
-    s.box(X, 702, CW, 78, ["keystone warp, then the window"],
-          head_size=22, fill=COOL_FILL, stroke=COOL, head_fill=COOL)
 
     s.save("architecture-light-pass.svg")
 
