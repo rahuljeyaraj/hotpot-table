@@ -421,67 +421,52 @@ def ring():
 
 # ---------------------------------------------------------- 4. coordinate spaces
 def spaces():
-    W, H = 1100, 1010
-    s = Svg(W, H, "Four coordinate spaces",
-            "Stage pixels are canonical. Everything on the wire is already in them.")
+    W, H = 1040, 600
+    s = Svg(W, H, "Everything converts to stage pixels",
+            "Two source frames, one canonical. Nothing on the wire is in anything else.")
 
-    X, CW = 90, 920
+    bx, bw = 360, 320
+    cx = bx + bw / 2
 
-    s.box(X, 120, CW, 150,
-          ["1.  the table, in millimetres",
-           "1524.0 wide by 914.4 deep, which is 60 by 36 inches.",
-           "Origin at the far-left corner, +y running toward the diner.",
-           "TableGeometry.h holds the layout and a static_assert per chain."],
-          head_size=24, body_size=18, body_fill=INK)
+    s.box(bx, 108, bw, 88,
+          ["table", "1524 x 914.4 mm"],
+          head_size=25, body_size=19, body_fill=INK)
 
-    s.line(X + CW / 2, 270, X + CW / 2, 336, arrow="a", sw=2.6)
-    s.label_on_line(X + CW / 2, 312, "two scales, one per axis", 17)
+    s.line(cx, 196, cx, 272, arrow="a", sw=2.6)
+    s.text(cx + 24, 226, "one scale per axis", 16, INK, weight="bold")
+    s.text(cx + 24, 250, "table and projector are different shapes", 14, MUTED)
 
-    s.box(X, 338, CW, 172,
-          ["2.  the stage, in pixels",
-           "1920 by 1080.   1.25984 px per mm across,   1.18110 px per mm deep.",
-           "Two scales rather than one, because the table's aspect is 1.667 and",
-           "the projector's is 1.778. A single uniform scale puts the near row",
-           "50 mm out, which on plywood is a visible finger's width."],
-          head_size=24, body_size=18, body_fill=INK, fill=ACCENT_FILL,
+    s.box(bx, 274, bw, 112,
+          ["stage",
+           "1920 x 1080 projector pixels",
+           "the only format on the wire"],
+          head_size=27, body_size=17, body_fill=INK, fill=ACCENT_FILL,
           stroke=ACCENT, head_fill=ACCENT)
 
-    s.line(X + CW / 2, 510, X + CW / 2, 576, arrow="a", sw=2.6)
+    s.line(cx, 474, cx, 388, arrow="a", sw=2.6)
+    s.text(cx + 24, 424, "homography H", 16, INK, weight="bold")
+    s.text(cx + 24, 448, "set by dragging four corners onto the feed", 14, MUTED)
 
-    s.box(X, 578, CW, 178,
-          ["3.  the camera, in pixels",
-           "1920 by 1080, mounted upside down. A 3 x 3 homography H maps it onto",
-           "the stage, solved from four corners a human drags onto the live feed.",
-           "The corner roles are pinned to the drag order, never inferred from where",
-           "a handle lands: on a camera at 180 degrees, inferring pairs every corner",
-           "with its opposite, and four points always fit exactly, so the wrong",
-           "answer comes back with zero error and no warning."],
-          head_size=24, body_size=18, body_fill=INK)
-
-    s.line(X + CW / 2, 756, X + CW / 2, 822, arrow="a", sw=2.6)
-
-    s.box(X, 824, CW, 150,
-          ["4.  the fluid, in two more",
-           "The fire's density field is 1280 by 720 and its simulation grid is 640 by 360.",
-           "Half scale, and this is the resolution pair the whole last section is about:",
-           "two shaders read across it without saying so."],
-          head_size=24, body_size=18, body_fill=INK)
+    s.box(bx, 476, bw, 88,
+          ["camera", "1920 x 1080 px, mounted inverted"],
+          head_size=25, body_size=17, body_fill=INK)
 
     s.save("architecture-coordinate-spaces.svg")
 
 
 # ------------------------------------------------------------------ 5. two grids
 def grids():
-    W, H = 1160, 995
-    s = Svg(W, H, "Two bin grids, never derived from each other",
-            "Four horizontal lines and eight vertical ones. A line belongs to a whole row or a whole column.")
+    W, H = 1160, 860
+    s = Svg(W, H, "Two bin grids, neither computed from the other",
+            "Four lines across, eight down. Move one line and a whole row or column moves with it.")
 
-    # the grid mechanic, drawn once at the top
+    # the line mechanic, drawn once at the top. Bins are drawn taller than
+    # wide, the way the real ones are: 200 mm across, 255 mm deep.
     gx, gy, gw, gh = 120, 130, 920, 300
     s.rect(gx, gy, gw, gh, fill=PANEL, stroke=RULE, sw=1.8, rx=4)
-    hs = [gy + 40, gy + 130, gy + 170, gy + 260]
-    vs = [gx + 60, gx + 220, gx + 250, gx + 410,
-          gx + 510, gx + 670, gx + 700, gx + 860]
+    hs = [gy + 15, gy + 135, gy + 165, gy + 285]
+    vs = [gx + 40, gx + 135, gx + 160, gx + 255,
+          gx + 665, gx + 760, gx + 785, gx + 880]
     for i in range(8):
         col, row = i % 4, i // 4
         x0, x1 = vs[2 * col], vs[2 * col + 1]
@@ -496,51 +481,38 @@ def grids():
         s.line(x, gy - 26, x, gy + gh + 26, stroke=INK, sw=2.0, dash="8 5")
     s.text(gx - 56, hs[0] + 6, "4 lines", 17, INK, anchor="end", weight="bold")
     s.text(gx - 56, hs[0] + 28, "across", 17, INK, anchor="end")
-    s.text(gx + gw / 2, gy + gh + 66, "8 lines down", 17, INK, anchor="middle",
+    s.text(gx + gw / 2, gy + gh + 56, "8 lines down", 17, INK, anchor="middle",
            weight="bold")
-    s.text(gx + gw / 2, gy + gh + 86,
-           "Drag one line and the whole row or column it belongs to moves with it, "
-           "so two bins in a row always share an edge.",
-           17, MUTED, anchor="middle")
 
     # two stores
     top = 600
-    s.box(80, top, 480, 340,
-          ["state/bin_grid_camera.json", "", "", "", "", "", "", ""],
+    s.box(80, top, 480, 236,
+          ["state/bin_grid_camera.json", "", "", "", ""],
           fill=COOL_FILL, stroke=COOL, head_fill=COOL, head_size=21,
           head_font=MONO, top=top + 42)
-    s.caption(110, top + 92, [
-        "Dragged onto the rectified preview:",
-        "the camera frame warped through H,",
-        "which is the same picture the",
-        "classifier crops from.",
+    s.caption(112, top + 88, [
+        "Dragged onto the camera's own video.",
         "",
-        "Read by the classifier's crops and by",
-        "core's hand-inside-a-bin hit test.",
-        "",
-        "Needs the camera and the four corners.",
-    ], 18, INK, gap=25)
+        "Read by the classifier and by",
+        "core's hand-inside-a-bin test.",
+    ], 18, INK, gap=27)
 
-    s.box(600, top, 480, 340,
-          ["state/bin_grid_projector.json", "", "", "", "", "", "", ""],
+    s.box(600, top, 480, 236,
+          ["state/bin_grid_projector.json", "", "", "", ""],
           fill=ACCENT_FILL, stroke=ACCENT, head_fill=ACCENT, head_size=21,
           head_font=MONO, top=top + 42)
-    s.caption(630, top + 92, [
+    s.caption(632, top + 88, [
         "Nudged with the arrow keys while",
-        "watching the actual light land on the",
-        "actual trays. One pixel a press, ten",
-        "with Shift, and every press ships.",
+        "watching the light on the trays.",
         "",
-        "Read by openFrameworks for the halo,",
-        "the white cutout and the fire ring.",
-        "",
-        "Needs no camera at all.",
-    ], 18, INK, gap=25)
+        "Read by openFrameworks for the",
+        "halo, the cutout and the fire ring.",
+    ], 18, INK, gap=27)
 
-    s.line(320, 552, 320, top - 4, stroke=COOL, sw=2.4, arrow="ac")
-    s.line(840, 552, 840, top - 4, stroke=ACCENT, sw=2.4, arrow="ao")
-    s.text(580, 562, "same shape,", 18, MUTED, anchor="middle", weight="bold")
-    s.text(580, 586, "two files", 18, MUTED, anchor="middle", weight="bold")
+    s.line(320, top - 56, 320, top - 4, stroke=COOL, sw=2.4, arrow="ac")
+    s.line(840, top - 56, 840, top - 4, stroke=ACCENT, sw=2.4, arrow="ao")
+    s.text(580, top - 34, "same numbers, two files", 16, MUTED,
+           anchor="middle", weight="bold")
 
     s.save("architecture-two-grids.svg")
 
