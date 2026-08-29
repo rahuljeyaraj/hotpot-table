@@ -180,10 +180,11 @@ Everything past this point is the engineering. If you want to build one, the nex
 - 1 x [Seeed Studio XIAO ESP32S3](https://robu.in/product/seeed-studio-xiao-esp32s3-2-4ghz-wifi-ble-5-0/)
 - 8 x [Phaeton CZL-611N 1 kg screw-fastened load cell](https://robu.in/product/phaeton-load-cell-sensor-czl-611n-1kg-screw-fastened/), one per bin
 - 8 x [SmartElex HX711 load cell amplifier](https://robu.in/product/smartelex-load-cell-amplifier-hx711/), one per cell
+- 16 x M4 bolts, 15 mm, and 16 x M5 bolts, 15 mm. Two of each per load cell
 - 1 x [5 x 7 cm universal prototype board, 2.54 mm pitch](https://robu.in/product/5-x-7-cm-universal-pcb-prototype-board-single-sided-2-54mm-hole-pitch/), the carrier the XIAO sits on
-- 1 x [2.54 mm 1x40 female single row header strip](https://robu.in/product/2-54mm-1x40-pin-female-single-row-header-strip-pack-of-10/), so the XIAO plugs in and pulls out
-- [4-pin 2.54 mm pluggable screw terminal blocks](https://robu.in/product/4-pin-2-54mm-pitch-pluggable-screw-terminal-block-pack-of-3/), every board-to-board connection lands on one of these
-- [PCT-215 5-pole lever connectors](https://robu.in/product/pct-215-0-08-2-5mm-5-pole-wire-connector-terminal-block-with-spring-lock-lever-for-cable-connection/), to split 3V3, ground and the clock four ways
+- 1 x [2.54 mm 1x40 female single row header strip](https://robu.in/product/2-54mm-1x40-pin-female-single-row-header-strip-pack-of-10/)
+- 12 x [4-pin 2.54 mm pluggable screw terminal blocks](https://robu.in/product/4-pin-2-54mm-pitch-pluggable-screw-terminal-block-pack-of-3/): one per HX711, and four on the XIAO board
+- 6 x [PCT-215 5-pole lever connectors](https://robu.in/product/pct-215-0-08-2-5mm-5-pole-wire-connector-terminal-block-with-spring-lock-lever-for-cable-connection/), to split 3V3, ground and the clock four ways
 - 26 AWG ultra flexible silicone wire in [red](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-red/), [black](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-black/), [blue](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-blue/), [yellow](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-yellow/), [green](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-green/) and [white](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-white/)
 
 **Light, camera and computer.**
@@ -196,61 +197,50 @@ Everything past this point is the engineering. If you want to build one, the nex
 
 **The table.**
 
-- 6 mm plywood, cut to 1524 x 914.4 mm
-- [Projector screen fabric](https://www.amazon.in/dp/B0C9ZQYXRP) to cover it
+- A table with a top of roughly 1524 x 914.4 mm, which carries the bins and everything under them
+- 6 mm plywood, cut to 1524 x 914.4 mm, which becomes the projection surface above it
+- [Projector screen fabric](https://www.amazon.in/dp/B0C9ZQYXRP) to cover the plywood
 - 8 x [bins](https://www.amazon.in/dp/B0FNRT5DJY)
-- 1 kg of [eSUN PLA, 1.75 mm, gold](https://robu.in/product/esun-pla-1-75mm-3d-printing-filament-1kg-gold/) for the printed parts
-- A table to stand it all on
+- 1 kg of [eSUN PLA, 1.75 mm, gold](https://robu.in/product/esun-pla-1-75mm-3d-printing-filament-1kg-gold/) for the mounts and the pillars
+- A little [eSUN PLA, 1.75 mm, white](https://robu.in/product/esun-pla-1-75mm-3d-printing-filament-1kg-white/) for the corner plugs
 
-# Print the mounts first
+# Print the parts
 
-Every printed part is in `hardware/3d-printed/` in the repo, as `.3mf` plates ready to slice. All of them are PLA.
+Every printed part is in `hardware/3d-printed/` in the repo, as `.3mf` plates ready to slice. All PLA.
 
-- `load_base.3mf`, 145 x 160 x 10 mm. A cross-shaped base that sits on the table and carries the load cell. **Print 8**, one per bin.
+In gold:
+
+- `load_base.3mf`, 145 x 160 x 10 mm, a cross that sits on the table. **Print 8**, one per bin.
 - `load_plate_short.3mf`, 200 x 25 x 35 mm. **Print 16**, two per bin.
 - `load_plate_long.3mf`, 25 x 254 x 35 mm. **Print 16**, two per bin.
-- `corner_plug.3mf`, 25 x 25 x 7 mm. **Print 32**, four per bin.
 - `pillar.3mf`, a 40 x 40 x 70 mm tapered leg. **Print 12.** These hold the plywood up.
-- `lotus_root.3mf`, a 100 mm slice, 10 mm thick.
 
-Two short rails, two long rails and four corner plugs make up one bin's platform, and the finished frame is 200 x 255 mm, which is the bin footprint the whole system is built around. Each frame sits on its own load cell, and each load cell sits on a base on the table.
+In white:
 
-# Cut the plywood
+- `corner_plug.3mf`, 25 x 25 x 7 mm. **Print 32**, four per bin opening. These round off the corners of the openings once the plywood is covered.
 
-The plywood is the projection surface. It is 6 mm thick and it does not carry any weight: it stands on the twelve printed pillars, at the height of the bin tops, and each bin comes up through its own opening.
+Two short rails and two long rails make one bin's platform, 200 x 255 mm, which is the footprint the whole system is built around. The load cell bolts between that platform and the cross base with two M4 and two M5 bolts.
 
-[IMAGE: docs/img/table-cutting-plan.svg]
-*Two rows of four, symmetric about the centre, with a wide column up the middle.*
-
-Cut the sheet to 1524 x 914.4 mm, which is 60 x 36 inches, then cut the eight openings at the positions in the plan. Both chains have to add up:
-
-```
-across:  92 + 200 + 50 + 200 + 440 + 200 + 50 + 200 + 92 = 1524 mm
-front to back:      177 + 255 + 50 + 255 + 177.4         = 914.4 mm
-```
-
-The 440 mm column up the middle stays solid. That is where the table projects the ingredient details, the cart and the checkout buttons.
-
-- Cut every opening at 200 x 255 mm
-- Round each corner to a 20 mm radius
-- Number the bins on the underside before you go any further: 0 to 3 are the far row, left to right as the diner sees it, and 4 to 7 are the near row in the same direction. Bin N and bin N+4 share a column.
-
-Cover the top with projector screen fabric and cut the openings through it.
+[IMAGE: the load cell close-up, bolted between the frame above and the cross base below, HX711 alongside]
+*One channel: a 1 kg cell bolted under the platform, its HX711 on the base beside it, and a screw terminal taking the four wires away.*
 
 # Wire the load cells
 
 [IMAGE: docs/img/firepot-loadcells.png]
 *Eight identical channels. One shared clock, eight separate data lines, one USB cable out. The KiCad source is in the Schematics section below, and at `hardware/firepot-loadcells/` in the repo.*
 
-Every connection in this build is a screw terminal or a lever connector, so the whole harness comes apart again.
+Every connection is a screw terminal or a lever connector, so the whole harness comes apart again.
 
 - Solder the female header strip to the 5 x 7 cm prototype board and plug the XIAO into it
-- Land every board-to-board run on a 4-pin pluggable screw terminal block
-- Split 3V3, ground and the clock with PCT-215 lever connectors: one feed in, four out, which is one island of four HX711s per connector
+- Put four screw terminal blocks around the XIAO: one power and clock block and one data block per island
+- Give every HX711 its own screw terminal block for the run back to the XIAO
+- Split 3V3, ground and the clock with the PCT-215 lever connectors, one feed in and four out, three per island
 
-Each load cell has four wires going to its own HX711: red to `E+`, black to `E-`, green to `A+`, white to `A-`. Check the colours against your own cell.
+**Short VCC and VDD together on each HX711.** Both go to 3V3.
 
-Each HX711 then takes 3V3 and ground from the rails, shares the clock on `D0` with all seven others, and returns its own data line to the XIAO:
+Each load cell has four wires into its own HX711: red to `E+`, black to `E-`, green to `A+`, white to `A-`. Check the colours against your own cell.
+
+Each HX711 then takes 3V3 and ground from the rails, shares the clock on `D0` with all seven others, and sends its own data line back:
 
 ```
 D3  / GPIO4     bin 0    far left
@@ -268,6 +258,38 @@ The eight bins sit as two islands of four, each island holding one pair from eac
 Leave `D1` and `D2` unused. `D2` is `GPIO3`, a strapping pin sampled at reset.
 
 Mount each cell whichever way round suits the frame. Calibration works out the sign per bin.
+
+[IMAGE: the whole table from above, eight gold crosses wired up, XIAO in the centre]
+*Both islands wired, three lever connectors each, and one USB cable leaving from the middle.*
+
+[IMAGE: the XIAO on its prototype board, four screw terminal blocks around it]
+*The centre of the harness. Red 3V3, black ground and yellow clock on one side, the four data lines on the other.*
+
+# Cut the plywood
+
+The plywood is the projection surface. It is 6 mm thick and carries no weight: it stands on the twelve printed pillars at the height of the bin tops, and each bin comes up through its own opening.
+
+[IMAGE: docs/img/table-cutting-plan.svg]
+*Two rows of four, symmetric about the centre, with a wide column up the middle.*
+
+Cut the sheet to 1524 x 914.4 mm, which is 60 x 36 inches, then cut the eight openings at the positions in the plan. Both chains have to add up:
+
+```
+across:  92 + 200 + 50 + 200 + 440 + 200 + 50 + 200 + 92 = 1524 mm
+front to back:      177 + 255 + 50 + 255 + 177.4         = 914.4 mm
+```
+
+The 440 mm column up the middle stays solid. That is where the table projects the ingredient details, the cart and the checkout buttons.
+
+- Cut every opening at 200 x 255 mm, taking the four corners off at an angle
+- Lay the screen fabric over the plywood and cut the openings through it
+- Glue the fabric down
+- Glue a white corner plug into each corner of each opening, which is what makes the corners round
+
+[IMAGE: the plywood face up with the eight openings cut and the twelve pillars standing on it]
+*Eight openings, twelve pillars, and the screen fabric waiting underneath.*
+
+Stand the plywood on the pillars over the table, with each bin coming up through its opening.
 
 # Flash the XIAO
 
@@ -301,19 +323,19 @@ If a cell is missing, the probe names the pin and says which of two faults it is
 - `floating`: an open data wire, or an HX711 with no power. Check that terminal block.
 - `driven-high`: the board has power and is holding the line up. Check the clock reaching it, and the board itself.
 
-Once the lid is on, read the XIAO's LED instead:
-
-- Solid on: still starting up
-- Slow blink, about once a second: cells read, data going out
-- Triple flash, repeating: alive, with a cell that has stopped reporting
-
 # Hang the projector and the camera
 
-Mount the projector as close to the ceiling as the bracket allows, aimed straight down, far enough back that its image covers the full 1524 mm width. Square the image on the table with the projector's own 4D keystone. The app draws to a 1920 x 1080 rectangle and puts nothing between that and the lens.
+A wooden batten fixed to the wall carries both. The projector goes at the top of it, hard against the ceiling and aimed down at the table, far enough back that its image covers the full 1524 mm width. The camera goes on the same batten below the projector, looking at the same table. On this build it hangs at 180 degrees.
 
-Mount the camera next to the projector, looking at the same table. On this build the camera hangs at 180 degrees.
+Square the image on the table with the projector's own 4D keystone. The app draws to a 1920 x 1080 rectangle and puts nothing between that and the lens.
 
-Run the HDMI cable to the projector, and the two USB extensions down to the camera and the XIAO. Give the camera a USB 3 port on the host.
+Run the HDMI cable to the projector, and the two USB extensions to the camera and the XIAO. Give the camera a USB 3 port on the host.
+
+[IMAGE: the projector and camera on the wooden batten, seen from below]
+*Projector at the ceiling, camera further down the same batten.*
+
+[IMAGE: the finished table from the diner's side, lit, with the eight openings showing the gold mounts]
+*The whole rig: table, plywood on pillars, screen fabric, and one projector doing all the work.*
 
 # Install the software
 
@@ -324,14 +346,9 @@ cd openFrameworks/apps/myApps
 git clone https://github.com/rahuljeyaraj/hotpot-table
 ```
 
-The fluid solver behind the fire is an addon that comes separately. Clone it into `openFrameworks/addons/`:
+Four addons are needed. `ofxGui`, `ofxOsc` and `ofxNetwork` come with openFrameworks. [ofxFlowTools](https://github.com/moostrik/ofxFlowTools), the fluid solver behind the fire, is a separate download that goes in `openFrameworks/addons/`.
 
-```
-cd openFrameworks/addons
-git clone https://github.com/moostrik/ofxFlowTools
-```
-
-`ofxGui`, `ofxOsc` and `ofxNetwork` are already in that folder. Open `hotpot-table/of/hotpot-table/hotpot-table.sln` in Visual Studio and build the **Debug** configuration, which is the binary the launcher starts. Set `HOTPOT_OF_BIN` if you would rather it ran something else.
+Open `hotpot-table/of/hotpot-table/hotpot-table.sln` in Visual Studio and build the **Debug** configuration, which is the binary the launcher starts. Set `HOTPOT_OF_BIN` if you would rather it ran something else.
 
 **Python.** One interpreter for the whole tree:
 
@@ -359,21 +376,15 @@ That starts and supervises everything, waits for each process to report ready be
 - `python run.py --only core,of` starts the table alone, with the camera unplugged
 - `python run.py --no-restart` leaves a crashed process dead so you can read its traceback
 
-Open the dashboard at `http://<the-host>:8090` from any device on the same network. Use a phone or a tablet, because the rest of the setup happens standing at the table.
+The dashboard is at `http://<the-host>:8090` from any device on the same network, a phone included.
 
 # Calibrate the geometry
 
 Three steps in the dashboard's **Setup** tab, in the order the cards appear. Turn the **Serving** switch off first: every one of them is refused while it is on.
 
-**One: mark the four corners.** Tap `Set table corners`. A quad appears on the live camera feed with a handle at each corner. Drag each handle onto the matching real corner of the table. The handles have fixed roles, near-left, near-right, far-right, far-left, so read the real table rather than the screen. Holding a handle brings up a 4x magnifier. Tap `Confirm`.
-
-The Setup and Live tabs now show a flattened, top-down view of the table. The next step needs it.
-
-**Two: lay the bin grid on it.** Tap `Load measured layout` to put the grid up, then drag its lines onto the trays. It is four horizontal lines and eight vertical ones: a horizontal line sets a whole row's edge, a vertical line sets a whole column's edge. `Undo` steps back. Tap `Save` when it sits right.
-
-**Three: nudge the projector grid.** This step is done standing at the table watching the light, not watching the screen.
-
-Tap `Load measured layout` on the projector grid card first, or there will be nothing to nudge. Then click one of the twelve lines in the list, or Tab to it, and press the arrow keys. Up and down move the horizontal line you selected, left and right move a vertical one, one pixel per press and ten with Shift held. Each press reaches the projector immediately and there is nothing to save. Work through the lines until the projected rings sit on the real bins.
+- **Mark the four corners.** Tap `Set table corners`. A quad appears on the live camera feed with a handle at each corner. Drag each handle onto the matching real corner of the table. The handles have fixed roles, near-left, near-right, far-right, far-left, so read the real table rather than the screen. Holding a handle brings up a 4x magnifier. Tap `Confirm`, and both the Setup and Live tabs switch to a flattened, top-down view of the table.
+- **Lay the bin grid on it.** Four horizontal lines and eight vertical ones, dragged onto the flattened view: a horizontal line sets a whole row's edge, a vertical line sets a whole column's edge. `Load measured layout` starts you from the CAD positions, `Undo` steps back, and `Save` commits it.
+- **Nudge the projector grid.** Click one of the twelve lines in the list, or Tab to it, and press the arrow keys. Up and down move a horizontal line, left and right move a vertical one, one pixel per press and ten with Shift held. Each press reaches the projector immediately and there is nothing to save. Work through the lines until each projected golden halo sits on its real bin, watching the table rather than the screen.
 
 # Calibrate the scales
 
@@ -381,7 +392,7 @@ Tap `Load measured layout` on the projector grid card first, or there will be no
 
 Go to the **Bins** tab, empty all eight bins, and tap `Tare all 8 bins`. It zeroes every bin from one 2-second reading.
 
-Then, per bin, tap `Calibrate`, put a known weight in that bin, and confirm. The field is prefilled with 500 g, so a 500 g kitchen weight is the quickest thing to reach for. A result under ten counts per gram is refused, which means the cell has come loose or the weight was too light.
+Then, per bin, tap `Calibrate`, put a known weight in that bin, type its mass and confirm. A result under ten counts per gram is refused, which means the cell has come loose or the weight was too light.
 
 Finally, set what each bin holds from the dropdown on its card.
 
@@ -389,19 +400,10 @@ Finally, set what each bin holds from the dropdown on its card.
 
 Turn **Serving** on and stand at the table.
 
-- Eight rings breathing gold, and a flame wandering from bin to bin
+- Eight golden halos, breathing, and with nobody at the table a flame wandering from bin to bin
 - A hand over the table brings up all eight names and prices
 - A hand over one bin moves the flame onto it and fills the middle column with that ingredient's details
 - Something taken from a bin appears in the cart with a weight that matches your kitchen scales
 - Putting it back takes it off again
 
 To check the table before the load cells are wired, start `python run.py --only core,of` and open the **Developer** tab. It has a `Pick` and a `Put back` button per bin, and they drive the whole flow through to the token number.
-
-[IMAGE: the printed frame, base and load cell assembled under one bin]
-*One bin's worth: a cross base on the table, the cell, and a 200 x 255 frame on top of it.*
-
-[IMAGE: the dashboard Setup tab mid-calibration, corner quad on the live feed]
-*Step one. Four handles, four fixed roles, and a magnifier for the corner you are holding.*
-
-[IMAGE: the projected grid slightly off the bins, arrow keys mid-nudge]
-*Step three, and the only one done standing at the table.*
