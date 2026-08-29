@@ -484,11 +484,6 @@ The cart stores what each bin weighed when you walked up, and what it weighs now
 
 That one choice is why tipping food back works, and it needed no code: it is the same subtraction with a smaller answer.
 
-[IMAGE: docs/img/architecture-scale-filter.svg]
-*From the serial line to the cart, and every timing that follows from the real sample rate.*
-
-The design document said the load cells would arrive at 78 Hz. Measured on the rig, they arrive at 10.7. Once that was actually checked, every timing downstream of it changed, and a bin that cannot be weighed learned to say so instead of saying zero grams. A frozen zero reads exactly like a bin somebody just emptied into their bowl, and it bills like one too.
-
 # The light is the interface
 
 [IMAGE: docs/img/architecture-light-pass.svg]
