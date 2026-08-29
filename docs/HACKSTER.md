@@ -533,3 +533,13 @@ Which is fine. The load cells were always the part that had to be right.
 - Every colour is unverified against the projector until someone looks. This rig has already turned an authored amber into red and a gold into muddy brown.
 
 The table works. That list is the difference between working and being left running unattended in a restaurant.
+
+# The bowl I would order now
+
+Eight bins, one projector, one webcam, a kilogram of gold filament, and a sheet of plywood standing on twelve printed pillars.
+
+The projector is doing two jobs at once, and that is the whole idea. It is the light over the food and it is the label on the food, so the answer sits on the ingredient itself rather than on a sign somewhere behind the counter. Everything else in this build exists to keep that one surface honest sixty times a second.
+
+The part that took longest was never the fire, or the hand tracking. It was the arithmetic that has to hold up while somebody is paying: two weights, one subtraction, and eight load cells that say nothing at all rather than say zero.
+
+I picked by shape at that stand for a whole master's degree. I would order the same bowl today, and this time I would know what was in it, what it cost and how it would taste before I picked up a single piece. So would the person behind me in the queue, in whichever of the two languages they read.
