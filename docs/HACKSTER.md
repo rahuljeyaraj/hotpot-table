@@ -353,6 +353,15 @@ Run the HDMI cable to the projector, and the two USB extensions to the camera an
 
 **The table.** Four addons are needed. `ofxGui`, `ofxOsc` and `ofxNetwork` come with openFrameworks. [ofxFlowTools](https://github.com/moostrik/ofxFlowTools), the fluid solver behind the fire, is a separate download that goes in `openFrameworks/addons/`.
 
+It needs a patch before it will build, kept in the repo at `of/patches/ofxFlowTools.patch`:
+
+```
+cd openFrameworks/addons/ofxFlowTools
+git apply ../../apps/myApps/hotpot-table/of/patches/ofxFlowTools.patch
+```
+
+That does two things. It replaces two constructs the current compiler rejects, `std::bind2nd` and an unqualified `min`. And it fixes the density lookup in the buoyancy and diffusion shaders, which sample a texture that is at a different resolution from the one they render at, so the fire is pulled around by density that sits at double the coordinates of the real thing. There is more on that one in the next section.
+
 Open `of/hotpot-table/hotpot-table.sln` in Visual Studio and build the **Debug** configuration, which is the binary the launcher starts. Set `HOTPOT_OF_BIN` if you would rather it ran something else.
 
 **Python.** One interpreter for the whole tree, installed from the repository root:

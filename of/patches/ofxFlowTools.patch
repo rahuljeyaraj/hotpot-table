@@ -1,0 +1,186 @@
+diff --git a/src/core/fluid/shaders/ftBuoyancyShader.h b/src/core/fluid/shaders/ftBuoyancyShader.h
+index 038394f..013b47d 100644
+--- a/src/core/fluid/shaders/ftBuoyancyShader.h
++++ b/src/core/fluid/shaders/ftBuoyancyShader.h
+@@ -28,17 +28,18 @@ namespace flowTools {
+ 									 uniform float timestep;
+ 									 uniform float fluid_buoyancy;
+ 									 uniform float fluid_weight;
+-									 
++									 uniform vec2  densityScale;
++
+ 									 void main(){
+ 										 vec2 st = gl_TexCoord[0].st;
+-										 
++
+ 										 vec2  velocity    = texture2DRect(tex_velocity   , st).xy;
+ 										 float temperature = texture2DRect(tex_temperature, st).x;
+-										 
++
+ 										 float dtemp = temperature - temperature_ambient;
+ 										 vec2 buoyancy = vec2(0.0);
+ 										 if (dtemp != 0.0) {
+-											 float density = texture2DRect(tex_density, st).a;
++											 float density = texture2DRect(tex_density, st * densityScale).a;
+ 											 float buoyancy_force = timestep * dtemp * fluid_buoyancy - density * fluid_weight;
+ 											 buoyancy = vec2(0, -1) * buoyancy_force;
+ 										 }
+@@ -67,17 +68,18 @@ namespace flowTools {
+ 									 uniform float timestep;
+ 									 uniform float fluid_buoyancy;
+ 									 uniform float fluid_weight;
+-									 
++									 uniform vec2  densityScale;
++
+ 									 void main(){
+ 										 vec2 st = texCoordVarying;
+-										 
++
+ 										 vec2  velocity    = texture(tex_velocity   , st).xy;
+ 										 float temperature = texture(tex_temperature, st).x;
+-										 
++
+ 										 float dtemp = temperature - temperature_ambient;
+ 										 vec2 buoyancy = vec2(0.0);
+ 										 if (dtemp != 0.0) {
+-											 float density = texture(tex_density, st).a;
++											 float density = texture(tex_density, st * densityScale).a;
+ 											 float buoyancy_force = timestep * dtemp * fluid_buoyancy - density * fluid_weight;
+ 											 buoyancy = vec2(0, -1) * buoyancy_force;
+ 										 }
+@@ -100,6 +102,16 @@ namespace flowTools {
+ 			setUniform1f		("timestep",			_timeStep);
+ 			setUniform1f		("fluid_buoyancy",		_buoyancy);
+ 			setUniform1f		("fluid_weight",		_weight);
++			// tex_density is DENSITY resolution while this shader renders at SIM
++			// resolution, so its lookup needs the same scale ftAdvectShader
++			// already applies to its own cross-resolution reads. Without it the
++			// weight term at a given pixel is taken from HALF that pixel's
++			// coordinates, which puts a phantom downward force at double the
++			// coordinates of wherever density actually is — and makes it
++			// unreachable for anything past the density buffer's own half mark.
++			// tex_velocity/tex_temperature are both sim resolution: unscaled is
++			// correct for those two, and scaling them would break them.
++			setUniform2f		("densityScale",		_denTex.getWidth() / _fbo.getWidth(), _denTex.getHeight() / _fbo.getHeight());
+ 			setUniformTexture	("tex_velocity",		_velTex,	0);
+ 			setUniformTexture	("tex_temperature",		_temTex,	1);
+ 			setUniformTexture	("tex_density",			_denTex,	2);
+diff --git a/src/core/fluid/shaders/ftJacobiDiffusionShader.h b/src/core/fluid/shaders/ftJacobiDiffusionShader.h
+index d9d52df..7bfc52b 100644
+--- a/src/core/fluid/shaders/ftJacobiDiffusionShader.h
++++ b/src/core/fluid/shaders/ftJacobiDiffusionShader.h
+@@ -29,22 +29,30 @@ namespace flowTools {
+ 									 uniform vec2  scale;
+ 									 
+ 									 void main(){
+-										 
++
+ 										 vec2 st = gl_TexCoord[0].st;
+-										 
+-										 float oC = texture2DRect(tex_obstacle, st).x;
++										 // The obstacle textures live at SIMULATION resolution while
++										 // tex_source/the destination fbo may be at the larger DENSITY
++										 // resolution, so obstacle lookups go through `scale` — exactly
++										 // as glFour() and ftAdvectShader's own glTwo() already do.
++										 // Sampling them at raw `st` clamps every fragment past the
++										 // simulation width/height onto initObstacle()'s 1px border
++										 // (which is 1.0), zeroing the whole rest of the canvas.
++										 vec2 st2 = st * scale;
++
++										 float oC = texture2DRect(tex_obstacle, st2).x;
+ 										 if (oC == 1.0) {
+ 											 gl_FragColor = vec4(0.0);
+ 											 return;
+ 										 }
+-										 
++
+ 										 vec4 xT = texture2DRect(tex_source, st + ivec2(0,1));
+ 										 vec4 xB = texture2DRect(tex_source, st - ivec2(0,1));
+ 										 vec4 xR = texture2DRect(tex_source, st + ivec2(1,0));
+ 										 vec4 xL = texture2DRect(tex_source, st - ivec2(1,0));
+ 										 vec4 xC = texture2DRect(tex_source, st);
+-										 
+-										 vec4 oN = texture2DRect(tex_obstacleOffset, st);
++
++										 vec4 oN = texture2DRect(tex_obstacleOffset, st2);
+ 										 xT = mix(xT, xC, oN.x);
+ 										 xB = mix(xB, xC, oN.y);
+ 										 xR = mix(xR, xC, oN.z);
+@@ -77,25 +85,25 @@ namespace flowTools {
+ 									 void main(){
+ 										 vec2 st = texCoordVarying;
+ 										 vec2 st2 = st * scale;
+-										 
++
+ 										 float oC = texture(tex_obstacle, st2).x;
+ 										 if (oC == 1.0) {
+ 											 glFragColor = vec4(0.0);
+ 											 return;
+ 										 }
+-										 
++
+ 										 vec4 xT = textureOffset(tex_source, st, + ivec2(0,1));
+ 										 vec4 xB = textureOffset(tex_source, st, - ivec2(0,1));
+ 										 vec4 xR = textureOffset(tex_source, st, + ivec2(1,0));
+ 										 vec4 xL = textureOffset(tex_source, st, - ivec2(1,0));
+ 										 vec4 xC = texture      (tex_source, st);
+-										 
++
+ 										 vec4 oN = texture(tex_obstacleOffset, st2);
+ 										 xT = mix(xT, xC, oN.x);
+ 										 xB = mix(xB, xC, oN.y);
+ 										 xR = mix(xR, xC, oN.z);
+ 										 xL = mix(xL, xC, oN.w);
+-										 
++
+ 										 glFragColor = (xL + xR + xB + xT + alpha * xC) * beta;
+ 									 }
+ 									 );
+@@ -110,7 +118,7 @@ namespace flowTools {
+ 		void update(ofFbo& _fbo, ofTexture& _backTex, ofTexture& _obsCTex, ofTexture& _obsNTex, float _timeStep, float _gridScale){
+ 			float alpha = (_gridScale * _gridScale) / (_timeStep);
+ 			float beta = 1.0f / (4.0f + alpha);
+-			
++
+ 			_fbo.begin();
+ 			begin();
+ 			setUniform1f		("alpha",			alpha);
+diff --git a/src/extensions/average/ftAverageFlow.cpp b/src/extensions/average/ftAverageFlow.cpp
+index a8d66ca..d52d93e 100644
+--- a/src/extensions/average/ftAverageFlow.cpp
++++ b/src/extensions/average/ftAverageFlow.cpp
+@@ -183,7 +183,7 @@ namespace flowTools {
+ 	void ftAverageFlow::getMeanStDev(vector<float> &_v, float &_mean, float &_stDev) {
+ 		float mean = accumulate(_v.begin(), _v.end(), 0.0) / (float)_v.size();
+ 		std::vector<float> diff(_v.size());
+-		std::transform(_v.begin(), _v.end(), diff.begin(), std::bind2nd(std::minus<float>(), mean));
++		std::transform(_v.begin(), _v.end(), diff.begin(), [mean](float x) { return x - mean; });
+ 		float sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
+ 		float stDev = std::sqrt(sq_sum / _v.size());
+ 		
+@@ -218,8 +218,8 @@ namespace flowTools {
+ 		float y = ofClamp(_rect.y, 0, 1);
+ 		float maxW = 1.0 - x;
+ 		float maxH = 1.0 - y;
+-		float w = min(_rect.width, maxW);
+-		float h = min(_rect.height, maxH);
++		float w = std::min(_rect.width, maxW);
++		float h = std::min(_rect.height, maxH);
+ 		
+ 		roi = ofRectangle(x, y, w, h);
+ 		
+diff --git a/src/extensions/average/ftPixelFlow.h b/src/extensions/average/ftPixelFlow.h
+index fd01270..7784375 100644
+--- a/src/extensions/average/ftPixelFlow.h
++++ b/src/extensions/average/ftPixelFlow.h
+@@ -47,8 +47,8 @@ namespace flowTools {
+ 			float y = ofClamp(_rect.y, 0, 1);
+ 			float maxW = 1.0 - x;
+ 			float maxH = 1.0 - y;
+-			float w = min(_rect.width, maxW);
+-			float h = min(_rect.height, maxH);
++			float w = std::min(_rect.width, maxW);
++			float h = std::min(_rect.height, maxH);
+ 			
+ 			roi = ofRectangle(x, y, w, h);
+ 			

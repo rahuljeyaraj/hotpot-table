@@ -39,12 +39,16 @@ This list is the developer's, not exhaustive. Read the code and find the
 rest.
 
 WHERE THE SHADER BUG LIVES
-Outside this repo, in the openFrameworks tree, as UNCOMMITTED local
-edits to the addon:
+The addon lives outside this repo, in the openFrameworks tree, but the
+change itself is saved here:
 
-    C:\openframeworks\addons\ofxFlowTools
-    git diff src/core/fluid/shaders/ftBuoyancyShader.h
-    git diff src/core/fluid/shaders/ftJacobiDiffusionShader.h
+    of/patches/ofxFlowTools.patch     the diff
+    of/patches/README.md              what each hunk does and why
+
+The working copy it came from is at C:\openframeworks\addons\ofxFlowTools,
+where the same edits sit uncommitted against upstream 17cabe2. Tier 2
+already tells the reader to apply the patch; Tier 3 is where the story
+of the bug goes.
 
 `src/core/ftShader.h` holds the `GLSL120(...)` and `GLSL410(...)` macros
 every shader header defines both variants with. The bug: `tex_density`
