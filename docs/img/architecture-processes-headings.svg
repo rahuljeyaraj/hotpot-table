@@ -1,60 +1,83 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 100 1140 1160" width="1140" height="1160">
 <rect x="0" y="100" width="1140" height="1160" fill="#ffffff"/>
-<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker></defs>
+
 <rect x="100" y="125" width="460" height="88" rx="8" fill="#dceef4" stroke="#1f6f8b" stroke-width="2.2"/>
-<text x="330" y="181" font-family="Helvetica,Arial,sans-serif" font-size="34" fill="#1f6f8b" text-anchor="middle" font-weight="bold">Lenovo 300 FHD webcam</text>
-<rect x="600" y="125" width="460" height="88" rx="8" fill="#dceef4" stroke="#1f6f8b" stroke-width="2.2"/>
-<text x="830" y="179" font-family="Helvetica,Arial,sans-serif" font-size="28" fill="#1f6f8b" text-anchor="middle" font-weight="bold">XIAO ESP32S3 and 8 x HX711</text>
-<line x1="330.0" y1="213" x2="330.0" y2="258" stroke="#1f6f8b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ac)"/>
-<rect x="390" y="221" width="72" height="30" fill="#ffffff" rx="3"/>
-<text x="426.0" y="243" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1f6f8b" text-anchor="middle" font-weight="bold">USB 3</text>
+<text x="330" y="180" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1f6f8b" text-anchor="middle" font-weight="bold">webcam</text>
+
+<rect x="600" y="125" width="255" height="88" rx="8" fill="#dceef4" stroke="#1f6f8b" stroke-width="2.2"/>
+<text x="727.5" y="180" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1f6f8b" text-anchor="middle" font-weight="bold">XIAO ESP32S3</text>
+
+<rect x="895" y="125" width="195" height="88" rx="8" fill="#dceef4" stroke="#1f6f8b" stroke-width="2.2"/>
+<text x="992.5" y="180" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1f6f8b" text-anchor="middle" font-weight="bold">8 x HX711</text>
+<line x1="895" y1="169" x2="858" y2="169" stroke="#1f6f8b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ac)"/>
+
+<line x1="330" y1="213" x2="330" y2="258" stroke="#1f6f8b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ac)"/>
+<rect x="388" y="223" width="76" height="28" fill="#ffffff" rx="3"/>
+<text x="426" y="243" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1f6f8b" text-anchor="middle" font-weight="bold">USB 3</text>
+
 <rect x="100" y="260" width="460" height="96" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="330.0" y="322" font-family="Helvetica,Arial,sans-serif" font-size="40" fill="#1a1a1a" text-anchor="middle" font-weight="bold">camera</text>
-<line x1="330.0" y1="356" x2="330.0" y2="400" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
+<text x="330" y="319" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">camera</text>
+
+<line x1="330" y1="356" x2="330" y2="400" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
+
 <rect x="100" y="402" width="460" height="92" rx="8" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
-<text x="330.0" y="456" font-family="Consolas,Menlo,monospace" font-size="23" fill="#cc5500" text-anchor="middle" font-weight="bold">shared memory:  hotpot_frames</text>
+<text x="330" y="459" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold">shared memory</text>
+
 <line x1="215" y1="494" x2="215" y2="556" stroke="#cc5500" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ao)"/>
 <line x1="445" y1="494" x2="445" y2="556" stroke="#cc5500" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ao)"/>
+
 <rect x="100" y="558" width="225" height="118" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="212.5" y="627" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">tracker</text>
+<text x="212.5" y="628" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">tracker</text>
+
 <rect x="335" y="558" width="225" height="118" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="447.5" y="627" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">classifier</text>
+<text x="447.5" y="628" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">classifier</text>
+
 <rect x="100" y="740" width="960" height="132" rx="8" fill="#f2ede4" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="580.0" y="827" font-family="Helvetica,Arial,sans-serif" font-size="60" fill="#1a1a1a" text-anchor="middle" font-weight="bold">core</text>
-<line x1="830" y1="213" x2="830" y2="738" stroke="#1f6f8b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ac)"/>
-<rect x="692" y="396" width="276" height="24" fill="#ffffff" rx="3"/>
-<text x="830" y="414" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1f6f8b" text-anchor="middle" font-weight="bold">USB serial, 115200 baud</text>
-<rect x="682" y="422" width="296" height="24" fill="#ffffff" rx="3"/>
-<text x="830" y="440" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1f6f8b" text-anchor="middle" font-weight="bold">about 10.7 lines a second</text>
+<text x="580" y="817" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">core</text>
+
+<line x1="727" y1="213" x2="727" y2="738" stroke="#1f6f8b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ac)"/>
+<rect x="660" y="410" width="134" height="28" fill="#ffffff" rx="3"/>
+<text x="727" y="430" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1f6f8b" text-anchor="middle" font-weight="bold">USB serial</text>
+
 <line x1="215" y1="676" x2="215" y2="738" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<rect x="165" y="695" width="100" height="26" fill="#ffffff" rx="3"/>
-<text x="215" y="714" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">TCP 8765</text>
-<line x1="445" y1="676" x2="445" y2="738" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<rect x="395" y="695" width="100" height="26" fill="#ffffff" rx="3"/>
-<text x="445" y="714" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#1a1a1a" text-anchor="middle" font-weight="bold">TCP 8765</text>
-<rect x="100" y="950" width="460" height="132" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="330.0" y="1028" font-family="Helvetica,Arial,sans-serif" font-size="34" fill="#1a1a1a" text-anchor="middle" font-weight="bold">of  (openFrameworks)</text>
-<rect x="600" y="950" width="460" height="132" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="830.0" y="1028" font-family="Helvetica,Arial,sans-serif" font-size="34" fill="#1a1a1a" text-anchor="middle" font-weight="bold">staff dashboard</text>
-<line x1="350" y1="872" x2="350" y2="946" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<rect x="140" y="893" width="420" height="28" fill="#ffffff" rx="3"/>
-<text x="350" y="913" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1a1a1a" text-anchor="middle" font-weight="bold">TCP 8765:  state, 60 times a second</text>
-<line x1="850" y1="872" x2="850" y2="946" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<rect x="675" y="893" width="350" height="28" fill="#ffffff" rx="3"/>
-<text x="850" y="913" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1a1a1a" text-anchor="middle" font-weight="bold">HTTP and WebSocket, port 8090</text>
-<path d="M 100 620 L 46 620 L 46 1000 L 96 1000" fill="none" stroke="#cc5500" stroke-width="2.6" stroke-linecap="round" marker-end="url(#ao)"/>
-<text x="58" y="884" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#cc5500" text-anchor="start" font-weight="normal">UDP 8770</text>
-<text x="58" y="908" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#cc5500" text-anchor="start" font-weight="normal">cursor</text>
-<text x="58" y="932" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#cc5500" text-anchor="start" font-weight="normal">datagrams</text>
+<rect x="165" y="697" width="100" height="28" fill="#ffffff" rx="3"/>
+<text x="215" y="717" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">TCP 8765</text>
+
 <line x1="275" y1="676" x2="275" y2="738" stroke="#cc5500" stroke-width="2.2" stroke-linecap="round" marker-end="url(#ao)"/>
-<rect x="273" y="689" width="98" height="25" fill="#ffffff" rx="3"/>
-<text x="322" y="707" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#cc5500" text-anchor="middle" font-weight="bold">UDP 8771</text>
+<rect x="283" y="697" width="100" height="28" fill="#ffffff" rx="3"/>
+<text x="333" y="717" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#cc5500" text-anchor="middle" font-weight="bold">UDP 8771</text>
+
+<line x1="445" y1="676" x2="445" y2="738" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
+<rect x="395" y="697" width="100" height="28" fill="#ffffff" rx="3"/>
+<text x="445" y="717" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">TCP 8765</text>
+
+<rect x="100" y="950" width="460" height="132" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
+<text x="330" y="1027" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">openFrameworks</text>
+
+<rect x="600" y="950" width="460" height="132" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
+<text x="830" y="1027" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">staff dashboard</text>
+
+<line x1="350" y1="872" x2="350" y2="946" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
+<rect x="300" y="891" width="100" height="28" fill="#ffffff" rx="3"/>
+<text x="350" y="911" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">TCP 8765</text>
+
+<line x1="850" y1="872" x2="850" y2="946" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
+<rect x="771" y="891" width="158" height="28" fill="#ffffff" rx="3"/>
+<text x="850" y="911" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">HTTP/WS 8090</text>
+
+<path d="M 100 620 L 46 620 L 46 1000 L 96 1000" fill="none" stroke="#cc5500" stroke-width="2.6" stroke-linecap="round" marker-end="url(#ao)"/>
+<rect x="48" y="898" width="108" height="28" fill="#ffffff" rx="3"/>
+<text x="102" y="918" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#cc5500" text-anchor="middle" font-weight="bold">UDP 8770</text>
+
 <path d="M 560 308 L 1104 308 L 1104 1016 L 1064 1016" fill="none" stroke="#1f6f8b" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="7 6" marker-end="url(#ac)"/>
-<rect x="911" y="275" width="206" height="28" fill="#ffffff" rx="3"/>
-<text x="1014" y="295" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1f6f8b" text-anchor="middle" font-weight="bold">MJPEG, port 8081</text>
+<rect x="947" y="278" width="134" height="28" fill="#ffffff" rx="3"/>
+<text x="1014" y="298" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1f6f8b" text-anchor="middle" font-weight="bold">MJPEG 8081</text>
+
 <rect x="100" y="1150" width="460" height="88" rx="8" fill="#dceef4" stroke="#1f6f8b" stroke-width="2.2"/>
-<text x="330.0" y="1206" font-family="Helvetica,Arial,sans-serif" font-size="34" fill="#1f6f8b" text-anchor="middle" font-weight="bold">WZATCO projector</text>
+<text x="330" y="1205" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1f6f8b" text-anchor="middle" font-weight="bold">projector</text>
+
 <line x1="350" y1="1082" x2="350" y2="1146" stroke="#1f6f8b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ac)"/>
-<rect x="313" y="1101" width="74" height="30" fill="#ffffff" rx="3"/>
-<text x="350" y="1123" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1f6f8b" text-anchor="middle" font-weight="bold">HDMI</text>
+<rect x="312" y="1101" width="76" height="30" fill="#ffffff" rx="3"/>
+<text x="350" y="1123" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1f6f8b" text-anchor="middle" font-weight="bold">HDMI</text>
 </svg>
