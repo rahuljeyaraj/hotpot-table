@@ -84,7 +84,4 @@
 <text x="1060.4" y="170" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="start" font-weight="bold" font-style="normal">FAR ROW</text>
 <text x="1060.4" y="450" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="start" font-weight="bold" font-style="normal">NEAR ROW</text>
 <text x="1060.4" y="692.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#1a1a1a" text-anchor="start" font-weight="normal" font-style="italic">the diner stands here</text>
-<text x="36" y="744" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="start" font-weight="normal" font-style="normal">Each opening is 200 x 255 mm, cut with the corners taken off. White printed plugs round them</text>
-<text x="36" y="764" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="start" font-weight="normal" font-style="normal">afterwards. 6 mm plywood, standing on twelve printed pillars at the height of the bin tops.</text>
-<text x="36" y="788" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="start" font-weight="normal" font-style="italic">Bins 0 to 3 are the far row left to right, 4 to 7 the near row, which is the order the firmware uses.</text>
 </svg>
