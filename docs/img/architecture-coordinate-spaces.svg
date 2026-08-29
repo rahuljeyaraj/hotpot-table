@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 1500" width="1100" height="1500">
+<rect width="1100" height="1500" fill="#ffffff"/>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
+<text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#1a1a1a" text-anchor="start" font-weight="bold">Four coordinate spaces</text>
+<text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal">Stage pixels are canonical. Everything on the wire is already in them.</text>
+<rect x="90" y="120" width="920" height="150" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
+<text x="550.0" y="166.68" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">1.  the table, in millimetres</text>
+<text x="550.0" y="195.48000000000002" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">1524.0 wide by 914.4 deep, which is 60 by 36 inches.</text>
+<text x="550.0" y="219.48000000000002" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">Origin at the far-left corner, +y running toward the diner.</text>
+<text x="550.0" y="243.48000000000002" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">TableGeometry.h holds the layout and a static_assert per chain.</text>
+<line x1="550.0" y1="270" x2="550.0" y2="336" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
+<rect x="429.76" y="297.38" width="240.48000000000002" height="22.950000000000003" fill="#ffffff" rx="3"/>
+<text x="550.0" y="312" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="bold">two scales, one per axis</text>
+<rect x="90" y="338" width="920" height="172" rx="8" fill="#ffe6c7" stroke="#cc5500" stroke-width="2.2"/>
+<text x="550.0" y="383.68" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#cc5500" text-anchor="middle" font-weight="bold">2.  the stage, in pixels</text>
+<text x="550.0" y="412.48" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">1920 by 1080.   1.25984 px per mm across,   1.18110 px per mm deep.</text>
+<text x="550.0" y="436.48" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">Two scales rather than one, because the table's aspect is 1.667 and</text>
+<text x="550.0" y="460.48" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">the projector's is 1.778. A single uniform scale puts the near row</text>
+<text x="550.0" y="484.48" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">50 mm out, which on plywood is a visible finger's width.</text>
+<line x1="550.0" y1="510" x2="550.0" y2="576" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
+<rect x="90" y="578" width="920" height="178" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
+<text x="550.0" y="602.68" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">3.  the camera, in pixels</text>
+<text x="550.0" y="631.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">1920 by 1080, mounted upside down. A 3 x 3 homography H maps it onto</text>
+<text x="550.0" y="655.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">the stage, solved from four corners a human drags onto the live feed.</text>
+<text x="550.0" y="679.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">The corner roles are pinned to the drag order, never inferred from where</text>
+<text x="550.0" y="703.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">a handle lands: on a camera at 180 degrees, inferring pairs every corner</text>
+<text x="550.0" y="727.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">with its opposite, and four points always fit exactly, so the wrong</text>
+<text x="550.0" y="751.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">answer comes back with zero error and no warning.</text>
+<line x1="550.0" y1="756" x2="550.0" y2="822" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
+<rect x="90" y="824" width="920" height="150" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
+<text x="550.0" y="870.68" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="middle" font-weight="bold">4.  the fluid, in two more</text>
+<text x="550.0" y="899.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">The fire's density field is 1280 by 720 and its simulation grid is 640 by 360.</text>
+<text x="550.0" y="923.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">Half scale, and this is the resolution pair the whole last section is about:</text>
+<text x="550.0" y="947.4799999999999" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">two shaders read across it without saying so.</text>
+<line x1="60" y1="1050" x2="1040" y2="1050" stroke="#b8b8b8" stroke-width="1.6" stroke-linecap="round"/>
+<text x="60" y="1094" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#1a1a1a" text-anchor="start" font-weight="bold">The rule that holds it together</text>
+<text x="60" y="1136" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">The tracker applies H itself and puts stage pixels on the wire. Core hit-tests stage pixels against stage</text>
+<text x="60" y="1166" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">rectangles. openFrameworks draws stage pixels. So the three processes cannot disagree about where a</text>
+<text x="60" y="1196" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">hand is, because only one of them ever holds the matrix.</text>
+<text x="60" y="1276" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#cc5500" text-anchor="start" font-weight="bold">And the trap underneath it</text>
+<text x="60" y="1318" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">A homography that reports rms_px 0.0 from n_points 4 can still point nowhere near the real table, and this</text>
+<text x="60" y="1348" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">rig has produced exactly that. Four points always fit a plane projection perfectly, so the error figure is</text>
+<text x="60" y="1378" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">measuring nothing. There is no verify() on the geometry store and there must not be one: the only check</text>
+<text x="60" y="1408" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="start" font-weight="normal">that can fail is a person looking at the light on the actual table.</text>
+</svg>
