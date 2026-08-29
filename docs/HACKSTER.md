@@ -18,15 +18,18 @@ BUTTON to press after pasting each piece of text in.
   [VIDEO: ...]            ->  the video embed
 
 Strip the markers as you go. Paste the plain words, select them, press
-the button. Sub-structure below a heading is faked with bold lead-ins,
-because Hackster has no second heading level. Never nest bullets.
+the button. Hackster has only one heading level, so the section depth
+is carried by the number in front of each heading: 1 is a top-level
+part, 1.1 a section inside it, 1.1.1 a subsection. Never nest bullets.
 -->
 
 # The Fire Pot: reimagining hotpot
 
 *A dining table that weighs your food, prices it as you pick, and sets itself on fire. Responsibly.*
 
-# Eight bins, a pair of tongs, and absolutely no idea
+# 1 Introduction
+
+# 1.1 The problem: guessing at the hotpot stand
 
 There's a hot pot stall in a Singapore hawker centre that I ate at all the way through my master's at NTU. The arrangement is beautifully simple. Take a bowl, take a pair of tongs, walk along the stand and load up whatever you fancy. Hand it over at the end. They weigh it, ask which broth and how spicy, and cook it. Your number gets called. It's fast, it's cheap, and you get exactly the bowl you asked for.
 
@@ -38,7 +41,7 @@ Everyone else seemed to know. The staff knew. The regulars knew. The answers exi
 
 **The Fire Pot** puts the answers exactly where I was standing.
 
-# The table is the screen
+# 1.2 The idea: the tabletop is the screen
 
 The tabletop is a sheet of projector screen fabric stretched over plywood, with eight bins set into it. A projector hangs above, mounted as close to the ceiling as it will go so its throw covers the whole table, and a camera sits up there with it. Everything you see, from the ingredient names and prices to your running cart and the whole checkout, is light landing on that surface, and the camera watches your hands so the table knows what you're reaching for.
 
@@ -46,7 +49,9 @@ That's the design brief in one line: a person at a hot pot stand has a bowl in o
 
 [VIDEO: YouTube demo, https://youtube.com/... ]
 
-# It waits like something alive
+# 2 Using the table
+
+# 2.1 Idle state: breathing halos and a wandering flame
 
 Every bin wears a soft golden ring that breathes, brightening and fading slowly, each one a little out of step with its neighbours, so the surface is never entirely still.
 
@@ -56,7 +61,7 @@ Walk up, put a hand over the table, and it comes to attention. All eight bins la
 
 Instant Noodles, $1.50. Lotus Root Slices, $1.40. Dried Eel Strips, $5.00. You know what everything is and exactly what it costs before you pick up a single thing.
 
-# Reach for a bin and it catches fire
+# 2.2 Selecting a bin: the flame follows your hand
 
 Put a hand over the table and the wandering flame becomes yours. The fireball leaves off drifting and tracks your palm instead, staying with you wherever you move.
 
@@ -73,7 +78,7 @@ That last one is the whole reason this project exists. *Lotus Root Slices: stays
 
 Move your hand along the row and you can read your way through all eight before you commit to one.
 
-# The bowl fills and the bill fills with it
+# 2.3 The cart: live weight and running total
 
 Scoop something into your bowl and it appears in the cart along the near edge of the table, with its weight and its price. Scoop more and the number climbs. Every item you've picked stays listed, and the running total sits underneath the lot, ticking upward as it goes.
 
@@ -81,7 +86,7 @@ This is the number I never had in Singapore. It means you can take 60 g of the $
 
 Take too much? Tip some back into the bin. The weight drops, the price drops with it, and the total settles to the new figure. The table simply reports what's in your bowl at this moment, so you can rearrange your order as many times as you like right up until you're happy with it.
 
-# The same table, in Chinese
+# 2.4 Switching language: English and Chinese
 
 One button, marked `EN | 中文`, switches the entire table over. Every ingredient name, every tasting note, every price, the broth descriptions, the spice levels, the checkout. All of it.
 
@@ -89,7 +94,7 @@ One button, marked `EN | 中文`, switches the entire table over. Every ingredie
 
 It switches back just as fast, so two people reading different languages can share the same table and take turns.
 
-# Choosing a broth you can genuinely choose
+# 2.5 Choosing a broth
 
 When you're done picking, the table turns into the ordering screen, and the first question is the broth. Three of them, each presented with the two facts that actually decide it:
 
@@ -99,7 +104,7 @@ When you're done picking, the table turns into the ordering screen, and the firs
 
 Each one says whether it's spicy and whether it's vegetarian right on the card, in your language, before you commit. This is the sign I stood in front of in Singapore and couldn't read, rewritten so that a first-timer can pick with confidence.
 
-# Then how hot you want it
+# 2.6 Choosing a spice level
 
 Spice arrives as the same three cards, stacked by heat. Hot sits at the top of the table, furthest from you; mild at the bottom, nearest to hand. Each card counts its own heat in chillies: one, two, three.
 
@@ -109,7 +114,7 @@ Spice arrives as the same three cards, stacked by heat. Hot sits at the top of t
 
 Pick one and the table moves on to the total. A row of chillies means the same thing in every language, which is rather the point.
 
-# Pay from where you're standing
+# 2.7 Paying and collecting a token number
 
 The table adds up your ingredients, your broth and your spice, shows you the total, and projects a QR code onto the table in front of you.
 
@@ -117,30 +122,42 @@ Scan it with your phone and you get an itemised receipt: every ingredient with i
 
 It clears down to a single large token number, with two lines under it: **hand your bowl to the staff**, and **we'll call this number when it's ready.** The staff take the bowl away and cook it. Your number gets called. Exactly the same ending as the stall in Singapore. The difference is everything that happened before it.
 
-# The other half of the table: the staff dashboard
+# 3 The staff dashboard
 
 Everything above is what a diner sees. The staff run the table from a browser on any device on the same network, and it's where the fiddly parts of a real restaurant shift live.
 
+# 3.1 The Serving switch
+
 One switch at the top says **Serving**. On, and the table is open for business. Off, and it stops billing so staff can reach across the bins, swap trays and work on the table without anything registering as a customer's pick.
 
-**Bins.** Eight cards, one per bin, each showing its live weight as it changes. A dropdown on every card says what that bin currently holds, so refilling bin 3 with something different is a two-second job. Let a bin fall below 50 g and its card raises a restock alert, which saves anyone the walk to go and look. The scales themselves live here too: an empty bin can be zeroed, and any bin can be calibrated against a known weight. Zeroing runs on all eight at once, since "the bins are empty" tends to be true of the lot of them at the same moment.
+# 3.2 Bins tab: weights, stock alerts and scale calibration
 
-**Setup.** This is the tab that teaches the table where it is. The staff mark the four corners of the physical table on a live camera view, then lay a grid over it to say where each bin sits, and finally nudge a second grid with the arrow keys, watching the real projected light on the real table, until it lines up with the actual bins. It's the one job that has to be done by a human looking at the thing itself, and it's built to be done that way.
-
-**Capture.** The table can photograph its own bins to build a training dataset, one burst at a time, at whatever interval suits the person rearranging the tray between shots. Those images export straight out to Edge Impulse or Roboflow.
-
-**Developer.** The engineering window. A live hand skeleton overlaid on the camera feed showing exactly what the tracker sees, the classifier's guesses as they happen, camera controls for exposure and white balance, a health readout for every process, and a live plot of each load cell, raw against filtered, with the filter's own settings adjustable while you watch the line change shape.
+Eight cards, one per bin, each showing its live weight as it changes. A dropdown on every card says what that bin currently holds, so refilling bin 3 with something different is a two-second job. Let a bin fall below 50 g and its card raises a restock alert, which saves anyone the walk to go and look. The scales themselves live here too: an empty bin can be zeroed, and any bin can be calibrated against a known weight. Zeroing runs on all eight at once, since "the bins are empty" tends to be true of the lot of them at the same moment.
 
 [IMAGE: dashboard, Bins tab with eight live weights]
 *The staff view. Eight bins, eight weights, one dropdown each.*
 
-# What it's made of
+# 3.3 Setup tab: table corners and bin grids
+
+This is the tab that teaches the table where it is. The staff mark the four corners of the physical table on a live camera view, then lay a grid over it to say where each bin sits, and finally nudge a second grid with the arrow keys, watching the real projected light on the real table, until it lines up with the actual bins. It's the one job that has to be done by a human looking at the thing itself, and it's built to be done that way.
+
+# 3.4 Capture tab: building a training dataset
+
+The table can photograph its own bins to build a training dataset, one burst at a time, at whatever interval suits the person rearranging the tray between shots. Those images export straight out to Edge Impulse or Roboflow.
+
+# 3.5 Developer tab: hand tracking, camera and load cell plots
+
+The engineering window. A live hand skeleton overlaid on the camera feed showing exactly what the tracker sees, the classifier's guesses as they happen, camera controls for exposure and white balance, a health readout for every process, and a live plot of each load cell, raw against filtered, with the filter's own settings adjustable while you watch the line change shape.
+
+# 4 System overview
+
+# 4.1 Hardware at a glance
 
 The tabletop rests on eight load cells, one under each bin, read by a **Seeed Studio XIAO ESP32S3** that streams all eight channels up to the host over USB. The host is an **ASUS NUC 14**, running the brains in Python and the projected table itself in openFrameworks. Above it all, an ordinary projector mounted almost against the ceiling, high enough that its throw covers the full table, with a webcam beside it and Google's MediaPipe doing the hand tracking.
 
 Everything past this point is the engineering. If you want to build one, the next section is the parts and the wiring. If you want to know how it works, the section after that is the architecture, the calibration, and the fire.
 
-# Gallery
+# 4.2 Gallery
 
 [IMAGE: hero, the whole table lit, all 8 bins named and priced]
 *Plywood, a sheet of projector screen fabric, and a projector bolted near the ceiling. Everything else is light.*
@@ -173,9 +190,11 @@ Everything past this point is the engineering. If you want to build one, the nex
 *Nobody's here, so it plays with fire by itself.*
 
 
-# Bill of materials
+# 5 Building the hardware
 
-**Sensing and wiring.**
+# 5.1 Bill of materials
+
+# 5.1.1 Sensing and wiring
 
 - 1 x [Seeed Studio XIAO ESP32S3](https://robu.in/product/seeed-studio-xiao-esp32s3-2-4ghz-wifi-ble-5-0/)
 - 8 x [Phaeton CZL-611N 1 kg screw-fastened load cell](https://robu.in/product/phaeton-load-cell-sensor-czl-611n-1kg-screw-fastened/), one per bin
@@ -187,7 +206,7 @@ Everything past this point is the engineering. If you want to build one, the nex
 - 6 x [PCT-215 5-pole lever connectors](https://robu.in/product/pct-215-0-08-2-5mm-5-pole-wire-connector-terminal-block-with-spring-lock-lever-for-cable-connection/), to split 3V3, ground and the clock four ways
 - 26 AWG ultra flexible silicone wire in [red](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-red/), [black](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-black/), [blue](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-blue/), [yellow](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-yellow/), [green](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-green/) and [white](https://robu.in/product/high-quality-ultra-flexible-26awg-silicone-wire-1000m-white/)
 
-**Light, camera and computer.**
+# 5.1.2 Light, camera and computer
 
 - 1 x ASUS NUC 14 running Windows 11
 - 1 x [WZATCO Yuva Go Plus projector](https://www.amazon.in/gp/aw/d/B0F8N74NVN/), 1080p native, 9000 lumens, with 4D keystone on the projector itself
@@ -195,7 +214,7 @@ Everything past this point is the engineering. If you want to build one, the nex
 - 1 x [HDMI cable](https://www.amazon.in/dp/B0CRPB7LK6) long enough to reach the ceiling
 - 2 x [USB extension cable](https://www.amazon.in/dp/B0GY4PSF54), one for the camera and one for the XIAO
 
-**The table.**
+# 5.1.3 The table
 
 - A table with a top of roughly 1524 x 914.4 mm, which carries the bins and everything under them
 - 6 mm plywood, cut to 1524 x 914.4 mm, which becomes the projection surface above it
@@ -204,7 +223,7 @@ Everything past this point is the engineering. If you want to build one, the nex
 - 1 kg of [eSUN PLA, 1.75 mm, gold](https://robu.in/product/esun-pla-1-75mm-3d-printing-filament-1kg-gold/) for the mounts and the pillars
 - A little [eSUN PLA, 1.75 mm, white](https://robu.in/product/esun-pla-1-75mm-3d-printing-filament-1kg-white/) for the corner plugs
 
-# Print the parts
+# 5.2 Printing the parts
 
 Every printed part is in `hardware/3d-printed/` in the repo, as `.3mf` plates ready to slice. All PLA.
 
@@ -224,10 +243,12 @@ Two short rails and two long rails make one bin's platform, 200 x 255 mm, which 
 [IMAGE: the load cell close-up, bolted between the frame above and the cross base below, HX711 alongside]
 *One channel: a 1 kg cell bolted under the platform, its HX711 on the base beside it, and a screw terminal taking the four wires away.*
 
-# Wire the load cells
+# 5.3 Wiring the load cells
 
 [IMAGE: docs/img/firepot-loadcells.png]
 *Eight identical channels. One shared clock, eight separate data lines, one USB cable out. The KiCad source is in the Schematics section below, and at `hardware/firepot-loadcells/` in the repo.*
+
+# 5.3.1 Assembling the harness
 
 Every connection is a screw terminal or a lever connector, so the whole harness comes apart again.
 
@@ -236,9 +257,13 @@ Every connection is a screw terminal or a lever connector, so the whole harness 
 - Give every HX711 its own screw terminal block for the run back to the XIAO
 - Split 3V3, ground and the clock with the PCT-215 lever connectors, one feed in and four out, three per island
 
-**Short VCC and VDD together on each HX711.** Both go to 3V3.
+# 5.3.2 Load cell to HX711 connections
+
+Short **VCC** and **VDD** together on each HX711. Both go to 3V3.
 
 Each load cell has four wires into its own HX711: red to `E+`, black to `E-`, green to `A+`, white to `A-`. Check the colours against your own cell.
+
+# 5.3.3 XIAO pin map, bin by bin
 
 Each HX711 then takes 3V3 and ground from the rails, shares the clock on `D0` with all seven others, and sends its own data line back:
 
@@ -265,7 +290,7 @@ Mount each cell whichever way round suits the frame. Calibration works out the s
 [IMAGE: the XIAO on its prototype board, four screw terminal blocks around it]
 *The centre of the harness. Red 3V3, black ground and yellow clock on one side, the four data lines on the other.*
 
-# Cut the plywood
+# 5.4 Cutting the plywood
 
 The plywood is the projection surface. It is 6 mm thick and carries no weight: it stands on the twelve printed pillars at the height of the bin tops, and each bin comes up through its own opening.
 
@@ -291,7 +316,23 @@ The 440 mm column up the middle stays solid. That is where the table projects th
 
 Stand the plywood on the pillars over the table, with each bin coming up through its opening.
 
-# Get the code
+# 5.5 Hanging the projector and the camera
+
+A wooden batten fixed to the wall carries both. The projector goes at the top of it, hard against the ceiling and aimed down at the table, far enough back that its image covers the full 1524 mm width. The camera goes on the same batten below the projector, looking at the same table. On this build it hangs at 180 degrees.
+
+Square the image on the table with the projector's own 4D keystone. The app draws to a 1920 x 1080 rectangle and puts nothing between that and the lens.
+
+Run the HDMI cable to the projector, and the two USB extensions to the camera and the XIAO. Give the camera a USB 3 port on the host.
+
+[IMAGE: the projector and camera on the wooden batten, seen from below]
+*Projector at the ceiling, camera further down the same batten.*
+
+[IMAGE: the finished table from the diner's side, lit, with the eight openings showing the gold mounts]
+*The whole rig: table, plywood on pillars, screen fabric, and one projector doing all the work.*
+
+# 6 Installing the software
+
+# 6.1 Getting the code
 
 The projected table and the Python processes behind it live in one repository, and it belongs inside an openFrameworks tree: the Visual Studio project walks five levels up to find openFrameworks, so `apps/myApps/hotpot-table` is where it expects to be.
 
@@ -304,7 +345,7 @@ git clone https://github.com/rahuljeyaraj/hotpot-table
 
 Everything from here on runs from that folder.
 
-# Flash the XIAO
+# 6.2 Flashing the XIAO
 
 Flash the firmware with [PlatformIO](https://platformio.org/):
 
@@ -324,6 +365,8 @@ A working board prints this and then keeps going:
 raw 83422 -211904 84001 82755 -210338 83190 84772 83006
 ```
 
+# 6.2.1 Reading the probe output
+
 If a cell is missing, the probe names the pin and says which of two faults it is:
 
 ```
@@ -335,23 +378,11 @@ If a cell is missing, the probe names the pin and says which of two faults it is
 - `floating`: an open data wire, or an HX711 with no power. Check that terminal block.
 - `driven-high`: the board has power and is holding the line up. Check the clock reaching it, and the board itself.
 
-# Hang the projector and the camera
+# 6.3 Installing dependencies
 
-A wooden batten fixed to the wall carries both. The projector goes at the top of it, hard against the ceiling and aimed down at the table, far enough back that its image covers the full 1524 mm width. The camera goes on the same batten below the projector, looking at the same table. On this build it hangs at 180 degrees.
+# 6.3.1 openFrameworks addons and the ofxFlowTools patch
 
-Square the image on the table with the projector's own 4D keystone. The app draws to a 1920 x 1080 rectangle and puts nothing between that and the lens.
-
-Run the HDMI cable to the projector, and the two USB extensions to the camera and the XIAO. Give the camera a USB 3 port on the host.
-
-[IMAGE: the projector and camera on the wooden batten, seen from below]
-*Projector at the ceiling, camera further down the same batten.*
-
-[IMAGE: the finished table from the diner's side, lit, with the eight openings showing the gold mounts]
-*The whole rig: table, plywood on pillars, screen fabric, and one projector doing all the work.*
-
-# Install the software
-
-**The table.** Four addons are needed. `ofxGui`, `ofxOsc` and `ofxNetwork` come with openFrameworks. [ofxFlowTools](https://github.com/moostrik/ofxFlowTools), the fluid solver behind the fire, is a separate download that goes in `openFrameworks/addons/`.
+Four addons are needed. `ofxGui`, `ofxOsc` and `ofxNetwork` come with openFrameworks. [ofxFlowTools](https://github.com/moostrik/ofxFlowTools), the fluid solver behind the fire, is a separate download that goes in `openFrameworks/addons/`.
 
 It needs a patch before it will build, kept in the repo at `of/patches/ofxFlowTools.patch`:
 
@@ -364,19 +395,21 @@ That does two things. It replaces two constructs the current compiler rejects, `
 
 Open `of/hotpot-table/hotpot-table.sln` in Visual Studio and build the **Debug** configuration, which is the binary the launcher starts. Set `HOTPOT_OF_BIN` if you would rather it ran something else.
 
-**Python.** One interpreter for the whole tree, installed from the repository root:
+# 6.3.2 Python environment
+
+One interpreter for the whole tree, installed from the repository root:
 
 ```
 pip install -r python/requirements.txt
 ```
 
-**Three values for your own rig.**
+# 6.3.3 Three values for your own rig
 
 - `SCALE_PORT` in `python/hotpot/core/main.py` is the XIAO's serial port, `COM5` here. `pio device monitor` names yours.
 - `camera.windows_device_index` in `config/system.json` picks the webcam, `0` by default. Raise it if the host has another camera it prefers.
 - `of/hotpot-table/bin/data/display.txt` picks the monitor, as the projector's desktop origin in `x,y` form. Start the app once and it writes the file and logs every monitor it found with its origin. Put the projector's in. This rig's reads `-1920,144`.
 
-# Start it
+# 6.4 Starting the system
 
 ```
 python run.py
@@ -391,15 +424,25 @@ That starts and supervises everything, waits for each process to report ready be
 
 The dashboard is at `http://<the-host>:8090` from any device on the same network, a phone included.
 
-# Calibrate the geometry
+# 7 Calibration and first run
+
+# 7.1 Calibrating the geometry
 
 Three steps in the dashboard's **Setup** tab, in the order the cards appear. Turn the **Serving** switch off first: every one of them is refused while it is on.
 
-- **Mark the four corners.** Tap `Set table corners`. A quad appears on the live camera feed with a handle at each corner. Drag each handle onto the matching real corner of the table. The handles have fixed roles, near-left, near-right, far-right, far-left, so read the real table rather than the screen. Holding a handle brings up a 4x magnifier. Tap `Confirm`, and both the Setup and Live tabs switch to a flattened, top-down view of the table.
-- **Lay the bin grid on it.** Four horizontal lines and eight vertical ones, dragged onto the flattened view: a horizontal line sets a whole row's edge, a vertical line sets a whole column's edge. `Load measured layout` starts you from the CAD positions, `Undo` steps back, and `Save` commits it.
-- **Nudge the projector grid.** Click one of the twelve lines in the list, or Tab to it, and press the arrow keys. Up and down move a horizontal line, left and right move a vertical one, one pixel per press and ten with Shift held. Each press reaches the projector immediately and there is nothing to save. Work through the lines until each projected golden halo sits on its real bin, watching the table rather than the screen.
+# 7.1.1 Marking the four table corners
 
-# Calibrate the scales
+Tap `Set table corners`. A quad appears on the live camera feed with a handle at each corner. Drag each handle onto the matching real corner of the table. The handles have fixed roles, near-left, near-right, far-right, far-left, so read the real table rather than the screen. Holding a handle brings up a 4x magnifier. Tap `Confirm`, and both the Setup and Live tabs switch to a flattened, top-down view of the table.
+
+# 7.1.2 Laying the bin grid
+
+Four horizontal lines and eight vertical ones, dragged onto the flattened view: a horizontal line sets a whole row's edge, a vertical line sets a whole column's edge. `Load measured layout` starts you from the CAD positions, `Undo` steps back, and `Save` commits it.
+
+# 7.1.3 Nudging the projector grid
+
+Click one of the twelve lines in the list, or Tab to it, and press the arrow keys. Up and down move a horizontal line, left and right move a vertical one, one pixel per press and ten with Shift held. Each press reaches the projector immediately and there is nothing to save. Work through the lines until each projected golden halo sits on its real bin, watching the table rather than the screen.
+
+# 7.2 Calibrating the scales
 
 **Serving** stays off for this too.
 
@@ -409,7 +452,7 @@ Then, per bin, tap `Calibrate`, put a known weight in that bin, type its mass an
 
 Finally, set what each bin holds from the dropdown on its card.
 
-# Check it
+# 7.3 Checking it works
 
 Turn **Serving** on and stand at the table.
 
@@ -421,13 +464,13 @@ Turn **Serving** on and stand at the table.
 
 To check the table before the load cells are wired, start `python run.py --only core,of` and open the **Developer** tab. It has a `Pick` and a `Put back` button per bin, and they drive the whole flow through to the token number.
 
-# Under the plywood
+# 8 How it works
 
 The top surface is one sheet of light. Underneath it are five processes that never share a variable, four different transports between them, and a fluid simulation that turned out to have been running the wrong half of itself the whole time.
 
 The pictures below are the architecture. The words are there to point at them.
 
-# Five processes, and none of them trusts the others
+# 8.1 Five processes, and none of them trusts the others
 
 [IMAGE: docs/img/architecture-processes.svg]
 *Five processes, four transports. Those arrows are the only way any of them learn anything.*
@@ -436,7 +479,7 @@ The pictures below are the architecture. The words are there to point at them.
 
 The split that matters is the last one. `core` owns every price, every rule and every word. `of` draws what it is told and holds no opinion. The price on a plate arrives as the finished string `$1.40/100g`, symbol and suffix and all, because even the `g` has to become `克` when someone presses the language button. Adding Chinese to the whole table was two data files and zero lines of C++.
 
-# Three kinds of traffic, three kinds of pipe
+# 8.2 Three transports for three kinds of traffic
 
 [IMAGE: docs/img/architecture-cursor-drain.svg]
 *Six cursor packets sent during a stall, and the two things a transport can do with them.*
@@ -448,7 +491,7 @@ A lost cursor packet is worthless sixteen milliseconds later. A queued one is wo
 
 Camera frames are six megabytes each, thirty times a second, so they go in shared memory rather than down a socket. `core` never imports that module at all, and the omission is the enforcement: the process that handles money has no way to touch a pixel.
 
-# Everything agrees about where things are
+# 8.3 One coordinate system on the wire
 
 [IMAGE: docs/img/architecture-coordinate-spaces.svg]
 *The table and the camera both convert into projector pixels. That is the only frame on the wire.*
@@ -464,7 +507,7 @@ That last step has no automatic check. A homography fits any four corners exactl
 
 For the same reason, the bin boundaries are stored twice. The camera grid is dragged onto the camera's video. The projector grid is nudged with the arrow keys while watching the light on the trays. Both start from the same measurements, and neither is ever computed from the other, because a rectangle that looks right in one view can be wrong in the other.
 
-# Eight states, and one of them is dangerous
+# 8.4 The state machine, and the danger in Serving off
 
 [IMAGE: docs/img/architecture-state-machine.svg]
 *Boot, calibrate, idle, pick, broth, spice, pay. And Serving off, which reaches all of them.*
@@ -475,7 +518,7 @@ The eighth is Serving off, the mode staff use to change the table — swap a tra
 
 The fix is one extra step on the way out of Serving off, kept inside the state machine so no future caller can forget it: read all eight cells again first, then re-baseline.
 
-# The bill is a subtraction
+# 8.5 The bill is a subtraction
 
 [IMAGE: docs/img/architecture-cart-weights.svg]
 *One bin, one session, three arrays of eight numbers.*
@@ -484,7 +527,7 @@ The cart stores what each bin weighed when you walked up, and what it weighs now
 
 That one choice is why tipping food back works, and it needed no code: it is the same subtraction with a smaller answer.
 
-# The light is the interface
+# 8.6 The projector is the only light in the room
 
 [IMAGE: docs/img/architecture-light-pass.svg]
 *Five layers into one frame, and the one that has to go last.*
@@ -498,7 +541,7 @@ So a bin's interior is flat, opaque white, always. That white is what lights the
 
 The column up the middle is the one strip of table with no bin and no bin label in it, so that is where the reading goes. The original plan put the buttons in the near-right corner instead. That corner is exactly where the near-right bin writes its own name, which nobody noticed until it was projected onto plywood and the two came out printed on top of each other.
 
-# One hand, and it took a while
+# 8.7 Hand tracking through a moving window
 
 [IMAGE: docs/img/architecture-hand-window.svg]
 *A 700 pixel window that follows the hand, and the tiles it hunts through to find one.*
@@ -507,7 +550,7 @@ MediaPipe would not see a hand on this table. The first theory came with a sixty
 
 What worked was denoising a hand-sized window rather than the whole table. And once MediaPipe has found a hand through a particular crop, it keeps tracking it through that same crop and loses it the instant you hand it a differently framed one. So the tracker carries a window that follows the hand, rather than a picture that happens to contain it.
 
-# Future improvements
+# 9 Future improvements
 
 - **Automatic camera-to-projector mapping.** Drop the four hand-dragged corner handles and let the two devices align themselves.
 - **The camera finds the table and the bins by itself.** No manual grid, no measured layout file - point it at the table and it works out where every bin is.
@@ -516,7 +559,7 @@ What worked was denoising a hand-sized window rather than the whole table. And o
 - **A synthesised flame sound.** Every other effect is a recorded clip, but the fire changes shape every frame - its sound should be generated from the sim, not played back.
 - **Support more than one camera-projector pair.** Re-architect so several pairs can run side by side and cover a longer table.
 
-# The bowl I would order now
+# 10 Conclusion
 
 Eight bins, one projector, one webcam, a kilogram of gold filament, and a sheet of plywood standing on twelve printed pillars.
 
