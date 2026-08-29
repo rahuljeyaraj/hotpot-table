@@ -1,87 +1,87 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 800" width="1240" height="800">
 <rect width="1240" height="800" fill="#ffffff"/>
-<text x="36" y="44" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#1a1a1a" text-anchor="start" font-weight="bold" font-style="normal">The Fire Pot: tabletop cutting plan</text>
-<text x="36" y="68" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#6b6b6b" text-anchor="start" font-weight="normal" font-style="normal">Plywood top, 1524 x 914.4 mm, which is 60 x 36 inches. All figures in millimetres.</text>
+<text x="36" y="44" font-family="Helvetica,Arial,sans-serif" font-size="28" fill="#1a1a1a" text-anchor="start" font-weight="bold" font-style="normal">The Fire Pot: tabletop cutting plan</text>
+<text x="36" y="68" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#6b6b6b" text-anchor="start" font-weight="normal" font-style="normal">Plywood top, 1524 x 914.4 mm, which is 60 x 36 inches. All figures in millimetres.</text>
 <rect x="130" y="150" width="914.4" height="548.64" rx="2" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.4"/>
 <rect x="185.2" y="256.2" width="120" height="153" rx="6" fill="#ffe6c7" stroke="#cc5500" stroke-width="2"/>
-<text x="245.2" y="341.7" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">0</text>
+<text x="245.2" y="341.7" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">0</text>
 <rect x="335.2" y="256.2" width="120" height="153" rx="6" fill="#ffe6c7" stroke="#cc5500" stroke-width="2"/>
-<text x="395.2" y="341.7" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">1</text>
+<text x="395.2" y="341.7" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">1</text>
 <rect x="719.2" y="256.2" width="120" height="153" rx="6" fill="#ffe6c7" stroke="#cc5500" stroke-width="2"/>
-<text x="779.2" y="341.7" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">2</text>
+<text x="779.2" y="341.7" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">2</text>
 <rect x="869.2" y="256.2" width="120" height="153" rx="6" fill="#ffe6c7" stroke="#cc5500" stroke-width="2"/>
-<text x="929.2" y="341.7" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">3</text>
+<text x="929.2" y="341.7" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">3</text>
 <rect x="185.2" y="439.2" width="120" height="153" rx="6" fill="#ffe6c7" stroke="#cc5500" stroke-width="2"/>
-<text x="245.2" y="524.7" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">4</text>
+<text x="245.2" y="524.7" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">4</text>
 <rect x="335.2" y="439.2" width="120" height="153" rx="6" fill="#ffe6c7" stroke="#cc5500" stroke-width="2"/>
-<text x="395.2" y="524.7" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">5</text>
+<text x="395.2" y="524.7" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">5</text>
 <rect x="719.2" y="439.2" width="120" height="153" rx="6" fill="#ffe6c7" stroke="#cc5500" stroke-width="2"/>
-<text x="779.2" y="524.7" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">6</text>
+<text x="779.2" y="524.7" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">6</text>
 <rect x="869.2" y="439.2" width="120" height="153" rx="6" fill="#ffe6c7" stroke="#cc5500" stroke-width="2"/>
-<text x="929.2" y="524.7" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">7</text>
+<text x="929.2" y="524.7" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#cc5500" text-anchor="middle" font-weight="bold" font-style="normal">7</text>
 <rect x="455.2" y="256.2" width="264" height="336" rx="6" fill="none" stroke="#b8b8b8" stroke-width="1.6" stroke-dasharray="6 6"/>
-<text x="587.2" y="402" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">440 mm centre column</text>
-<text x="587.2" y="414" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">stays solid: details,</text>
-<text x="587.2" y="426" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">cart and checkout</text>
+<text x="587.2" y="400" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">440 mm centre column</text>
+<text x="587.2" y="419" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">stays solid: details,</text>
+<text x="587.2" y="438" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">cart and checkout</text>
 <line x1="130" y1="742.64" x2="185.2" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="130" y1="737.64" x2="130" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="185.2" y1="737.64" x2="185.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="157.6" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">92</text>
+<text x="157.6" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">92</text>
 <line x1="185.2" y1="742.64" x2="305.2" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="185.2" y1="737.64" x2="185.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="305.2" y1="737.64" x2="305.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="245.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">200</text>
+<text x="245.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">200</text>
 <line x1="305.2" y1="742.64" x2="335.2" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="305.2" y1="737.64" x2="305.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="335.2" y1="737.64" x2="335.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="320.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">50</text>
+<text x="320.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">50</text>
 <line x1="335.2" y1="742.64" x2="455.2" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="335.2" y1="737.64" x2="335.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="455.2" y1="737.64" x2="455.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="395.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">200</text>
+<text x="395.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">200</text>
 <line x1="455.2" y1="742.64" x2="719.2" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="455.2" y1="737.64" x2="455.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="719.2" y1="737.64" x2="719.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="587.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">440</text>
+<text x="587.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">440</text>
 <line x1="719.2" y1="742.64" x2="839.2" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="719.2" y1="737.64" x2="719.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="839.2" y1="737.64" x2="839.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="779.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">200</text>
+<text x="779.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">200</text>
 <line x1="839.2" y1="742.64" x2="869.2" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="839.2" y1="737.64" x2="839.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="869.2" y1="737.64" x2="869.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="854.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">50</text>
+<text x="854.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">50</text>
 <line x1="869.2" y1="742.64" x2="989.2" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="869.2" y1="737.64" x2="869.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="989.2" y1="737.64" x2="989.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="929.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">200</text>
+<text x="929.2" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">200</text>
 <line x1="989.2" y1="742.64" x2="1044.4" y2="742.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="989.2" y1="737.64" x2="989.2" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="1044.4" y1="737.64" x2="1044.4" y2="747.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="1016.8" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">92</text>
-<text x="587.2" y="776.64" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">1524 mm across</text>
+<text x="1016.8" y="732.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" font-weight="normal" font-style="normal">92</text>
+<text x="587.2" y="776.64" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">1524 mm across</text>
 <line x1="84" y1="150" x2="84" y2="256.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="150" x2="89" y2="150" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="256.2" x2="89" y2="256.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="74" y="207.1" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 207.1)">177</text>
+<text x="74" y="207.1" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 207.1)">177</text>
 <line x1="84" y1="256.2" x2="84" y2="409.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="256.2" x2="89" y2="256.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="409.2" x2="89" y2="409.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="74" y="336.7" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 336.7)">255</text>
+<text x="74" y="336.7" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 336.7)">255</text>
 <line x1="84" y1="409.2" x2="84" y2="439.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="409.2" x2="89" y2="409.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="439.2" x2="89" y2="439.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="74" y="428.2" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 428.2)">50</text>
+<text x="74" y="428.2" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 428.2)">50</text>
 <line x1="84" y1="439.2" x2="84" y2="592.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="439.2" x2="89" y2="439.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="592.2" x2="89" y2="592.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="74" y="519.7" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 519.7)">255</text>
+<text x="74" y="519.7" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 519.7)">255</text>
 <line x1="84" y1="592.2" x2="84" y2="698.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="592.2" x2="89" y2="592.2" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
 <line x1="79" y1="698.64" x2="89" y2="698.64" stroke="#6b6b6b" stroke-width="1.4" stroke-linecap="round"/>
-<text x="74" y="649.42" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 649.42)">177.4</text>
-<text x="42" y="424.32" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#1a1a1a" text-anchor="middle" font-weight="bold" transform="rotate(-90 42 424.32)">914.4 mm deep</text>
-<text x="1060.4" y="170" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="start" font-weight="bold" font-style="normal">FAR ROW</text>
-<text x="1060.4" y="450" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#6b6b6b" text-anchor="start" font-weight="bold" font-style="normal">NEAR ROW</text>
-<text x="1060.4" y="692.64" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#1a1a1a" text-anchor="start" font-weight="normal" font-style="italic">the diner stands here</text>
+<text x="74" y="649.42" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="middle" transform="rotate(-90 74 649.42)">177.4</text>
+<text x="42" y="424.32" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="bold" transform="rotate(-90 42 424.32)">914.4 mm deep</text>
+<text x="1060.4" y="170" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="start" font-weight="bold" font-style="normal">FAR ROW</text>
+<text x="1060.4" y="450" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#6b6b6b" text-anchor="start" font-weight="bold" font-style="normal">NEAR ROW</text>
+<text x="1060.4" y="692.64" font-family="Helvetica,Arial,sans-serif" font-size="15" fill="#1a1a1a" text-anchor="start" font-weight="normal" font-style="italic">the diner stands here</text>
 </svg>
