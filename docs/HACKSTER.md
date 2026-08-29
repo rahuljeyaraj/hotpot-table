@@ -469,9 +469,11 @@ For the same reason, the bin boundaries are stored twice. The camera grid is dra
 [IMAGE: docs/img/architecture-state-machine.svg]
 *Boot, calibrate, idle, pick, broth, spice, pay. And Serving off, which reaches all of them.*
 
-Serving off is the mode staff use to change the table: swap a tray, zero the scales, redo the geometry. The load cells stop driving the cart the moment it starts, which is the point, and it is also the trap. Switch it back on and the cart re-baselines against weights it read before the trays were touched. Swap a full tray for an empty one, which is exactly what the mode is for, and the difference is a whole tray of food the next diner gets charged for.
+Seven of the eight states are the path one diner walks: boot, calibrate once, wait in idle, then a hand arrives and it runs through selecting, broth, spice and pay before returning to idle. Cancel drops back to idle from any of the middle four.
 
-The fix is one extra step, and it lives inside the state machine where no future caller can forget it: read all eight cells again first, then re-baseline.
+The eighth is Serving off, the mode staff use to change the table — swap a tray, zero a scale, redo the geometry — and it can be entered from any of the other states. It is the dangerous one. While it is on, the load cells stop driving the cart, so staff can lift a tray without the prices reacting. The trap is switching it back on: the cart re-baselines against the weights it last read, which were taken before the trays were touched. Swap a full tray for an empty one, exactly what the mode is for, and that whole tray reads as food the next diner removed.
+
+The fix is one extra step on the way out of Serving off, kept inside the state machine so no future caller can forget it: read all eight cells again first, then re-baseline.
 
 # The bill is a subtraction
 
