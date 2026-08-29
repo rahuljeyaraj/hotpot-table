@@ -291,13 +291,25 @@ The 440 mm column up the middle stays solid. That is where the table projects th
 
 Stand the plywood on the pillars over the table, with each bin coming up through its opening.
 
-# Flash the XIAO
+# Get the code
 
-Clone the repository and flash the firmware with [PlatformIO](https://platformio.org/):
+The projected table and the Python processes behind it live in one repository, and it belongs inside an openFrameworks tree: the Visual Studio project walks five levels up to find openFrameworks, so `apps/myApps/hotpot-table` is where it expects to be.
+
+Download [openFrameworks 0.12.1](https://openframeworks.cc/download/) for Visual Studio, unzip it, and clone into it:
 
 ```
+cd openFrameworks/apps/myApps
 git clone https://github.com/rahuljeyaraj/hotpot-table
-cd hotpot-table/firmware/loadcells
+```
+
+Everything from here on runs from that folder.
+
+# Flash the XIAO
+
+Flash the firmware with [PlatformIO](https://platformio.org/):
+
+```
+cd openFrameworks/apps/myApps/hotpot-table/firmware/loadcells
 pio run -t upload
 pio device monitor
 ```
@@ -339,21 +351,13 @@ Run the HDMI cable to the projector, and the two USB extensions to the camera an
 
 # Install the software
 
-**openFrameworks.** Download [openFrameworks 0.12.1](https://openframeworks.cc/download/) for Visual Studio and unzip it. Clone the repository into its `apps/myApps/` folder, which is where the project expects to be:
+**The table.** Four addons are needed. `ofxGui`, `ofxOsc` and `ofxNetwork` come with openFrameworks. [ofxFlowTools](https://github.com/moostrik/ofxFlowTools), the fluid solver behind the fire, is a separate download that goes in `openFrameworks/addons/`.
+
+Open `of/hotpot-table/hotpot-table.sln` in Visual Studio and build the **Debug** configuration, which is the binary the launcher starts. Set `HOTPOT_OF_BIN` if you would rather it ran something else.
+
+**Python.** One interpreter for the whole tree, installed from the repository root:
 
 ```
-cd openFrameworks/apps/myApps
-git clone https://github.com/rahuljeyaraj/hotpot-table
-```
-
-Four addons are needed. `ofxGui`, `ofxOsc` and `ofxNetwork` come with openFrameworks. [ofxFlowTools](https://github.com/moostrik/ofxFlowTools), the fluid solver behind the fire, is a separate download that goes in `openFrameworks/addons/`.
-
-Open `hotpot-table/of/hotpot-table/hotpot-table.sln` in Visual Studio and build the **Debug** configuration, which is the binary the launcher starts. Set `HOTPOT_OF_BIN` if you would rather it ran something else.
-
-**Python.** One interpreter for the whole tree:
-
-```
-cd hotpot-table
 pip install -r python/requirements.txt
 ```
 
