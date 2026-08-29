@@ -3,8 +3,8 @@
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker><marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cc5500"/></marker><marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6f8b"/></marker><marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b03030"/></marker></defs>
 <text x="40" y="52" font-family="Helvetica,Arial,sans-serif" font-size="32.4" fill="#1a1a1a" text-anchor="start" font-weight="bold">The state machine</text>
 <text x="40" y="82" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#6b6b6b" text-anchor="start" font-weight="normal">Eight states. Three edges end a session, and all three call the same function to do it.</text>
-<rect x="550.0" y="120" width="300" height="74" rx="10" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.6"/>
-<text x="700.0" y="165.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">BOOT</text>
+<rect x="560" y="120" width="300" height="74" rx="10" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.6"/>
+<text x="710.0" y="165.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">BOOT</text>
 <rect x="80" y="250" width="300" height="74" rx="10" fill="#efe8fb" stroke="#6a4bbd" stroke-width="2.6"/>
 <text x="230.0" y="294.82" font-family="Helvetica,Arial,sans-serif" font-size="27.6" fill="#6a4bbd" text-anchor="middle" font-weight="bold">UNCALIBRATED</text>
 <rect x="560" y="250" width="300" height="74" rx="10" fill="#ddefe1" stroke="#2f7d43" stroke-width="2.6"/>
@@ -19,16 +19,16 @@
 <text x="710.0" y="885.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#1a1a1a" text-anchor="middle" font-weight="bold">CHECKOUT</text>
 <rect x="80" y="700" width="300" height="74" rx="10" fill="#fdf0cf" stroke="#a5761b" stroke-width="2.6"/>
 <text x="230.0" y="745.5" font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#a5761b" text-anchor="middle" font-weight="bold">SETTING</text>
-<line x1="630" y1="194" x2="250" y2="246" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<line x1="740" y1="194" x2="690" y2="246" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="244" y="222" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="end" font-weight="normal">no geometry saved</text>
-<text x="700" y="222" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="start" font-weight="normal">geometry on disk</text>
+<line x1="710" y1="194" x2="710" y2="248" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
+<path d="M 610 194 C 585 235, 300 245, 258 252" fill="none" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
+<text x="430" y="210" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="end" font-weight="normal">no geometry saved</text>
+<text x="726" y="222" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#6b6b6b" text-anchor="start" font-weight="normal">geometry on disk</text>
 <path d="M 380 268 C 460 268, 480 268, 556 276" fill="none" stroke="#1a1a1a" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
 <rect x="411.6" y="242.52" width="112.80000000000001" height="24.3" fill="#ffffff" rx="3"/>
 <text x="468" y="258" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">calibrated</text>
-<line x1="700" y1="324" x2="700" y2="396" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
-<rect x="758.736" y="347.488" width="162.52800000000002" height="25.92" fill="#ffffff" rx="3"/>
-<text x="840" y="364" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#1a1a1a" text-anchor="middle" font-weight="bold">a hand arrives</text>
+<line x1="710" y1="324" x2="710" y2="396" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
+<rect x="768.736" y="347.488" width="162.52800000000002" height="25.92" fill="#ffffff" rx="3"/>
+<text x="850" y="364" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#1a1a1a" text-anchor="middle" font-weight="bold">a hand arrives</text>
 <line x1="660" y1="474" x2="660" y2="556" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
 <text x="644" y="521.0" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#1a1a1a" text-anchor="end" font-weight="bold">Next</text>
 <line x1="660" y1="634" x2="660" y2="696" stroke="#1a1a1a" stroke-width="2.6" stroke-linecap="round" marker-end="url(#a)"/>
@@ -52,14 +52,13 @@
 <text x="1064" y="660" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#b03030" text-anchor="start" font-weight="bold">Cancel</text>
 <text x="1064" y="684" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#b03030" text-anchor="start" font-weight="normal">offered on</text>
 <text x="1064" y="706" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#b03030" text-anchor="start" font-weight="normal">all four</text>
-<path d="M 556 460 C 480 480, 430 660, 388 716" fill="none" stroke="#a5761b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="400" y="560" font-family="Helvetica,Arial,sans-serif" font-size="20.4" fill="#a5761b" text-anchor="end" font-weight="bold">Serving off</text>
-<text x="400" y="584" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="end" font-weight="normal">from any state,</text>
-<text x="400" y="606" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="end" font-weight="normal">with an empty cart</text>
+<path d="M 556 384 C 440 470, 235 585, 186 698" fill="none" stroke="#a5761b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
+<path d="M 186 698 C 235 585, 440 470, 556 384" fill="none" stroke="#a5761b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
+<text x="310" y="505" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="end" font-weight="bold">Serving off</text>
+<text x="310" y="528" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="end" font-weight="bold">Serving on</text>
+<text x="310" y="549" font-family="Helvetica,Arial,sans-serif" font-size="15.6" fill="#a5761b" text-anchor="end" font-weight="normal">from any state</text>
 <path d="M 150 700 L 150 332" fill="none" stroke="#a5761b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="100" y="520" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="start" font-weight="normal">Serving on,</text>
+<text x="100" y="520" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="start" font-weight="bold">Serving on,</text>
 <text x="100" y="542" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="start" font-weight="normal">geometry</text>
 <text x="100" y="564" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="start" font-weight="normal">still missing</text>
-<path d="M 330 700 C 400 660, 470 380, 554 312" fill="none" stroke="#a5761b" stroke-width="2.4" stroke-linecap="round" marker-end="url(#a)"/>
-<text x="352" y="690" font-family="Helvetica,Arial,sans-serif" font-size="19.2" fill="#a5761b" text-anchor="start" font-weight="bold">Serving on</text>
 </svg>

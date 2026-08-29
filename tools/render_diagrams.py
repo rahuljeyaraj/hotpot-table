@@ -532,7 +532,7 @@ def fsm():
     LX = 560          # chain left edge
     RX = 860          # chain right edge
 
-    node(CX - NW / 2, 120, NW, NH, "BOOT")
+    node(LX, 120, NW, NH, "BOOT")
     node(80, 250, 300, NH, "UNCALIBRATED", fill="#efe8fb", stroke="#6a4bbd",
          size=23)
     node(LX, 250, NW, NH, "IDLE", fill=GOOD_FILL, stroke=GOOD)
@@ -542,18 +542,19 @@ def fsm():
     node(LX, 840, NW, NH, "CHECKOUT")
     node(80, 700, 300, NH, "SETTING", fill="#fdf0cf", stroke="#a5761b")
 
-    # boot
-    s.line(CX - 70, 194, 250, 246, arrow="a", sw=2.4)
-    s.line(CX + 40, 194, 690, 246, arrow="a", sw=2.4)
-    s.text(244, 222, "no geometry saved", 16, MUTED, anchor="end")
-    s.text(700, 222, "geometry on disk", 16, MUTED)
+    # boot: straight down into IDLE, a curve out to UNCALIBRATED
+    s.line(710, 194, 710, 248, arrow="a", sw=2.6)
+    s.path("M 610 194 C 585 235, 300 245, 258 252", stroke=INK, sw=2.4,
+           arrow="a")
+    s.text(430, 210, "no geometry saved", 16, MUTED, anchor="end")
+    s.text(726, 222, "geometry on disk", 16, MUTED)
     s.path("M 380 268 C 460 268, 480 268, 556 276", stroke=INK, sw=2.4,
            arrow="a")
     s.label_on_line(468, 258, "calibrated", 15, MUTED, weight="normal")
 
     # idle -> selecting
-    s.line(CX, 324, CX, 396, arrow="a", sw=2.6)
-    s.label_on_line(CX + 140, 364, "a hand arrives", 16)
+    s.line(710, 324, 710, 396, arrow="a", sw=2.6)
+    s.label_on_line(710 + 140, 364, "a hand arrives", 16)
 
     # forward chain, labels to the LEFT
     for y0, y1, lab in ((474, 556, "Next"), (634, 696, "Next"), (774, 836, "Pay")):
@@ -580,20 +581,20 @@ def fsm():
     s.text(1064, 684, "offered on", 16, BAD)
     s.text(1064, 706, "all four", 16, BAD)
 
-    # setting: in
-    s.path("M 556 460 C 480 480, 430 660, 388 716", stroke="#a5761b", sw=2.4,
+    # setting: one staff toggle between the chain and SETTING, headed both
+    # ways (Serving off goes in, Serving on comes back out to IDLE)
+    s.path("M 556 384 C 440 470, 235 585, 186 698", stroke="#a5761b", sw=2.4,
            arrow="a")
-    s.text(400, 560, "Serving off", 17, "#a5761b", anchor="end", weight="bold")
-    s.text(400, 584, "from any state,", 16, "#a5761b", anchor="end")
-    s.text(400, 606, "with an empty cart", 16, "#a5761b", anchor="end")
-    # setting: out
+    s.path("M 186 698 C 235 585, 440 470, 556 384", stroke="#a5761b", sw=2.4,
+           arrow="a")
+    s.text(310, 505, "Serving off", 16, "#a5761b", anchor="end", weight="bold")
+    s.text(310, 528, "Serving on", 16, "#a5761b", anchor="end", weight="bold")
+    s.text(310, 549, "from any state", 13, "#a5761b", anchor="end")
+    # SETTING -> UNCALIBRATED, when the geometry is still missing
     s.path("M 150 700 L 150 332", stroke="#a5761b", sw=2.4, arrow="a")
-    s.text(100, 520, "Serving on,", 16, "#a5761b")
+    s.text(100, 520, "Serving on,", 16, "#a5761b", weight="bold")
     s.text(100, 542, "geometry", 16, "#a5761b")
     s.text(100, 564, "still missing", 16, "#a5761b")
-    s.path("M 330 700 C 400 660, 470 380, 554 312", stroke="#a5761b", sw=2.4,
-           arrow="a")
-    s.text(352, 690, "Serving on", 16, "#a5761b", weight="bold")
 
     s.save("architecture-state-machine.svg")
 
