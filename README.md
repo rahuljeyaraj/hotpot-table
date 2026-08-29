@@ -33,7 +33,7 @@ touch.
 ## How it works
 
 <p align="center">
-  <img src="docs/img/architecture-processes.png" alt="Five processes, four transports" width="720">
+  <img src="docs/img/architecture-processes-headings.png" alt="Five processes and four transports, from the webcam and load cells down to the projector" width="640">
 </p>
 
 Five processes, none of which shares a variable with any other. `python run.py`
