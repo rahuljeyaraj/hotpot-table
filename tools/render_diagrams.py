@@ -393,7 +393,9 @@ def ring():
     s.line(wx, 340, wx, 374, stroke=ACCENT, sw=2.6, arrow="ao")
 
     ry = 600
-    s.box(120, ry, 420, 216,
+    # centred on slot 5 so the read arrow drops straight down
+    rdx = wx - 210
+    s.box(rdx, ry, 420, 216,
           ["a reader (tracker, classifier)",
            "",
            "read write_counter",
@@ -402,9 +404,10 @@ def ring():
            "read frame_id again",
            "if the two disagree, retry"],
           head_size=21, body_size=18, body_fill=INK, top=ry + 40)
-    s.line(wx, sy + 196, 330, ry - 6, stroke=INK, sw=2.2, arrow="a", dash="6 5")
+    s.line(wx, sy + 196, wx, ry - 6, stroke=INK, sw=2.2, arrow="a", dash="6 5")
 
-    s.box(640, ry, 520, 216,
+    # to the left of the reader, in the space it used to sit in
+    s.box(60, ry, 500, 216,
           ["Why the retry is there at all",
            "",
            "At 8 slots and 30 frames a second a reader has",

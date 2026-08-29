@@ -71,20 +71,20 @@
 <text x="1049.0" y="538" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#6b6b6b" text-anchor="middle" font-weight="normal">of pixels</text>
 <text x="80" y="356" font-family="Helvetica,Arial,sans-serif" font-size="21.6" fill="#6b6b6b" text-anchor="start" font-weight="normal">8 slots, each one whole 1920 x 1080 BGR frame</text>
 <line x1="789.0" y1="340" x2="789.0" y2="374" stroke="#cc5500" stroke-width="2.6" stroke-linecap="round" marker-end="url(#ao)"/>
-<rect x="120" y="600" width="420" height="216" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="330.0" y="640" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">a reader (tracker, classifier)</text>
-<text x="330.0" y="668.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal"></text>
-<text x="330.0" y="692.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read write_counter</text>
-<text x="330.0" y="716.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read frame_id</text>
-<text x="330.0" y="740.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">copy 6.2 MB of pixels out</text>
-<text x="330.0" y="764.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read frame_id again</text>
-<text x="330.0" y="788.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">if the two disagree, retry</text>
-<line x1="789.0" y1="576" x2="330" y2="594" stroke="#1a1a1a" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="6 5" marker-end="url(#a)"/>
-<rect x="640" y="600" width="520" height="216" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
-<text x="900.0" y="640" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">Why the retry is there at all</text>
-<text x="900.0" y="667.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal"></text>
-<text x="900.0" y="690.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">At 8 slots and 30 frames a second a reader has</text>
-<text x="900.0" y="713.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">about 260 ms before the writer laps it, so a torn</text>
-<text x="900.0" y="736.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read should never happen. A check that cannot fail</text>
-<text x="900.0" y="759.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">proves nothing, so the tests force one by hand.</text>
+<rect x="579.0" y="600" width="420" height="216" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
+<text x="789.0" y="640" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">a reader (tracker, classifier)</text>
+<text x="789.0" y="668.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal"></text>
+<text x="789.0" y="692.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read write_counter</text>
+<text x="789.0" y="716.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read frame_id</text>
+<text x="789.0" y="740.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">copy 6.2 MB of pixels out</text>
+<text x="789.0" y="764.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read frame_id again</text>
+<text x="789.0" y="788.2" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#1a1a1a" text-anchor="middle" font-weight="normal">if the two disagree, retry</text>
+<line x1="789.0" y1="576" x2="789.0" y2="594" stroke="#1a1a1a" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="6 5" marker-end="url(#a)"/>
+<rect x="60" y="600" width="500" height="216" rx="8" fill="#fbf7f0" stroke="#1a1a1a" stroke-width="2.2"/>
+<text x="310.0" y="640" font-family="Helvetica,Arial,sans-serif" font-size="21" fill="#1a1a1a" text-anchor="middle" font-weight="bold">Why the retry is there at all</text>
+<text x="310.0" y="667.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal"></text>
+<text x="310.0" y="690.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">At 8 slots and 30 frames a second a reader has</text>
+<text x="310.0" y="713.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">about 260 ms before the writer laps it, so a torn</text>
+<text x="310.0" y="736.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">read should never happen. A check that cannot fail</text>
+<text x="310.0" y="759.2" font-family="Helvetica,Arial,sans-serif" font-size="17" fill="#1a1a1a" text-anchor="middle" font-weight="normal">proves nothing, so the tests force one by hand.</text>
 </svg>
