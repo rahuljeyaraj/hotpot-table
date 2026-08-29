@@ -738,7 +738,7 @@ def fbo():
     s = Svg(W, H)
 
     X, CW = 90, 700
-    s.text(X, 56, "Five layers into one framebuffer. Layer 3 is stamped last of all.",
+    s.text(X, 56, "Five layers into one framebuffer, then one warp onto the projector.",
            18, MUTED)
 
     rows = [
