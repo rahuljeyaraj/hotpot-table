@@ -25,7 +25,7 @@ part, 1.1 a section inside it, 1.1.1 a subsection. Never nest bullets.
 
 # The Fire Pot: reimagining hotpot
 
-*A dining table that weighs your food, prices it as you pick, and sets itself on fire. Responsibly.*
+*A self-serve hotpot counter that weighs your bowl, prices it as you fill it, and sets itself on fire. Responsibly.*
 
 # 1 Introduction
 
