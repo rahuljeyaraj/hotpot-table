@@ -1,0 +1,6 @@
+# Patch files must keep the line endings they were generated with.
+# `git apply` matches context lines byte for byte, so a checkout that
+# rewrote of/patches/ofxFlowTools.patch to CRLF would make it fail to
+# apply on the machine that needs it most: a fresh clone.
+*.patch -text
+*.diff -text
