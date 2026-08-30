@@ -6,24 +6,24 @@ picked by `classifier/main.py`'s `build_backend()` off
 `config.classifier.backend`, per the plan doc's §1 recommendation to build
 both from the start so Path A vs Path B is a config value, not a rewrite:
 
-- `RoboflowInferenceBackend` — **Path A**, the `inference` package.
+- `RoboflowInferenceBackend` — Path A, the `inference` package.
   `inference.get_model(model_id, api_key)` downloads and caches weights on
   first use; later calls are offline (`MODEL_CACHE_DIR`). The model handle
-  is loaded **lazily on first `classify()`**, never in `__init__` — the
+  is loaded lazily on first `classify()`, never in `__init__` — the
   same rule `EiCppBackend` follows and for the same reason (doc §3.3): a
   fresh clone with no model built/cached yet must still boot a classifier
   process, and construction must never be what fails.
-- `RoboflowOnnxBackend` — **Path B**, a plain `onnxruntime.InferenceSession`
+- `RoboflowOnnxBackend` — Path B, a plain `onnxruntime.InferenceSession`
   over a file in `models/` (§3.4's "never glob" — the exact filename comes
   from `rf_store.py`, not a directory listing).
 
-**Both raise `backend_ei.ClassifierBackendError`, never a parallel
-exception type** — doc §2.1: `classifier/main.py`'s `_classify` catches
+Both raise `backend_ei.ClassifierBackendError`, never a parallel
+exception type — doc §2.1: `classifier/main.py`'s `_classify` catches
 that class by name, so a different exception here would crash the whole
 pass instead of leaving one bin unresolved. Imported, not redefined.
 
-**The heavy dependency (`inference` or `onnxruntime`) is imported inside
-the method that needs it, never at module scope** — the same seam
+The heavy dependency (`inference` or `onnxruntime`) is imported inside
+the method that needs it, never at module scope — the same seam
 `core/scale.py` uses for pyserial and `common/geometry.py` uses for cv2,
 so this module (and `test_backend_rf.py`) stays importable and testable on
 a machine with neither package installed. Doc §4.3 flags `inference`'s
@@ -31,7 +31,7 @@ dependency weight and the real risk of a `pip install` silently downgrading
 `penv`'s numpy/opencv/mediapipe pins — nothing in this file ever imports
 either package unless `classify()` is actually called.
 
-**Colour order.** The crop arrives BGR (OpenCV, `common/geometry.
+Colour order. The crop arrives BGR (OpenCV, `common/geometry.
 warp_frame_to_stage`'s output). Roboflow models, like Edge Impulse's, are
 trained on RGB. Both backends below convert with `cv2.cvtColor(...,
 cv2.COLOR_BGR2RGB)` before the model ever sees a pixel — get this wrong and
@@ -39,16 +39,16 @@ the model returns confident wrong labels with no error anywhere, the worst
 failure mode in this whole feature (doc §6.1). `test_backend_rf.py` has a
 test that would go red if either conversion were deleted.
 
-**Read the class list from the artifact, never hardcode it.**
+Read the class list from the artifact, never hardcode it.
 `backend_ei.py`'s `_InputDims` learned this the hard way (its own module
 comment: a hand-maintained input-size constant let a redeployed model sit
 on disk while the code kept resizing to the previous one's dimensions).
 Same trap, same cure, applied to both backends here — see each class's own
 docstring for exactly where its class list and input size come from.
 
-**Everything below marked VERIFY is reasoned from Roboflow's published
+Everything below marked VERIFY is reasoned from Roboflow's published
 docs and the `inference`/`onnxruntime` package APIs, not from a live call
-or a live account** — doc §5's own rule: "Never assume an external API
+or a live account — doc §5's own rule: "Never assume an external API
 exists. Verify against the installed version." Neither §5's probes (V1-V8)
 nor a real Roboflow account were available while this file was written.
 Read each VERIFY comment before trusting the shape it describes; the
@@ -103,8 +103,8 @@ class RoboflowInferenceBackend:
     load, the same "re-read the artifact, don't trust a cached copy" rule
     `backend_ei._InputDims` already enforces for Edge Impulse.
 
-    **VERIFY (doc §5, V7/V7b) — none of this has run against a live
-    account or a live model.** `inference.get_model(model_id, api_key)` and
+    VERIFY (doc §5, V7/V7b) — none of this has run against a live
+    account or a live model. `inference.get_model(model_id, api_key)` and
     `model.infer(image)` are Roboflow's documented entry points
     (appendix's "Local inference" block); the exact shape of what
     `infer()` returns, and whether the returned model object exposes
@@ -212,7 +212,7 @@ def _input_size(model: Any) -> Optional[Tuple[int, int]]:
     """(width, height) if the loaded model exposes one, else None — in
     which case `classify()` passes the RGB crop through unresized and
     trusts `inference`'s own documented behaviour of accepting an
-    arbitrary-sized image and preprocessing it internally. **VERIFY**:
+    arbitrary-sized image and preprocessing it internally. VERIFY:
     which of these two paths is actually correct for a real Roboflow
     classification model has not been confirmed (doc §5, V7). Every
     attribute name tried here is a guess, not a confirmed one — a bare
@@ -232,7 +232,7 @@ def _extract_top(result: Any, class_names: Optional[List[str]]
                   ) -> Tuple[str, float]:
     """Turns whatever `model.infer()` returned into `(label, confidence)`.
 
-    **VERIFY (doc §5, V7)**: Roboflow's documented classification HTTP
+    VERIFY (doc §5, V7): Roboflow's documented classification HTTP
     response carries top-level `top`/`confidence` fields
     (`{"predictions": [...], "top": "<class>", "confidence": 0.98}`), and
     the `inference` package's own response objects are widely described as
@@ -297,7 +297,7 @@ class _ClassListFile:
     role `backend_ei._InputDims` plays for `model_metadata.h`, generalised
     to a list of names instead of two ints.
 
-    **This file's format is this repo's own convention, not Roboflow's** —
+    This file's format is this repo's own convention, not Roboflow's —
     doc §1 Path B: Roboflow does not support weights used outside its own
     Inference ecosystem, so there is no vendor-shipped sidecar to read.
     `rf_deploy.py` writes it (`<model>.classes.json`, doc §3.4's "record
@@ -348,7 +348,7 @@ class RoboflowOnnxBackend:
     `RoboflowInferenceBackend` and `EiCppBackend`: construction must never
     be what fails a fresh clone with no model deployed yet.
 
-    **VERIFY**: the input tensor's shape/layout (NCHW vs NHWC) is read off
+    VERIFY: the input tensor's shape/layout (NCHW vs NHWC) is read off
     `session.get_inputs()[0]` at classify() time — real `onnxruntime` API,
     not a Roboflow-specific guess — but has not been checked against a
     real Roboflow-exported ONNX classification model (doc §5, V8 covers

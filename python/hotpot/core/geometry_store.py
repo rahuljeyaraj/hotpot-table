@@ -1,8 +1,8 @@
 """core/geometry_store.py — the camera<->stage homography, corner points,
 and the display-only view rotation (doc sections 5.3, 8.5, 9.1).
 
-**This module used to also own the 8 bin rects, in both spaces
-(`state/bin_rects.json`).** That moved to `core/bin_grid.py` — a bin
+This module used to also own the 8 bin rects, in both spaces
+(`state/bin_rects.json`). That moved to `core/bin_grid.py` — a bin
 boundary is a 4-horizontal + 8-vertical line grid now, not 8 independently
 dragged rects, and there are two independent grids (camera-space,
 projector-space) instead of one rect list derived through this module's
@@ -16,13 +16,13 @@ This module is the only writer of `state/homography.json`, the same way
 go through `atomicio` (doc section 20.4) because a half-written homography
 does not fail visibly — it mis-places every downstream frame warp.
 
-**No cv2 anywhere in this file.** Fitting lives in `common/geometry.fit`
+No cv2 anywhere in this file. Fitting lives in `common/geometry.fit`
 and is called by `fit_from_corners()` below; everything else here is
 loading, applying and saving, so a core process on a machine with no
 OpenCV and no camera still boots, still knows whether it is calibrated,
 and still holds the last solved homography.
 
-**Doc section 5.3's TRAP lives here more than anywhere else.** There is no
+Doc section 5.3's TRAP lives here more than anywhere else. There is no
 `verify()` on this class and there must not be one. A homography that
 LOOKS perfect (`rms_px: 0.0`, `n_points: 4`) can still be solved from a
 mis-paired or degenerate click order and point nowhere near the real
@@ -79,7 +79,7 @@ DEFAULT_CAMERA_SIZE = (1920, 1080)
 # The physical table — a mirror of of/hotpot-table/src/TableGeometry.h
 # ---------------------------------------------------------------------------
 #
-# **These numbers exist twice and must change twice.** C++ cannot import
+# These numbers exist twice and must change twice. C++ cannot import
 # this file and Python cannot import a header, so the CAD layout lives in
 # `TableGeometry.h` (which oF draws from when core has sent it no rects)
 # and here, which is what `bin_grid.cad_bin_grid_stage()` seeds a fresh
@@ -213,7 +213,7 @@ class GeometryStore:
 
     def fit_from_corners(self, cam_points: Sequence[Point]) -> geometry.Fit:
         """The manual calibration flow: the operator clicks the table's 4
-        real corners on the live feed, in a **fixed physical order** — from
+        real corners on the live feed, in a fixed physical order — from
         where the operator stands, front-left, front-right, back-right,
         back-left — and this pairs them against the matching stage corners.
 
@@ -227,7 +227,7 @@ class GeometryStore:
         physically "front-left" regardless of how the feed looks on screen —
         the code never has to guess, so it never has to get it wrong.
 
-        Returns the `Fit` **unsaved** — installing it is `set_homography()`'s
+        Returns the `Fit` unsaved — installing it is `set_homography()`'s
         job; `core/main.py`'s `_handle_manual_calibrate` is the caller that
         does both.
         """
@@ -241,8 +241,8 @@ class GeometryStore:
         back-right / back-left order `fit_from_corners()` expects its camera
         points in.
 
-        **front (near, the operator's/diner's own side) is the HIGH-y edge,
-        back (far) is the LOW-y edge** — `BIN_ORIGINS_MM`'s own convention
+        front (near, the operator's/diner's own side) is the HIGH-y edge,
+        back (far) is the LOW-y edge — `BIN_ORIGINS_MM`'s own convention
         (far row at y_mm=177, near row at y_mm=482, table height 914.4mm)
         and the one the staff view's `drawRectifiedPreview` uses ("near you
         at the BOTTOM... the same way a floor plan puts the viewer's own
@@ -269,8 +269,8 @@ class GeometryStore:
         Not calibration data — it does not touch `H_cam->stage` or
         anything oF receives, so it lives in its own file and saves
         immediately rather than waiting on a Confirm the way a dragged
-        corner does. **No longer purely a display preference as of
-        2026-08-12**: `core/main.py`'s `_tracker_cfg()` also sends this
+        corner does. No longer purely a display preference as of
+        2026-08-12: `core/main.py`'s `_tracker_cfg()` also sends this
         value to the tracker, which uses it to compensate MediaPipe's own
         detection for the camera's physical mount rotation
         (`backend_mediapipe.py`'s "180-degree mount compensation") — the
@@ -294,7 +294,7 @@ class GeometryStore:
         if it differs from the one recorded beside the homography, the
         calibration is stale and the staff view says so.
 
-        Unknown on either side is **not** stale. Before oF has ever
+        Unknown on either side is not stale. Before oF has ever
         connected there is no fingerprint to compare, and a startup that
         shouted "calibration stale" every time the table was slow to come
         up would train the operator to ignore the one message that matters.

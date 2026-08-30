@@ -2,7 +2,7 @@
 in Roboflow" to "the backend can load it", and says so. The Roboflow
 sibling of `ei_deploy.py`, per `docs/ROBOFLOW_PATHWAY.md` §6 step 4.
 
-**Much smaller than `ei_deploy.py` (doc §3.4)** — neither Path compiles
+Much smaller than `ei_deploy.py` (doc §3.4) — neither Path compiles
 anything. Path A (`deploy_path_a`) triggers the weight download and
 cache-warm so the first real live `classify()` is not the thing that
 discovers there is no network. Path B (`deploy_path_b`) fetches the
@@ -12,7 +12,7 @@ directory glob (§3.4's own rule, the one the Edge Impulse side already
 learned the hard way: two `tflite_learn_*.cpp` files both matching one
 glob).
 
-**The failure this module exists to prevent** is the one `ei_deploy.py`'s
+The failure this module exists to prevent is the one `ei_deploy.py`'s
 docstring opens with: a model sitting downloaded on disk for hours while
 the live app keeps classifying with the old one, because deploying it was
 a separate manual step nothing prompted for. Pressing Deploy is the WHOLE
@@ -22,7 +22,7 @@ call (a store re-read for Path A, an mtime check for Path B's sidecar), so
 neither needs the classifier process restarted for a fresh deploy to take
 effect.
 
-**Never leave the previous model's file sitting next to the new one**
+Never leave the previous model's file sitting next to the new one
 (§3.4, same argument as `ei_deploy.py`'s wipe-then-extract): Path B's
 deploy wipes any previously-deployed `.onnx`/`.classes.json` pair before
 writing the new one, so `models/` can never end up with two Roboflow
@@ -166,7 +166,7 @@ def deploy_path_b(workspace: str, project: str, version: str, api_key: str,
                    on_progress: Optional[Callable[[str], None]] = None
                    ) -> dict:
     """Downloads the trained weights (`client.download_weights`, doc §5
-    V8 — **paid Roboflow plan required**, §1), writes them to
+    V8 — paid Roboflow plan required, §1), writes them to
     `models_dir/model_filename` through `atomicio`, and records that exact
     filename into `rf_store` — never a glob (§3.4).
 

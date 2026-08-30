@@ -9,8 +9,8 @@ No camera, no model, no clock: `HandTracker.update()` takes `now` as an
 argument and `Detection` is a plain dataclass. That is the whole reason
 the module is pure.
 
-**2026-08-13: this file used to be doc section 11.3's full two-hand
-acceptance suite** — matching, a widening gate, handedness-based role
+2026-08-13: this file used to be doc section 11.3's full two-hand
+acceptance suite — matching, a widening gate, handedness-based role
 takeover, a 500ms+500ms retire/promote cycle. All of that is gone from
 `tracking.py` (see its own module docstring — this rig only ever tracks
 one hand, so none of those questions has a second answer to choose

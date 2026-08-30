@@ -10,11 +10,11 @@ own `state/` — the same rule `test_calibrator.py` follows for
 `loadcell_cal.json`, and for the same reason: this file decides where
 every downstream frame warp lands.
 
-**Bin-rect/bin-grid tests live in `test_bin_grid.py` now**, not here —
+Bin-rect/bin-grid tests live in `test_bin_grid.py` now, not here —
 this module stopped owning bin rects; see `geometry_store.py`'s own
 module docstring for where they went.
 
-**What is deliberately NOT tested here:** that the homography points the
+What is deliberately NOT tested here: that the homography points the
 right way. Doc section 5.3 says outright that a reprojection check passes
 by construction, and there is no code in `geometry_store.py` that claims
 to do it. `test_the_store_has_no_verify_method` below is the check that

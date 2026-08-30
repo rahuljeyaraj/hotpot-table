@@ -12,10 +12,10 @@ Doc section 4.9 says "read `firmware/loadcells/src/main.cpp` and match
 its actual print format. Do not assume." Both halves were checked
 against the rig on COM5 on 2026-08-11:
 
-- **Format is right.** `raw <c0> ... <c7>\\r\\n` at 115200 — nine
+- Format is right. `raw <c0> ... <c7>\\r\\n` at 115200 — nine
   whitespace-separated tokens, the literal `raw` and eight signed
   integers, printed once per conversion cycle by `main.cpp`'s `loop()`.
-- **Rate is wrong. Doc section 4.9 says ~78Hz; the rig delivers 10.7Hz**
+- Rate is wrong. Doc section 4.9 says ~78Hz; the rig delivers 10.7Hz
   — the HX711 at its default 10 SPS, RATE pin low. Every derived timing
   in this file follows from 10.7Hz and not from the doc's number:
 
@@ -24,8 +24,8 @@ against the rig on COM5 on 2026-08-11:
                           to cross to a new value after a pick
       settle_ms 300       is ~4 samples, not ~24
 
-That is why `median_window` is a **constructor parameter and not a
-constant**: if the ~280ms lag is visible on the projected surface, the
+That is why `median_window` is a constructor parameter and not a
+constant: if the ~280ms lag is visible on the projected surface, the
 first move is median-of-3 here, not a board mod (see CLAUDE.md, decided
 2026-08-11). Nothing in this file may hardcode 5.
 
@@ -111,7 +111,7 @@ DEFAULT_MEDIAN_WINDOW = 5
 # reason: this rig's own rate and noise numbers were wrong once already
 # (see the module docstring above) and the right value is a rig
 # measurement away, not a guess to freeze into code.
-# **Unmeasured.** Chosen only as "a bit more smoothing is worth a bit
+# Unmeasured. Chosen only as "a bit more smoothing is worth a bit
 # more settling time" — confirm against real jitter on the table before
 # trusting this number, and see settle_ms's own comment for how the two
 # interact.
@@ -210,12 +210,12 @@ def parse_line(line: Any) -> Optional[List[int]]:
     Doc section 4.9's three requirements, all of them satisfied by being
     strict rather than clever:
 
-    - **Partial lines at startup.** The first line after opening the port
+    - Partial lines at startup. The first line after opening the port
       is usually truncated. Its head (`raw 8123 -47`) has too few tokens;
       its tail (`39 812 ... 4471`) has no `raw`. Both fail the same test
       and are dropped. There is deliberately no attempt to salvage half a
       line — a plausible-looking half would mis-weigh a bin.
-    - **Junk is discarded, never raised on.** Line noise at 115200 shows
+    - Junk is discarded, never raised on. Line noise at 115200 shows
       up as non-ASCII bytes or a token that is not an integer.
     - Floats are junk too: `main.cpp` prints `long`s, so a token with a
       decimal point did not come from this firmware.
@@ -416,8 +416,8 @@ class ScaleReader:
     def hz(self, now: Optional[float] = None) -> float:
         """Measured sample rate. ~10.7 on this rig, not doc 4.9's ~78.
 
-        **0.0 once the samples are stale, and that is a fix, not a
-        rounding detail.** `_rate` holds the last RATE_WINDOW arrival
+        0.0 once the samples are stale, and that is a fix, not a
+        rounding detail. `_rate` holds the last RATE_WINDOW arrival
         timestamps and nothing prunes it by age, so a device that stops
         talking altogether leaves the last healthy rate frozen in there
         forever. On 2026-08-25 the staff view read "Load cells: no
@@ -534,8 +534,8 @@ class ScaleReader:
         """Doc section 9.5's classifier trigger: settled when the gram
         value has stayed within ±settle_tol_g for settle_ms.
 
-        **Compared against the value the window opened at, never against
-        the previous sample.** Sample-to-sample comparison passes on a
+        Compared against the value the window opened at, never against
+        the previous sample. Sample-to-sample comparison passes on a
         slow ramp — food being poured in at 1g per sample sits inside a
         ±2g step forever — and would tell the classifier to photograph a
         bin that is still moving. Anchoring to `ref` bounds the whole

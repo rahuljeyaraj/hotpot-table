@@ -4,14 +4,14 @@ Run from the repo root:
 
     python -m unittest discover -s python/tests -v
 
-**No camera and no projector.** Every homography here is either written
+No camera and no projector. Every homography here is either written
 out by hand or built by projecting a known synthetic point set, the same
 discipline `core/loadcell_cal.py`'s tests use for the other number in this
 system that can silently go wrong: the maths has to be reachable from a
 test with no hardware attached, because on a rig you cannot tell a wrong
 answer from a right one by looking at it.
 
-**Doc section 5.3's TRAP is what most of this file is written around.**
+Doc section 5.3's TRAP is what most of this file is written around.
 A test that fits a homography to points and then checks the fit reproduces
 those points passes by construction — it is the definition of a fit. So
 the tests below check the things that can actually be wrong: that a

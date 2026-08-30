@@ -6,7 +6,7 @@ CHECKOUT. Adding a state means adding both a State member and a
 transition method below; nothing about the shape here is provisional
 scaffolding to be replaced later.
 
-**RECAP is gone, 2026-08-25.** It was a fifth state between SPICE and
+RECAP is gone, 2026-08-25. It was a fifth state between SPICE and
 CHECKOUT whose whole screen was "the cart again, with Confirm". The
 developer's own page list for the table is four screens — cart, broth,
 spice, payment — and a diner who has just been shown the cart on screen
@@ -17,12 +17,12 @@ one transition, and `weighing` still freezes the cart for every screen
 after SELECTING. Deleted outright rather than left unreachable, this
 codebase's usual rule.
 
-**Every screen in the chain can now go BACKWARD as well as out**, which
+Every screen in the chain can now go BACKWARD as well as out, which
 is `back()` below and is new in the same change. Cancel was the only
 edge out before, so a diner who picked the wrong broth had to throw the
 whole order away to fix it.
 
-**Two predicates, not one, since M6: `serving` and `weighing`.** They had
+Two predicates, not one, since M6: `serving` and `weighing`. They had
 the same answer while IDLE and SELECTING were the only serving states,
 and they stopped having it the moment a diner could be mid-checkout. Read
 both before gating anything new on either.
@@ -91,7 +91,7 @@ CHECKOUT_STATES = (State.BROTH, State.SPICE, State.CHECKOUT)
 # SPICE rather than to a screen of its own: the diner's last decision was
 # the spice level, and that is where "no, wait" should land them.
 #
-# **CHECKOUT -> SPICE voids the order that was already written.** That is
+# CHECKOUT -> SPICE voids the order that was already written. That is
 # core's job, not this module's (fsm.py owns no database, the same reason
 # it owns neither the cart nor the bin map) — see
 # `core/main.py._fire_back`, which is the only caller allowed to take
@@ -137,7 +137,7 @@ class Fsm:
         table with no homography has no idea which tray is which. BOOT is
         excluded for the reason it always was — nothing is loaded yet.
 
-        **This is no longer the scale gate.** It was, up to M6, when IDLE
+        This is no longer the scale gate. It was, up to M6, when IDLE
         and SELECTING were the only serving states and the two questions
         had the same answer. They do not any more: a table on the broth
         screen is very much serving a diner, and must not be weighing.
@@ -150,14 +150,14 @@ class Fsm:
     def weighing(self) -> bool:
         """Whether the scale may still move the cart.
 
-        **The cart freezes the moment the diner presses Next on the cart
-        screen, and this is the predicate that freezes it.** Everything
+        The cart freezes the moment the diner presses Next on the cart
+        screen, and this is the predicate that freezes it. Everything
         from BROTH onward shows the diner numbers they are being asked to
         approve — a hand brushing a tray while they choose a broth, or
         the load cells drifting a gram while the QR is up, must not
         change what they already agreed to.
 
-        **Going BACK to SELECTING un-freezes it, deliberately.** `back()`
+        Going BACK to SELECTING un-freezes it, deliberately. `back()`
         from BROTH lands on SELECTING, which is in this tuple, so the
         scale drives the cart again — that is the whole point of the edge:
         the diner returned to the cart to change what is in it.
@@ -224,8 +224,8 @@ class Fsm:
         Re-baselines and clears the cart (I6) through the one shared
         reset_session() — never inline that logic here, per doc 9.1.
 
-        **Reachable from BROTH/SPICE/CHECKOUT too, which doc section
-        9.1's diagram does not draw.** The diagram has no edge out of
+        Reachable from BROTH/SPICE/CHECKOUT too, which doc section
+        9.1's diagram does not draw. The diagram has no edge out of
         those but the last one, and that cannot be right in a restaurant:
         a diner three screens into a checkout they did not mean to start
         would have no way out at all now that CHECKOUT no longer times
@@ -260,8 +260,8 @@ class Fsm:
     def broth_chosen(self) -> bool:
         """BROTH -> SPICE — the broth screen's Next button.
 
-        **Named for the fact, not for the button, and that distinction
-        moved in 2026-08-25's redesign.** Choosing a broth used to BE this
+        Named for the fact, not for the button, and that distinction
+        moved in 2026-08-25's redesign. Choosing a broth used to BE this
         transition: dwelling a plate both recorded the choice and jumped
         to the next screen, so a diner could not see what they had picked
         or change their mind. Selection is now core's own scratch state
@@ -315,7 +315,7 @@ class Fsm:
         """CHECKOUT -> IDLE, doc section 9.1's "(receipt fetched)" edge,
         with its "[re-baseline, clear cart]".
 
-        **The "OR timeout 90s" half of that edge is gone.** Developer,
+        The "OR timeout 90s" half of that edge is gone. Developer,
         2026-08-25: "i see the qr code dissaperared when it was left idel
         for sometime, that should not happen, no time out. onc can cancell
         or go back, but not self disappear." A diner reaching for their
@@ -375,12 +375,12 @@ class Fsm:
         steps in this order, inside Fsm so no caller can do two of them
         and forget the third:
 
-        1. **Refresh live_g from the scale for every bin.**
+        1. Refresh live_g from the scale for every bin.
         2. `cart.reset_session()` — I6's re-baseline.
         3. Lock the bin map (doc section 8.2: `locked` is true in serving
            mode, false while setting mode is live-updating).
 
-        **Step 1 is not optional, and leaving it out mis-bills silently.**
+        Step 1 is not optional, and leaving it out mis-bills silently.
         core/main.py's `_apply_scale_to_cart()` does nothing at all while
         this state is live, which is the entire point of the mode — so by
         the time exit runs, `live_g` still holds whatever the bins weighed

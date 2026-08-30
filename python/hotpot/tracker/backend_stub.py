@@ -3,13 +3,13 @@
 Doc section 19.4's `backend_stub.py`, and the thing that makes doc section
 11.3's role assignment testable at all. Two modes, both deliberate:
 
-- **Scripted** (`Stub(script=[...])`): a list of per-frame detection lists,
+- Scripted (`Stub(script=[...])`): a list of per-frame detection lists,
   played back one entry per `detect()` call, last entry repeating forever.
   This is how a test says "a left hand appears, then a right hand appears
   beside it, then the right one leaves" without a camera, a model, or a
   human. Every acceptance-test scenario in doc section 21's M5 list is a
   short script.
-- **Empty** (`Stub()`): no hands, ever. The honest default for a rig with
+- Empty (`Stub()`): no hands, ever. The honest default for a rig with
   no model file — `tracker/main.py` falls back to this rather than
   refusing to start, because doc section 3.3 requires every process to
   come up and hold its link open regardless of what else is missing, and a

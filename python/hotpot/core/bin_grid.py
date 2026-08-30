@@ -4,23 +4,23 @@ A bin boundary used to be 8 independently-dragged rectangles (one file,
 `state/bin_rects.json`, see git history for the version this replaces).
 That broke in two ways once the pieces around it were built out:
 
-- **Independent rects cannot be kept level with each other.** A real gap
+- Independent rects cannot be kept level with each other. A real gap
   separates bin from bin (the table has margins and a centre gap for the
   pot), but nothing stopped bin 0's top edge and bin 1's top edge — same
   row, meant to line up — from disagreeing by a few pixels, which is
   invisible in a list of 8 numbers and very visible as one bin sitting
   higher than its row-mates on the real table.
-- **One rect list was being asked to serve two different physical
-  systems** — the camera's view of the table and the projector's — related
+- One rect list was being asked to serve two different physical
+  systems — the camera's view of the table and the projector's — related
   only by a single planar homography that cannot fully model either
   device's own lens distortion or mounting error. Doc section 5.3's TRAP
   is exactly this: a value transferred through a homography and never
   re-verified in the space it is actually used *looks* fine and can still
   be wrong in a way nothing catches.
 
-So: a bin boundary is now a **grid** — 4 horizontal + 8 vertical line
+So: a bin boundary is now a grid — 4 horizontal + 8 vertical line
 positions, matching the physical layout (2 rows of 4 bins) — and there are
-**two independent grids, never derived from each other**:
+two independent grids, never derived from each other:
 
 - `state/bin_grid_camera.json` — lines dragged on the camera's rectified
   view of the table (the "table crop": the raw frame warped through
@@ -40,7 +40,7 @@ reasonable starting SEED for either — but seeding is not deriving, and
 nothing here ever computes one grid from the other's saved value. A grid
 is only ever set by whoever is looking at the space it describes.
 
-**Grid, not rects, fixes the old seeding bug for free.** The pre-existing
+Grid, not rects, fixes the old seeding bug for free. The pre-existing
 `docs/legacy/bin_offsets.json` already stores exactly `hLineDeltaMM` (4
 values) and `vLineDeltaMM` (8 values) — this module's shape, not the old
 rect-list's. The old rect-based reconstruction had to round-trip those
@@ -262,7 +262,7 @@ class BinGridStore:
         return list(self.grid.rects())
 
     def set_grid(self, h_lines: List[float], v_lines: List[float]) -> None:
-        """Replace the grid wholesale. Does **not** save — doc section
+        """Replace the grid wholesale. Does not save — doc section
         12.6's "Save is explicit" applies here exactly as it did to the
         old rect drag: the Setup tab streams a grid per pointer-move, and
         writing the file on every one would both hammer the disk and make

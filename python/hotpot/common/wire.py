@@ -7,8 +7,8 @@ Three things live here and nothing else:
     Client                everybody else's side. Reconnects forever.
 
 Topology, restated from doc section 3.3 because every design choice below
-follows from it: **core is the TCP server for every control link, everyone
-else is a client and reconnects with backoff.** A client must never exit
+follows from it: core is the TCP server for every control link, everyone
+else is a client and reconnects with backoff. A client must never exit
 because core is not there yet. That single rule is what makes process start
 order an optimisation for tidy logs rather than a correctness requirement.
 

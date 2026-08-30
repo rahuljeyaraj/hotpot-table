@@ -2,7 +2,7 @@
 over the stage that visits bins in turn, so the fireball moves and lights
 bins while nobody is at the table.
 
-**Pure function of elapsed time, nothing else.** No clock ownership, no
+Pure function of elapsed time, nothing else. No clock ownership, no
 camera, no mutable per-tick state beyond what `position()` derives from
 its one argument — deterministic given the same `stage_size`,
 `bin_centers` and `seed`. That is what lets two different processes agree

@@ -19,8 +19,8 @@ its own:
     counts_per_gram = (loaded_counts - zero_counts) / ref_mass_g
 
 and `grams()` divides by it, so an inverted cell reads correctly with no
-special case anywhere. **The operator is never asked about sign, mounting
-or orientation** (doc section 21, M2's "Do NOT"). There is no place in
+special case anywhere. The operator is never asked about sign, mounting
+or orientation (doc section 21, M2's "Do NOT"). There is no place in
 this API to tell it, on purpose.
 
 Tare is not I6's re-baseline

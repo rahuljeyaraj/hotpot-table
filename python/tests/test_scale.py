@@ -709,7 +709,7 @@ class TestSerialThread(unittest.TestCase):
         self.assertFalse(st["open"])
 
     def test_the_rate_falls_to_zero_when_the_device_goes_quiet(self):
-        """**2026-08-25, the scales-offline investigation.**
+        """2026-08-25, the scales-offline investigation.
 
         `_rate` is a deque of arrival timestamps that nothing prunes by
         age, so a device that stops sending used to leave its last

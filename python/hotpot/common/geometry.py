@@ -3,18 +3,18 @@ M4 build item 1).
 
 Three jobs, deliberately split by what they depend on:
 
-- **fit()** solves a homography from point correspondences. It is the only
+- fit() solves a homography from point correspondences. It is the only
   thing in this module that needs OpenCV, and `cv2` is imported *inside*
   the function for exactly the reason `core/scale.py` imports `pyserial`
   inside `_open_serial()`: everything else here has to stay importable and
   testable with nothing installed and no camera attached.
-- **apply() / apply_rect() / invert()** are plain arithmetic on a 3x3. No
+- apply() / apply_rect() / invert() are plain arithmetic on a 3x3. No
   cv2, no numpy. `core` runs these every time it derives a stage rect, and
   a 3x3 matrix-vector product is not worth a dependency or an array
   round-trip.
-- **rms_px()** measures a fit against the points it was fitted from.
+- rms_px() measures a fit against the points it was fitted from.
 
-**Read doc section 5.3's TRAP before using any of this to check anything.**
+Read doc section 5.3's TRAP before using any of this to check anything.
 Reprojecting a derived stage rect back through the same `H` returns the
 camera rect it came from *regardless of whether H points the right way* —
 it is the definition of an inverse, not evidence. There is no function in
@@ -96,7 +96,7 @@ def apply_rect(h: Sequence[Sequence[float]], rect: Rect) -> Rect:
     """An axis-aligned rect through `h`, as the axis-aligned bounding box
     of its four transformed corners.
 
-    **A homography does not map a rectangle to a rectangle.** It maps it to
+    A homography does not map a rectangle to a rectangle. It maps it to
     a general quadrilateral, and this returns the box around that quad, so
     the result is always a superset of the true projected shape. That is
     the right way round for the two things it is used for — the bin rect
@@ -174,7 +174,7 @@ def rms_px(h: Sequence[Sequence[float]],
     """Root-mean-square reprojection error, the number doc section 8.5
     stores as `rms_px` and doc section 12.6 puts on the screen.
 
-    **This is a self-consistency number, not a correctness one.** A
+    This is a self-consistency number, not a correctness one. A
     homography fitted to a set of points that were all mis-paired the same
     way fits them beautifully and lands the rects in the wrong place. Doc
     section 5.3's TRAP, restated where the tempting number lives.
@@ -226,7 +226,7 @@ class Fit:
     beside it.
 
     `inliers` is the RANSAC mask as a list of bools, one per input
-    correspondence, and `rms_px` is measured **over the inliers only** —
+    correspondence, and `rms_px` is measured over the inliers only —
     over all points it would include the outliers RANSAC just decided to
     ignore, which is the number moving for a reason that has nothing to do
     with the fit's quality.
@@ -255,8 +255,8 @@ def fit(src: Sequence[Point], dst: Sequence[Point], *,
 
     RANSAC rather than the plain least-squares method (`method=0`) because
     the input is a list of detected dot centroids paired with expected
-    ones, and the failure mode that actually happens on a rig is **one dot
-    mis-paired**, not all of them slightly noisy: a reflection, a
+    ones, and the failure mode that actually happens on a rig is one dot
+    mis-paired, not all of them slightly noisy: a reflection, a
     highlight on a tray rim, or a dot that straddled a cutout edge. Least
     squares spreads one bad pair across every point in the fit and quietly
     degrades all eight rects. RANSAC drops it and says how many it
@@ -269,7 +269,7 @@ def fit(src: Sequence[Point], dst: Sequence[Point], *,
     `state/homography.json` and boot UNCALIBRATED forever with no
     explanation.
 
-    **VERIFIED against the installed OpenCV (5.0.0), not remembered:**
+    VERIFIED against the installed OpenCV (5.0.0), not remembered:
     `findHomography(srcPoints, dstPoints[, method[, ransacReprojThreshold[,
     mask[, maxIters[, confidence]]]]]) -> retval, mask`, and `cv2.RANSAC`
     is 8. Both checked before this was written, per doc section 0 rule 3.
@@ -326,8 +326,8 @@ def order_quad(points: Sequence[Point]) -> List[Point]:
     """Four detected points, ordered top-left, top-right, bottom-right,
     bottom-left.
 
-    **NOT used by dot calibration any more, and do not put it back — use
-    `order_quad_marker_first`.** The assumption below about the camera being
+    NOT used by dot calibration any more, and do not put it back — use
+    `order_quad_marker_first`. The assumption below about the camera being
     roughly the right way up is false on this rig (measured at 180 degrees,
     commit b847c0f), and it fails silently: four points always fit a
     homography exactly, so the flipped pairing reports zero error. This
@@ -339,9 +339,9 @@ def order_quad(points: Sequence[Point]) -> List[Point]:
 
     The method is the standard sum/difference one — the top-left corner has
     the smallest `x + y`, the bottom-right the largest; the top-right has
-    the largest `x - y`, the bottom-left the smallest. **It assumes the
+    the largest `x - y`, the bottom-left the smallest. It assumes the
     camera is not rotated more than about 45 degrees relative to the
-    table**, which is a real assumption and is why it is only ever used on
+    table, which is a real assumption and is why it is only ever used on
     four widely-separated dots rather than on a whole grid. I10 already
     requires a near-vertical camera; this additionally requires it to be
     roughly the right way up, which is a mounting fact a human can see.
@@ -378,7 +378,7 @@ def identify_marker(areas: Sequence[float], *,
                     min_ratio: float = DEFAULT_MIN_MARKER_RATIO) -> int:
     """Index of the deliberately-oversized dot among a detected set.
 
-    Compared against the **median** of the others, not the mean, so one fat
+    Compared against the median of the others, not the mean, so one fat
     or thin blob cannot drag the baseline. Raises GeometryError rather than
     returning a best guess: the marker is what fixes orientation, and a
     guessed orientation is the failure this whole mechanism exists to
@@ -413,8 +413,8 @@ def order_quad_marker_first(points: Sequence[Point],
     marker — the correspondence for a pattern whose first drawn corner is
     the oversized one.
 
-    **This replaces `order_quad` for calibration and the difference is not
-    cosmetic.** `order_quad` labels corners by their position in the camera
+    This replaces `order_quad` for calibration and the difference is not
+    cosmetic. `order_quad` labels corners by their position in the camera
     image, which silently assumes the camera is mounted roughly the same way
     up as the projector. This rig's camera was measured at 180 degrees
     (commit b847c0f, 2026-08-08), and at 180 degrees that assumption does
@@ -425,12 +425,12 @@ def order_quad_marker_first(points: Sequence[Point],
 
     Two independent facts make this version immune:
 
-    - **Cyclic order comes from the angle about the centroid**, which is
+    - Cyclic order comes from the angle about the centroid, which is
       rotation-invariant, so no mounting angle can reorder the ring. A
       camera looking down at a table cannot mirror the view, so the ring
       runs the same way round in both spaces and only the starting point is
       unknown.
-    - **The marker fixes the starting point**, geometrically rather than by
+    - The marker fixes the starting point, geometrically rather than by
       picking whichever hypothesis fits best. Error cannot arbitrate here
       and must never be asked to.
 

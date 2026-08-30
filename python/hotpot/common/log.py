@@ -8,14 +8,14 @@ Every process configures logging exactly once, at the top of its `main()`:
 
 Where the logs go
 -----------------
-**Nowhere, from this module's point of view.** Logs go to stdout and stop
+Nowhere, from this module's point of view. Logs go to stdout and stop
 there. `run.py` owns the files: it tails every child's stdout and stderr,
 prefixes each line with the process name and a colour, and writes
 `logs/hotpot-<date>.log` with rotation (doc section 10.2). Six processes each
 opening the same log file would need locking to avoid interleaved lines, and
 the launcher already has every byte in front of it.
 
-That is also why the process name is **not** in the line format. The launcher
+That is also why the process name is not in the line format. The launcher
 adds it, and a merged log reading `tracker | 12:04:31.882 tracker I ...` is
 worse than one that does not. The `who` field on the ring record carries it
 for the staff view, which has no launcher prefix to lean on.
@@ -146,7 +146,7 @@ class Ring:
              after: Optional[int] = None) -> List[Dict[str, Any]]:
         """The newest records, oldest first.
 
-        `limit` is applied **after** the level filter, so asking for 50
+        `limit` is applied after the level filter, so asking for 50
         errors gives 50 errors and not "whatever errors happen to be in the
         last 50 lines" — which is the same request the panel's filter makes
         and the answer a human expects from it.

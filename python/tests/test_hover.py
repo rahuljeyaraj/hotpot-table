@@ -48,7 +48,7 @@ def build_widgets(*, selecting: bool = True, locales_available: int = 1):
     `cart_active=True` because every test below is about a widget being
     dwellable, and an empty cart's buttons are deliberately disabled.
 
-    **`locales_available` defaults to 1, not 2 (2026-08-26).** It was 2
+    `locales_available` defaults to 1, not 2 (2026-08-26). It was 2
     back when `widgets_for` ignored the parameter outright, so the value
     was a don't-care; now that a second locale actually adds a third
     widget (Language, in the middle slot), every existing call below that
@@ -186,7 +186,7 @@ class TestWhichWidgetsExist(unittest.TestCase):
     same broken promise as a row that does.
 
     Done stays removed (RIG_FEEDBACK_2026-08-12.md items 4-7): it has
-    nowhere to go until M6. **Language came back 2026-08-26**, the day
+    nowhere to go until M6. Language came back 2026-08-26, the day
     `data/locales/zh.json` gave it somewhere to switch to — see
     `test_language_appears_once_a_second_locale_is_loaded` below and
     `hover.widgets_for`'s own docstring on why `locales_available` is the
@@ -665,8 +665,8 @@ class TestTheNavRow(unittest.TestCase):
         self.assertEqual(spice[hover.CONFIRM].rect, slots[hover.SLOT_FORWARD])
 
     def test_cancel_lands_under_pay_and_is_disarmed_by_the_screen_change(self):
-        """**The crossing the fixed roles used to prevent by geometry, and
-        the one thing that prevents it now.**
+        """The crossing the fixed roles used to prevent by geometry, and
+        the one thing that prevents it now.
 
         The payment screen's Cancel occupies the slot the spice screen's
         Pay just fired from, so a hand that has not moved is sitting on
@@ -746,7 +746,7 @@ class TestSelectionIsNotAPageTurn(unittest.TestCase):
                     self.assertFalse(w.selected)
 
     def test_level_zero_is_not_offered_by_the_picker(self):
-        # **Supersedes the old "level zero is selectable" trap check.**
+        # Supersedes the old "level zero is selectable" trap check.
         # 2026-08-25's chili-strip drops "No Spice" (level 0) as an
         # orderable choice — developer's own call, confirmed the same
         # session: the reference picture it is modelled on has no
@@ -817,7 +817,7 @@ class TestTheSpiceScreen(unittest.TestCase):
                 self.assertEqual(w.info.get("desc"), "A note.")
 
     def test_a_broth_carries_no_swatch_and_no_icon(self):
-        # **Supersedes the old "a broth carries a swatch" test.**
+        # Supersedes the old "a broth carries a swatch" test.
         # Developer, 2026-08-25: "the coloured circle infront of the
         # broth name has to be removed." Broth cards draw the name/diet/
         # note directly (`UiLayer::drawOptionPlate`) and never read
@@ -881,8 +881,8 @@ class TestTheBrothCardsFillTheReclaimedBand(unittest.TestCase):
     respective brothes, so u can use the complete vertical space above
     the next button row."
 
-    **Supersedes the three `option_rects`-based tests this class used to
-    have above it.** `option_rects` itself is deleted (it had no
+    Supersedes the three `option_rects`-based tests this class used to
+    have above it. `option_rects` itself is deleted (it had no
     production caller left once spice moved to `spice_cell_rects` and
     broth to `broth_card_rects`, this codebase's standing "don't leave
     dead code dormant" rule) — these test the function that actually

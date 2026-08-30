@@ -287,7 +287,7 @@ class TestShownTotal(unittest.TestCase):
     """
 
     def setUp(self):
-        # **Deadband pinned at 10 g, not left on the default**, the same
+        # Deadband pinned at 10 g, not left on the default, the same
         # way test_cart.py's own deadband class pins it: these cases are
         # about the MECHANISM (shown and billed diverge under the
         # deadband, and converge at finalize) and are written around doc
@@ -411,7 +411,7 @@ class TestDisplayName(unittest.TestCase):
         self.assertEqual(self.same_in_english.display_name("zh"), "鸡蛋")
 
     def test_missing_locale_falls_back_to_english_not_the_id(self):
-        """**The leak this method exists to close.** core/main.py used to
+        """The leak this method exists to close. core/main.py used to
         do `names.get(locale, item.id)`, which put the training label onto
         the projected surface for any item a locale had not translated.
         """

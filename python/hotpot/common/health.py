@@ -12,7 +12,7 @@ file testable without a socket, and it is why `wire.Client.send`,
 
 Direction
 ---------
-Heartbeats run **client to core only**. Core never beats back, because the
+Heartbeats run client to core only. Core never beats back, because the
 clients already have a faster and more certain signal for core dying: the TCP
 connection drops (doc section 20.1). Adding a reverse heartbeat would be a
 second, slower way to learn something already known.
@@ -26,7 +26,7 @@ live web thread is a real failure and it now shows up red.
 Why liveness is measured on a monotonic clock
 ---------------------------------------------
 The `hb` line carries the sender's wall clock, per doc section 4.2, but the
-registry ages beats by **when they arrived**, read from `time.monotonic()`.
+registry ages beats by when they arrived, read from `time.monotonic()`.
 It never subtracts the sender's timestamp from its own.
 
 This is load-bearing on this hardware. The ODYSSEY has no RTC battery
@@ -44,7 +44,7 @@ The thresholds
 --------------
 Doc section 4.2 fixes two of the three numbers: beat every 1000ms, dead after
 3 missed beats (3s). Amber is named in doc section 12.2 but never given a
-threshold, so it is chosen here: **two missed beats**. That leaves a one
+threshold, so it is chosen here: two missed beats. That leaves a one
 second amber band before red, which is long enough to see a process
 stuttering — the throttled-board symptom in doc section 12.8 — and short
 enough that ordinary scheduler jitter at 1Hz does not flap the pip.

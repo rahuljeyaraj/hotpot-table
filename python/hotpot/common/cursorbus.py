@@ -9,15 +9,15 @@ one is wrong for this traffic. Doc section 4's table says why in one line:
     visibly replays through history.
 
 So: UDP, localhost, fire-and-forget, and the receiver's job is not "read
-the next packet" but **drain to latest**. Everything in this module exists
+the next packet" but drain to latest. Everything in this module exists
 to make that one rule impossible to get wrong at a call site.
 
 The two rules, and they are different
 -------------------------------------
-1. **Within one drain**, keep the highest `seq` and discard the rest. Doc
+1. Within one drain, keep the highest `seq` and discard the rest. Doc
    section 4 states this outright. Reading one packet per tick would build
    exactly the backlog UDP was chosen to avoid, only in userspace.
-2. **Across drains**, never deliver a `seq` at or below one already
+2. Across drains, never deliver a `seq` at or below one already
    delivered. The doc does not say this and it is not the same rule: UDP
    may reorder, so a datagram that lost a race can arrive on the *next*
    tick, after its successor has already been drawn. Handing it over would
@@ -143,7 +143,7 @@ MAX_DRAIN = 512
 
 @dataclass
 class Hand:
-    """One tracked hand, in **stage space** (doc section 5.1's canonical
+    """One tracked hand, in stage space (doc section 5.1's canonical
     space). The tracker converts out of camera space before sending, so
     core and oF both receive stage coordinates and cannot disagree about
     where a hand is (doc section 5.3).
@@ -279,8 +279,8 @@ def decode(data: bytes) -> Optional[CursorFrame]:
 class Sender:
     """One UDP socket, N destinations, one shared sequence number.
 
-    **The shared seq is the point of sending to both ports from one
-    object.** Doc section 4.6 sends the same datagram to `of` and to
+    The shared seq is the point of sending to both ports from one
+    object. Doc section 4.6 sends the same datagram to `of` and to
     `core`, and both of them gate on `seq` (see `Receiver`). Two senders
     with two counters would let the two consumers disagree about which
     frame is newest — the table drawing a hand core had already gated

@@ -668,7 +668,7 @@ class TestAcquisitionScheduling(unittest.TestCase):
 class TestSkeletonMapping(ProcCase):
     """RIG_FEEDBACK item 11's raw-skeleton diagnostic (`skeletonbus.py`).
 
-    **2026-08-13: confirmed on the rig, disabled.** `tick()` no longer
+    2026-08-13: confirmed on the rig, disabled. `tick()` no longer
     calls `skeleton_sender.send()` — see `tick()`'s own comment. The
     mapping method itself, `_skeleton_to_stage`, is untouched and still
     tested directly here rather than through `tick()`, so it stays

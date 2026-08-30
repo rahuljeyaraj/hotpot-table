@@ -11,8 +11,8 @@ Was `common/stub.py` from M0 through M4. From here on it is doc section
 Six decisions in here are not obvious from that line, and four of them
 were forced by something already built.
 
-**1. The point is warped, not the frame — and this is a change of course
-from what M4m expected.** `core/bin_grid.py`'s docstring says the warped
+1. The point is warped, not the frame — and this is a change of course
+from what M4m expected. `core/bin_grid.py`'s docstring says the warped
 "table crop" is "what MediaPipe will run on (M5, not built)". It is not,
 and the reason is physical rather than architectural: `warp_frame_to_stage`
 crops to the table, and hands *reach in from outside the table*. A diner's
@@ -29,20 +29,20 @@ Nothing downstream notices the difference: the warped canvas IS stage space
 lines and this cursor are already in one space either way. The classifier
 still warps its own frames — it crops rectangles and has no hands to lose.
 
-**2. No homography means no datagrams at all.** Doc section 21 makes M5
+2. No homography means no datagrams at all. Doc section 21 makes M5
 depend on M4 with a reason attached: "the cursor is meaningless without
 it." A cursor emitted in camera pixels but labelled stage space would
 hit-test against real bin rects and produce confident, wrong hovers. Core
 sends `H` in `welcome` (doc section 5.3); until it does, this process
 tracks nothing and says so once.
 
-**3. Stale frames stop the emission, they do not freeze it.** Doc section
+3. Stale frames stop the emission, they do not freeze it. Doc section
 6.4: "tracker sends nothing rather than sending a frozen cursor", plus
 `{"t":"stat","frames_stale":true}` to core. The tracks are reset too — a
 role held across an outage of unknown length would mean the bowl hand
 keeping a pointer role it inherited before the camera died.
 
-**4. The frame ring reader is local rather than `classifier.main`'s.**
+4. The frame ring reader is local rather than `classifier.main`'s.
 Not duplication for its own sake: the two want opposite failure behaviour.
 `RingSource.frame()` raises a sentence for an operator to read, because a
 classifier command has a human waiting on a reply. This one returns None
@@ -50,8 +50,8 @@ and keeps polling, because there is nobody waiting and the correct
 response to "no frame this instant" at 30Hz is to try again in 5ms. A
 shared class would have to serve both and would end up with a flag.
 
-**5. Doc section 11.2's model ladder does not exist in the installed
-MediaPipe.** `model_complexity` was a Solutions-API parameter and
+5. Doc section 11.2's model ladder does not exist in the installed
+MediaPipe. `model_complexity` was a Solutions-API parameter and
 `mp.solutions` is gone in mediapipe 1.0.0 (see `backend_mediapipe.py`'s
 docstring — verified, not remembered). The ladder is now which `.task`
 bundle you load, and Google publishes one. The probe below is still real:
@@ -59,9 +59,9 @@ it measures the achieved rate over the first few seconds and logs it, and
 it will climb if a second bundle ever lands in `models/`. What it cannot
 do is pretend a one-rung ladder was climbed.
 
-**6. SUPERSEDED 2026-08-12, same day it was written — the hand-size/
+6. SUPERSEDED 2026-08-12, same day it was written — the hand-size/
 frame-position theory below is FALSE, disproven with the developer's own
-real hand on the live rig, and decision 7 replaces it.** It is kept
+real hand on the live rig, and decision 7 replaces it. It is kept
 verbatim rather than deleted because commit `65b2717` shipped it as fact
 and a future reader diffing that commit needs the wrong reasoning in
 front of them, not just a hole where it was:
@@ -71,8 +71,8 @@ front of them, not just a hole where it was:
 > thresholds, rotation or resolution (all four were tested to exhaustion
 > first and none of them moves the number). MediaPipe's palm detector
 > letterboxes whatever it is handed into a fixed square input, so the
-> only quantity that decides whether a hand is findable is **the hand's
-> share of the frame's LONG side**... Cropping is the only lever that
+> only quantity that decides whether a hand is findable is the hand's
+> share of the frame's LONG side... Cropping is the only lever that
 > moves it, and it is worth 83% -> 100% over a 60-trial sweep.
 
 The sweep above was real and the percentages were real — but it swept a
@@ -86,20 +86,20 @@ re-confirmed not to matter (`debug/tracker_acquisition_2026-08-12/`,
 gitignored but not deleted — the throwaway scripts and evidence images
 this paragraph is reporting). Whatever was wrong, it was never about how
 much of the frame the hand fills or where it sits in the frame — the
-crop below is not, and never was, the fix. **`ROI_MARGIN_PX` and
-`MIN_ROI_PX` remain** (decision 7 repurposes the same table footprint as
+crop below is not, and never was, the fix. `ROI_MARGIN_PX` and
+`MIN_ROI_PX` remain (decision 7 repurposes the same table footprint as
 a scan BOUND, not a detection crop), but `DEFAULT_INPUT_WIDTH` no longer
 reaches hand detection at all — see decision 7.
 
-**7. The real fault was sensor noise on the hand's own pixels, only
+7. The real fault was sensor noise on the hand's own pixels, only
 fixable by denoising a HAND-SIZED window, not the whole table — and
 MediaPipe's own tracking state turns out to be tied to the exact crop
 framing it was given, which decided this whole mechanism's shape
-(2026-08-12).** Three things were measured, each on this rig against the
+(2026-08-12). Three things were measured, each on this rig against the
 developer's real hand, none of them against a composited stand-in:
 
-First: denoising a **hand-sized** crop (bilateral filter, twice) finds a
-cold real hand reliably; denoising the **whole table crop** the same way
+First: denoising a hand-sized crop (bilateral filter, twice) finds a
+cold real hand reliably; denoising the whole table crop the same way
 does not — and this was checked hard enough to trust, because it
 disagreed with itself once. A whole-crop-then-bilateral run scored
 20/20 at one hand position and 0/20 at another in the same live session
@@ -111,7 +111,7 @@ both positions.
 
 Second: once MediaPipe has successfully detected a hand through a given
 crop, it keeps tracking that hand through SUBSEQUENT calls using that
-SAME crop **even with the denoise removed** — a real, measured
+SAME crop even with the denoise removed — a real, measured
 consequence, not folklore (`debug/tracker_acquisition_2026-08-12/
 seed_test2.py`: same window afterwards, 5/5 with no denoise at all).
 That is a genuine cost saving: acquisition needs the hand-sized window
@@ -121,7 +121,7 @@ the window.
 Third, and this is what makes "hand off to a plain whole-frame detect"
 unworkable: switching the SAME `HandLandmarker` instance from a
 successful windowed detect back to the ordinary whole-crop-downsampled
-call it used to get, **even denoised**, loses the hand on the very next
+call it used to get, even denoised, loses the hand on the very next
 call — 0/5, immediately (`seed_test2.py` phases 4-5). MediaPipe's
 VIDEO-mode tracking state is bound to the crop's own framing (position
 and scale), not to "a hand was recently seen somewhere in this camera
@@ -147,8 +147,8 @@ A tracked window that stops being found is not dropped instantly
 cost the whole state" reasoning `tracker/tracking.py`'s own
 `TRACK_GRACE_S` already uses for the layer above this one.
 
-**The first rig run of this mechanism pulsed — locked on, lost, locked
-on, lost — worse near the edges, and this third finding is exactly why.**
+The first rig run of this mechanism pulsed — locked on, lost, locked
+on, lost — worse near the edges, and this third finding is exactly why.
 One shared `backend.detect()` call was still being routed through a
 SINGLE `MediaPipeBackend` instance for both scanning and tracking. With
 `max_hands` at its default of 2, a lone tracked hand still leaves a
@@ -166,8 +166,8 @@ is the one place anything that has to reach every instance (rotation,
 mirror, shutdown) goes through, so a future config knob cannot land on
 the scanner alone and leave the tracked hands unrotated.
 
-**2026-08-13: per-instance isolation alone did not fix the pulsing —
-the real cause was a duplicate window on the same hand.** Confirmed on
+2026-08-13: per-instance isolation alone did not fix the pulsing —
+the real cause was a duplicate window on the same hand. Confirmed on
 the rig with the isolation fix already in place: pulsing was still
 there, edges only, never in the table's centre. Three isolated live
 tests on the rig ruled out the obvious suspects one at a time — a fixed
@@ -190,32 +190,32 @@ alternating ticks, only one reaching the cursor per tick — the
 duplicate's rougher scan-tile-derived framing misses often enough that
 the cursor visibly drops and returns. `_update_acquisition` now declines
 to claim a free slot when the hit already falls inside an existing
-window (see its own comment). **Still owed: this fix has not yet been
-watched live on the rig** — the mechanism explains the reported symptom
+window (see its own comment). Still owed: this fix has not yet been
+watched live on the rig — the mechanism explains the reported symptom
 precisely and is grounded in the two ruled-out tests above, not in
 guesswork, but "the code can produce this" is not the same claim as "and
 this is what did" until someone sees the pulsing actually stop.
 
-**2026-08-13, later the same day: live A/B on the rig — `562eeed` was
+2026-08-13, later the same day: live A/B on the rig — `562eeed` was
 necessary but not sufficient, and `max_hands=1` is what actually stops
-the pulsing.** Three tests, in order, same rig, same edge position that
+the pulsing. Three tests, in order, same rig, same edge position that
 pulsed before: `max_hands=1` — pulsing gone, one real hand, developer
 confirmed. `max_hands=2` restored, same one-hand-at-the-edge case that
 had just been clean — pulsing came straight back. With a SECOND real
 hand also at the edge (both slots filled, so `_next_detection_input`
 never offers a scan turn — `len(active) == max_hands`), both hands
 pulsed, not in lockstep: right detected/left not, then flipped, and
-sometimes both missed the same tick. **This is a different failure from
+sometimes both missed the same tick. This is a different failure from
 the duplicate-window bug above, which needs a FREE slot to reproduce at
-all, and it has not been root-caused** — the round-robin arithmetic
+all, and it has not been root-caused — the round-robin arithmetic
 alone (each filled slot serviced every other tick, ~15Hz here at a
 ~30Hz capture rate, against `tracking.py`'s 500ms `TRACK_GRACE_S`)
 does not obviously explain a miss this frequent, and nobody has yet
 logged per-tick `conf` at the edge to see whether detection confidence
 itself is what is marginal there, the way `min_hand_detection_confidence`
 flickering was flagged as a live possibility before this test ran.
-**Decided, not diagnosed further: `tracker.max_hands` defaults to `1`
-in both `config/system.json` and `config/system.default.json`.**
+Decided, not diagnosed further: `tracker.max_hands` defaults to `1`
+in both `config/system.json` and `config/system.default.json`.
 Two-hand tracking is disabled, not fixed — `_hand_windows`, the round
 robin and `backend_factory`'s per-slot instances are all still here,
 unchanged, for whenever this is revisited, but nothing on the rig has
@@ -356,13 +356,13 @@ LANDMARKS_HZ = 10.0
 # from the near edge, so that is the one direction clear of the arm/hand
 # behind the tracked point, for every bin and every widget.
 #
-# **Shrunk 2026-08-12** (was 70mm) when the cursor landmark itself moved
+# Shrunk 2026-08-12 (was 70mm) when the cursor landmark itself moved
 # from landmark 9 (middle-finger MCP, the palm centre — deep under the
 # hand, needing real clearance) to landmark 8 (index fingertip —
 # `backend_mediapipe.py`'s own doc section 11.2 override). The fingertip
 # is normally already the most exposed, forward-most point of a reaching
 # hand, so it needs only a small nudge clear of its own tip, not a
-# fingertip's reach. **Not yet physically confirmed at either value** —
+# fingertip's reach. Not yet physically confirmed at either value —
 # still owes a rig observation of the cursor actually sitting just ahead
 # of the fingertip rather than under it.
 CURSOR_SHADOW_CLEARANCE_MM = 15.0
@@ -383,7 +383,7 @@ class FrameSource:
 
     Lazy and re-opening for `classifier/main.py`'s reason, which applies
     identically here: camera may not be up yet, may die, and comes back
-    with a **new** segment (doc section 20.1), so a reader attached once at
+    with a new segment (doc section 20.1), so a reader attached once at
     startup would hold a corpse forever after the first camera restart.
     """
 
@@ -663,7 +663,7 @@ class TrackerProcess:
         # rather than out here.
         self.tracker = tracking.HandTracker(smoothing_tau_s=smoothing_tau_s)
 
-        # **2026-08-12, found live on the rig, not in a test:** a single
+        # 2026-08-12, found live on the rig, not in a test: a single
         # shared MediaPipe instance for both scanning and tracking pulsed
         # — locked onto a hand, then lost it, over and over, worse near
         # the edges. Decision 7's own `seed_test2.py` already proved why:
@@ -1162,7 +1162,7 @@ class TrackerProcess:
         the window kept close to where the hand actually is, and a hand
         rarely sits exactly where a fixed scan tile was centred.
 
-        **Known gap, not fixed here: only `detections[0]` is ever used.**
+        Known gap, not fixed here: only `detections[0]` is ever used.
         If a single scan tile's crop happens to contain TWO hands at once
         (both reaching in close together while cold), only the first
         claims a slot this tick; the second is still relayed to the
@@ -1235,7 +1235,7 @@ class TrackerProcess:
         or tracking window (module docstring, decision 7; `scale` is
         always 1.0, kept as a parameter so this method's own shape did
         not have to change) — and `H_cam_to_stage` was solved against the
-        camera's **capture** resolution (doc section 8.5's `camera_size`),
+        camera's capture resolution (doc section 8.5's `camera_size`),
         so applying `H` to an un-offset coordinate would be applying it to
         a point in a space it was never fitted for. Dropping the origin
         would put every cursor short by the window's own corner — a

@@ -8,7 +8,7 @@ Copied from `ei_store.py` almost verbatim per that step's own instruction
 "missing file is a first boot, not an error" rule. Two real shape
 differences from Edge Impulse's `EIProject`, both named in the plan doc:
 
-- `workspace`/`project` are **string slugs** (Roboflow's own naming),
+- `workspace`/`project` are string slugs (Roboflow's own naming),
   not a single integer id like EI's `project_id`.
 - `version`/`model_file` track what is actually DEPLOYED right now —
   `version` is the trained dataset version currently live (Path A: what

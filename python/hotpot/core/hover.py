@@ -118,7 +118,7 @@ def parse_spice_level(widget_id: str) -> Optional[int]:
 class Widget:
     """One dwellable target, in stage space.
 
-    `label` is **already resolved** — doc section 4.3: "label and text are
+    `label` is already resolved — doc section 4.3: "label and text are
     already resolved strings in the current locale. oF does no lookup."
     This dataclass carries the i18n *key* instead (`label_key`), and core
     resolves it on the way out, because the layout has to be describable
@@ -775,7 +775,7 @@ def bin_under(rects: Sequence[Optional[Rect]], hand: Optional[cursorbus.Hand]
               ) -> Optional[int]:
     """Index of the bin the pointer is over, or None.
 
-    `rects` are the **camera** grid's, not the projector grid's — see
+    `rects` are the camera grid's, not the projector grid's — see
     `core/bin_grid.py`: "This is the grid MediaPipe, the classifier's crop,
     and core's hand-entered-bin hit test all read." A consequence worth
     recognising rather than debugging: the ring that lights up is drawn on
@@ -900,8 +900,8 @@ class DwellTracker:
         """Arm the re-arm latch on whatever the pointer is inside RIGHT
         NOW, and clear the accumulator.
 
-        **Called when the SCREEN changes, and it is the general form of
-        the guarantee the fixed button grid gives by geometry.** A dwell
+        Called when the SCREEN changes, and it is the general form of
+        the guarantee the fixed button grid gives by geometry. A dwell
         fires with the hand still on the button — that is what dwell
         means — and firing is what changes the screen. So at the instant a
         new widget set arrives, the hand is sitting on top of it, having

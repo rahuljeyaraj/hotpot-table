@@ -6,14 +6,14 @@ Run from the repo root:
 
 Two ways of driving it, on purpose:
 
-- A **fake socket** for everything about ordering and framing. Real UDP
+- A fake socket for everything about ordering and framing. Real UDP
   gives no way to force "these three datagrams are already buffered, in
   this order" — the kernel may deliver them in any order or drop them —
   so a test written against a real socket could pass on a version of
   `recv_latest` that returns the LAST packet rather than the HIGHEST seq,
   which is exactly the mutation that matters. The fake queue makes the
   reordering deterministic and the check therefore capable of failing.
-- A **real bound socket pair** for one round trip, so the fake is checked
+- A real bound socket pair for one round trip, so the fake is checked
   against the thing it is standing in for at least once.
 """
 
@@ -326,8 +326,8 @@ class TestOverRealUdp(unittest.TestCase):
         self.assertNotEqual(rx.port, 0)
 
     def test_a_real_datagram_survives_a_preceding_icmp_port_unreachable(self):
-        """**Reproduces the bug that made every real-machine verification of
-        this module look like silence, until it was chased down to here.**
+        """Reproduces the bug that made every real-machine verification of
+        this module look like silence, until it was chased down to here.
 
         Windows (not POSIX — the failure this guards is Windows-only)
         delivers a queued `WSAECONNRESET` to the FIRST `recvfrom()` a

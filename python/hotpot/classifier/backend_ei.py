@@ -20,7 +20,7 @@ the one that does not require a specific board to already be in hand.
 
 The binary's own contract (see tools/eim_cpp/main.cpp's top comment):
 stdin is not used; one argv, a path to a small raw file — int32 width,
-int32 height, then width*height*3 raw **RGB** (not BGR) bytes, already
+int32 height, then width*height*3 raw RGB (not BGR) bytes, already
 resized to the model's exact input size — and stdout is one line of JSON,
 `{"labels":[{"label":"...","value":0.83}, ...]}` in the model's own class
 order. This module owns every step of getting a `bgr_crop` numpy array

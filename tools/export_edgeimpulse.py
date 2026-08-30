@@ -18,24 +18,24 @@ label
 ----------------------------------------------------------------------
 Three reasons, and none of them is "rearrange the tree":
 
-1. **The sidecars must not be uploaded.** `classifier/main.py` writes a
+1. The sidecars must not be uploaded. `classifier/main.py` writes a
    `.json` beside every crop carrying the bin index, the rect, and the
    lighting the image was taken under (doc section 12.7). That file is
    the dataset's provenance and it is not training data; pointing the
    uploader at `datasets/captures/<label>/*` would send both.
-2. **Filenames have to survive being flattened.** Two crops from
+2. Filenames have to survive being flattened. Two crops from
    different bins in the same millisecond are `<ms>_bin0.jpg` and
    `<ms>_bin6.jpg` — distinct, but only because of the bin suffix, and
    only within their own label folder. The export prefixes the label so
    a name is unique across the whole upload.
-3. **Somebody has to say how thin the thin classes are.** Doc section
+3. Somebody has to say how thin the thin classes are. Doc section
    19.2 asks for ">=150 images per class across >=4 sessions"; the whole
    point of doc section 12.7's session counter is that an operator can
    see they have 40 mushrooms and 6 prawns and go and collect more
    prawns. This prints that table, and says so loudly rather than
    exporting a lopsided set in silence.
 
-**It copies from `captures/`; it never moves or deletes there.**
+It copies from `captures/`; it never moves or deletes there.
 `datasets/captures/` is the only copy of hours of rig time, and an
 export is a thing people re-run. `datasets/export_ei/`, the
 destination, is the opposite: freely reproducible from `captures/`, so

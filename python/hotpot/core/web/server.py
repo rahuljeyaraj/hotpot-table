@@ -121,7 +121,7 @@ class Server:
     tablet that opens the page a minute into the run sees the current pip
     row at once rather than waiting for the next transition.
 
-    It may return **one object or a list of them**, each sent in turn.
+    It may return one object or a list of them, each sent in turn.
     One seed message stopped being enough at M2.6: a tablet needs both
     the pips and the current mode on arrival, or its action bar renders
     the wrong button until someone touches something. A list rather than

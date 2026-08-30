@@ -3,7 +3,7 @@
 M3 build item 1. Single producer (`camera`, doc section 3), multiple
 readers (`tracker`, `classifier`). Lock-free, seqlock-verified: the
 writer publishes a frame by writing pixels, then the slot header, then
-incrementing `write_counter` **last** (doc section 6.2) — that last
+incrementing `write_counter` last (doc section 6.2) — that last
 write is what a reader treats as "the frame exists" (doc section 6.3's
 `c1 = write_counter`), so it has to happen after everything it
 publishes, never before. A reader reads the slot's `frame_id` before and

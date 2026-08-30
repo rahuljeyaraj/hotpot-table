@@ -322,8 +322,8 @@ class CameraProcess:
         coupled parameter and must be recorded together, in the one file
         that answers "under what light was this dataset taken".
 
-        **This file is also read back as `prior_settings` on the next run,
-        which makes `locked` the most important key in it** — it is what
+        This file is also read back as `prior_settings` on the next run,
+        which makes `locked` the most important key in it — it is what
         separates "this is the light, reproduce it" from "this is what the
         controls happened to read while their autos were still hunting".
         Writing the numbers without it caused a yellow cast that survived

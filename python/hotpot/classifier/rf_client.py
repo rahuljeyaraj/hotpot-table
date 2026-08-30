@@ -3,9 +3,9 @@ push labeled capture images, generate a dataset version, train, poll, and
 (Path B only) fetch weights. The Roboflow sibling of `ei_client.py`, per
 `docs/ROBOFLOW_PATHWAY.md` §6 step 3.
 
-**Do NOT trust anything in this file's request/response shapes until doc
+Do NOT trust anything in this file's request/response shapes until doc
 §5's probes (V1-V8) have been run against a real account and the real
-responses pasted into that doc, per its own explicit instruction.** This
+responses pasted into that doc, per its own explicit instruction. This
 was written from Roboflow's published docs and the `roboflow`/`inference`
 package's own documented entry points, exactly as the plan doc's appendix
 already flags: "Every line below is from documentation, not from a live
@@ -17,10 +17,10 @@ function below carries its own VERIFY note where the shape is genuinely
 uncertain, and the test seams exist so a wrong guess is a one-function fix,
 not a rewrite.
 
-**Two tracks, not one, because Roboflow's API is two different surfaces
-for the operations this module needs:**
+Two tracks, not one, because Roboflow's API is two different surfaces
+for the operations this module needs:
 
-- **Plain REST** (`urllib.request`, no dependency) for everything with a
+- Plain REST (`urllib.request`, no dependency) for everything with a
   documented HTTP shape: checking a project resolves, kicking off a train
   job, polling it. Same `_urlopen` module-level test seam `ei_client.py`
   uses, same `_bounded_call()` DNS/connect-hang backstop (that module's own
@@ -28,7 +28,7 @@ for the operations this module needs:**
   `getaddrinfo()`, confirmed live once already on this exact link/upload
   shape for Edge Impulse — Roboflow's client has the identical exposure,
   so the mechanism is copied verbatim, not re-derived).
-- **The `roboflow` SDK** for the two operations Roboflow's own docs give
+- The `roboflow` SDK for the two operations Roboflow's own docs give
   only as SDK calls with no documented raw-REST equivalent: uploading a
   labeled image (`project.upload(path, annotation=<class>, split=...)`)
   and generating a dataset version (`project.generate_version(settings)`).
@@ -42,7 +42,7 @@ for the operations this module needs:**
   swapped and restored the same way in tests. No test in this module ever
   imports the real `roboflow` package.
 
-**Both raise `RFClientError`, wrapping the platform's own error message**
+Both raise `RFClientError`, wrapping the platform's own error message
 — surfaced to the staff view largely verbatim, the same convention
 `ei_client.EIClientError` already uses ("Roboflow's messages, like EI's,
 are already operator-facing text" — doc §6 step 3).
@@ -175,7 +175,7 @@ def get_project(workspace: str, project: str, api_key: str) -> dict:
     detection and are the WRONG type for this feature; check the returned
     type before saving a link to it).
 
-    **VERIFIED LIVE 2026-08-26 (closing this V2 note for real).** The
+    VERIFIED LIVE 2026-08-26 (closing this V2 note for real). The
     response is NOT flat — `type` sits under a nested `project` key:
     `{"workspace": {...}, "project": {"type": ..., "multilabel": ...,
     ...}, "versions": [...]}`. For a real object-detection project,
@@ -211,7 +211,7 @@ _roboflow_client = _default_roboflow_client
 
 
 def _project_handle(workspace: str, project: str, api_key: str):
-    """**Bug found live, 2026-08-26**: `_roboflow_client(api_key)` used to
+    """Bug found live, 2026-08-26: `_roboflow_client(api_key)` used to
     be called OUTSIDE this function's try/except, so a missing `roboflow`
     package (`ModuleNotFoundError`, the ordinary state on a rig that
     hasn't installed it yet — doc §4.3's own caution against doing that
@@ -248,7 +248,7 @@ def upload_image(workspace: str, project: str, api_key: str,
     gymnastics (unlike `ei_client.upload_samples`'s `x-label` header,
     which Roboflow has no equivalent of).
 
-    **V3 is the check that can sink this whole plan** (doc §5): a
+    V3 is the check that can sink this whole plan (doc §5): a
     classification upload that silently lands unlabelled produces a
     dataset that looks full and trains to nothing. Nothing in THIS
     function can catch that — only a human looking at the uploaded image
@@ -326,7 +326,7 @@ def generate_version(workspace: str, project: str, api_key: str,
                       settings: Optional[dict] = None) -> str:
     """V4: `SDK project.generate_version(settings)` — kicks off dataset
     preprocessing/augmentation and returns the new version number.
-    Returned as a **string**, matching `rf_store.RFProject["version"]`'s
+    Returned as a string, matching `rf_store.RFProject["version"]`'s
     type — Roboflow versions are small integers in practice but nothing
     here has confirmed the SDK's own return type, so this coerces rather
     than assumes.
@@ -438,13 +438,13 @@ def wait_for_training(workspace: str, project: str, api_key: str, job_id: str,
 
 def download_weights(workspace: str, project: str, version: str,
                       api_key: str, dest_dir: str) -> str:
-    """**Path B only, and blocked on cost per doc §1**: "Manual weights
+    """Path B only, and blocked on cost per doc §1: "Manual weights
     download is only available for paid users on Core plans and certain
     Enterprise customers." Per the appendix: `SDK: rf.workspace().
     project(P).version(N).models()[0].download()`.
 
-    **V8, unverified — the least-confirmed function in this whole
-    module.** The SDK's own `.download()` is documented to save a file
+    V8, unverified — the least-confirmed function in this whole
+    module. The SDK's own `.download()` is documented to save a file
     (commonly a zip) into the *current working directory* by default in
     some SDK versions, not return raw bytes the way `ei_client.
     download_model()` does — so this function changes into `dest_dir`

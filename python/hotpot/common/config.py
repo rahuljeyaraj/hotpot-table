@@ -7,8 +7,8 @@ reader — `camera/main.py` needs `device`, `capture`, `fps`, `mjpeg_port`,
 threading them one at a time the way `stub.py` hardcodes `CORE_HOST`/
 `CORE_PORT` stops being the cheaper option here.
 
-The hard rule, restated from `.gitignore`'s own comment: **the default is
-committed, the live file is not.** `load()` seeds `config/system.json` from
+The hard rule, restated from `.gitignore`'s own comment: the default is
+committed, the live file is not. `load()` seeds `config/system.json` from
 `config/system.default.json` on first run, then deep-merges the live file
 over the default so a `system.json` written against an older doc revision
 still picks up any key a newer default adds, instead of `KeyError`-ing the
@@ -32,7 +32,7 @@ PathLike = Union[str, "Path"]
 # Doc section 8.6's `camera.host_for_browser`, and the values that mean
 # "work it out" rather than naming a host.
 #
-# **Loopback counts as `auto`, and that is the point of this list.** The
+# Loopback counts as `auto`, and that is the point of this list. The
 # key's whole job is to name the host a browser on SOMEBODY ELSE'S device
 # types — a tablet, a diner's phone scanning the projected QR — and that
 # browser is never on this machine, so `localhost` there cannot be a

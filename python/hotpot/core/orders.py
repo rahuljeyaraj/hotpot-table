@@ -17,7 +17,7 @@ pinned down:
 SQLite because it is in the standard library, is a single file, survives
 a power cut, and gives the staff view real reporting for almost no code.
 
-**Every write is its own connection.** `sqlite3` objects are bound to the
+Every write is its own connection. `sqlite3` objects are bound to the
 thread that made them by default, and this store is written from core's
 state thread (checkout) and read from the web server's thread (the
 receipt page) — a shared connection would need `check_same_thread=False`
@@ -130,7 +130,7 @@ class OrderStore:
     def _connect(self):
         """A connection that is COMMITTED and then CLOSED.
 
-        **`with sqlite3.connect(...)` does not close anything** — the
+        `with sqlite3.connect(...)` does not close anything — the
         connection's own context manager commits or rolls back the
         transaction and leaves the handle open. On Windows that keeps a
         lock on the file, which is invisible in normal use and shows up
@@ -153,8 +153,8 @@ class OrderStore:
                qr_url: str = "") -> Order:
         """Write one order and return it, code assigned.
 
-        **The code is allocated inside the same transaction that inserts
-        the row, and retried on collision.** `code` is UNIQUE, so two
+        The code is allocated inside the same transaction that inserts
+        the row, and retried on collision. `code` is UNIQUE, so two
         orders finishing in the same second cannot both take `A17` — the
         loser hits an IntegrityError and draws again rather than
         overwriting a receipt somebody is about to scan.
@@ -197,7 +197,7 @@ class OrderStore:
 
         Returns the order, or None if there is no such code.
 
-        **Idempotent: a second tap on Pay does not move `paid_at`.** The
+        Idempotent: a second tap on Pay does not move `paid_at`. The
         receipt page is a web page on a stranger's phone; it will be
         reloaded, double-tapped and opened twice, and the first payment
         is the one that happened.
@@ -290,7 +290,7 @@ class OrderStore:
 def qr_matrix(url: str) -> List[List[bool]]:
     """The projected QR (doc section 18.1) as a square bool matrix.
 
-    **Core rasterises nothing.** oF draws the modules as filled rects,
+    Core rasterises nothing. oF draws the modules as filled rects,
     the same way it draws everything else — sending a matrix rather than
     an image keeps I2 (core owns the data, oF owns the pixels) and means
     the QR scales to whatever the projector's module size needs to be

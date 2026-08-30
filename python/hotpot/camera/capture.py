@@ -32,7 +32,7 @@ Two cases:
   Reproducing the light the dataset was captured under is the entire point.
 - No such locked prior — every auto (exposure/WB/focus) is left exactly as
   `open()` found it, running continuously, same as the OS camera app.
-  **This module used to auto-lock here** — converge for a short settle
+  This module used to auto-lock here — converge for a short settle
   window, then freeze whatever the sensor happened to land on — but that
   produced a recurring yellow-tinted picture on this dev machine (a 1.5s
   window isn't always enough for white balance to settle, and unlocking it
@@ -498,9 +498,9 @@ class V4L2Capture:
         """Two cases: a prior LOCKED calibration is applied verbatim, or —
         with none — every auto is left running, untouched.
 
-        **This used to converge autos for `AUTO_SETTLE_S` (1.5s) and then
+        This used to converge autos for `AUTO_SETTLE_S` (1.5s) and then
         lock whatever they landed on, every single open with no explicit
-        lock recorded** — the same recurring-yellow-cast loop found and
+        lock recorded — the same recurring-yellow-cast loop found and
         fixed on `WindowsCapture` 2026-08-13 (see that class's own
         docstring for the full evidence): 1.5s does not reliably let white
         balance settle, so an open could freeze a bad value, and unlocking
@@ -616,8 +616,8 @@ class WindowsCapture:
     """OpenCV's DirectShow backend, addressed by device *index* (0, 1, ...)
     rather than V4L2Capture's `/dev/videoN` path — Windows has no such path.
 
-    **Exposure/WB/focus locking here is best-effort, not the guarantee
-    V4L2Capture gives.** That class's own docstring already warns that
+    Exposure/WB/focus locking here is best-effort, not the guarantee
+    V4L2Capture gives. That class's own docstring already warns that
     OpenCV's `CAP_PROP_*` mapping onto UVC controls is inconsistent across
     drivers, which is exactly why V4L2Capture shells out to `v4l2-ctl`
     instead of trusting it — and `v4l2-ctl` does not exist on Windows, so
@@ -856,9 +856,9 @@ class WindowsCapture:
         """Two cases: a prior LOCKED calibration is applied verbatim, or —
         with none — every auto is left running, untouched.
 
-        **This used to converge autos for `AUTO_SETTLE_S` (1.5s) and then
+        This used to converge autos for `AUTO_SETTLE_S` (1.5s) and then
         lock whatever they landed on, every single boot with no explicit
-        lock recorded.** That is what produced a recurring yellow-tinted
+        lock recorded. That is what produced a recurring yellow-tinted
         picture (reported 2026-08-13): 1.5s is not always long enough for
         white balance to actually settle, so a boot could freeze a bad
         value; using the dev panel's "Auto white balance" to fix it writes

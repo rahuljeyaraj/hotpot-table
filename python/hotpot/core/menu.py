@@ -17,7 +17,7 @@ will read them. `zh` is carried here already even though nothing renders
 it yet (M1.4's English-only scope, unchanged) so the file's shape does
 not have to change when a locale lands.
 
-**`diet` on a broth is inferred from its NAME and is not confirmed.**
+`diet` on a broth is inferred from its NAME and is not confirmed.
 Classic Mala is traditionally a beef-tallow base and Collagen Bone Broth
 is bone, so both are marked nonveg; the two vegetarian ones say so in
 their own names. This is the one field here where being wrong is not

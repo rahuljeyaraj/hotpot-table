@@ -8,12 +8,12 @@ Studio + ingestion APIs for CSV feature-vector samples. The shape carries
 over — plain stdlib `urllib.request`, HTTP status as the authoritative
 success signal, `x-api-key`/`x-jwt-token` auth, `EIClientError` wrapping
 EI's own `error` message — but the payload does not: this project uploads
-**images** (the Capture tab's `datasets/captures/<label>/*.jpg`, doc
+images (the Capture tab's `datasets/captures/<label>/*.jpg`, doc
 section 12.7), not precomputed feature vectors, and its deployment target
-is a **C++ library** (EON compiler, int8 — `models/README.md`'s
+is a C++ library (EON compiler, int8 — `models/README.md`'s
 "hotpot-ingredients" entry), not a bare `.tflite`.
 
-**What this module does NOT do, on purpose:** configure the impulse's
+What this module does NOT do, on purpose: configure the impulse's
 input/DSP/transfer-learning blocks (doc section 19.2: 224x224 image input,
 image DSP block, MobileNetV2 alpha=0.35 transfer learning). The sibling
 project's own `create_impulse()`/`_impulse_body()` for a *feature-vector*
@@ -30,8 +30,8 @@ manual Studio step, same as it already was for the existing
 
 `build_model()`'s `engine`/`modelType` body fields were this module's
 best-effort reading of EI's public API docs and carried a "not confirmed
-against a live account" caveat here until **2026-08-24, when a live run
-against project 1095598 confirmed all three**: EI's own job-status
+against a live account" caveat here until 2026-08-24, when a live run
+against project 1095598 confirmed all three: EI's own job-status
 metadata came back `{"deploymentType": "zip", "engine": "tflite-eon",
 "modelType": "int8", "impulseId": 1}`, i.e. it accepted and used exactly
 what was sent.

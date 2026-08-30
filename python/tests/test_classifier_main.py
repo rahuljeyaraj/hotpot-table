@@ -5,7 +5,7 @@ Run from the repo root:
 
     python -m unittest discover -s python/tests -v
 
-**No camera process and no shared memory.** `RingSource` takes an
+No camera process and no shared memory. `RingSource` takes an
 `open_reader` callable for exactly the reason `ScaleReader` takes
 `open_port`: the thing that would otherwise need hardware is one
 injection point, and everything above it is ordinary code. `FakeReader`

@@ -48,7 +48,7 @@ VALID_DIETS = {"veg", "nonveg", "egg"}
 
 @dataclass(frozen=True)
 class Item:
-    """One catalogue entry. Two of these five fields are **hidden** and
+    """One catalogue entry. Two of these five fields are hidden and
     two are shown, and the split is the whole point of doc section 8.1.
 
     HIDDEN — never reaches a diner-facing surface, in any language:
@@ -61,7 +61,7 @@ class Item:
                     section 8.1) — a pronunciation aid, not a translation,
                     so it rides beside `names["zh"]` rather than inside it.
 
-    `names` is **not** a translation of `id`. The label names a thing that
+    `names` is not a translation of `id`. The label names a thing that
     is easy to photograph and train on; the display name is the hot pot
     ingredient it stands in for on the table. In this catalogue the two
     usually coincide (2026-08-13's real ingredient photos), same as `egg`
@@ -144,8 +144,8 @@ class Item:
         return self.description
 
     def display_name(self, locale: Optional[str] = None) -> str:
-        """The label the table prints. **Cannot return `id` or
-        `class_name`** — that is this method's entire reason for existing.
+        """The label the table prints. Cannot return `id` or
+        `class_name` — that is this method's entire reason for existing.
 
         Falling back to `id` is what core/main.py used to do, and it put
         the hidden training label onto the projected surface the moment a
@@ -291,7 +291,7 @@ def display_grams(shown_g: float) -> float:
 def is_billable(grams: float) -> bool:
     """Whether a pick this small is a line on the bill at all.
 
-    **Anything that rounds to 0 g is not billed and not listed.**
+    Anything that rounds to 0 g is not billed and not listed.
     Developer, 2026-08-25: "what ever is 0g should not get listed in the
     final bill. now it shows with .01$ or .00$ price tag." Nothing on the
     bill was ever *truly* zero — `_order_lines` has always dropped
@@ -348,7 +348,7 @@ def _sum_resolved(cart: "Cart", binmap: BinMap, catalogue: Catalogue,
 
 def total(cart: "Cart", binmap: BinMap, catalogue: Catalogue,
           *, conf_floor: float = DEFAULT_CONF_FLOOR) -> float:
-    """**The billed number.** Doc section 9.2 exactly: true removed grams,
+    """The billed number. Doc section 9.2 exactly: true removed grams,
     the deadband nowhere near it (I5: "it never enters price maths").
 
     This is what an order is written to SQLite from (M6). Nothing that
@@ -360,7 +360,7 @@ def total(cart: "Cart", binmap: BinMap, catalogue: Catalogue,
 
 def shown_total(cart: "Cart", binmap: BinMap, catalogue: Catalogue,
                 *, conf_floor: float = DEFAULT_CONF_FLOOR) -> float:
-    """**The number on the table.** Same formula, fed the deadbanded grams.
+    """The number on the table. Same formula, fed the deadbanded grams.
 
     Why this exists rather than displaying total(): the deadband (I5) is
     there so the projected number stops twitching, and a number is not

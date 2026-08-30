@@ -34,7 +34,7 @@ NUM_BINS = 8
 
 # Doc section 8.6's default was 10.0. Dropped to 5.0 on 2026-08-25 (see
 # git history) after a rig report that a first sub-10g scoop wasn't
-# showing up in the cart at all. Back to **10.0 on 2026-08-26**, on the
+# showing up in the cart at all. Back to 10.0 on 2026-08-26, on the
 # developer's own explicit instruction — no new rig report behind this
 # one, just a direct "make it 10".
 #
@@ -93,14 +93,14 @@ class Cart:
         "staff enter, cart empty" precondition, which fsm.py's
         can_enter_setting() is the only caller of so far.
 
-        **shown_g, NOT removed_grams().** This is the single easiest thing
+        shown_g, NOT removed_grams(). This is the single easiest thing
         to get wrong here and the failure is not subtle. `removed_g =
         max(0, start_g - live_g)` is raw and moves with load-cell noise —
         CLAUDE.md's per-channel table has four bins sitting at 500-1500
         counts rms, which at a plausible counts/gram is several grams of
         permanent wobble. Reading that raw number would make this true
-        essentially always on a noisy channel and **setting mode would be
-        permanently unreachable**, since an active cart is the one thing
+        essentially always on a noisy channel and setting mode would be
+        permanently unreachable, since an active cart is the one thing
         that refuses entry.
 
         shown_g is deadband-gated (set_live_grams above), so it is 0 until
@@ -114,8 +114,8 @@ class Cart:
         cents and invisible on the table, against a mode that could not
         be entered at all.
 
-        **This is the predicate that bounds how far `deadband_g` can
-        fall** — see DEFAULT_DEADBAND_G's own block. Below the load
+        This is the predicate that bounds how far `deadband_g` can
+        fall — see DEFAULT_DEADBAND_G's own block. Below the load
         cells' own noise this is true on an untouched table and setting
         mode becomes unreachable.
         """

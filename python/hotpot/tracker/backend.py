@@ -3,10 +3,10 @@ more (doc section 19.4's "backend abstraction — mandatory", applied to the
 tracker for the same reason it is applied to the classifier and voice).
 
 Doc section 19.4 argues the split as "what makes M1-M6 possible before any
-model exists". Here it buys something narrower and more immediate: **the
+model exists". Here it buys something narrower and more immediate: the
 role assignment in doc section 11.3 is the part of this milestone that can
 be wrong in a way nobody notices, and it must be testable without a camera,
-without a model file, and without MediaPipe installed at all.** A left hand
+without a model file, and without MediaPipe installed at all. A left hand
 that selects is a bug a diner finds, not a test — unless the tracking is
 drivable from a list of coordinates, which is what `backend_stub` is for.
 
@@ -18,8 +18,8 @@ and knows nothing about stage space, homographies, roles, ids, hysteresis
 or UDP. All of that is `tracker/tracking.py`'s and `tracker/main.py`'s job,
 so all of it is testable against the stub.
 
-`Detection.x`/`.y` are in the pixel coordinates **of the frame that was
-passed in** — not the camera's full capture resolution and not stage space.
+`Detection.x`/`.y` are in the pixel coordinates of the frame that was
+passed in — not the camera's full capture resolution and not stage space.
 Doc section 6.5 originally had the tracker downsampling before inference;
 `tracker/main.py`'s module docstring, decision 7 (2026-08-12) removed that
 step for hand detection specifically (a downsampled frame is exactly the
@@ -51,7 +51,7 @@ class Detection:
     """One hand found in one frame.
 
     `x`/`y` are the cursor point already chosen by the backend — doc
-    section 11.2's **landmark 9, the middle-finger MCP joint**. The choice
+    section 11.2's landmark 9, the middle-finger MCP joint. The choice
     lives in the backend rather than in the caller because only the backend
     has landmarks at all; what the caller gets is a point, which is all doc
     section 4.6 ever puts on the wire.

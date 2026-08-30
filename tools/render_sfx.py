@@ -4,7 +4,7 @@ sound set as WAV files, procedurally, with no external audio dependency
 (stdlib `wave` + `math`/`random` only, same "no runtime dependency" spirit
 as tools/render_tts.py section 16.3 will follow for voice).
 
-**These are placeholder programmer-art, not a final mix.** They exist so
+These are placeholder programmer-art, not a final mix. They exist so
 AudioBus (of/hotpot-table/src/AudioBus.cpp) has something to load and the
 event wiring can be heard end-to-end on the rig before a real sound
 designer's recordings replace them file-for-file — same id, same

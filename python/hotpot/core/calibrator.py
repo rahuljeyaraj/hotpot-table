@@ -21,7 +21,7 @@ One `Calibration` object, shared. `core/main.py` will do:
     reader = scale.ScaleReader(port, cal=cal); reader.start()
     bins   = calibrator.Calibrator(reader)
 
-There is deliberately **no `cal` parameter** here: the calibrator takes
+There is deliberately no `cal` parameter here: the calibrator takes
 `reader.cal`, which makes it impossible to calibrate a copy. A copy would
 save a perfectly good file that the live reading never picks up — the
 table would go on showing the pre-calibration grams and nothing would
@@ -30,10 +30,10 @@ look broken until someone weighed a plate by hand.
 Why the verification reading is a second measurement
 ----------------------------------------------------
 Doc section 12.4 ends each flow with "Done. Bin 3 reads 500 g." The
-number in that sentence comes from `reader.read()` — a **fresh** look at
+number in that sentence comes from `reader.read()` — a fresh look at
 the live slot through the calibration just saved — and not from the
 capture the fit was computed from. Reading it back out of that capture is
-a **TRAP** in the doc section 21 sense: `(loaded - zero) / cpg` is
+a TRAP in the doc section 21 sense: `(loaded - zero) / cpg` is
 `ref_mass_g` by construction, to the last decimal place, so it would
 print "500 g" for a cell that is disconnected, mis-wired, or drifting,
 and confirm nothing. A second measurement can disagree, which is the
@@ -41,7 +41,7 @@ whole point of showing it.
 
 What is not saved from the loaded capture
 -----------------------------------------
-`noise_counts_rms` (doc section 8.3) is taken from the **tare** capture
+`noise_counts_rms` (doc section 8.3) is taken from the tare capture
 only. Noise measured with a mass sitting in the bin includes the mass
 settling and the tray rocking; the empty-bin number is the channel's own
 noise, which is what CLAUDE.md's per-channel table measured and what doc
@@ -163,7 +163,7 @@ class Calibrator:
 
         Leaves `counts_per_gram` alone (loadcell_cal.tare's own contract),
         so re-zeroing a drifted cell does not throw away a good two-point
-        calibration. This is the load cell's zero and **not** I6's
+        calibration. This is the load cell's zero and not I6's
         re-baseline; nothing on the diner path can reach it.
         """
         self._check_bin(i)
@@ -289,8 +289,8 @@ class Calibrator:
     def _result(self, i: int, op: str, cap: scale.Capture) -> Result:
         """Build doc section 12.4's closing sentence.
 
-        Doc section 12.4 step 1 ends "Done. Bin 3 reads 0 g." **That
-        sentence is not available on a first-ever tare**, and the doc's
+        Doc section 12.4 step 1 ends "Done. Bin 3 reads 0 g." That
+        sentence is not available on a first-ever tare, and the doc's
         flow does not notice: a bin with no `counts_per_gram` yet cannot
         be read in grams at all, so there is no measurement to quote. The
         honest reply is to send the operator to step 2, which is where

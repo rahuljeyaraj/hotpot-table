@@ -165,7 +165,7 @@ class TestCanEnterSetting(unittest.TestCase):
         `removed_grams()` is not. If is_active() read the raw number,
         ordinary load-cell noise (CLAUDE.md's per-channel table: four
         bins at 500-1500 counts rms) would hold this true permanently and
-        **setting mode would be unreachable on the rig.**
+        setting mode would be unreachable on the rig.
 
         MUTATION CHECKED: switch cart.is_active() to
         `any(self.removed_grams(i) > 0.0 for i in ...)` and this goes red.
@@ -261,7 +261,7 @@ class TestExitSetting(unittest.TestCase):
         self.assertTrue(bm.locked)
 
     def test_refreshes_weights_BEFORE_re_baselining(self):
-        """**The M2.6 trap, at the unit level.**
+        """The M2.6 trap, at the unit level.
 
         Setting mode froze billing, so live_g still holds the weight each
         bin had when the mode was entered. A tray swapped during the mode
@@ -305,7 +305,7 @@ class TestExitSetting(unittest.TestCase):
     def test_the_refresh_runs_before_reset_session_not_after(self):
         """The order of exit's first two steps, pinned by call sequence
         rather than by outcome — because with the callback core actually
-        supplies, **the outcome does not distinguish them.**
+        supplies, the outcome does not distinguish them.
 
         Found while mutation-testing this milestone, and worth writing
         down: `_refresh_weights_from_scale` uses `cart.seed_live_grams()`,
@@ -430,7 +430,7 @@ def _selecting_with_a_cart():
 
 class TestTheCheckoutChain(unittest.TestCase):
     """SELECTING -> BROTH -> SPICE -> CHECKOUT, and back along every
-    arrow. **RECAP is gone** (2026-08-25) — see fsm.py's module docstring.
+    arrow. RECAP is gone (2026-08-25) — see fsm.py's module docstring.
     """
 
     def test_the_chain_walks_forward(self):

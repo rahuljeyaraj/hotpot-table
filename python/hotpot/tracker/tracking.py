@@ -1,10 +1,10 @@
 """tracker/tracking.py — the single tracked hand's position, smoothed.
 
-**2026-08-13, RIG_FEEDBACK item 11, developer's call: this module used to
+2026-08-13, RIG_FEEDBACK item 11, developer's call: this module used to
 implement doc section 11.3's full two-hand design — nearest-neighbour
 matching with a widening gate, `_appear`'s handedness-based takeover,
 role LOCKED to a track id, a 500ms+500ms retire/promote cycle to hand the
-pointer role from one hand to the other. All of that machinery is gone.**
+pointer role from one hand to the other. All of that machinery is gone.
 
 Why: `tracker/main.py` configures MediaPipe with `num_hands=max_hands`,
 and `max_hands` has been `1` in both `config/system.default.json` and
@@ -20,9 +20,9 @@ take over when the first one's gone (`_retire`/`_promote`). With at most
 one hand, ever, none of those questions has a second answer to choose
 between — the one hand present, when present, is always the pointer.
 
-**This was also where RIG_FEEDBACK item 11's whole investigation lived,
+This was also where RIG_FEEDBACK item 11's whole investigation lived,
 and it is worth being honest about what that investigation did and
-didn't establish.** Three fixes to the two-hand machinery each landed,
+didn't establish. Three fixes to the two-hand machinery each landed,
 each independently confirmed real on the rig, and the stuck-then-snap
 symptom persisted through all three — because the rig this was being
 debugged on only ever has one hand to track, and the two-hand matching
@@ -30,16 +30,16 @@ logic being debugged was answering a question ("which of two hands is
 this") that was never actually being asked. A raw-skeleton diagnostic
 (`skeletonbus.py`) confirmed the smoothness diners actually see is
 achievable — MediaPipe's own output, mapped through the same homography,
-with nothing else done to it, is smooth. **This module is now built to
+with nothing else done to it, is smooth. This module is now built to
 match that: the same one-hand data, filtered only for per-frame jitter,
-nothing else in the way.** If two-hand tracking is ever revisited, this
+nothing else in the way. If two-hand tracking is ever revisited, this
 file's git history before this commit has the full doc-11.3 role/match/
 hysteresis design to rebuild from — it is not preserved as dead code
 here, per this codebase's own rule against leaving a removed mechanism
 dormant instead of deleted.
 
-**RIG_FEEDBACK item 8 (2026-08-13, kept): the position is still smoothed,
-by a time-based EMA, not fixed-per-frame.** No filter existed between a
+RIG_FEEDBACK item 8 (2026-08-13, kept): the position is still smoothed,
+by a time-based EMA, not fixed-per-frame. No filter existed between a
 raw per-frame detection and what went on the wire; the cursor visibly
 jittered. `alpha = 1 - exp(-dt / tau)` rather than a constant blend
 factor because this process's own frame interval is not constant
@@ -110,7 +110,7 @@ class HandTracker:
                ) -> List[cursorbus.Hand]:
         """Advance one frame. Returns 0 or 1 hands, always role POINTER.
 
-        `detections` are in **stage space** already — the caller applies
+        `detections` are in stage space already — the caller applies
         the homography before calling. Only `detections[0]` is ever used
         — see the module docstring: MediaPipe itself is configured to
         never hand this more than one, so a second entry here would mean

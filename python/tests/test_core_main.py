@@ -145,7 +145,7 @@ class CoreCase(unittest.TestCase):
         # fixture orders in front of staff on the Orders tab — and, worse,
         # burn real order codes a diner might be holding.
         self.orders_path = os.path.join(self._cal_dir.name, "orders.sqlite3")
-        # **A CALIBRATED table by default (M4.6).** Doc section 9.1 boots
+        # A CALIBRATED table by default (M4.6). Doc section 9.1 boots
         # an empty `state/` to UNCALIBRATED, where nothing bills at all —
         # so every test in this file that is about pricing, the mode, or
         # the `state` message would otherwise be testing a table that
@@ -1288,8 +1288,8 @@ class TestBinsTab(CoreCase):
         self.assertEqual(b.source, "unset")
 
     def test_an_override_survives_a_restart(self):
-        """**Developer, 2026-08-24: "the items i manually set in the bin tab
-        didnt persist after a reload of the app. it should perssist."**
+        """Developer, 2026-08-24: "the items i manually set in the bin tab
+        didnt persist after a reload of the app. it should perssist."
 
         The whole point of an override is that it outlives the classify
         pass it exists to correct, and a restart is the longest version of
@@ -1342,8 +1342,8 @@ class TestBinsTab(CoreCase):
         self.assertFalse(reborn.binmap.resolved(5))
 
     def test_a_classifier_guess_does_survive_a_restart(self):
-        """**This test asserted the OPPOSITE for one day, and the reversal
-        is the point.**
+        """This test asserted the OPPOSITE for one day, and the reversal
+        is the point.
 
         2026-08-24 it dropped classifier rows back to the seed, answering
         "the food label all were wrong". 2026-08-25 the developer
@@ -1740,8 +1740,8 @@ class TestMode(ScaleRig, CoreCase):
         self.assertIsNone(msg["refused"])
 
     def test_cancelling_a_sub_deadband_pick_still_re_baselines_the_bin(self):
-        """**Developer, 2026-08-24: "a cance will clear the cart but if any
-        item is touched all the old items get popped up."**
+        """Developer, 2026-08-24: "a cance will clear the cart but if any
+        item is touched all the old items get popped up."
 
         This is that. Cancel used to be guarded by `cart.is_active()`,
         which reads the DEADBANDED `shown_g` — so a sub-deadband pick left
@@ -1859,15 +1859,15 @@ class TestMode(ScaleRig, CoreCase):
             self.assertEqual(b["picked"], 0)
 
     def test_exit_rebaselines_against_current_weight_not_stale(self):
-        """**THE M2.6 TRAP, driven as the real scenario.**
+        """THE M2.6 TRAP, driven as the real scenario.
 
         Enter setting mode, swap a bin's tray for a much lighter one
         (~400 g of difference), exit. `_apply_scale_to_cart()` was off the
         whole time, so live_g still says 500 g while the bin now holds
         100 g. `reset_session()` does `start_g[i] = live_g[i]`. Without
         the weight refresh first, start_g captures 500, the next tick sets
-        live_g to 100, and `removed_g` becomes 400 — **the next diner is
-        billed for the tray swap.**
+        live_g to 100, and `removed_g` becomes 400 — the next diner is
+        billed for the tray swap.
 
         If only one test survived this milestone, it should be this one.
 
@@ -1969,8 +1969,8 @@ class TestCameraJoinMessage(unittest.TestCase):
         config/system.default.json's camera.mjpeg_port is edited to match —
         the two are meant to agree even though nothing enforces it in code.
 
-        **The PORT is compared against the file; the HOST deliberately is
-        not.** Since 2026-08-25 the file says `"auto"` there and `main()`
+        The PORT is compared against the file; the HOST deliberately is
+        not. Since 2026-08-25 the file says `"auto"` there and `main()`
         resolves it to this machine's LAN address before Core ever sees
         it (`config.resolve_browser_host`), so the two are no longer the
         same kind of value. `CAMERA_HOST` is what a Core built with no
@@ -2409,7 +2409,7 @@ class TestSetupTabGrid(CoreCase):
     frame, while dragging; Save is the only confirmation there is anything
     left to record.
 
-    **What is NOT here is the point.** There is no test that reprojects a
+    What is NOT here is the point. There is no test that reprojects a
     saved grid through `H` and checks anything — the camera grid is not
     derived from the homography at all any more (`bin_grid.py`'s
     docstring), and even where a homography check would have applied, doc
@@ -2536,7 +2536,7 @@ class TestProjectorGrid(CoreCase):
     message names, and one case that class does not have: the projector
     grid, and only the projector grid, is what reaches `state.bins[].rect`.
 
-    **No homography anywhere in this class.** Unlike `TestSetupTabGrid`,
+    No homography anywhere in this class. Unlike `TestSetupTabGrid`,
     setUp() does not install one — `bin_grid.py`'s docstring is explicit
     that this grid needs none, and a test that installed one anyway could
     hide a handler that wrongly required it.
@@ -2662,7 +2662,7 @@ class TestProjectorGrid(CoreCase):
 class TestCaptureTab(CoreCase):
     """M4 build item 7's server half, doc section 12.7.
 
-    **The tests that matter here are the refusals**, because doc section
+    The tests that matter here are the refusals, because doc section
     21's acceptance list turns the lighting requirement into a rule about
     design: "Every capture is taken with the bin patches lit exactly as
     serving mode lights them. If the Capture tab has its own lighting
@@ -4051,7 +4051,7 @@ class TestUncalibratedBoot(CoreCase):
 
     def test_the_tablet_is_told_when_the_table_stops_being_uncalibrated(self):
         """MUTATION-DRIVEN: dropping `uncalibrated` from `_publish_mode`'s
-        on-change key was checked and **no test went red**, so this is
+        on-change key was checked and no test went red, so this is
         that test.
 
         The `mode` message is broadcast on change, not on a timer (M2.6),
@@ -4297,7 +4297,7 @@ class TestHoverAndDwellOverTheWire(CoreCase):
         self.assertEqual(len(seen), 1, "Confirm did not finalise the cart")
         self.assertAlmostEqual(seen[0][0], 54.0, places=3,
                                msg="finalize ran but not on the true removed grams")
-        # **And then the checkout starts — it does NOT end the session.**
+        # And then the checkout starts — it does NOT end the session.
         # This assertion was the other way round until M6, when Confirm
         # in SELECTING became doc section 9.1's "done" edge. Ending the
         # session here now would be a real bug: it would empty the cart
@@ -4818,7 +4818,7 @@ class TestCheckoutFlow(CoreCase):
     """M6, doc section 18.1: SELECTING -> BROTH -> SPICE -> CHECKOUT ->
     IDLE, and the payment mock that closes it.
 
-    **RECAP is gone and the option screens no longer turn the page**
+    RECAP is gone and the option screens no longer turn the page
     (2026-08-25) — see `fsm.py`'s module docstring and `_choose_broth`.
     Dwelling a plate now MARKS it; the diner moves with the primary
     button, which is `hover.CONFIRM` on every screen wearing a different
@@ -4865,7 +4865,7 @@ class TestCheckoutFlow(CoreCase):
             self.core._fire_widget(hover.CONFIRM)
             self.assertIs(self.core.fsm.state, fsm.State.BROTH)
 
-            # **Choosing does not move the screen.** This is the assertion
+            # Choosing does not move the screen. This is the assertion
             # the redesign is about: before it, this one fire both set the
             # broth and jumped to SPICE.
             self.core._fire_widget(hover.broth_widget_id("mala"))
@@ -4911,7 +4911,7 @@ class TestCheckoutFlow(CoreCase):
         too — `enabled` is drawn from a snapshot core took one tick
         earlier, so it is not a gate anything should rely on alone.
 
-        **BROTH still refuses with nothing chosen; SPICE no longer can.**
+        BROTH still refuses with nothing chosen; SPICE no longer can.
         2026-08-25's chili-strip pre-selects Mild by default (developer:
         "which is mild and should be default" — see
         `Core._default_spice_level`), so arriving on SPICE already has a
@@ -4943,7 +4943,7 @@ class TestCheckoutFlow(CoreCase):
         self.assertEqual(order.spice, self.core._default_spice_level)
 
     def test_level_zero_counts_as_a_choice(self):
-        """**The trap.** Doc section 17 makes "no spice" a real choice, so
+        """The trap. Doc section 17 makes "no spice" a real choice, so
         `_spice_level == 0` cannot double as "nothing picked" — that is
         what `_spice_chosen` is for. Get this wrong and the one diner who
         wants plain broth can never leave the spice screen.
@@ -5023,7 +5023,7 @@ class TestCheckoutFlow(CoreCase):
             self.assertEqual(self.core._broth_id, "mala")
 
     def test_backing_out_of_the_payment_screen_voids_the_order(self):
-        """**The trap.** The row is in SQLite with a code by the time this
+        """The trap. The row is in SQLite with a code by the time this
         screen is up. A diner going back to change their spice level must
         not leave a payable, cookable order behind them carrying the old
         one — the kitchen would cook both.
@@ -5062,7 +5062,7 @@ class TestCheckoutFlow(CoreCase):
         self.assertNotEqual(self.core.orders.get(code).status, "void")
 
     def test_the_cart_stops_moving_once_the_diner_presses_done(self):
-        """**The trap.** A hand brushing a tray while the diner chooses a
+        """The trap. A hand brushing a tray while the diner chooses a
         broth, or the load cells drifting while the QR is up, must not
         change an order already shown or already written. `fsm.weighing`
         is what freezes it, and this fails if that gate goes back to
@@ -5169,9 +5169,9 @@ class TestCheckoutFlow(CoreCase):
         self.assertEqual(len(ov["qr"]), len(ov["qr"][0]))
 
     def test_the_qr_encodes_the_browser_host_not_this_machines_loopback(self):
-        """**Developer, 2026-08-25: "the qr code is showing some local
+        """Developer, 2026-08-25: "the qr code is showing some local
         host url which is not reachable in my phone even if it is in same
-        wifi network."**
+        wifi network."
 
         The URL is built from `camera_host`, which `main()` now resolves
         through `config.resolve_browser_host` — `localhost` in
@@ -5193,7 +5193,7 @@ class TestCheckoutFlow(CoreCase):
         self.assertNotIn("localhost", self.core.receipt_url("A17"))
 
     def test_the_token_is_withheld_until_the_payment_lands(self):
-        """**The trap, and the developer asked for it by name**
+        """The trap, and the developer asked for it by name
         (2026-08-25): "the token number should be given only after
         sucessfull payment."
 
@@ -5240,7 +5240,7 @@ class TestCheckoutFlow(CoreCase):
         """Doc section 18.2: "The table sees the payment land (via the
         WebSocket) and plays `order_done`."
 
-        **The session no longer ends on the payment itself**, and it
+        The session no longer ends on the payment itself, and it
         cannot: the token appears at that moment (it is withheld until
         then), so resetting in the same breath would flash it and clear
         the table before anyone read it. Done ends it. See
@@ -5272,7 +5272,7 @@ class TestCheckoutFlow(CoreCase):
                                        self.core.catalogue), 0.0, places=6)
 
     def test_the_buttons_changing_disarms_the_dwell_under_the_hand(self):
-        """**The trap, and it has no FSM transition in it.**
+        """The trap, and it has no FSM transition in it.
 
         A payment landing on the WebSocket swaps the payment screen's
         Back/Cancel for a single Done — same FSM state, different thread,
@@ -5522,7 +5522,7 @@ class TestCheckoutFlow(CoreCase):
         later broth-card redesign, into the card itself instead; either
         way this is the same `info` payload on the wire.
 
-        **No `swatch` any more** — developer, same day, later: "the
+        No `swatch` any more — developer, same day, later: "the
         coloured circle infront of the broth name has to be removed."
         `hover.broth_widgets` stopped passing one at all.
         """
@@ -5559,8 +5559,8 @@ class TestCheckoutFlow(CoreCase):
                 self.assertTrue(w["info"]["desc"])
 
     def test_the_spice_screen_reaches_hot_at_top_mild_at_bottom(self):
-        """**Supersedes the old "mild first, left to right" wire test and
-        its slider-era successor.** Developer, 2026-08-25, later still:
+        """Supersedes the old "mild first, left to right" wire test and
+        its slider-era successor. Developer, 2026-08-25, later still:
         "no need chilli icon, no need slider... follow exactly what is
         done with broth... just 3 boxes." Mild sits at the bottom
         (nearest the diner's own edge, the nav row), hot at the top —

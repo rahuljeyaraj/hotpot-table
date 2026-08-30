@@ -490,7 +490,7 @@ class Core:
         # previous diner's broth can never ride into the next order.
         self._broth_id: str = ""
         self._spice_level: int = self._default_spice_level
-        # **Separate from `_spice_level`, because 0 is a real level.** Doc
+        # Separate from `_spice_level`, because 0 is a real level. Doc
         # section 17 makes "no spice" a genuine choice rather than an
         # absence, so the int cannot also mean "not chosen yet" — and Pay
         # is gated on a choice having been made. See `_choose_spice`.
@@ -509,7 +509,7 @@ class Core:
         self._order: Optional[orders.Order] = None
         self._order_qr: list = []
         # `time.monotonic()` when CHECKOUT began. Kept for the log and the
-        # staff view; **not a deadline** — the 90s timeout that used to
+        # staff view; not a deadline — the 90s timeout that used to
         # read it is deleted (see CHECKOUT_TIMEOUT_S' block above).
         self._checkout_since: Optional[float] = None
         self.cart = _seed_cart(deadband_g)
@@ -861,7 +861,7 @@ class Core:
     def _tracker_cfg(self) -> Dict[str, Any]:
         """Doc section 4.2's example payload, with the fields that exist.
 
-        `homography_cam_to_stage` is **`None`, not identity**, when the
+        `homography_cam_to_stage` is `None`, not identity, when the
         table is uncalibrated. Identity would be a matrix that works — it
         would put camera pixels straight onto the stage and produce
         confident cursors in the wrong place, on a table that is
@@ -1503,7 +1503,7 @@ class Core:
         comment already reserved for it ("classifier" | "mock" |
         "manual") but nothing before this handler ever wrote.
 
-        **Setting mode required**, same rule as tare/calibrate/set_grid
+        Setting mode required, same rule as tare/calibrate/set_grid
         on this tab: this changes what a bin bills as, and that must not
         happen under a live diner.
 
@@ -1605,7 +1605,7 @@ class Core:
         """Step 1 of fsm.exit_setting(), handed to Fsm as a callback so
         that module never has to know a serial port exists.
 
-        **Read fsm.exit_setting()'s docstring before touching this.** It
+        Read fsm.exit_setting()'s docstring before touching this. It
         is the step whose absence bills the next diner for a tray swap:
         `_apply_scale_to_cart()` above has been returning early for the
         whole of setting mode, so every bin's live_g is still the weight
@@ -1640,7 +1640,7 @@ class Core:
         trays already sitting on it should not come up with all 8 bins
         unresolved when the mock seed's placeholders are the only reason
         it would). After that, a pass every `1/classify_hz` seconds, but
-        **only while the table is in SETTING** (build item 5: "No re-scan
+        only while the table is in SETTING (build item 5: "No re-scan
         after normal diner picks... re-scanning there is pure risk") —
         `_classify_pass` itself is the same call either way, this loop
         just decides when to make it.
@@ -1710,7 +1710,7 @@ class Core:
                                     source="classifier")
                 if (before.item_id != item_id or before.source != "classifier"):
                     changed = True
-            # **Only on a real change**, and only on the ITEM changing, not
+            # Only on a real change, and only on the ITEM changing, not
             # the confidence. This loop runs at `classifier.live_hz`
             # throughout setting mode; writing every pass would rewrite the
             # file a couple of times a second for as long as an operator
@@ -1749,14 +1749,14 @@ class Core:
         one snapshot or they are three, and three would let a widget report
         a dwell of 1.0 in the same message that no longer lists it.
 
-        **Drain-to-latest, never a backlog** (doc section 4). `Receiver`
+        Drain-to-latest, never a backlog (doc section 4). `Receiver`
         enforces it; this method must not be given a loop that reads more
         than one frame, or a 200ms stall would replay the hand through
         history — which is the entire reason cursors are UDP.
 
-        **`self._pointer` is sticky across ticks with no new datagram, and
+        `self._pointer` is sticky across ticks with no new datagram, and
         that is the fix for a real bug found on the rig, not a style
-        choice.** The tracker emits at camera rate — doc section 6.5 puts
+        choice. The tracker emits at camera rate — doc section 6.5 puts
         that at ~30Hz — while this runs at the state loop's 60Hz. So on
         roughly half of every tick, `self.cursor.recv_latest()` genuinely
         returns `None` — "nothing NEW arrived" (cursorbus.py's own
@@ -1966,15 +1966,15 @@ class Core:
         the instant a real hand — or a staff-driven transition out of
         IDLE — says otherwise.
 
-        **Only decides WHEN and WHERE (the bin set); never generates a
-        position itself.** `common/phantom.py`'s own module docstring has
+        Only decides WHEN and WHERE (the bin set); never generates a
+        position itself. `common/phantom.py`'s own module docstring has
         the full reasoning for why the tracker is the one process that
         actually emits it: one sender on the cursor socket, so "a real
         hand always wins" is a property of `TrackerProcess.tick()`'s own
         `if hands: ... elif self._phantom: ...`, not a race this method
         has to referee.
 
-        Pushed as `cfg` **only on the transition edge**, the same
+        Pushed as `cfg` only on the transition edge, the same
         reasoning `_push_tracker_cfg`'s other live-push call sites already
         give: this runs inside `_apply_cursor`, i.e. every state tick at
         60Hz, and re-broadcasting an unchanged value that often would be
@@ -2132,7 +2132,7 @@ class Core:
                          hover.LANGUAGE, hover.DONE):
             self._send_evt({"t": "evt", "kind": "sound", "id": "single_tap"})
         if widget_id == hover.CANCEL:
-            # **Void first, while `_order` still exists.** `_end_session`
+            # Void first, while `_order` still exists. `_end_session`
             # clears it, so an order written on the payment screen and
             # cancelled from it would otherwise stay `new` in the queue
             # for a kitchen to cook and nobody to pay for.
@@ -2237,8 +2237,8 @@ class Core:
         developer asked for: "so the user can really navigate to and fro
         without any issues."
 
-        **Backing out of CHECKOUT voids the order that was already
-        written.** The row exists in SQLite with a code by then, and a
+        Backing out of CHECKOUT voids the order that was already
+        written. The row exists in SQLite with a code by then, and a
         diner who is now going to choose a different spice level must not
         leave a payable, cookable order behind them with the old one on
         it. `fsm.back()` cannot do this itself — it owns no database (see
@@ -2263,7 +2263,7 @@ class Core:
         when there is no order — which is every screen before the payment
         one, so callers do not have to check first.
 
-        **Never touches a PAID order.** A payment that landed while the
+        Never touches a PAID order. A payment that landed while the
         diner's hand was travelling toward Back is money that changed
         hands; voiding that row would hide a real transaction from the
         kitchen and from the staff view's queue. The session ends normally
@@ -2296,8 +2296,8 @@ class Core:
         """SELECTING -> BROTH, doc section 9.1's `dwell "done"` edge —
         the cart screen's Next button.
 
-        **`cart.finalize()` happens HERE, at the moment the diner leaves
-        the cart.** It snaps every bin's shown grams onto the true removed
+        `cart.finalize()` happens HERE, at the moment the diner leaves
+        the cart. It snaps every bin's shown grams onto the true removed
         grams, dropping the display deadband (doc section 9.2's fix for
         open debt #5) — so the numbers the diner last read on the cart are
         the numbers the order is written from. Doing it at the commit
@@ -2356,7 +2356,7 @@ class Core:
         """Lock a spice level in. Does NOT advance the screen — same
         reasoning as `_choose_broth`.
 
-        **`_spice_chosen` is a separate flag and has to be.** Level 0 is a
+        `_spice_chosen` is a separate flag and has to be. Level 0 is a
         genuine choice (doc section 17: "many shops offer a level 0 with
         no numbing at all, and this is a normal, expected choice"), so
         `_spice_level == 0` cannot mean "nothing picked yet" — and Pay is
@@ -2492,7 +2492,7 @@ class Core:
         connection per call — see `OrderStore`) or taken under
         `state_lock`.
 
-        **Pay is a GET.** It mutates, which a GET should not, and that is
+        Pay is a GET. It mutates, which a GET should not, and that is
         a deliberate trade for a demo: `websockets`' `process_request`
         hook is handed the request before any body has been read, so a
         POST body is not available here without running a second HTTP
@@ -2529,8 +2529,8 @@ class Core:
         touching the FSM — this is the one place an outside event drives
         a state change.
 
-        **The session does NOT end here any more (2026-08-25), and it
-        cannot.** It used to: payment landed and `_finish_checkout()` put
+        The session does NOT end here any more (2026-08-25), and it
+        cannot. It used to: payment landed and `_finish_checkout()` put
         the table straight back to IDLE. That was survivable while the
         order code was shown throughout — but the developer's instruction
         is "the token number should be given only after sucessfull
@@ -2543,14 +2543,14 @@ class Core:
         Done (`hover.checkout_widgets(paid=True)`). There is deliberately
         no timer behind it — same instruction, same reason as the QR's:
         "no time out. onc can cancell or go back, but not self
-        disappear." **The cost, stated plainly: a diner who pays and
+        disappear." The cost, stated plainly: a diner who pays and
         walks away leaves the table on its thank-you screen until
-        somebody presses Done.** That is visible and one dwell from
+        somebody presses Done. That is visible and one dwell from
         clear, where the old behaviour was invisible and lost the token.
         If a paid screen should time out after all, that is one branch in
         `_apply_cursor` — but it is a product call, not a fix.
 
-        **Only touches the table if this is the order currently on it.**
+        Only touches the table if this is the order currently on it.
         A judge scanning a receipt from ten minutes ago must not disturb
         a table a different diner is halfway through.
         """
@@ -2579,7 +2579,7 @@ class Core:
         have loaded this — so anything fetched from outside would leave
         them with an unstyled page and a dead button.
 
-        **A real UPI deep link is deliberately NOT here.** Doc section
+        A real UPI deep link is deliberately NOT here. Doc section
         18.2: "A QR that opens a real payment app asking a judge for real
         money is not a demo, it is an incident." The Pay button posts to
         this server and nothing else.
@@ -2642,7 +2642,7 @@ class Core:
         _log.info("core: locale switched to %s by dwell", nxt)
 
     def _widget_msgs(self) -> list:
-        """Doc section 4.3's `widgets`, with labels **already resolved**
+        """Doc section 4.3's `widgets`, with labels already resolved
         (I2: "oF does no lookup") and `dwell` as a 0..1 fraction (doc
         section 9.4: "oF does not time anything").
         """
@@ -2735,7 +2735,7 @@ class Core:
                 "total_text": self.locales.currency(
                     self._order.total, self.locale)["text"],
                 "paid": self._order.paid,
-                # **The token is only sent once the money has landed.**
+                # The token is only sent once the money has landed.
                 # Developer, 2026-08-25: "the token number should be given
                 # only after sucessfull payment." `code` above is still on
                 # the wire because the URL is built from it and the staff
@@ -2762,7 +2762,7 @@ class Core:
         removed (it needed a dark, room-light-free rig this project never
         achieved — see CLAUDE.md's M4h/M4i/M4j).
 
-        **Setting mode required**, same rule as `_handle_set_grid`: a new
+        Setting mode required, same rule as `_handle_set_grid`: a new
         homography moves the table crop the camera grid is drawn on, and
         that must not happen under a live diner.
 
@@ -2823,13 +2823,12 @@ class Core:
         self._push_tracker_cfg()
 
     def _handle_set_view_rotation(self, msg: Dict[str, Any]) -> None:
-        """The Setup tab's Rotate button (drag-corner rebuild step 4 — no
-        UI sends this yet). Saves immediately rather than waiting on a
-        Confirm — but it is still gated behind setting mode like every
-        other Setup-tab action, since it is still something only staff
-        should be changing.
+        """The Setup tab's Rotate button. No UI sends this today. Saves
+        immediately rather than waiting on a Confirm, but is still gated
+        behind setting mode like every other Setup-tab action, since it is
+        something only staff should change.
 
-        **No longer purely a display preference** (2026-08-12): the
+        No longer purely a display preference (2026-08-12): the
         tracker now applies this same value to compensate MediaPipe's own
         detection for the camera's physical mount rotation
         (`backend_mediapipe.py`'s "180-degree mount compensation"), so a
@@ -2866,7 +2865,7 @@ class Core:
         version's equivalent gap: a mismatched line pair would not just be
         stale, it could cross and make a bin's own rect invalid.
 
-        **Setting mode required**, same rule as everything else on this
+        Setting mode required, same rule as everything else on this
         tab: moving the grid moves the light-pass cutout (once the
         projector grid exists) and moves what the classifier crops right
         now, so a save in serving mode would change what a diner is being
@@ -2906,16 +2905,14 @@ class Core:
                             "message": "Bin grid saved."})
         self.web.broadcast(self._geometry_msg())
         # A table that had a homography and no grid has just become
-        # calibrated. Doc section 9.1's UNCALIBRATED -> IDLE transition
-        # is M4 build item 6; it hooks in here.
+        # calibrated — doc section 9.1's UNCALIBRATED -> IDLE transition
+        # hooks in here.
         self._check_calibration_complete()
 
     def _handle_seed_grid(self) -> None:
-        """Doc section 21 M4 build item 5's successor: put the legacy
-        measured grid on screen as a starting position to drag from — pure
-        line arithmetic now, no homography needed (`bin_grid.py`'s
-        docstring on why the old rect version needed one and this does
-        not).
+        """Put the legacy measured grid on screen as a starting position
+        to drag from. Pure line arithmetic, with no homography needed —
+        see `bin_grid.py`.
 
         Not saved — doc section 12.6's "Save is explicit" applies to a
         seed more than to anything else, since nobody has looked at it
@@ -2943,18 +2940,20 @@ class Core:
     # canvas to hold a pending edit in, so every line change it sends is
     # already final, and it reaches oF on the very next ~16ms state tick
     # (`_bin_msg` below), which is the only "preview" this grid can have:
-    # watching the real light move on the real table. **Neither grid has a
-    # separate Verify step any more (dropped 2026-08-12, same session as
-    # this one, on the developer's own call)** — the camera grid's Verify
-    # existed to check the REAL TABLE against the RECTIFIED PICTURE an
-    # operator actually dragged on, which is a genuinely different space
-    # and can diverge from it (doc §5.3's TRAP); the projector grid never
-    # had a second space to diverge from in the first place, since the
-    # operator is looking at the real table while nudging it, not a proxy
-    # for it. Removing the camera grid's Verify step trades that TRAP
-    # guard for one fewer tap — a deliberate call, not an oversight; if a
-    # bad camera-to-table solve ever produces a plausible-looking rectified
-    # picture again, this is the tradeoff to revisit first.
+    # watching the real light move on the real table.
+    #
+    # NEITHER grid has a separate Verify step, and the two lost it for
+    # different reasons. The camera grid's Verify checked the REAL TABLE
+    # against the RECTIFIED PICTURE an operator drags on, which is a
+    # genuinely different space and can diverge from it (doc §5.3's TRAP).
+    # The projector grid never had a second space to diverge from, since
+    # the operator watches the real table while nudging it rather than a
+    # proxy for it.
+    #
+    # Dropping the camera grid's Verify therefore trades a real TRAP guard
+    # for one fewer tap. If a bad camera-to-table solve ever produces a
+    # plausible-looking rectified picture again, this is the tradeoff to
+    # revisit first.
 
     def _handle_set_grid_projector(self, msg: Dict[str, Any]) -> None:
         """Doc section 12.6/12.7's future projector-space twin, per
@@ -3033,13 +3032,13 @@ class Core:
                        else [round(v, 1) for v in pg.grid.v_lines]),
         }
 
-    # -- the Capture tab (doc section 12.7 — M4 build item 7) --------------
+    # -- the Capture tab (doc section 12.7) --------------------------------
 
     def _handle_capture(self, msg: Dict[str, Any]) -> None:
         """Doc section 12.7's "Capture all" and "Burst".
 
-        **The lighting rule is the load-bearing part of this handler, and
-        it is enforced by refusing, not by building a second path.** Doc
+        The lighting rule is the load-bearing part of this handler, and
+        it is enforced by refusing, not by building a second path. Doc
         section 12.7: "capture must run with the bin patches lit exactly
         as serving mode lights them… The Capture tab must therefore drive
         the same bin-patch path as serving mode, not its own." Doc section
@@ -3049,19 +3048,19 @@ class Core:
 
         So there is no lighting code here at all. What there is instead:
 
-        - **Setting mode is required.** Not for the lighting — doc section
+        - Setting mode is required. Not for the lighting — doc section
           14.5 is explicit that "the field and the bin patches are
           identical to serving mode" in setting mode, so this changes
           nothing about the light. It is required because the operator is
           reaching over trays and swapping them, which in serving mode is
           a pick and would bill; the same reason Tare and Calibrate need
           it (doc section 12.4).
-        - **The rects come from the camera grid store, not from the
-          tablet.** The classifier crops the warped table frame (doc
+        - The rects come from the camera grid store, not from the
+          tablet. The classifier crops the warped table frame (doc
           section 4.7), and the rects it should crop are the ones core
           owns. A tablet sending its own would let an un-saved drag reach
           the dataset.
-        - **Core never touches a frame (hard invariant).** So core cannot
+        - Core never touches a frame (hard invariant). So core cannot
           do the table-crop warp itself — it sends the classifier the
           homography and stage size alongside the rects, and the
           classifier (which already handles frames) warps before it crops.
@@ -3926,7 +3925,7 @@ class Core:
         each bin defaults to, and the per-label counts.
 
         Doc section 12.7: "Each crop has a label selector defaulting to
-        the current bin-map item." The default is the item's **`id`**, not
+        the current bin-map item." The default is the item's `id`, not
         its display name — doc section 8.1's hidden-label rule runs the
         other way here than it does on the table. `names` is what a diner
         reads; `class_name`/`id` is what the model emits, and a training
@@ -3980,7 +3979,7 @@ class Core:
             "view_rotation_deg": g.view_rotation_deg,
         }
 
-    # -- the Bins tab (doc section 12.4, M2 build item 4) --------------------
+    # -- the Bins tab (doc section 12.4) -------------------------------------
 
     def _bins_tab_msg(self) -> Dict[str, Any]:
         """8 cards' worth of data. Grams still come straight from
@@ -4040,7 +4039,7 @@ class Core:
             })
         return {
             "t": "bins",
-            # **`port`/`age`/`bad_lines` are here because of 2026-08-25**:
+            # `port`/`age`/`bad_lines` are here because of 2026-08-25:
             # the scales went offline mid-service and the three fields on
             # this message could not tell "the XIAO is unplugged" from
             # "the XIAO is plugged in, enumerated, and has stopped
@@ -4072,16 +4071,16 @@ class Core:
         filtered (median-then-average) sample per bin, per tick
         (2026-08-26).
 
-        **GRAMS, not counts — changed the same day, on developer
-        request.** The first version sent counts on purpose (a
+        GRAMS, not counts — changed the same day, on developer
+        request. The first version sent counts on purpose (a
         signal-level diagnostic that still works on an uncalibrated
         bin), but a jump that "looks small" in counts can still be
         several grams once divided by that bin's own counts_per_gram,
         and two bins' counts are never directly comparable to each other
         anyway (each has its own scale and sign). Grams is the unit the
         display and the bill actually use, so the plot now shows the
-        real thing rather than a proxy for it. **Cost of the change,
-        accepted deliberately:** an unresolved/uncalibrated bin now
+        real thing rather than a proxy for it. Cost of the change,
+        accepted deliberately: an unresolved/uncalibrated bin now
         plots nothing — `grams`/`raw_grams` are `None` there, same as
         everywhere else in this file — where the counts version would
         have shown a signal with no unit attached. Watching an
@@ -4108,7 +4107,7 @@ class Core:
         """Developer tab's window-size controls (2026-08-26):
         `median_window`/`avg_window`, resized LIVE on the running reader.
 
-        **No setting-mode gate.** This is a developer tuning knob, not a
+        No setting-mode gate. This is a developer tuning knob, not a
         calibration — it cannot make a bin bill wrong, only change how
         smoothed the number is (`scale.DEFAULT_AVG_WINDOW`'s own comment
         in scale.py explains why these two have to be tunable at all: the
@@ -4258,7 +4257,7 @@ class Core:
         knows the table is not about to charge them, which is most of what
         makes a kiosk feel safe to poke at.
 
-        **FIVE steps, not three** — developer, 2026-08-25: "the three dots
+        FIVE steps, not three — developer, 2026-08-25: "the three dots
         showing which page is active, shouldnt it be 5 dots including the
         payment page and token number page." It was three because paying
         was read as the END of the sequence rather than a step in it; but
@@ -4296,7 +4295,7 @@ class Core:
         hint2 = ""
         if st is fsm.State.CHECKOUT:
             paid = self._order is not None and self._order.paid
-            # **The unpaid screen has no hint at all** — developer,
+            # The unpaid screen has no hint at all — developer,
             # 2026-08-25: "in payment no need to say scan with ur phone
             # camera, it is very clear, remove that line." A QR code
             # under a title that already reads "Scan To Pay" does not
@@ -4304,7 +4303,7 @@ class Core:
             # key `pay_hint` is deleted, not blanked, so nothing can put
             # it back by accident.
             #
-            # **The PAID screen keeps its hint, and it is TWO lines.**
+            # The PAID screen keeps its hint, and it is TWO lines.
             # Developer, 2026-08-25: "at the payment recieved page it says
             # show this number at the counter. that doesnt make sense. we
             # first need to hand it over for cooking, then collect it when

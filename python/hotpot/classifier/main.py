@@ -3,8 +3,8 @@ doc section 21, M4 build items 2 and 7).
 
 Was `common/stub.py` from M0 through M4.1. From here on it is what doc
 section 3 gives `classifier`: it attaches to the shared-memory frame ring,
-sleeps until core wakes it, and does **all frame analysis that is not hand
-tracking**. Doc section 3.2's phrasing is the right mental model — this is
+sleeps until core wakes it, and does all frame analysis that is not hand
+tracking. Doc section 3.2's phrasing is the right mental model — this is
 "the vision process". Camera-to-projector calibration is table geometry the
 operator places by hand (`core/geometry_store.fit_from_corners`) rather than
 anything detected from a frame — automated dot-projection calibration
@@ -17,7 +17,7 @@ Of doc section 4.7's commands, this process implements:
     capture       M4 build item 7 — dataset crops, answered `captured`
     stop          cancels a live command
 
-`classify` is **not** implemented and deliberately so: it needs a backend
+`classify` is not implemented and deliberately so: it needs a backend
 (doc section 19.4's `backend_ei.py` / `backend_stub.py`) and a trained
 model, which is M7. An unknown or unimplemented `op` is answered with an
 error rather than ignored — a wizard waiting on a reply that will never
@@ -37,7 +37,7 @@ them means a `stop` has exactly one thing to cancel.
 Reconnecting to the ring
 ------------------------
 The ring belongs to `camera`, which may not be up yet, may die, and comes
-back with a **new** segment (doc section 20.1: "recreate shm, consumers
+back with a new segment (doc section 20.1: "recreate shm, consumers
 re-attach"). So the reader is opened lazily and re-opened on any failure,
 rather than once at startup — a classifier that exited because the camera
 was slow to start would break doc section 3.3's "any process may start,
@@ -163,7 +163,7 @@ class RingSource:
     def averaged_frame(self, count: int, *, timeout_s: float = 3.0):
         """`count` DISTINCT frames, averaged into one.
 
-        **Restored from the old solver, which measured why it is needed**
+        Restored from the old solver, which measured why it is needed
         (`tools/calibration/solve_homography.py`): during a solve the dots
         sit only 25-50 grey levels above the board, "which is the same
         order as this sensor's frame-to-frame noise. Averaging is what
@@ -365,8 +365,8 @@ class Classifier:
     def _capture(self, msg: Dict[str, Any]) -> None:
         """Doc section 12.7's dataset capture.
 
-        **The lighting rule is enforced by not having a lighting path
-        here.** Doc section 12.7 is explicit: "capture must run with the
+        The lighting rule is enforced by not having a lighting path
+        here. Doc section 12.7 is explicit: "capture must run with the
         bin patches lit exactly as serving mode lights them… The Capture
         tab must therefore drive the same bin-patch path as serving mode,
         not its own." This process cannot change what the projector is
@@ -376,7 +376,7 @@ class Classifier:
         (`core/main.py` refuses a capture while dot calibration's black
         field is up).
 
-        **The table crop happens here, not in core.** Core owns the
+        The table crop happens here, not in core. Core owns the
         homography and the camera bin grid but never touches a frame (a
         hard invariant), so it sends `h` and `stage_size` alongside the
         grid-derived `rects` and this is the process that actually warps —
@@ -511,8 +511,8 @@ class Classifier:
         confident wrong label on bin 3 must never be able to come from
         code that also looked at bin 4's pixels.
 
-        **The 8 calls run concurrently, not one after another — found to
-        matter by measurement, not by inspection.** `EiCppBackend.
+        The 8 calls run concurrently, not one after another — found to
+        matter by measurement, not by inspection. `EiCppBackend.
         classify()` shells out to a compiled binary; timed directly on the
         dev machine at ~0.6s per call, which makes 8 sequential calls
         ~5s — right against `core/main.py`'s own `CLASSIFY_LIVE_TIMEOUT_S`
@@ -529,7 +529,7 @@ class Classifier:
         before — concurrency changes nothing about doc section 9.3's "one
         bin's backend failure must not blank the other seven".
 
-        **Traded away by this: `_capture`'s per-shot `stop` checkpoint.**
+        Traded away by this: `_capture`'s per-shot `stop` checkpoint.
         With every bin dispatched at once there is no "next bin" left for
         a `stop` arriving mid-pass to skip — accepted, because a full pass
         is now ~1s instead of ~5s+, so there is much less to interrupt.
@@ -604,8 +604,8 @@ def build_backend(cfg: Dict[str, Any]) -> Any:
     additive training/deploy path beside Edge Impulse, see backend_rf.py's
     own module docstring), and anything else falls back to `"stub"` with a
     loud warning rather than crashing the process a typo'd config value
-    would otherwise take down. **Keep the existing fallback behaviour
-    exactly** — that rule predates this addition and still applies to it.
+    would otherwise take down. Keep the existing fallback behaviour
+    exactly — that rule predates this addition and still applies to it.
     """
     name = config.get(cfg, "classifier.backend", "stub")
     if name == "stub":

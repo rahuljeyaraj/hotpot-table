@@ -7,8 +7,8 @@ Run from the repo root:
 The point of this module is what happens when a write does *not* finish, so
 most of these tests break it on purpose: an object that cannot be serialised,
 an os.replace that raises. The thing being asserted in both cases is the same
-and it is the whole contract — **the previous contents of the file are still
-there and still parse**.
+and it is the whole contract — the previous contents of the file are still
+there and still parse.
 
 Those two tests are also the ones that fail against the obvious wrong
 implementation. `json.dump(obj, open(path, "w"))` passes every round-trip

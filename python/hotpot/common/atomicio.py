@@ -4,7 +4,7 @@ Every machine write in this system goes through here. The rule from doc
 section 8 is one sentence long — *a power cut mid-write must never produce a
 half-written homography* — and the reason it is a rule rather than a nicety
 is doc section 20.4: a corrupt calibration does not crash the table, it
-**silently mis-bills**. A file that is missing is a first boot. A file that
+silently mis-bills. A file that is missing is a first boot. A file that
 is truncated is a wrong price nobody notices.
 
 The sequence, and why each step is there
@@ -32,7 +32,7 @@ failure we want: gone is loud, and doc section 9.1 already routes a missing
 Concurrency
 -----------
 The temp name is fixed at `<name>.tmp`, per doc section 8, which assumes
-**one writer process per file**. That holds by design: core writes everything
+one writer process per file. That holds by design: core writes everything
 in `state/` except `camera_settings.json`, which the camera process owns
 (doc sections 6.6, 8.5, M2). Two processes writing one path would race on the
 temp file, and no naming scheme fixes that properly — they would also be
@@ -44,7 +44,7 @@ nothing reads it, and the next write overwrites it.
 
 Missing versus corrupt
 ----------------------
-`read_json` returns the caller's default when the file **does not exist**,
+`read_json` returns the caller's default when the file does not exist,
 and raises when it exists and does not parse. First boot with an empty
 `state/` is normal and expected (doc section 9.1). A file that is present but
 unreadable is the thing this module was built to make impossible, so if one
