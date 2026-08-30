@@ -517,16 +517,23 @@ Nothing checks the second one for you. A homography fits any four corners exactl
 
 That is also why the bin boundaries are stored twice, once for each view. The camera grid is dragged onto the camera's video; the projector grid is nudged with the arrow keys while watching the light on the trays. Both start from the same measurements, and neither is ever calculated from the other, because a rectangle that looks right in one view can still be wrong in the other.
 
-# 8.4 The state machine, and the danger in Serving off
+# 8.4 The eight states
 
 [IMAGE: docs/img/architecture-state-machine.svg]
 *Boot, calibrate, idle, pick, broth, spice, pay. And Serving off, which reaches all of them.*
 
-Seven of the eight states are the path one diner walks: boot, calibrate once, wait in idle, then a hand arrives and it runs through selecting, broth, spice and pay before returning to idle. Cancel drops back to idle from any of the middle four.
+Everything the table does is one of eight states, and `core` is the only process that decides which one it is in.
 
-The eighth is Serving off, the mode staff use to change the table — swap a tray, zero a scale, redo the geometry — and it can be entered from any of the other states. It is the dangerous one. While it is on, the load cells stop driving the cart, so staff can lift a tray without the prices reacting. The trap is switching it back on: the cart re-baselines against the weights it last read, which were taken before the trays were touched. Swap a full tray for an empty one, exactly what the mode is for, and that whole tray reads as food the next diner removed.
+- **BOOT.** Start-up. It goes straight to IDLE if there is saved geometry on disk, and to UNCALIBRATED if there is not.
+- **UNCALIBRATED.** No geometry, so the table has no idea which tray is which. Serving cannot be turned on from here.
+- **IDLE.** Nobody at the table. Breathing halos, a flame wandering from bin to bin.
+- **SELECTING.** A hand has arrived. Bins label themselves, the flame follows the hand, and the cart fills as food is taken.
+- **BROTH.** Choose a broth.
+- **SPICE.** Choose a spice level.
+- **CHECKOUT.** The total, then payment, then a token number, then back to IDLE.
+- **SETTING.** Serving switched off: the staff mode for swapping a tray, zeroing a scale or redoing the geometry. It can be entered from any of the other seven.
 
-The fix is one extra step on the way out of Serving off, kept inside the state machine so no future caller can forget it: read all eight cells again first, then re-baseline.
+The four middle screens each have a Back button, and Cancel returns to IDLE from any of them.
 
 # 8.5 The bill is a subtraction
 
