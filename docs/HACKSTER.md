@@ -538,9 +538,7 @@ The four middle screens each have a Back button, and Cancel returns to IDLE from
 [IMAGE: docs/img/architecture-cart-weights.svg]
 *One bin, one session, three arrays of eight numbers.*
 
-The cart stores what each bin weighed when you walked up, and what it weighs now. Every price on the table is the gap between those two, recomputed from scratch sixty times a second. Nothing anywhere adds up individual scoops.
-
-That one choice is why tipping food back works, and it needed no code: it is the same subtraction with a smaller answer.
+The cart keeps two numbers per bin: what it weighed when you walked up, and what it weighs now. Every price on the table is the difference between them, worked out afresh sixty times a second, and nothing anywhere adds up individual scoops. That is also why putting food back works without any code for it — the same subtraction, a smaller answer.
 
 # 8.6 The projector is the only light in the room
 
