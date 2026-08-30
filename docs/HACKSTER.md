@@ -556,7 +556,7 @@ Every one of those bands is positioned from the bin geometry rather than typed i
 [IMAGE: docs/img/architecture-hand-window.svg]
 *A 700 pixel window that follows the hand, and the tiles it hunts through to find one.*
 
-The camera sees the whole table, but MediaPipe is never shown the whole table. It only ever gets a 700 pixel square, and it is that square which moves. A hand is about a hundred pixels across in this camera, so the window is not hand-sized, it is about seven hands wide: small enough that a hand is a fifth of the picture rather than a twentieth of it, which is the difference between being detected and not.
+The camera sees the whole table, but MediaPipe is never shown the whole table. It only ever gets a 700 pixel square, and it is that square which moves.
 
 With nobody at the table the square is a scanner, stepping through overlapping tiles laid over the table's footprint, one tile per tick, each denoised before it is handed over. As soon as a hand turns up in one, the square commits to it and re-centres on the hand every tick from then on, so it travels with the hand. It has to: MediaPipe carries on tracking a hand only through the framing it first found it in.
 
@@ -575,10 +575,12 @@ What comes out is a single point, the index fingertip, put through the camera ho
 
 # 10 Conclusion
 
-Eight bins, one projector, one webcam, a kilogram of gold filament, and a sheet of plywood standing on twelve printed pillars.
+The table is built and it works. Eight bins set into a sheet of plywood, a projector on a stand above it, one webcam, and a load cell under every tray.
 
-The projector is doing two jobs at once, and that is the whole idea. It is the light over the food and it is the signage on the food, so the answer sits on the ingredient itself rather than on a sign somewhere behind the counter. Everything else in this build exists to keep that one surface honest sixty times a second.
+Walk up to it and the food labels itself. Each bin says what it holds and what it costs per 100 g, projected onto the food rather than printed on a card or hung on a board behind the counter. Reach for a bin and it tells you more about that ingredient. Scoop some into your bowl and the price appears in a cart on the table, because a bin that weighs less than it did a minute ago is food you took. Nothing to tap, nothing to hold, and nobody to ask.
 
-The part that took longest was never the fire, or the hand tracking. It was the arithmetic that has to hold up while somebody is paying: two weights, one subtraction, and eight load cells that say nothing at all rather than say zero.
+The projector doing two jobs at once is the whole idea. It is the light over the food and it is the sign on the food, so the answer is in the same place as the question.
 
-I picked by shape at that stand for a whole master's degree. I would order the same bowl today, and this time I would know what was in it, what it cost and how it would taste before I picked up a single piece. So would the person behind me in the queue, in whichever of the two languages they read.
+The hard part was never the fire or the hand tracking. It was making the weighing honest enough to charge someone with: every price on the table is a subtraction between what a bin weighed when you arrived and what it weighs now, recomputed from scratch many times a second, and eight load cells that would rather say nothing at all than say a wrong zero.
+
+I picked by shape at that stand for a whole master's degree. On this table I would have known what was in the bowl, what it cost and how it would taste before I picked up a single piece — and so would the person behind me in the queue, in whichever of the two languages they read.
