@@ -2279,8 +2279,8 @@ void UiLayer::drawInfoBox(const StateLink::State & state,
 	// Line 1 — the item's name, ALONE on its own full-width line, in the
 	// plate's own ink so the two read as the same label seen twice.
 	//
-	// **The chosen mockup put kcal on this line, right-aligned, and it
-	// does not survive the real font.** Measured (PIL/FreeType, the real
+	// The chosen mockup put kcal on this line, right-aligned, and it
+	// does not survive the real font. Measured (PIL/FreeType, the real
 	// .ttf and the real catalogue): the widest name, "Button Mushrooms",
 	// is 320px of the 452px available at 30px — and kcal, once set large
 	// enough to answer "too thin to read", takes 206px of it. No pairing
@@ -2309,7 +2309,7 @@ void UiLayer::drawInfoBox(const StateLink::State & state,
 	// state is never carried by colour by itself, and this is the one
 	// line on the table somebody may actually act on.
 	//
-	// **Drawn only when there IS one.** A spice level is not food and has
+	// Drawn only when there IS one. A spice level is not food and has
 	// nothing to say about diet, so its info carries an empty `diet` and
 	// this line is simply the meta on its own — never a blank dot, which
 	// would read as an answer nobody gave.
@@ -2410,7 +2410,7 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 		drawn.push_back(binIdx);
 	}
 
-	// **Empty-cart guidance.** Doc §8's rule above ("rows above the filled
+	// Empty-cart guidance. Doc §8's rule above ("rows above the filled
 	// ones draw nothing") leaves a first-time diner looking at blank space
 	// under "Your Order" with nothing telling them what to do. Core
 	// resolves the wording per I2 (`cart_hint`, `_screen_msg`) and only
@@ -2460,7 +2460,7 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 		// report.
 		const float nameMaxWidth = kCartWidthPx - 2.0f * kCartPadXPx
 			- _cartDetailColPx - kCartRowMidGapPx;
-		// **Reported once per name, not per frame.** If a name ever does
+		// Reported once per name, not per frame. If a name ever does
 		// have to be cut, the log says which and by how much — the last
 		// two truncation reports both cost a rebuild to diagnose because
 		// nothing recorded the actual widths.
@@ -3360,13 +3360,13 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 
 	// --- unpaid: the code to scan -------------------------------------
 	//
-	// **The quiet zone is drawn, not assumed.** A QR needs a margin of
+	// The quiet zone is drawn, not assumed. A QR needs a margin of
 	// blank around it to be found at all, and this table's background is
 	// not blank — the fluid layer is underneath and the halos reach in
 	// from the bins. So a white plate goes down first, at full strength,
 	// exactly like the light-pass cutouts do for the same reason (I9).
 	//
-	// **Sized to kQrTargetSidePx, not to the space available.** The old
+	// Sized to kQrTargetSidePx, not to the space available. The old
 	// version filled whatever was free, which is how it ended up 592px
 	// wide in a 554px column and ran onto the trays — and how it ended up
 	// asking a diner to hold their phone further away the more room the
@@ -3574,7 +3574,7 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 		// fault banner and the page title on top of each other.
 		const bool bannerUp = state.overlayKind == "uncalibrated"
 			|| state.overlayKind == "error" || state.mode == "setting";
-		// **`headed` is one condition and the header/box move together.**
+		// `headed` is one condition and the header/box move together.
 		// An earlier cut had the header drawing whenever core sent a
 		// title but the box only stepping down on the option pages, which
 		// put "Your Order" straight through the top of the info box on

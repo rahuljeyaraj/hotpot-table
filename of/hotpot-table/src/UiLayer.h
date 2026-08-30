@@ -345,7 +345,7 @@ private:
 	// the warning is one line per name rather than one per frame at 60Hz.
 	// Mutable because drawCart is const and this is diagnostics, not state.
 	mutable std::set<std::string> _truncatedNames;
-	// **The time-driven dwell sweep** (see `sweep01For`). One entry per
+	// The time-driven dwell sweep (see `sweep01For`). One entry per
 	// widget id: `value` is what actually draws, `fallFrom` is where a
 	// fall started, and `t0` is when the value last ROSE — which is what
 	// the fall delay is measured against. `t0 <= 0` marks a fresh entry,

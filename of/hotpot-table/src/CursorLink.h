@@ -23,7 +23,7 @@ class ofxUDPManager;
 //     identical coordinates and cannot disagree about where a hand is.
 //
 // THE RECEIVER RULE, and it is the entire reason cursors are UDP at all
-// (doc §4): **drain to latest.** Read the socket until it is empty, keep
+// (doc §4): drain to latest. Read the socket until it is empty, keep
 // the highest seq, discard the rest. TCP would queue stale cursors and a
 // 200ms hiccup would then deliver a burst in order — the hand visibly
 // replaying through its own history, which is exactly the jitter six
