@@ -7,23 +7,21 @@
 #include <windows.h>
 #endif
 
-// **2026-08-14: raw GLFW monitor INDEX is not stable and display.txt used to
-// hold one.** Confirmed in this session's own log, not assumed: two
-// consecutive `run.py` restarts, same three physical monitors, same cable
-// arrangement, produced DIFFERENT index-to-position mappings —
-// `[1] pos(-3840,136)` on every earlier restart, `[1] pos(-1920,139)` on the
-// next one. `display.txt` never changed; the projector silently became
-// "whichever monitor GLFW enumerates second right now," and the app landed
-// on the developer's own monitor instead. The desktop ORIGIN of each
-// physical monitor stayed identical across every single restart in that same
-// log — Windows ties it to the port/EDID, not enumeration order — so that is
-// what gets matched now, not the index.
+// Which monitor to project onto, resolved by desktop ORIGIN rather than by
+// GLFW monitor index.
 //
-// display.txt holds "x,y" (the target monitor's desktop origin). A bare
-// integer with no comma is still accepted as a one-time legacy index lookup
-// (logged loudly, since it is exactly the fragile mode this replaces) so an
-// old file does not silently misbehave; a fresh file is always written in
-// the new "x,y" form.
+// The index is not stable: two consecutive restarts with the same three
+// physical monitors and the same cabling can produce different
+// index-to-position mappings, which silently makes the projector "whichever
+// monitor GLFW enumerates second right now" and lands the app on the wrong
+// screen. Each physical monitor's desktop origin, by contrast, stays put
+// across restarts — Windows ties it to the port/EDID, not to enumeration
+// order.
+//
+// display.txt holds "x,y", the target monitor's desktop origin. A bare
+// integer with no comma is still accepted as a one-time legacy index lookup,
+// logged loudly since it is the fragile mode this replaces, so an old file
+// does not silently misbehave; a fresh file is always written as "x,y".
 struct MonitorTarget {
 	bool hasOrigin = false;
 	int x = 0, y = 0;
@@ -143,19 +141,18 @@ glm::ivec2 logMonitors(const MonitorTarget & target, int & chosenIndex){
 int main( ){
 
 #ifdef _WIN32
-	// No manifest declares this app DPI-aware, so Windows was treating it as
-	// unaware and virtualizing it against a system-wide DPI baseline (usually
-	// the primary monitor's scale) instead of the actual monitor the
-	// fullscreen window lands on. 2026-08-14 rig test: the fluid sim (driven
-	// by raw mouse coords) only ever reached a fraction of the screen, and
-	// that fraction shrank further on the higher-DPI 2560x1440 monitor —
-	// exactly the signature of mouse coordinates (and/or the render surface)
-	// being scaled against the wrong monitor's DPI. Must run before any
-	// window is created.
+	// No manifest declares this app DPI-aware, so without this Windows
+	// virtualizes it against a system-wide DPI baseline — usually the primary
+	// monitor's scale — instead of the monitor the fullscreen window actually
+	// lands on. The symptom is mouse coordinates and the render surface being
+	// scaled against the wrong monitor: content reaches only a fraction of the
+	// screen, and less of it the higher the target monitor's DPI. Must run
+	// before any window is created.
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 #endif
 
-	// default channel's lazy initialiser never runs on this toolchain - see Probe 1/2
+	// Set explicitly: the default channel's lazy initialiser never runs on
+	// this toolchain, so without this nothing is logged at all.
 	ofSetLoggerChannel(std::make_shared<ofConsoleLoggerChannel>());
 
 	MonitorTarget target = readMonitorTarget();

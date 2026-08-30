@@ -101,7 +101,8 @@ bool StateLink::isConnected() const {
 
 void StateLink::sendStat(float fps, const std::string & keystoneFingerprint){
 	// doc §4.5: telemetry only, fire-and-forget. sim_res/gpu_ms are
-	// FluidLayer's numbers (M8) and honestly zero until that class exists.
+	// FluidLayer's numbers and are reported as zero — this link does not
+	// read them back out of the sim.
 	ofJson msg = {
 		{"t", "stat"},
 		{"fps", fps},
@@ -167,7 +168,7 @@ void StateLink::pollIncoming(ofxTCPClient & tcp, std::string & recvBuf){
 				continue;
 			}
 			if(t == "evt"){
-				// doc §4.4: AudioBus's cue (M8 build item 8). Queued rather
+				// doc §4.4: AudioBus's cue. Queued rather
 				// than acted on here — this is the link thread, and
 				// AudioBus/ofApp live on the render thread, same reason
 				// `state` goes through `_latest` instead of being drawn
@@ -332,10 +333,9 @@ bool StateLink::parseState(const ofJson & j, State & out){
 		out.total.label = j["total"].value("label", "");   // absent on an older core — draws blank, not garbage
 	}
 
-	// The page header (2026-08-25). Absent on an older core leaves every
-	// field at its default, and an empty title is the same "draw nothing"
-	// every other optional string on this wire already means — so a core
-	// that has never heard of this renders the table it always did.
+	// The page header. Absent leaves every field at its default, and an
+	// empty title is the same "draw nothing" every other optional string on
+	// this wire means, so a core that does not send one still renders.
 	if(j.contains("screen") && j["screen"].is_object()){
 		const ofJson & sj = j["screen"];
 		out.screen.title = sj.value("title", "");
@@ -430,7 +430,7 @@ bool StateLink::parseState(const ofJson & j, State & out){
 		}
 	}
 
-	// doc §4.3's `widgets` (M5 build item 3). Unlike `bins` this is NOT a
+	// doc §4.3's `widgets`. Unlike `bins` this is NOT a
 	// fixed-length array — it is empty in IDLE, one entry (language) in
 	// most states and three in SELECTING — so it is rebuilt every line
 	// rather than padded. A widget with a degenerate rect is dropped
@@ -479,10 +479,10 @@ bool StateLink::parseState(const ofJson & j, State & out){
 			// actually produce, so a real value is never clipped.
 			w.iconCount = std::max(0, std::min(8, wj.value("icon_count", 0)));
 			w.maxIconCount = std::max(0, std::min(8, wj.value("max_icon_count", 0)));
-			// M6's option widgets carry the info box's content. Absent on
-			// Cancel/Confirm and on any older core, and absent means the
-			// box simply does not appear for them — the same rule an
-			// unresolved bin's empty `diet` already follows.
+			// Option widgets carry the info box's content. Absent on
+			// Cancel/Confirm, and absent means the box simply does not
+			// appear for them — the same rule an unresolved bin's empty
+			// `diet` follows.
 			if(wj.contains("info") && wj["info"].is_object()){
 				const ofJson & ij = wj["info"];
 				w.diet = ij.value("diet", "");

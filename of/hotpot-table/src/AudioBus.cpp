@@ -13,20 +13,17 @@ namespace {
 	// to sit under everything else rather than call attention to itself.
 	const float kAttractGain = 0.12f;
 
-	// 2026-08-26: the roaming fireball's own burning loop, quieter than
-	// the bin's (`kFireBurningGain` below) — "little smaller", per the
-	// developer, matching the visual size difference. Its clip
-	// (`fire_burning_ambient.mp3`) is a separate, developer-supplied
-	// recording as of 2026-08-26 — see AudioBus.h's note on it.
+	// The roaming fireball's burning loop, deliberately quieter than the
+	// bin's (`kFireBurningGain` below) to match the visual size difference.
+	// Its clip is a separate recording — see AudioBus.h's note on it.
 	const float kHandFireGain = 0.45f;
 	const float kFireBurningGain = 1.0f;
 
-	// 2026-08-26, developer report: a loop cut with a bare `stop()` the
-	// instant its driving bool went false was audible as an abrupt chop
-	// (worst on the roaming fireball's crackle, gone the moment a hand
-	// left the camera's view). Half a second is enough to read as a fade
-	// rather than a stop, short enough that a hand gone for good doesn't
-	// leave an audible tail hanging around.
+	// A loop cut with a bare `stop()` the instant its driving bool goes
+	// false is audible as an abrupt chop — worst on the roaming fireball's
+	// crackle, which ends the moment a hand leaves the camera's view. Half a
+	// second reads as a fade rather than a stop, and is short enough that a
+	// hand gone for good leaves no audible tail.
 	const float kLoopFadeOutS = 0.5f;
 }
 
@@ -43,14 +40,12 @@ AudioBus::Voice & AudioBus::voiceFor(const std::string & id){
 		return it->second;
 	}
 	Voice v;
-	// `id` doubles as the file's relative path with no extension (this
-	// class's own top comment). Every clip recorded for this app so far
-	// is a `.wav`, but 2026-08-26's `single_tap`/`double_tap` cues arrived
-	// as `.mp3` from the developer — tried second, not converted, since
-	// this app's actual Windows sound backend is Media Foundation
-	// (`OF_NO_FMOD` is defined — see ofConstants.h — which routes
-	// `ofSoundPlayer` to `ofMediaFoundationSoundPlayer`), and MF decodes
-	// MP3 natively with no extra work.
+	// `id` doubles as the file's relative path without the extension (see
+	// this class's top comment). Most clips are `.wav`; `.mp3` is tried
+	// second rather than converting those files, because this app's Windows
+	// sound backend is Media Foundation — `OF_NO_FMOD` is defined, which
+	// routes `ofSoundPlayer` to `ofMediaFoundationSoundPlayer` — and Media
+	// Foundation decodes MP3 natively.
 	static const char * kExtensions[] = {".wav", ".mp3"};
 	for(const char * ext : kExtensions){
 		if(v.player.load(std::string(kAudioDir) + id + ext)){
@@ -162,11 +157,10 @@ void AudioBus::setHandFireActive(bool active){
 
 void AudioBus::setMasterVolume(float volume01){
 	_masterVolume = ofClamp(volume01, 0.0f, 1.0f);
-	// Live loops react immediately rather than waiting for their next
-	// start/fade edge — one-shots are left alone (a `play()` already in
-	// flight keeps the gain it was triggered at, same as any other sound
-	// mid-playback) since only `isLoop` voices are the sustained ones a
-	// developer would actually hear the slider move on.
+	// Live loops react immediately rather than waiting for their next start
+	// or fade edge. One-shots are left alone — a `play()` already in flight
+	// keeps the gain it was triggered at, like any other sound mid-playback
+	// — since only `isLoop` voices sustain long enough to hear the change.
 	for(auto & entry : _voices){
 		Voice & v = entry.second;
 		if(!v.isLoop || !v.player.isPlaying() || v.fadingOut){

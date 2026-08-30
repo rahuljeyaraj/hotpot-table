@@ -20,24 +20,21 @@ void Stage::setup(int stageW, int stageH, const std::string & keystonePath){
 	_w = stageW;
 	_h = stageH;
 
-	// GL_RGBA, not a float format: this is UI colour and text, not the
-	// fluid's density/velocity data (which will want float precision when
-	// FluidLayer exists). 8-bit is correct for what this FBO holds today.
+	// GL_RGBA, not a float format: this FBO holds UI colour and text, not
+	// the fluid's density/velocity data, which keeps its own float buffers.
+	// 8-bit is correct for what lands here.
 	_fbo.allocate(_w, _h, GL_RGBA);
 
 	loadKeystone(keystonePath);
 }
 
 void Stage::loadKeystone(const std::string & path){
-	// Defaults to the untransformed stage rectangle — i.e. no keystone
-	// correction at all — if the file is missing or malformed. That is the
-	// only honest default: v3 §7.1 says to carry forward "the keystone
-	// corner values currently in the oF app," but there are none in the
-	// pre-rewrite code (VERIFIED — ofApp.cpp/.h have no quad-warp of any
-	// kind; the projector was aimed and fullscreened onto a monitor, never
-	// software-keystoned). Identity is therefore not a placeholder standing
-	// in for a lost value; it is the actual starting point, to be replaced
-	// once someone measures the real corners on the rig.
+	// Defaults to the untransformed stage rectangle — no keystone correction
+	// at all — when the file is missing or malformed. Identity is the real
+	// starting point rather than a placeholder for a lost value: the
+	// projector is aimed and fullscreened onto a monitor, and software
+	// keystoning only applies once someone measures the corners on the rig
+	// and writes them here.
 	_corners = {
 		glm::vec2(0.0f, 0.0f),
 		glm::vec2((float)_w, 0.0f),
@@ -72,10 +69,10 @@ void Stage::loadKeystone(const std::string & path){
 			<< " (v3 §7.1: measure the real corners on the rig and write them here)";
 	}
 
-	// Doc §8.5's keystone_fingerprint: a short digest so core can one day
-	// notice the corners changed underneath a solved homography. std::hash
-	// is not a cryptographic digest and isn't meant to be one — this only
-	// ever has to disagree with its own previous value, on one machine.
+	// Doc §8.5's keystone_fingerprint: a short digest so core can notice the
+	// corners changed underneath a solved homography. std::hash is not a
+	// cryptographic digest and is not meant to be one — this only ever has
+	// to disagree with its own previous value, on one machine.
 	std::ostringstream corners;
 	for(const auto & c : _corners){
 		corners << c.x << "," << c.y << ";";
@@ -87,23 +84,17 @@ void Stage::loadKeystone(const std::string & path){
 
 void Stage::beginContent(bool invertedField){
 	_fbo.begin();
-	// docs/VISUAL_LAYER.md §1: the table background, not paper-white — the
-	// bin interiors are what stay literal white (the light pass below,
-	// unconditionally opaque 255 regardless of this colour). Previously
-	// flat 255 here too, standing in for FluidLayer before that doc
-	// existed; §1 now gives the table its own colour distinct from the
-	// bins it surrounds.
+	// VISUAL_LAYER.md §1: the table background, not paper-white. The bin
+	// interiors are what stay literal white, via the light pass below, which
+	// is unconditionally opaque 255 regardless of this colour.
 	//
-	// Black instead, and only, for dot calibration — I9's single
-	// exception. See the header.
+	// Black instead, and only, for dot calibration — I9's single exception.
+	// See the header.
 	ofBackground(invertedField ? ofColor(0) : kTableBackground);
-	// VERIFY, doc §13.2: "ofxFlowTools leaves the blend mode as
-	// OF_BLENDMODE_ADD. Call ofEnableAlphaBlending() explicitly before
-	// drawing the UI layer, every frame. Do not assume the state you left
-	// it in." No fluid runs yet, so nothing has actually left ADD blending
-	// behind today — but UiLayer draws unconditionally in every frame from
-	// here on, including after M8 adds FluidLayer, so it must not depend on
-	// what ran immediately before it either.
+	// doc §13.2: ofxFlowTools leaves the blend mode as OF_BLENDMODE_ADD, so
+	// alpha blending is enabled explicitly before the UI layer draws, every
+	// frame. UiLayer must never depend on the blend state whatever ran
+	// immediately before it happened to leave behind.
 	ofEnableAlphaBlending();
 }
 
@@ -136,7 +127,7 @@ void Stage::compositeAndWarp(const std::vector<ofRectangle> & cutoutsPx,
 			}
 			// Filled path, not a stroked rect — same rule as UiLayer's rings
 			// (doc §13.4): a filled shape is the only kind that survives the
-			// programmable renderer M8's fluid will force.
+			// programmable renderer the fluid forces.
 			const float radius = std::min(cutoutCornerRadiusPx,
 				std::min(r.width, r.height) * 0.5f);
 			ofPath path;
@@ -147,10 +138,10 @@ void Stage::compositeAndWarp(const std::vector<ofRectangle> & cutoutsPx,
 			path.draw();
 		}
 
-		// --- above the light pass, 2026-08-12 -------------------------------
-		// See the header comment on `drawAboveLightPass` for the full
-		// reasoning. `nullptr` (not serving, or no pointer this frame) means
-		// this is a no-op and I9 applies exactly as it always has.
+		// --- above the light pass -------------------------------------------
+		// See the header comment on `drawAboveLightPass` for the reasoning.
+		// `nullptr` — not serving, or no pointer this frame — makes this a
+		// no-op, and I9 applies in full.
 		if(drawAboveLightPass){
 			ofEnableAlphaBlending();
 			drawAboveLightPass();
