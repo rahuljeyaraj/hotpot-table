@@ -382,23 +382,22 @@ namespace {
 	// bin the box is about: the plate's own label is at the far end of a
 	// 1.5m table from the reader.
 	const int kInfoBoxNamePx = 30;
-	// 24 -> 19 ("u can reduce the font size") -> 18, 2026-08-25. The last
-	// point came off the option screens: the box's band is shorter there
-	// by the page header, and the broth/spice notes need all three of
-	// kInfoBoxNoteMaxLines' lines (measured — see that constant).
+	// Sized down against the option screens, where the box's band is
+	// shorter by the height of the page header and the broth/spice notes
+	// need all three of kInfoBoxNoteMaxLines' lines. Measured — see that
+	// constant.
 	const int kInfoBoxTextPx = 18;
 	// The kcal figure, deliberately larger than the body text — see
-	// UiLayer.h's _infoKcalFont for the report that moved it.
+	// UiLayer.h's _infoKcalFont.
 	const int kInfoBoxKcalPx = 22;   // mono now, which reads larger than
 	                                  // the same nominal size in the sans
 	const int kInfoDietPx = 17;
 	const float kInfoBoxPadXPx = 24.0f;
-	// 14 -> 10 -> 7 and 6 -> 5 -> 3, 2026-08-25. Both came off the same
-	// measurement as kInfoBoxTextPx above: the line gap appears seven and
-	// a half times in the box's height sum (once after the name, twice
-	// around the rule, one and a half after the diet line, three inside
-	// the note), so a single point off it is worth more here than anywhere
-	// else on the table.
+	// Both are tight for the same reason kInfoBoxTextPx is: the line gap
+	// appears seven and a half times in the box's height sum — once after
+	// the name, twice around the rule, one and a half after the diet line,
+	// three inside the note — so a single point off it buys more here than
+	// anywhere else on the table.
 	//
 	// The padding and line gap are the slack that absorbs changes to the
 	// header above: whenever `kBrandTopMarginPx`, `kBrandBannerGapPx` or
@@ -738,67 +737,47 @@ namespace {
 	// over `kSweepFallS` rather than a jump.
 	const float kSweepFallDelayS = 0.30f;
 	const float kSweepFallS = 0.22f;
-	// **Broth and spice share one card shape now, 2026-08-25, later
-	// still.** The chili-strip cell (a separate, narrower layout) is gone
-	// with the vertical-slider redesign it belonged to — see
-	// `hover.spice_widgets`'s own comment — so spice draws through
-	// exactly the broth-card branch below, and `kOptionLabelPx`
-	// (`_optionFont`'s size) is the one constant that branch still needs
-	// from this block.
+	// Broth and spice share ONE card shape: spice draws through exactly the
+	// broth-card branch below, and `kOptionLabelPx` (`_optionFont`'s size)
+	// is the one constant that branch needs from this block.
 	const int kOptionLabelPx = 20;
 
 	// --- the page header (title + step dots) -------------------------------
 	// One sentence naming the task, and where the diner is in the
 	// sequence. See StateLink::Screen for why this exists at all.
 	//
-	// 26px against the 554px centre column: the longest title core sends
-	// ("Choose Your Spice") measures 278px in PIL, so ~389px as oF will
-	// measure it — 165px of margin. The title is centred and free of the
-	// cart's 520px, so the column is what bounds it, not the cart.
-	// 23px since 2026-08-25, down from 26 — the developer's own offer
-	// ("it is ok to reduce the font size to acheive that if necessary")
-	// taken up, because the header's three elements needed the vertical
-	// room more than the title needed the extra 3px. Still comfortably
-	// clear of the 554px centre column: the longest title core sends
-	// ("Choose Your Spice") measured ~389px at 26px, so ~344px here.
+	// Bounded by the 554px centre column, not by the cart: the title is
+	// centred and free of the cart's 520px. The longest title core sends
+	// ("Choose Your Spice") measures ~389px at 26px as oF measures it, so
+	// ~344px at this size — comfortable margin. The size is deliberately
+	// below the column's limit, because the header's three elements need
+	// the vertical room more than the title needs the extra points.
 	const int kPageTitlePx = 23;
-	// **The header's HEIGHT is measured at setup(), not fixed here** — see
-	// `_pageHeaderPx`. It was a 52px constant for one build and the info
-	// box's own check caught what that cost: the band below it came out
-	// 228.5px against 244.2px of content, and the box would have
-	// overflowed on exactly the two screens the header exists for. A
-	// height guessed ahead of the font metrics is the same class of
-	// mistake `kCartFooterHeightPx` already carries a warning for.
+	// The header's HEIGHT is measured at setup(), never fixed here — see
+	// `_pageHeaderPx`. As a constant it once put 244.2px of content in a
+	// 228.5px band, overflowing the info box on exactly the two screens the
+	// header exists for. A height guessed ahead of the font metrics is the
+	// same class of mistake `kCartFooterHeightPx` carries a warning for.
 	const float kPageHeaderGapPx = 10.0f;   // header block -> info box
-	// **The dots sit UNDER the title, on their own line** — developer,
-	// 2026-08-25: "also it is better to have itsown line instead of same
-	// line as the statement discribing the page."
+	// The dots sit UNDER the title, on their own line. A progress indicator
+	// under a heading is what every checkout a diner has already used looks
+	// like; beside it, the pair has to be centred as a group, which puts
+	// the TITLE itself off-centre by half the dots' width — and by a
+	// different amount on each screen, since the titles differ in length.
 	//
-	// They were beside it, and the argument for that was space: stacked,
-	// the header takes ~18px more of a band the info box's three-line
-	// note already fills. That argument is answered rather than
-	// overruled — `kBrandTopMarginPx`/`kBrandBannerGapPx` gave the 18px
-	// back (see their own block), so this is a layout change and not a
-	// trade against the note.
-	//
-	// It also reads better than the inline version did: a progress
-	// indicator under a heading is what every checkout a diner has
-	// already used looks like, and beside it the pair had to be centred
-	// as a group, so the TITLE itself sat off-centre by half the dots'
-	// width — different amounts on different screens, because the titles
-	// are different lengths.
+	// Stacking costs ~18px of a band the info box's three-line note already
+	// fills, which `kBrandTopMarginPx` and `kBrandBannerGapPx` give back.
 	const float kStepDotRadiusPx = 5.0f;
-	const float kStepDotGapPx = 20.0f;   // 14 -> 20, same 2026-08-25 pass
+	const float kStepDotGapPx = 20.0f;
 	// The title's DESCENDER line -> the dots' top edge. Measured off the
 	// descender rather than the baseline so a title with descenders
 	// ("Choose Your Spice") cannot reach into the dots — and the
 	// descender is a font metric, not a per-string one, so the dots
 	// still sit at the same height on every screen.
 	//
-	// 18px since 2026-08-25 (was 8) — part of the "give breathing space"
-	// pass; see `kBrandTopMarginPx`'s own block. This and the brand
-	// margins move together, and `setup()`'s band check is the thing that
-	// says whether they have gone too far.
+	// This and the brand margins move together as the header's breathing
+	// room; `setup()`'s band check is what says whether they have gone too
+	// far. See `kBrandTopMarginPx`.
 	const float kStepDotsRowGapPx = 18.0f;
 	const ofColor kPageTitleColor(0x2B, 0x21, 0x18);   // the plate's own ink
 
@@ -821,10 +800,9 @@ namespace {
 	// pop_back()` alone removes one BYTE, which cuts a multi-byte CJK
 	// codepoint in half and hands FreeType a dangling lead byte or a
 	// stray continuation byte — not a defined "one character shorter."
-	// 2026-08-26, the other half of the zh note-truncation report (see
-	// tokenizeForWrap's own comment for the main half): a note that
-	// genuinely needed truncateToWidth's ellipsis fallback would have
-	// come back with a mangled trailing glyph on top of being cut short.
+	// Without this, a note that needs truncateToWidth's ellipsis fallback
+	// comes back with a mangled trailing glyph on top of being cut short.
+	// See tokenizeForWrap for the other half of CJK-safe wrapping.
 	void popBackUtf8(std::string & s){
 		if(s.empty()){
 			return;
@@ -852,25 +830,19 @@ namespace {
 		return ellipsis;
 	}
 
-	// **The wrap helpers below break a string into "words" at whitespace
-	// — which is what English uses to mark where a line may legally
-	// break, and what Chinese does not have at all.** A zh note like
-	// "麻辣鲜香,以四川花椒和辣椒为底,是全场最浓烈的汤底。" carries no
-	// spaces, so the old `std::istringstream >> word` tokenizer read the
-	// entire sentence as ONE word — nothing for wrapToLines'/
-	// wrapNameToTwoLines' own break logic to break ON — and the whole
-	// sentence landed on a single line, which wrapToLines' ellipsis then
-	// truncated to whatever fit that one line's width. That is the
-	// "broth and spice level info is getting truncated" report,
-	// 2026-08-26: not a wrapping edge case, the wrap never ran at all.
+	// The wrap helpers below break a string into "words" at whitespace,
+	// which is what English uses to mark a legal line break and what
+	// Chinese does not have at all. A zh note carries no spaces, so a
+	// whitespace tokenizer reads a whole sentence as ONE word, leaves the
+	// wrap nothing to break on, and lets the line overflow into the
+	// ellipsis — the text is then truncated rather than wrapped.
 	//
-	// The fix is not a special case for Chinese — it is what CJK line-
-	// breaking actually allows: unlike English, almost any character
-	// boundary is a legal break point, so ONE CJK CHARACTER IS ITS OWN
-	// TOKEN, exactly as breakable as an English word is. An ASCII run
-	// still tokenizes on whitespace, unchanged, so English text (and the
-	// ASCII half of a mixed string like "0级" or a page title) wraps
-	// exactly as it always did.
+	// This is not a special case for Chinese; it is what CJK line-breaking
+	// allows. Almost any character boundary is a legal break point, so ONE
+	// CJK CHARACTER IS ITS OWN TOKEN, exactly as breakable as an English
+	// word. An ASCII run still tokenizes on whitespace, so English text —
+	// and the ASCII half of a mixed string like "0级" or a page title —
+	// wraps unchanged.
 	bool tokenIsCjk(const std::string & token){
 		return !token.empty() && (unsigned char)token[0] >= 0x80;
 	}
@@ -962,27 +934,21 @@ namespace {
 		}
 	}
 
-	// `drawRectBorder` lived here and is deleted (2026-08-24): the cart
-	// panel's border went with the white panel on the first rig look, and
-	// the info box's went with its redesign on the second. Nothing draws a
-	// rectangular border on this table any more. The RULE it existed to
-	// respect still stands and still applies to the divider above the
-	// total and the info box's own hairline: every line on this surface is
-	// a FILLED rect, never ofSetLineWidth/ofPath stroke — this file's halo
-	// comment found stroke width driver-capped at 1px and ignored outright
-	// on the programmable renderer on this rig.
+	// Nothing draws a rectangular BORDER on this table. The rule that
+	// governed them still applies to the divider above the total and to the
+	// info box's hairline: every line on this surface is a FILLED rect,
+	// never an ofSetLineWidth or ofPath stroke, because stroke width is
+	// driver-capped at 1px here and ignored outright on the programmable
+	// renderer.
 
-	// Bin item names (e.g. "Button Mushrooms", "Lotus Root Slices") can
-	// render wider than a 200mm bin (252px) at kPlateNamePx — that
-	// overflowed into the neighbour's label before this existed (a
-	// 2026-08-14 rig photo). 2026-08-14, reinstated the same day after a
-	// same-day `shortLabel` detour was deleted on developer instruction
-	// ("show the original label, max 2 lines") — this is the mechanism
-	// that makes "max 2 lines" true. Greedy word-wrap to at most 2 lines
-	// instead of shrinking the font, which would abandon the measured
-	// kPlateNamePx. A single word wider than maxWidthPx on its own is
-	// still returned whole — this never breaks mid-word, matching how
-	// nothing else in this file does character-level layout.
+	// Bin item names ("Button Mushrooms", "Lotus Root Slices") can render
+	// wider than a 200mm bin (252px) at kPlateNamePx, where they overflow
+	// into the neighbouring bin's label. This is what makes the "at most
+	// two lines" rule true: a greedy word-wrap rather than a font shrink,
+	// which would abandon the measured kPlateNamePx. A single word wider
+	// than maxWidthPx is still returned whole — this never breaks mid-word,
+	// matching the rest of this file, which does no character-level
+	// layout.
 	std::vector<std::string> wrapNameToTwoLines(const ofTrueTypeFont & font,
 		const std::string & text, float maxWidthPx){
 		if(!font.isLoaded() || font.getStringBoundingBox(text, 0, 0).width <= maxWidthPx){
@@ -1015,17 +981,16 @@ namespace {
 		return {line1, line2};
 	}
 
-	// The same greedy word-wrap, with a caller-chosen line cap instead of
-	// a hard 2 — the info box's note takes three. Kept separate from
-	// wrapNameToTwoLines rather than replacing it, because the two differ
-	// in what they do when they run out of lines: that one dumps every
-	// remaining word onto line 2 (a bin label is short and overflowing is
-	// louder than truncating), this one truncates the last line with an
-	// ellipsis so a long note cannot run out of its band. Every catalogue
-	// note fits in 2 lines at kInfoBoxTextPx today against a 3-line cap
-	// (measured, PIL/FreeType against the real .ttf), so the truncation
-	// is a net that should never fire, not the mechanism — the developer's
-	// standing rule on this table is "no text should get truncated."
+	// The same greedy word-wrap with a caller-chosen line cap instead of a
+	// hard 2 — the info box's note takes three.
+	//
+	// Kept separate from wrapNameToTwoLines rather than replacing it,
+	// because the two differ in what they do when they run out of lines.
+	// That one dumps every remaining word onto line 2, since a bin label is
+	// short and overflowing is louder than truncating; this one truncates
+	// the last line with an ellipsis so a long note cannot run out of its
+	// band. Nothing on this table may truncate in practice, so that
+	// ellipsis is a net rather than the mechanism.
 	std::vector<std::string> wrapToLines(const ofTrueTypeFont & font,
 		const std::string & text, float maxWidthPx, size_t maxLines){
 		std::vector<std::string> lines;
@@ -1098,28 +1063,27 @@ namespace {
 		return font.load(settings);
 	}
 
-	// **Every Chinese character actually reachable from the table's own
-	// content**, not `ofUnicode::CJKUnified` (the whole ~20,950-glyph
-	// block doc §17.1 warns baking "at 42px produces a very large atlas"
-	// — and this file loads a CJK-capable font at up to 19 sizes, so the
-	// whole block would mean 19 very large atlases, built at every
-	// startup and again on every language toggle).
+	// Every Chinese character actually reachable from the table's content,
+	// rather than `ofUnicode::CJKUnified`. Doc §17.1 warns that baking the
+	// whole ~20,950-glyph block at 42px produces a very large atlas, and
+	// this file loads a CJK-capable font at up to 19 sizes — so the full
+	// block would mean 19 very large atlases, built at every startup and
+	// again on every language toggle.
 	//
-	// Generated by scanning every zh string this table can show —
-	// `data/locales/zh.json`'s values, `data/catalogue.json`'s
-	// `names.zh`/`description_zh`, `data/menu.json`'s `names.zh`/
-	// `meta_zh`/`note_zh`, PLUS the one CJK string that lives outside
-	// any locale file: the Language button's literal "EN | 中文" (see
-	// hover.py's `widgets_for` — it is deliberately NOT translated, so
-	// it is not in `zh.json` for this to have picked up on its own) —
-	// for characters at or above U+2E80. 232 of them, 2026-08-26.
-	// **Regenerate this array whenever any of those files' zh text
-	// changes, OR the button's own literal string changes** — a
-	// character used on the table but not in this list draws as a
-	// missing-glyph box (FreeType's .notdef), exactly the failure a
-	// curated range exists to avoid; a superset is cheap (fewer than a
-	// thousand extra glyphs at worst), a subset is a silent box on the
-	// projected table.
+	// Generated by scanning every zh string this table can show, for
+	// characters at or above U+2E80: `data/locales/zh.json`'s values,
+	// `data/catalogue.json`'s `names.zh` and `description_zh`,
+	// `data/menu.json`'s `names.zh`, `meta_zh` and `note_zh`, PLUS the one
+	// CJK string that lives outside any locale file — the Language button's
+	// literal "EN | 中文", which is deliberately never translated and so
+	// appears in no locale file for a scan to find.
+	//
+	// REGENERATE this array whenever any of those files' zh text changes,
+	// or when that button's literal changes. A character used on the table
+	// but missing from this list draws as a missing-glyph box (FreeType's
+	// .notdef), which is exactly the failure a curated range exists to
+	// avoid. A superset is cheap — fewer than a thousand extra glyphs at
+	// worst; a subset is a silent box on the projected table.
 	const std::uint32_t kCjkCodepoints[] = {
 		0x3002, 0x4E00, 0x4E0B, 0x4E0D, 0x4E2A, 0x4E2D, 0x4E38, 0x4E3A, 0x4E4B, 0x4E73,
 		0x4EA4, 0x4EBA, 0x4ED6, 0x4ED8, 0x4EE5, 0x4EEC, 0x4F1A, 0x4F5C, 0x4F9D, 0x4FBF,
@@ -1161,28 +1125,23 @@ namespace {
 	}
 }
 
-// 2026-08-26: was setup()'s own body, one `loadUiFont` call per member,
-// verbatim. Pulled out so it can run a SECOND time when `state.locale`
-// changes (see the call site in update()) without duplicating all 19
-// lines — the roles, sizes and per-role reasoning below are unchanged
-// from when this only ever ran once.
+// Loads every font member for one locale. Called from setup() and again
+// from update() whenever `state.locale` changes.
 //
-// **Every role converges on `kCjkFontFile` when `locale == "zh"`,
-// regardless of which of the four English files it normally loads.**
-// This repo has one bundled CJK weight, not four — no bold, no mono, no
-// separate regular — so the bold/regular/mono distinction the comments
-// below draw (a button stays bold, a cart row goes regular, a price
-// column goes mono so its digits don't jitter) is real for English and
-// simply absent for Chinese until a second CJK weight is sourced. Sizes
-// are the SAME px as the English role in every case: doc §17.1 asks for
-// CJK "15% larger... at equal cap height", but every layout constant
-// this file measures ONCE against these metrics (`_pageHeaderPx`, the
-// cart/info-box bands checked further down in setup()) is measured
-// against English and never re-measured on a locale switch — bumping
-// CJK sizes here would silently overflow every one of those bands the
-// first time a diner presses Language. Matching size instead of matching
-// doc-perfect proportion is the safe trade until those bands themselves
-// read `_loadedFontLocale`.
+// Every role converges on `kCjkFontFile` when `locale == "zh"`, whichever
+// of the four English files it normally loads: there is one bundled CJK
+// weight, not four — no bold, no mono, no separate regular — so the
+// bold/regular/mono distinction the comments below draw is real for English
+// and simply absent for Chinese until a second CJK weight is sourced.
+//
+// Sizes are the SAME px as the English role in every case. Doc §17.1 asks
+// for CJK 15% larger at equal cap height, but every layout constant this
+// file measures once against these metrics (`_pageHeaderPx`, the cart and
+// info-box bands checked in setup()) is measured against English and never
+// re-measured on a locale switch. Bumping the CJK sizes here would silently
+// overflow all of those bands the first time a diner presses Language.
+// Matching size rather than doc-perfect proportion is the safe trade until
+// those bands read `_loadedFontLocale` themselves.
 bool UiLayer::loadFonts(const std::string & locale){
 	const bool zh = (locale == "zh");
 	auto load = [zh](ofTrueTypeFont & font, const std::string & latinFile, int size){
@@ -1194,10 +1153,9 @@ bool UiLayer::loadFonts(const std::string & locale){
 	ok = load(_detailFont, kFontFile, kDetailPx) && ok;
 	ok = load(_plateNameFont, kFontFile, kPlateNamePx) && ok;
 	ok = load(_plateRateFont, kMonoFontFile, kPlateRatePx) && ok;
-	// VISUAL_LAYER.md §3: "Total value" 48px bold / "Total label" 30px —
-	// was 80/28 (the pre-cart free-standing numeral's own sizes) until
-	// build item 9 folded the total into the cart footer's single
-	// receipt-style line (drawCart/drawTotal).
+	// VISUAL_LAYER.md §3: "Total value" 48px bold, "Total label" 30px —
+	// sized for the single receipt-style line in the cart footer
+	// (drawCart/drawTotal), not for a free-standing numeral.
 	ok = load(_totalNumFont, kMonoBoldFontFile, 48) && ok;
 	// "Total" is a caption for the figure beside it, so it is regular —
 	// the number is what should be loud.
@@ -1210,19 +1168,18 @@ bool UiLayer::loadFonts(const std::string & locale){
 	// digits change, and so the column reads as data next to prose.
 	ok = load(_cartDetailFont, kMonoFontFile, kCartDetailPx) && ok;
 	ok = load(_infoNameFont, kFontFile, kInfoBoxNamePx) && ok;
-	// The note is prose. Regular weight is most of what "every text font
-	// look bulky bold" was about.
+	// The note is prose, so it takes the regular weight.
 	ok = load(_infoFont, kRegularFontFile, kInfoBoxTextPx) && ok;
 	// The diet word stays BOLD and small: it is a label, not prose, and
 	// it is the one line on the box somebody may act on.
 	ok = load(_infoDietFont, kFontFile, kInfoDietPx) && ok;
 	ok = load(_infoKcalFont, kMonoFontFile, kInfoBoxKcalPx) && ok;
-	// A button's label is read first, so it stays bold — but at 22px, not
-	// the 28px `_nameFont` it used to borrow. Three buttons now share the
-	// cart's 520px (core/hover.py's own `button_row`), which leaves each
-	// one 154.7px, and the widest label ("Cancel") measures ~114px as oF
-	// measures it — 40px of margin. At the old 28px it was ~148px in a
-	// 155px button, i.e. no margin at all.
+	// A button's label is read first, so it stays bold, but sized to the
+	// button rather than to the page. Three buttons share the cart's 520px
+	// (core/hover.py's `button_row`), leaving each one 154.7px, and the
+	// widest label ("Cancel") measures ~114px as oF measures it — 40px of
+	// margin. At `_nameFont`'s 28px it is ~148px in a 155px button, which
+	// is no margin at all.
 	ok = load(_buttonFont, kFontFile, 22) && ok;
 	ok = load(_pageTitleFont, kFontFile, kPageTitlePx) && ok;
 	// See kOptionLabelPx: 20px is what the plate's own arithmetic allows,
@@ -1242,14 +1199,13 @@ void UiLayer::setup(){
 		ofLogError(kTag) << "could not load " << kFontFile << " or " << kMonoFontFile
 			<< " at one or more sizes — labels will not draw";
 	}
-	// **Boot-time probe, not a real switch.** Confirms `kCjkFontFile` and
-	// `kCjkCodepoints` actually load together — a missing font file or a
-	// stale codepoint list (see that array's own comment on regenerating
-	// it) shows up here, in the log, at startup, rather than the first
-	// time a diner on the real table dwells Language and gets back a row
-	// of missing-glyph boxes. Reloads straight back to "en" either way —
-	// English is still the boot locale (M1.4) — so this costs one extra
-	// full font-bake pass at startup and nothing at runtime.
+	// A boot-time probe, not a real switch. It confirms `kCjkFontFile` and
+	// `kCjkCodepoints` load together, so a missing font file or a stale
+	// codepoint list (see that array's comment on regenerating it) shows up
+	// in the log at startup rather than the first time a diner dwells
+	// Language and gets back a row of missing-glyph boxes. Reloads straight
+	// back to "en", the boot locale, so this costs one extra font-bake pass
+	// at startup and nothing at runtime.
 	if(!loadFonts("zh")){
 		ofLogWarning(kTag) << "the zh font set (" << kCjkFontFile << ") failed to"
 			<< " load at one or more sizes — dwelling Language on the real"
@@ -1268,16 +1224,15 @@ void UiLayer::setup(){
 			<< kCjkFontFile << ") — its \"中文\" side will not draw";
 	}
 
-	// The page header's real height, from the face that draws it — one
-	// line of title, then the step dots on their OWN line (2026-08-25,
-	// developer's instruction; see kStepDotsRowGapPx), then the gap to
-	// the info box below.
+	// The page header's real height, from the face that draws it: one line
+	// of title, then the step dots on their own line (see
+	// kStepDotsRowGapPx), then the gap to the info box below.
 	//
-	// **This is the one place the dots' height enters the layout**, and
-	// it has to agree term-for-term with drawPageHeader's own dotsY, or
-	// the box below is measured against a header that is not the one
-	// being drawn. Same terms, same order, both derived from the same
-	// two font metrics.
+	// This is the one place the dots' height enters the layout, and it must
+	// agree TERM FOR TERM with drawPageHeader's own dotsY — otherwise the
+	// box below is measured against a header that is not the one being
+	// drawn. Same terms, same order, both from the same two font
+	// metrics.
 	//
 	// Measured rather than declared, because everything below the header
 	// is derived from it: get this wrong high and the info box silently
@@ -1297,11 +1252,11 @@ void UiLayer::setup(){
 		_cartDetailColPx =
 			_cartDetailFont.getStringBoundingBox(kCartDetailWorstCase, 0, 0).width;
 	}
-	// **Logged, not assumed.** The reserve above was reasoned to be
-	// comfortable and the developer still photographed "Button Mus..." on
-	// the table, which means one of these three numbers was not what this
-	// file thought it was. Printing them at boot is how the next report
-	// gets diagnosed from the log instead of from arithmetic done here.
+	// Logged, not assumed. A reserve that is comfortable on paper has still
+	// truncated a name on the real table, which means one of these three
+	// numbers was not what this file thought it was. Printing them at boot
+	// is what lets the next report be diagnosed from the log rather than
+	// from arithmetic done here.
 	if(_cartRowFont.isLoaded() && _cartDetailFont.isLoaded()){
 		const float nameSpace = kCartWidthPx - 2.0f * kCartPadXPx
 			- _cartDetailColPx - kCartRowMidGapPx;
