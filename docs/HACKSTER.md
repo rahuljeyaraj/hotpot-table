@@ -506,16 +506,16 @@ Three kinds of traffic pass between the processes, and each one gets the transpo
 [IMAGE: docs/img/architecture-coordinate-spaces.svg]
 *The table and the camera both convert into projector pixels. That is the only frame on the wire.*
 
-There is one coordinate system on the wire: projector pixels, 1920 by 1080. None of the processes work in anything else, so none of them can disagree about where a bin is.
+Everything sent between the processes is in projector pixels, 1920 by 1080. Nothing on the wire is in millimetres or camera pixels, so no two processes can disagree about where a bin is.
 
-Two conversions feed it. The table is measured in millimetres and is a different shape from the projector, so each axis gets its own scale; get that wrong and the near row of bins sits 50 mm off. The camera is lined up with the projector by a homography, which a person sets by dragging four corners onto the live video.
+Getting into that one frame takes two conversions. The table is measured in millimetres and is a different shape from the projector, so each axis is scaled separately. The camera is lined up with the projector by a homography, which someone sets by dragging four corners onto the live video.
 
-That last step has no automatic check. A homography fits any four corners exactly, so it always reports zero error, even when the corners are placed wrong. The only test that works is looking at whether the light lands on the real trays.
+Nothing checks the second one for you. A homography fits any four corners exactly, so it reports a perfect fit even when the corners were put in the wrong places. The only real test is looking at the table and seeing whether the light lands on the trays.
 
 [IMAGE: docs/img/architecture-two-grids.svg]
 *The eight bins, drawn twice: once on the camera's picture, once on the projected light.*
 
-For the same reason, the bin boundaries are stored twice. The camera grid is dragged onto the camera's video. The projector grid is nudged with the arrow keys while watching the light on the trays. Both start from the same measurements, and neither is ever computed from the other, because a rectangle that looks right in one view can be wrong in the other.
+That is also why the bin boundaries are stored twice, once for each view. The camera grid is dragged onto the camera's video; the projector grid is nudged with the arrow keys while watching the light on the trays. Both start from the same measurements, and neither is ever calculated from the other, because a rectangle that looks right in one view can still be wrong in the other.
 
 # 8.4 The state machine, and the danger in Serving off
 
