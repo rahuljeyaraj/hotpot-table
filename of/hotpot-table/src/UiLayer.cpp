@@ -1309,22 +1309,20 @@ void UiLayer::setup(){
 	// moving a button core is still hit-testing elsewhere is the exact
 	// failure this whole arrangement exists to prevent.
 	if(_fontsLoaded){
-		// 925 -> 937 (2026-08-25): hover.py's BUTTONS_TOP_PX is derived,
-		// not chosen — it centres the row in the near margin — so
-		// shrinking BUTTON_H_PX from 100 to 76 moved it down by half the
-		// difference. Re-derive this literal from that file's own
-		// arithmetic, never by eye, whenever either number moves.
+		// hover.py's BUTTONS_TOP_PX is DERIVED, not chosen: it centres the
+		// button row in the near margin, so it moves whenever BUTTON_H_PX
+		// does. Re-derive this literal from that file's arithmetic, never
+		// by eye, whenever either number moves.
 		const float kHoverButtonsTopPx = 937.0f;   // core/hover.py BUTTONS_TOP_PX
 		if(cartBottomPx() > kHoverButtonsTopPx){
 			ofLogWarning(kTag) << "cart bottom measures " << cartBottomPx()
 				<< "px, below core/hover.py's button band at " << kHoverButtonsTopPx
 				<< "px — the Confirm/Cancel buttons will overlap the total";
 		}
-		// The developer's own constraint, 2026-08-24: the cart "should fit
-		// with the near row." kCartFooterHeightPx is a reserved budget
-		// guessed ahead of the font metrics (it has to be — these are
-		// namespace constants), and this is where the guess is checked
-		// against what the total actually measures.
+		// The cart has to fit alongside the near row. kCartFooterHeightPx
+		// is a budget reserved ahead of the font metrics, as it must be —
+		// these are namespace constants — and this is where that budget is
+		// checked against what the total actually measures.
 		if(cartBottomPx() > kNearRowBottomPx){
 			ofLogWarning(kTag) << "cart bottom measures " << cartBottomPx()
 				<< "px, past the near row's own bottom edge at " << kNearRowBottomPx
@@ -1347,11 +1345,10 @@ void UiLayer::setup(){
 					+ fabsf(_infoKcalFont.getDescenderHeight()))
 			+ kInfoBoxLineGapPx * 1.5f
 			+ infoBodyLineH * (float)kInfoBoxNoteMaxLines;
-		// **Measured against the TIGHTER of the two bands** — every screen
-		// in the ordering sequence puts a page header above the box, so
-		// they get `_pageHeaderPx` less than a bare table does. Checking
-		// the roomy one would pass while the broth screen overflowed,
-		// which is exactly what happened for one build.
+		// Measured against the TIGHTER of the two bands. Every screen in
+		// the ordering sequence puts a page header above the box, so they
+		// get `_pageHeaderPx` less than a bare table does — checking the
+		// roomy one passes while the broth screen overflows.
 		const float tightest = kInfoBoxHeightPx - _pageHeaderPx;
 		ofLogNotice(kTag) << "info box: header " << _pageHeaderPx
 			<< "px, content " << infoContent << "px, band " << tightest << "px";
@@ -1365,38 +1362,38 @@ void UiLayer::setup(){
 		}
 	}
 
-	// Pre-cropped, background-already-transparent — see assets/logo/ in the
-	// repo root for the source and how it was derived. "light" (dark ink,
-	// near-white background) rather than "dark", matching this surface's
-	// own hard invariant: the projected field stays above a white floor
-	// (doc §2, CLAUDE.md's "never black, never coloured, never patterned").
+	// Pre-cropped, with a transparent background — see assets/logo/ for the
+	// source. The "light" variant (dark ink on a near-white ground) rather
+	// than the dark one, matching this surface's hard invariant: the
+	// projected field stays above a white floor and is never black, never
+	// coloured and never patterned (doc §2).
 	_brandLogoLoaded = _brandLogo.load("img/firepot-light-cropped.png");
 	if(!_brandLogoLoaded){
 		ofLogError(kTag) << "could not load img/firepot-light-cropped.png"
 			<< " — no brand mark will draw";
 	}
 
-	// The spice cards' pepper — see the kChilliWidthFactor block for what
-	// the developer asked for and what the file measures.
+	// The spice cards' pepper — see the kChilliWidthFactor block for the
+	// measurements the layout depends on.
 	_chilliIconLoaded = _chilliIcon.load("img/chilli.png");
 	if(!_chilliIconLoaded){
 		ofLogError(kTag) << "could not load img/chilli.png — the spice"
 			<< " cards will draw no peppers";
 	} else {
-		// **Pre-scaled on the CPU, because the GPU cannot do this one
-		// well.** The file is 512px tall and the pepper draws at the
-		// option label's cap height, about 14px on this table — a ~36x
-		// minification. oF hands textures to GL as ARB rectangle
-		// textures, which cannot carry mipmaps, so that would come out
-		// of a single bilinear tap over 4 of 512 texels: the artwork's
-		// thin black outline breaks into speckle, and the speckle
-		// crawls as the card breathes. ofImage::resize goes through
-		// FreeImage's filtered rescale instead — once, here, not per
-		// frame — which leaves GL a mild 4x minification it does handle.
-		// 4x the drawn height (rather than 1x) is headroom for a larger
-		// label font later without going soft; the 48px floor keeps the
-		// shape readable if `_optionFont` ever fails to load and the
-		// fallback face measures small.
+		// Pre-scaled on the CPU, because the GPU does this one badly. The
+		// file is 512px tall and the pepper draws at the option label's cap
+		// height, about 14px on this table — a ~36x minification. oF hands
+		// textures to GL as ARB rectangle textures, which cannot carry
+		// mipmaps, so that reduces to a single bilinear tap over 4 of 512
+		// texels: the artwork's thin black outline breaks into speckle, and
+		// the speckle crawls as the card breathes.
+		//
+		// ofImage::resize goes through FreeImage's filtered rescale once,
+		// here, rather than per frame, leaving GL a mild 4x minification it
+		// handles well. Targeting 4x the drawn height rather than 1x is
+		// headroom for a larger label font later without going soft, and
+		// the 48px floor keeps the shape readable if `_optionFont` fails to
+		// load and the fallback face measures small.
 		const ofTrueTypeFont & labelFace =
 			_optionFont.isLoaded() ? _optionFont : _nameFont;
 		const float capPx = labelFace.isLoaded()
@@ -1422,30 +1419,24 @@ void UiLayer::setup(){
 			<< " table will show no wave prompt";
 	}
 
-	// VISUAL_LAYER.md §6's "phase-offset by a per-bin random seed" went
-	// through two revisions already (`ofRandom(TWO_PI)` per bin, then
-	// evenly-spaced-plus-jitter — both replaced entirely now, see this
-	// member's own comment in UiLayer.h). **2026-08-14, third revision,
-	// developer's own design:** not staggered independent breathing at
-	// all — one highlight ROTATING around each island's 2x2 bins.
-	// TableGeometry.h's BINS table gives the physical layout: the LEFT
-	// island is 0=TL, 1=TR, 5=BR, 4=BL (bins 0/1 are the far row's two
-	// leftmost, 4/5 the near row's, same x columns). Developer's sequence
-	// — "bin 0 starts, then 90 degrees bin 1, then 90 degrees bin 5,
-	// then finally bin 4 after 90 degrees so 360" — is TL->TR->BR->BL,
-	// clockwise around that island's own perimeter.
+	// The halo's per-bin phase offset (VISUAL_LAYER.md §6) is not
+	// staggered independent breathing: it is ONE highlight rotating around
+	// each island's 2x2 bins, a quarter turn per bin.
+	//
+	// TableGeometry.h's BINS table gives the layout. The LEFT island is
+	// 0=TL, 1=TR, 5=BR, 4=BL — bins 0/1 are the far row's two leftmost,
+	// 4/5 the near row's, on the same x columns — so the sequence below is
+	// TL->TR->BR->BL, clockwise around that island's perimeter.
 	//
 	// The RIGHT island (2=TL, 3=TR, 7=BR, 6=BL) is the left island's
-	// mirror image across the table's vertical centreline, and this
-	// codebase already has a standing convention for that axis: bilateral
-	// mirror symmetry about the pot gap, not identical absolute motion
-	// (M2.6g's plate-label precedent — both rows read "ring ->
-	// price/grams -> name" OUTWARD FROM THE POT, a mirror of each other,
-	// not a copy). Applied here: the right island rotates the OPPOSITE
-	// way, counter-clockwise (2 -> 6 -> 7 -> 3), so the two islands'
-	// motion mirrors rather than matches — a call, not a certainty; if it
-	// reads wrong on the table, swapping this island's middle two phases
-	// (6 and 7) is the one-line undo to make both spin the same way.
+	// mirror across the table's vertical centreline, and this codebase
+	// treats that axis as bilateral mirror symmetry about the pot gap
+	// rather than identical absolute motion — the same convention that
+	// makes both bin rows read outward from the pot rather than
+	// top-to-bottom. So the right island rotates counter-clockwise
+	// (2 -> 6 -> 7 -> 3), mirroring the left rather than matching it. That
+	// is a call, not a certainty: swapping this island's middle two phases
+	// (6 and 7) makes both spin the same way.
 	const float kQuarterTurn = HALF_PI;
 	_haloPhase[0] = 0.0f;
 	_haloPhase[1] = kQuarterTurn;
@@ -1466,30 +1457,18 @@ ofRectangle UiLayer::cadBinRectPx(int i){
 }
 
 ofRectangle UiLayer::binRectPx(int i) const {
-	// **kUseCoreRects was a deliberate kill-switch, OFF from 2026-08-12
-	// through M4m; flipped back ON in M4n and now `_coreRects[i]` is the
-	// PROJECTOR grid, not the old rect this switch was built to distrust.**
+	// `_coreRects[i]` is core's PROJECTOR grid (core/bin_grid.py), which
+	// by design has no homography anywhere in its chain: a human drags or
+	// nudges it while looking straight at THIS space — the real light on
+	// the real table — rather than at a proxy for it. So "core has a rect"
+	// and "core's rect is trustworthy" cannot come apart here, because
+	// nothing is derived; every value is a number a person set by watching
+	// the effect directly, which is doc §5.3's own cure for its TRAP.
 	//
-	// The TRAP this switch guarded against was specific to the deleted
-	// dot-calibration flow: a value computed by fitting dots in CAMERA
-	// space, carried into stage space through a homography nobody had
-	// re-verified in the space it actually lands — `geometry.calibrated:
-	// true, rms_px: 0.0, n_points: 4`, a solve that LOOKS perfect while
-	// pointing nowhere near the real trays (doc §5.3's TRAP, arriving
-	// exactly as warned; see CLAUDE.md's M4h/M4i). Two things about that
-	// no longer hold for what `_coreRects` carries now. First, dot
-	// calibration is gone outright (CLAUDE.md's M4k) — nothing derives a
-	// bin position from a homography and a marker fit any more. Second,
-	// and load-bearing here: `bins[].rect` is `core/bin_grid.py`'s
-	// PROJECTOR grid (M4n), which by design has no homography in its
-	// chain at all — a human drags or nudges it while looking straight at
-	// THIS space, the real light on the real table, not at a proxy for
-	// it. "Core has a rect" and "core's rect is trustworthy" cannot come
-	// apart the way they did for the old rect, because nothing here is
-	// derived — every value core sends is a number a person put there by
-	// looking at the effect directly, the doc §5.3 TRAP's own cure. The
-	// CAD layout remains the fallback for the ordinary case this switch
-	// was never about: no projector grid has been set yet at all.
+	// The kill switch stays as a named constant rather than being folded
+	// away, because a rect derived through a homography would need
+	// distrusting again. The CAD layout is the fallback for the ordinary
+	// case: no projector grid has been set yet at all.
 	constexpr bool kUseCoreRects = true;
 	if(kUseCoreRects && _hasCoreRect[i]){
 		return _coreRects[i];
@@ -1550,16 +1529,14 @@ void UiLayer::drawRing(const ofRectangle & cut, float widthX, float widthY,
 		path.draw();
 		return;
 	}
-	// Four filled bars, not a stroked path. VERIFIED in the installed oF
-	// rather than assumed, because assuming is what put the ring under the
-	// light pass in the first place: an unfilled ofPath is drawn by
-	// ofGLRenderer::draw(const ofPath&), which calls
-	// setLineWidth(shape.getStrokeWidth()) -> glLineWidth(). So
-	// ofPath::setStrokeWidth() IS ofSetLineWidth(), the exact call doc
-	// §13.4 says never to use because Mesa on Intel caps it at 1px — and
-	// on the programmable renderer (which M8's fluid will force this app
-	// onto) that glLineWidth call is commented out entirely, so the width
-	// is ignored outright. §13.4 has been corrected to say so.
+	// Four filled bars, not a stroked path.
+	//
+	// An unfilled ofPath is drawn by ofGLRenderer::draw(const ofPath&),
+	// which calls setLineWidth(shape.getStrokeWidth()) -> glLineWidth().
+	// ofPath::setStrokeWidth() therefore IS ofSetLineWidth(), the call doc
+	// §13.4 says never to use: Mesa on Intel caps it at 1px, and on the
+	// programmable renderer the fluid forces this app onto, that
+	// glLineWidth call is commented out entirely and the width is ignored.
 	//
 	// Top and bottom span the full outer width so the corners are covered
 	// once each; left and right fill only the gap between them. Nothing
@@ -1575,21 +1552,16 @@ void UiLayer::drawRing(const ofRectangle & cut, float widthX, float widthY,
 
 void UiLayer::drawAnnulus(float cx, float cy, float rOuter, float rInner,
 	const ofColor & colour, float startDeg, float endDeg){
-	// **A FILLED ofPath — outer arc, then an inner arcNegative.** Doc §13.4
-	// spells this out and the reason is not style: an UNfilled ofPath is
-	// drawn by ofGLRenderer::draw(const ofPath&), which calls
-	// setLineWidth(shape.getStrokeWidth()) -> glLineWidth(). So
-	// ofPath::setStrokeWidth() IS ofSetLineWidth(), which Mesa on Intel
-	// (the ODYSSEY's driver family) caps at 1px — and on the programmable
-	// renderer M8's fluid will force, that glLineWidth call is commented
-	// out entirely and the width is ignored outright. A stroked ring would
-	// therefore work on this dev machine today and become a hairline on
-	// the deploy board, on the day the fluid lands, for reasons nobody
-	// would connect.
+	// A FILLED ofPath — outer arc, then an inner arcNegative. Doc §13.4
+	// spells this out, and the reason is not style: a stroked ring is
+	// glLineWidth in disguise (see drawRing above), which Mesa on Intel —
+	// the deploy board's driver family — caps at 1px and the programmable
+	// renderer ignores outright. A stroked ring works on a dev machine and
+	// becomes a hairline on the board.
 	//
 	// Two ofDrawCircle calls with the background punched through the middle
-	// is the other tempting version and is also wrong: over M8's fluid
-	// there is no background colour to punch with.
+	// is the other tempting version and is also wrong: over the fluid there
+	// is no background colour to punch with.
 	if(endDeg <= startDeg || rOuter <= rInner){
 		return;
 	}
@@ -1606,12 +1578,11 @@ void UiLayer::drawAnnulus(float cx, float cy, float rOuter, float rInner,
 void UiLayer::drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
 	float outerOffsetPx, const ofColor & colour, float baseCornerRadiusPx){
 	// drawRing's rounded-corner branch, generalised: that one always starts
-	// its inner contour at `base` itself (offset 0). This lets the inner
-	// contour sit further out too, so drawHalo can nest many nested bands
-	// around one bin without every band re-covering the ground the last one
-	// already did. Same ODD-winding, filled-only technique, same reason
-	// (drawAnnulus's comment above: an unfilled ofPath's "stroke" is
-	// glLineWidth in disguise, capped or ignored depending on the renderer).
+	// its inner contour at `base` itself, at offset 0. This lets the inner
+	// contour sit further out too, so drawHalo can nest many bands around
+	// one bin without each one re-covering the ground the last already did.
+	// Same ODD-winding, filled-only technique, and the same reason for it —
+	// see drawAnnulus.
 	const ofRectangle outer(base.x - outerOffsetPx, base.y - outerOffsetPx,
 		base.width + 2.0f * outerOffsetPx, base.height + 2.0f * outerOffsetPx);
 	const ofRectangle inner(base.x - innerOffsetPx, base.y - innerOffsetPx,
@@ -1633,12 +1604,11 @@ void UiLayer::drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
 void UiLayer::drawFadedRule(float x, float y, float widthPx,
 	float thickPx, const ofColor & colour, int peakAlpha){
 	// A horizontal rule at CONSTANT thickness whose alpha is strongest at
-	// the centre and fades to nothing at both ends. See the declaration
-	// in UiLayer.h for the two reports that shaped it.
+	// the centre and fades to nothing at both ends.
 	//
-	// Sliced 1px at a time, and the width is what fades — never the
-	// height. An earlier version tapered both and clamped the height to a
-	// 1px floor, which turned the ends into a dashed line of stubs.
+	// Sliced 1px at a time, and the ALPHA is what fades, never the height.
+	// Tapering the height as well clamps to a 1px floor and turns the ends
+	// into a dashed line of stubs.
 	//
 	// The falloff is 1 - t*t, the same quadratic drawHalo's own bands use,
 	// so this rule and the bin halos are visibly the same kind of light.
