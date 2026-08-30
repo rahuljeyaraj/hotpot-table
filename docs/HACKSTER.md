@@ -558,11 +558,9 @@ Every one of those bands is positioned from the bin geometry rather than typed i
 
 The camera sees the whole table, but MediaPipe is never shown the whole table. It only ever gets a 700 pixel square, roughly the size of a hand at this camera height, and it is that square which moves.
 
-With nobody at the table the square is a scanner. It steps through overlapping tiles laid over the table's footprint, 470 pixels apart so each tile covers a third of its neighbour, and each one is denoised before it is handed over. One tile per tick, so the work per frame is the same whether the table is empty or busy.
+With nobody at the table the square is a scanner, stepping through overlapping tiles laid over the table's footprint, one tile per tick, each denoised before it is handed over. As soon as a hand turns up in one, the square commits to it and re-centres on the hand every tick from then on, so it travels with the hand. It has to: MediaPipe carries on tracking a hand only through the framing it first found it in.
 
-As soon as a hand turns up in a tile, that square commits to it and stops scanning. From then on it re-centres on wherever the hand was last seen, every tick, so it travels with the hand instead of waiting for the hand to come back to it. This is not just tidiness: MediaPipe carries on tracking a hand only through the framing it first found it in, so the window has to follow. A committed window needs no denoising, and a hand that disappears for a frame or two keeps its window rather than losing it.
-
-What leaves the tracker is a single point: landmark 8, the index fingertip, put through the camera homography into projector pixels and smoothed so per-frame jitter never reaches the cursor. The table follows one hand at a time.
+What comes out is a single point, the index fingertip, put through the camera homography into projector pixels and smoothed so per-frame jitter never reaches the cursor. The table follows one hand at a time.
 
 # 9 Future improvements
 
