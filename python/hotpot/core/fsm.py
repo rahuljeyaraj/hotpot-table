@@ -1,41 +1,31 @@
 """core/fsm.py — the table's state machine (doc section 9.1).
 
-BOOT, IDLE, SELECTING (M1 build item 2), SETTING (M2.6), UNCALIBRATED
-(M4 build item 6) and, since M6, the checkout chain: BROTH, SPICE,
-CHECKOUT. Adding a state means adding both a State member and a
-transition method below; nothing about the shape here is provisional
-scaffolding to be replaced later.
+BOOT, IDLE, SELECTING, SETTING, UNCALIBRATED, and the checkout chain:
+BROTH, SPICE, CHECKOUT. Adding a state means adding both a State member
+and a transition method below; nothing about the shape here is
+provisional scaffolding.
 
-RECAP is gone, 2026-08-25. It was a fifth state between SPICE and
-CHECKOUT whose whole screen was "the cart again, with Confirm". The
-developer's own page list for the table is four screens — cart, broth,
-spice, payment — and a diner who has just been shown the cart on screen
-one does not need it re-shown on screen four before the QR. What RECAP
-actually carried was the *commit*, and that moved onto `confirm()`'s
-SPICE -> CHECKOUT edge unchanged: the order is still written on exactly
-one transition, and `weighing` still freezes the cart for every screen
-after SELECTING. Deleted outright rather than left unreachable, this
-codebase's usual rule.
+The table is FOUR screens — cart, broth, spice, payment. There is
+deliberately no fifth state between SPICE and CHECKOUT re-showing the
+cart before the QR: a diner shown the cart on screen one does not need
+it again on screen four. The COMMIT that such a state would carry lives
+on `confirm()`'s SPICE -> CHECKOUT edge, so the order is written on
+exactly one transition, and `weighing` freezes the cart for every screen
+after SELECTING.
 
-Every screen in the chain can now go BACKWARD as well as out, which
-is `back()` below and is new in the same change. Cancel was the only
-edge out before, so a diner who picked the wrong broth had to throw the
-whole order away to fix it.
+Every screen in the chain can go BACKWARD as well as out — that is
+`back()` below. Without it, Cancel is the only edge out, so a diner who
+picks the wrong broth has to throw the whole order away to fix it.
 
-Two predicates, not one, since M6: `serving` and `weighing`. They had
-the same answer while IDLE and SELECTING were the only serving states,
-and they stopped having it the moment a diner could be mid-checkout. Read
-both before gating anything new on either.
+TWO predicates, not one: `serving` and `weighing`. They have the same
+answer while IDLE and SELECTING are the only serving states, and stop
+having it the moment a diner can be mid-checkout. Read both before
+gating anything new on either.
 
-The old docstring here scheduled the mode state for "M2 and M7". That was
-never true of M2's build items — none of them mention it — and M7 build
-items 3-4 were the first that functionally needed it, five milestones
-after `core/main.py` started hardcoding `"mode": "diner"` on the wire.
-M2.6 is the milestone that corrects that, and it is also where the mode
-stopped being called `STAFF`: `SERVING`/`SETTING` name what the table is
-*doing* (billing, or being changed) rather than who is standing at it —
-staff are present in both — and "staff mode" collided with "staff view",
-the tablet UI used in both modes.
+The mode is SERVING/SETTING rather than STAFF: those names say what the
+table is DOING — billing, or being changed — rather than who is standing
+at it, since staff are present in both, and "staff mode" collided with
+"staff view", the tablet UI used in both modes.
 
 Fsm does not own the cart, the bin map, or the scale. It calls into them,
 because doc section 9.1's rules — "one shared function reset_session() is
@@ -229,8 +219,8 @@ class Fsm:
         those but the last one, and that cannot be right in a restaurant:
         a diner three screens into a checkout they did not mean to start
         would have no way out at all now that CHECKOUT no longer times
-        itself out (see `core/main.py` — the developer asked for the QR
-        to stay up until a person acts). Cancel is offered on every one
+        itself out (see `core/main.py` — the QR code must stay up until
+        a person acts). Cancel is offered on every one
         of those screens (`core/hover.py`), so the FSM has to accept it
         there.
         """
@@ -260,11 +250,10 @@ class Fsm:
     def broth_chosen(self) -> bool:
         """BROTH -> SPICE — the broth screen's Next button.
 
-        Named for the fact, not for the button, and that distinction
-        moved in 2026-08-25's redesign. Choosing a broth used to BE this
-        transition: dwelling a plate both recorded the choice and jumped
-        to the next screen, so a diner could not see what they had picked
-        or change their mind. Selection is now core's own scratch state
+        Named for the fact, not for the button. Choosing a broth used to
+        BE this transition: dwelling a plate both recorded the choice and
+        jumped to the next screen, so a diner could not see what they had
+        picked or change their mind. Selection is now core's own scratch state
         (`core/main.py._choose_broth`) and this edge fires only when the
         diner presses Next, which is what makes "hover a different plate
         to switch" possible at all.
@@ -279,9 +268,9 @@ class Fsm:
         """SPICE -> CHECKOUT, doc section 9.1's `dwell "confirm"` edge —
         the spice screen's Pay button, and the commit.
 
-        Was RECAP -> CHECKOUT until 2026-08-25; RECAP is deleted and this
-        edge absorbed it whole (see the module docstring). The order is
-        still written by core on exactly this one transition.
+        RECAP is deleted and this edge absorbed it whole (see the module
+        docstring). The order is still written by core on exactly this
+        one transition.
 
         Writing that row is deliberately NOT done here: writing to SQLite
         from inside a state machine that is unit-tested with no
@@ -315,11 +304,10 @@ class Fsm:
         """CHECKOUT -> IDLE, doc section 9.1's "(receipt fetched)" edge,
         with its "[re-baseline, clear cart]".
 
-        The "OR timeout 90s" half of that edge is gone. Developer,
-        2026-08-25: "i see the qr code dissaperared when it was left idel
-        for sometime, that should not happen, no time out. onc can cancell
-        or go back, but not self disappear." A diner reaching for their
-        phone is exactly the person that timer was firing on.
+        The "OR timeout 90s" half of that edge is gone: the QR code must
+        not vanish while a diner is still reaching for their phone. Only
+        cancel or back dismiss the checkout screen now; it no longer
+        dismisses itself.
 
         This is the third of doc section 9.1's three `reset_session()`
         callers ("cancel, checkout completion, and setting-mode exit") and
@@ -405,8 +393,8 @@ class Fsm:
             self._refresh_weights()
         self.cart.reset_session()
         self.binmap.locked = True
-        # **Back to UNCALIBRATED, not IDLE, on a table that still has no
-        # geometry.** Doc section 9.1's diagram writes this edge as
+        # Back to UNCALIBRATED, not IDLE, on a table that still has no
+        # geometry. Doc section 9.1's diagram writes this edge as
         # SETTING -> IDLE, which is right for the ordinary case and wrong
         # for the first-boot one: calibration is a setting-mode activity,
         # so the operator is IN setting mode while doing it, and an exit
