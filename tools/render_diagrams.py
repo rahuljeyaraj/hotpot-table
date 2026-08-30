@@ -355,66 +355,41 @@ def drain():
 
 # ------------------------------------------------------------------ 3. the ring
 def ring():
-    W, H = 1240, 850
-    s = Svg(W, H, "The frame ring in shared memory",
-            "One writer, two readers, no lock. The order of the three writes is the whole mechanism.")
+    W, H = 1180, 680
+    s = Svg(W, H)
 
-    s.box(80, 120, 480, 96, ["header,  64 bytes",
-                             "magic HPTF, version 3, 1920, 1080, 3, 8",
-                             "write_counter : u64"],
-          fill=ACCENT_FILL, stroke=ACCENT, head_fill=ACCENT, body_size=16)
+    BX, BW = 310, 560
 
-    s.text(660, 150, "camera writes, in this order:", 21, INK, weight="bold")
-    s.caption(660, 186, [
-        "1.  the pixels into the slot",
-        "2.  the slot header (frame_id, ts_ns)",
-        "3.  write_counter, last",
-    ], 19, INK, gap=32)
-    s.text(660, 300, "Step 3 is what publishes the frame, so it", 17, MUTED)
-    s.text(660, 324, "happens after everything it publishes.", 17, MUTED)
+    s.box(BX, 40, BW, 170,
+          ["the camera writes, in order",
+           "1.  the pixels",
+           "2.  the frame_id",
+           "3.  the counter, last"],
+          fill=ACCENT_FILL, stroke=ACCENT, head_fill=ACCENT,
+          head_size=26, body_size=23, body_fill=INK)
 
-    sx, sy, sw_, sh = 80, 380, 118, 150
+    sx, sy, sw_, sh, gap = 90, 270, 118, 120, 12
+    wx = sx + 5 * (sw_ + gap) + sw_ / 2          # the slot being written
+
+    s.text(sx, 250, "8 slots, one 1920 x 1080 frame in each", 18, MUTED)
+    s.line(wx, 216, wx, 262, stroke=ACCENT, sw=3.0, arrow="ao")
+
     for i in range(8):
-        x = sx + i * (sw_ + 12)
-        fill = PANEL if i != 5 else ACCENT_FILL
-        st = INK if i != 5 else ACCENT
-        s.rect(x, sy, sw_, 46, fill=fill, stroke=st, sw=2.0, rx=5)
-        s.text(x + sw_ / 2, sy + 22, "frame_id", 14, MUTED, anchor="middle")
-        s.text(x + sw_ / 2, sy + 39, "ts_ns", 14, MUTED, anchor="middle")
-        s.rect(x, sy + 52, sw_, sh - 6, fill=fill, stroke=st, sw=2.0, rx=5)
-        s.text(x + sw_ / 2, sy + 112, f"slot {i}", 20, st, anchor="middle",
-               weight="bold")
-        s.text(x + sw_ / 2, sy + 138, "6.2 MB", 15, MUTED, anchor="middle")
-        s.text(x + sw_ / 2, sy + 158, "of pixels", 15, MUTED, anchor="middle")
+        x = sx + i * (sw_ + gap)
+        hot = i == 5
+        s.rect(x, sy, sw_, sh, fill=ACCENT_FILL if hot else PANEL,
+               stroke=ACCENT if hot else INK, sw=2.2, rx=6)
+        s.text(x + sw_ / 2, sy + 76, str(i), 40, ACCENT if hot else INK,
+               anchor="middle", weight="bold", scale=1)
 
-    s.text(80, 356, "8 slots, each one whole 1920 x 1080 BGR frame", 18, MUTED)
+    s.line(wx, sy + sh + 6, wx, 442, sw=2.4, dash="6 5", arrow="a")
 
-    wx = sx + 5 * (sw_ + 12) + sw_ / 2
-    s.line(wx, 340, wx, 374, stroke=ACCENT, sw=2.6, arrow="ao")
-
-    ry = 600
-    # centred on slot 5 so the read arrow drops straight down
-    rdx = wx - 210
-    s.box(rdx, ry, 420, 216,
-          ["a reader (tracker, classifier)",
-           "",
-           "read write_counter",
-           "read frame_id",
-           "copy 6.2 MB of pixels out",
-           "read frame_id again",
-           "if the two disagree, retry"],
-          head_size=21, body_size=18, body_fill=INK, top=ry + 40)
-    s.line(wx, sy + 196, wx, ry - 6, stroke=INK, sw=2.2, arrow="a", dash="6 5")
-
-    # to the left of the reader, in the space it used to sit in
-    s.box(60, ry, 500, 216,
-          ["Why the retry is there at all",
-           "",
-           "At 8 slots and 30 frames a second a reader has",
-           "about 260 ms before the writer laps it, so a torn",
-           "read should never happen. A check that cannot fail",
-           "proves nothing, so the tests force one by hand."],
-          head_size=21, body_size=17, body_fill=INK, top=ry + 40)
+    s.box(BX, 450, BW, 170,
+          ["a reader checks",
+           "frame_id before the copy",
+           "frame_id after the copy",
+           "different?  copy it again"],
+          head_size=26, body_size=23, body_fill=INK)
 
     s.save("architecture-frame-ring.svg")
 
