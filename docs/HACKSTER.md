@@ -558,6 +558,8 @@ What worked was denoising a hand-sized window rather than the whole table. And o
 - **The camera finds the table and the bins by itself.** No manual grid, no measured layout file - point it at the table and it works out where every bin is.
 - **More languages.** Two is enough to prove the idea; a real restaurant floor needs more.
 - **Four-point load cells for the larger bins.** A single cell under a big tray reads unevenly; four per bin would weigh the bigger ingredients honestly.
+- **A low stock alert scaled to the bin.** The restock alert trips at a flat 50 g in every bin, which is a nearly empty tray of cabbage and most of a small bin of goji berries. It should trip at a fraction of what that bin weighed when it was filled - say 10% - so every bin warns at the same point in its own life rather than at the same number of grams.
+- **Watching where food goes back.** Putting food back already works, because the bill is a subtraction and nothing ever tracked individual scoops. But nothing checks that the lotus root went back into the lotus root bin. The camera is already following the hand and the classifier already knows what every bin holds, so between them they could tell the counter that a bin has been contaminated, and with what.
 - **A synthesised flame sound.** Every other effect is a recorded clip, but the fire changes shape every frame - its sound should be generated from the sim, not played back.
 - **Support more than one camera-projector pair.** Re-architect so several pairs can run side by side and cover a longer table.
 
