@@ -483,15 +483,17 @@ The split that matters is the last one. `core` owns every price, every rule and 
 
 # 8.2 Three transports for three kinds of traffic
 
+Three kinds of traffic pass between the processes, and each one gets the transport that suits it rather than a single channel carrying all three.
+
+- **Where your hand is — UDP, port 8770.** Sixty datagrams a second from the tracker to the renderer. A lost cursor packet is worthless sixteen milliseconds later, and a queued one is worse: when the renderer catches up it delivers the whole backlog in order and the hand visibly walks back through its own history. So the rule at the far end is drain the socket, keep the newest, throw the rest away.
+- **What the camera sees — shared memory.** Frames are six megabytes each, thirty times a second, far too much to push down a socket. They go in a ring of eight slots, about 47 MB, one writer and two readers with no lock. `core` never imports that module at all, and the omission is the enforcement: the process that handles money has no way to touch a pixel.
+- **Everything else — TCP, port 8765.** The state machine, the cart, the prices, the bin map, the geometry, the load cell readings. `core` is the server and every other process dials into it, so the whole table's truth arrives down one connection, sixty times a second, already translated into whichever language is selected.
+
 [IMAGE: docs/img/architecture-cursor-drain.svg]
 *Six cursor packets sent during a stall, and the two things a transport can do with them.*
 
-A lost cursor packet is worthless sixteen milliseconds later. A queued one is worse: when the renderer catches up it delivers the whole backlog in order, and the hand visibly walks back through its own history. So cursors go over UDP with one rule at the far end. Drain the socket, keep the newest, throw the rest away.
-
 [IMAGE: docs/img/architecture-frame-ring.svg]
 *Eight slots of shared memory, and a publication rule that is three writes in a fixed order.*
-
-Camera frames are six megabytes each, thirty times a second, so they go in shared memory rather than down a socket. `core` never imports that module at all, and the omission is the enforcement: the process that handles money has no way to touch a pixel.
 
 # 8.3 One coordinate system on the wire
 
