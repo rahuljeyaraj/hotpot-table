@@ -320,7 +320,7 @@ Stand the plywood on the pillars over the table, with each bin coming up through
 
 # 5.5 Hanging the projector and the camera
 
-The projector is mounted on the wall itself, hard against the ceiling and aimed down at the table, far enough back that its image covers the full 1524 mm width. The camera hangs off the projector: a wooden batten is fixed to the projector's mount and sticks out from it, and the camera is zip tied to the end of that batten, looking down at the same table. On this build it hangs at 180 degrees.
+The projector is mounted on the wall, hard against the ceiling and aimed down at the table, far enough back that its image covers the full 1524 mm width. The camera hangs off the projector: a wooden batten is fixed to the projector's mount and sticks out from it, and the camera is zip tied to the end of that batten, looking down at the same table. On this build it hangs at 180 degrees.
 
 Square the image on the table with the projector's own 4D keystone. The app draws to a 1920 x 1080 rectangle and puts nothing between that and the lens.
 
@@ -468,7 +468,7 @@ To check the table before the load cells are wired, start `python run.py --only 
 
 # 8 How it works
 
-The top surface is one sheet of light. Underneath it are five processes that never share a variable, four different transports between them, and a fluid simulation that turned out to have been running the wrong half of itself the whole time.
+The table looks like one thing: a lit surface that reacts to your hands. It is actually five separate programs running at once, talking to each other over the network and over shared memory. This section is a tour of how they are split up and why.
 
 The pictures below are the architecture. The words are there to point at them.
 
