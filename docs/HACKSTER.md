@@ -545,15 +545,13 @@ The cart keeps two numbers per bin: what it weighed when you walked up, and what
 [IMAGE: docs/img/architecture-light-pass.svg]
 *Five layers into one frame, and the one that has to go last.*
 
-The room has its own lighting, but the projector is the brightest thing on the table and the only light this system controls, so every frame it draws has to be the interface and the lamp at once. A frame is built up in five layers, bottom to top:
+A frame is built up in five layers, bottom to top:
 
 1. **The table background.** A warm near-white, `#E8E6E1`, cleared first.
 2. **The fire.** The fluid simulation, drawn in multiply so it darkens the background instead of brightening it.
 3. **The light pass.** Flat opaque white filling each of the eight bin cutouts.
 4. **The halos.** A golden ring around each bin.
 5. **The UI.** Names, prices, the info box, the cart, the buttons.
-
-Layer 3 is the one the design hangs off. That white is what the projector puts on the lotus root you are looking at, so a bin's interior has to be flat white, always: any pattern drawn in there is a pattern printed on the food. To guarantee it, the light pass is not actually drawn third. It is drawn last of everything, after the fire and the halos and the text, so no future change to any of them can reach inside a bin.
 
 [IMAGE: docs/img/architecture-centre-column.svg]
 *440 mm of solid plywood, and everything you read while standing there.*
@@ -589,9 +587,5 @@ What comes out is a single point, the index fingertip, put through the camera ho
 The table is built and it works. Eight bins set into a sheet of plywood, a projector on a stand above it, one webcam, and a load cell under every tray.
 
 Walk up to it and the food labels itself. Each bin says what it holds and what it costs per 100 g, projected onto the food rather than printed on a card or hung on a board behind the counter. Reach for a bin and it tells you more about that ingredient. Scoop some into your bowl and the price appears in a cart on the table, because a bin that weighs less than it did a minute ago is food you took. Nothing to tap, nothing to hold, and nobody to ask.
-
-The projector doing two jobs at once is the whole idea. It lights the food and it labels the food, so the answer is in the same place as the question.
-
-The hard part was never the fire or the hand tracking. It was making the weighing honest enough to charge someone with: every price on the table is a subtraction between what a bin weighed when you arrived and what it weighs now, recomputed from scratch many times a second, and eight load cells that would rather say nothing at all than say a wrong zero.
 
 I picked by shape at that stand for a whole master's degree. On this table I would have known what was in the bowl, what it cost and how it would taste before I picked up a single piece — and so would the person behind me in the queue, in whichever of the two languages they read.
