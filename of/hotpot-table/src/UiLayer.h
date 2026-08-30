@@ -140,12 +140,10 @@ private:
 	static void drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
 		float outerOffsetPx, const ofColor & colour, float baseCornerRadiusPx);
 	// A filled rounded rect, and the soft outward glow around one.
-	// 2026-08-24, developer: "this whole design is like a fluid, the
-	// flames the glowing hallow and so on, we need the cort info box and
-	// button match with it." `drawGlow` is drawHalo's own falloff
-	// (quadratic, brightest at the edge) generalised off the bins, so the
-	// cart's box and buttons are lit by the same primitive the table
-	// already breathes with rather than by a second, similar-looking one.
+	// `drawGlow` is drawHalo's own falloff — quadratic, brightest at the
+	// edge — generalised off the bins, so the cart's box and buttons are
+	// lit by the same primitive the table already breathes with rather
+	// than by a second, similar-looking one.
 	static void drawRoundedRectFill(const ofRectangle & r, float cornerRadiusPx,
 		const ofColor & colour);
 	static void drawGlow(const ofRectangle & r, float cornerRadiusPx,

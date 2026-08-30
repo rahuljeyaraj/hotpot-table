@@ -497,22 +497,20 @@ namespace {
 	const size_t kCardNoteLineCap = 64;
 
 	// --- the raw-skeleton diagnostic ---------------------------------------
-	// Deliberately its own palette — this must read as a different thing
+	// Deliberately its own palette: this has to read as a different thing
 	// from a real hand indicator at a glance, since the whole point is
-	// telling the two apart on the same table. Same lime/gold pairing the
-	// staff view's Developer tab already uses for this
-	// (index.html's drawLandmarks: "rgba(64,200,120,0.8)" lines,
-	// "#4ee08a" joints, "#ffd93c" the tracked landmark) so a person who has
-	// looked at that view recognises this one.
+	// telling the two apart on the same table. The same lime and gold
+	// pairing the staff view's own landmark overlay uses, so anyone who
+	// has looked at that view recognises this one.
 	const ofColor kSkeletonLineColor(64, 200, 120, 200);
 	const ofColor kSkeletonJointColor(78, 224, 138);
 	const ofColor kSkeletonTrackedColor(255, 217, 60);
 	const float kSkeletonJointRadius = 4.0f;
 	const float kSkeletonTrackedRadius = 7.0f;
 	const float kSkeletonLineWidth = 2.0f;
-	// backend_mediapipe.py's own CURSOR_LANDMARK (index 8) — the tracked
-	// point `_to_stage` builds the real cursor from — drawn larger, same
-	// as the Developer tab's own CURSOR_LANDMARK highlight.
+	// backend_mediapipe.py's CURSOR_LANDMARK (index 8) — the tracked point
+	// `_to_stage` builds the real cursor from — drawn larger, matching the
+	// staff view's own highlight of the same landmark.
 	const int kSkeletonCursorLandmark = 8;
 	// Standard 21-point hand topology, byte-for-byte the same pairs as
 	// index.html's HAND_CONNECTIONS — kept identical on purpose so the two
@@ -1646,15 +1644,10 @@ float UiLayer::breath(float floor01, float phase){
 }
 
 void UiLayer::drawChilli(float cx, float cy, float sizePx) const {
-	// One pepper, centred on (cx, cy), `sizePx` TALL — the developer's own
-	// artwork, drawn as it came and only scaled. 2026-08-25: "use this
-	// image as chilli. it is not refeerence image to draw from, use this
-	// exact image, scale if u like." The two-ofPath silhouette that stood
-	// here (a flat body, a hooked stem, a -38 degree rotation to stop three
-	// of them eating the card's right half) is gone entirely, and there is
-	// deliberately NO vector fallback behind it: falling back to the shape
-	// the developer has just replaced would be worse than drawing nothing,
-	// and setup() logs the missing file loudly if it ever comes to that.
+	// One pepper, centred on (cx, cy), `sizePx` TALL — the supplied
+	// artwork, drawn as it came and only scaled. There is deliberately NO
+	// vector fallback behind it: drawing a substitute shape would be worse
+	// than drawing nothing, and setup() logs the missing file loudly.
 	//
 	// `sizePx` is the height of the PEPPER, not of the file. The artwork's
 	// opaque pixels run the full height of its square (see
@@ -1773,13 +1766,10 @@ void UiLayer::drawHalo(int i) const {
 	}
 	const ofRectangle bin = binRectPx(i);
 	const float baseCornerRadiusPx = mmToPxX(CUTOUT_CORNER_RADIUS_MM);
-	// 0.30 floor, not the first attempt's near-zero — see
-	// kHaloBreathPeriodS's own comment: a bin dimmed almost to nothing
-	// read as broken, not as breathing, in the first photo. (This is the
-	// same curve as the `0.65 + 0.35 * sin` it was written as before
-	// 2026-08-25, algebraically identical — it goes through the shared
-	// `breath` helper now so the buttons' new glow and the bins' halo
-	// cannot drift into two different rhythms.)
+	// A floor well above zero — see kHaloBreathPeriodS: a bin dimmed
+	// almost to nothing reads as broken rather than as breathing. It goes
+	// through the shared `breath` helper so the buttons' glow and the
+	// bins' halo cannot drift into two different rhythms.
 	const float breathe = breath(0.30f, _haloPhase[i]);
 	for(int k = 0; k < kHaloRingCount; k++){
 		const float innerPx = kHaloMarginPx + (float)k * kHaloRingPitchPx;
@@ -1813,15 +1803,15 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 	if(!hasState){
 		return;
 	}
-	// 2026-08-26: the dwell that fires core/main.py's `_cycle_locale()`
-	// changes `state.locale` on the very next state broadcast — this is
-	// where oF notices and rebakes every font member from the other
-	// language's file (see loadFonts()'s own comment on why one reload
-	// beats a second live set of members). Guarded on `hasState` (the
-	// enclosing early-return above) rather than trusted from a
-	// default-constructed `state`, and on the locale actually being one
-	// this table has a font for — an unrecognised value from a future
-	// third locale leaves the CURRENT glyphs on screen instead of
+	// The dwell that fires core's `_cycle_locale()` changes `state.locale`
+	// on the very next state broadcast, and this is where oF notices and
+	// rebakes every font member from the other language's file (see
+	// loadFonts() on why one reload beats a second live set of members).
+	//
+	// Guarded on `hasState` — the enclosing early-return above — rather
+	// than trusted from a default-constructed `state`, and on the locale
+	// being one this table has a font for: an unrecognised value from a
+	// future third locale leaves the CURRENT glyphs on screen instead of
 	// silently reloading into (and logging as a failure of) a font file
 	// that was never going to exist.
 	if(state.locale != _loadedFontLocale
@@ -2797,11 +2787,10 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 	// different near-whites would be three shades of "the same" colour.
 	const ofTrueTypeFont & face =
 		_buttonFont.isLoaded() ? _buttonFont : _nameFont;
-	// 2026-08-26: the Language button's "EN | 中文" mixes ASCII and CJK
-	// in one label, and no single font this table loads carries both
-	// (loadFonts() swaps the WHOLE set between the DejaVu files and
-	// Noto Sans SC by locale — see that function's own comment). Routed
-	// by CONTENT (hasMixedScript), not by `w.id == "language"`, so any
+	// The Language button's "EN | 中文" mixes ASCII and CJK in one label,
+	// and no single font this table loads carries both — loadFonts() swaps
+	// the WHOLE set between the DejaVu files and Noto Sans SC by locale.
+	// Routed by CONTENT (hasMixedScript) rather than by widget id, so any
 	// future bilingual label gets this for free.
 	if(hasMixedScript(w.label) && _buttonFontCjk.isLoaded()){
 		drawBilingualCenteredLitTo(face, _buttonFontCjk, w.label,
@@ -2929,10 +2918,9 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	if(nameW > nameWidth){
 		name = truncateToWidth(nameFace, name, nameWidth);
 		if(_truncatedNames.insert(w.label).second){
-			// Shared by the broth screen's cards AND, since 2026-08-25,
-			// the spice screen's description cards (`hover.spice_widgets`)
-			// — both draw through this same branch, so the id is what
-			// tells the two apart in a log.
+			// Shared by the broth screen's cards and the spice screen's
+			// (`hover.spice_widgets`) — both draw through this branch, so
+			// the id is what tells the two apart in a log.
 			ofLogWarning(kTag) << "info card " << w.id << " (\""
 				<< w.label << "\") needs " << nameW
 				<< "px but the card leaves " << nameWidth
@@ -2961,13 +2949,12 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		// same height as the word sits level with the word rather than
 		// riding above or below it.
 		const float chilliCy = nameBaseline - chilliH * 0.5f;
-		// Right edge of the PEPPER — not of its image box — parked one
-		// `padX` off the card's border, so it clears the ring by the
-		// same margin the name clears it on the other side. Developer,
-		// 2026-08-25: "chilli should not touch the box borders." The
-		// half-width subtracted here is `kChilliWidthFactor` (the ink),
-		// which is why that factor is measured off the artwork's alpha
-		// rather than taken as 1.0 from its square.
+		// Right edge of the PEPPER, not of its image box, parked one
+		// `padX` off the card's border so it clears the ring by the same
+		// margin the name clears it on the other side. The half-width
+		// subtracted here is `kChilliWidthFactor` — the INK — which is why
+		// that factor is measured off the artwork's alpha rather than
+		// taken as 1.0 from its square.
 		const float rightCx = box.x + box.width - padX
 			- chilliH * kChilliWidthFactor * 0.5f;
 		for(int i = 0; i < chilliCount; i++){
@@ -2980,14 +2967,11 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	// Diet dot + word — the exact pair `drawInfoBox` draws and the exact
 	// reason (I8: never a state by colour alone).
 	//
-	// **The row's HEIGHT is only reserved when there is a row**, since
-	// 2026-08-25. Developer: "in spicy there is a huge gap between the
-	// heading and info which is filled as veg non veg in the broth boxes.
-	// i guess that space is unnatural in spice boxes." A spice level has
-	// no diet (`hover.spice_widgets` sends `diet: ""` — a heat level is
-	// not food), so the advance below used to open a blank band on every
-	// spice card where a broth card carries VEG/NON-VEG. The `y +=` moved
-	// inside the branch; nothing about the broth cards changes.
+	// The row's HEIGHT is only reserved when there IS a row. A spice level
+	// has no diet — `hover.spice_widgets` sends `diet: ""`, since a heat
+	// level is not food — so advancing `y` unconditionally would open a
+	// blank band on every spice card where a broth card carries
+	// VEG/NON-VEG. Hence the `y +=` inside the branch.
 	if(!w.diet.empty()){
 		const float dietBaseline = y + _infoFont.getAscenderHeight();
 		ofColor dietColour = kInfoDietEggColor;
@@ -3015,11 +2999,7 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		y += _infoFont.getAscenderHeight() + fabsf(_infoFont.getDescenderHeight())
 			+ kBrothCardNoteLineGapPx;
 	}
-	// **No meta row any more, 2026-08-25, later still.** Developer:
-	// "completely remove the spice icon or words in the broth boxes." This
-	// used to draw either a chilli-gauge row (`spiceLevelFromMeta`) or the
-	// raw `w.meta` text right-aligned on the diet line — both deleted;
-	// `w.meta` is simply not read by this function any more.
+	// There is no meta row: `w.meta` is not read by this function at all.
 
 	// The note fills whatever is left of the card.
 	const float remaining = (box.y + box.height - kBrothCardPadYPx) - y;
@@ -3032,13 +3012,14 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 			splitX, kInfoBoxTextColor, kOptionNoteLitColor);
 		y += bodyLineH;
 	}
-	// **Truncation is a bug here, not a fallback** — developer: "it cant
-	// truncate." `wrapToLines` ellipsises whatever did not fit, which is
-	// exactly why nobody noticed until it showed up on the rig; say so in
-	// the log, once per card, so the next card that outgrows its box is
-	// caught on the bench instead. `kCardNoteLineCap` is "no cap" — the
-	// helper treats 0 as "no lines at all", so the unbounded wrap has to
-	// ask for a number no note will ever reach.
+	// Truncation is a BUG here, not a fallback. `wrapToLines` quietly
+	// ellipsises whatever did not fit, which is why an overflowing card
+	// reaches the rig unnoticed — so it is logged, once per card, and the
+	// next card to outgrow its box is caught on the bench instead.
+	//
+	// `kCardNoteLineCap` means "no cap": the helper treats 0 as "no lines
+	// at all", so an unbounded wrap has to ask for a number no note will
+	// ever reach.
 	if(!w.desc.empty()){
 		const size_t wanted =
 			wrapToLines(noteFace, w.desc, textWidth, kCardNoteLineCap).size();
@@ -3145,14 +3126,13 @@ float UiLayer::sweep01For(const StateLink::Widget & w) const {
 	// finished and stayed. That is what makes a full-dark card the
 	// READABLE state rather than the unreadable one.
 	//
-	// **The sweep is TIED TO TIME, 2026-08-25 (second attempt).**
-	// Developer, after a 250ms hold-at-full latch did not fix it: "the
-	// flicker still comes. tie to time." The first attempt only covered
-	// one cause — core clearing `dwell` a tick before it sends `selected`
-	// — and missed the commoner one: the tracker drops the hand for a
-	// frame or two mid-dwell, core sees no hover, and `dwell` arrives as
-	// 0 in the middle of a fill. Either way the wire value falls off a
-	// cliff and the sweep snapped white with it.
+	// The sweep is TIED TO TIME, because the wire value can fall off a
+	// cliff mid-fill and a sweep rendered directly from it flickers.
+	//
+	// Two causes, and a latch only covers the first: core clears `dwell` a
+	// tick before it sends `selected`, and — more often — the tracker
+	// drops the hand for a frame or two mid-dwell, core sees no hover, and
+	// `dwell` arrives as 0 in the middle of a fill.
 	//
 	// So oF no longer renders the wire value directly. It renders its own
 	// per-widget value that RISES instantly (progress must feel immediate
@@ -3204,13 +3184,11 @@ void UiLayer::drawSweep(const ofRectangle & box, float corner, float sweep01){
 		// right edge with a plain rect — an intersection would need a
 		// stencil, and the sweep's right edge is a straight cut by design.
 		//
-		// **The squaring rect spans the FULL height**, 2026-08-25.
-		// Developer: "the black infill progress has a rounded edges instead
-		// of a straignt line." It was inset by `corner` top and bottom,
-		// which squared the middle of the leading edge and left the sweep's
-		// own top-right and bottom-right corners still curved — so a
-		// half-filled card read as a black lozenge sliding across rather
-		// than as a bar filling. Only the LEFT corners should ever be
+		// The squaring rect spans the FULL height. Inset by `corner` top
+		// and bottom it squares only the middle of the leading edge and
+		// leaves the sweep's top-right and bottom-right corners curved, so
+		// a half-filled card reads as a black lozenge sliding across
+		// rather than as a bar filling. Only the LEFT corners are ever
 		// round, and those come from the rounded rect underneath.
 		drawRoundedRectFill(ofRectangle(box.x, box.y, sweepW, box.height),
 			corner, kOptionSweepColor);
@@ -3234,28 +3212,20 @@ void UiLayer::drawSweep(const ofRectangle & box, float corner, float sweep01){
 }
 
 void UiLayer::drawWidgetGlows(const StateLink::State & state) const {
-	// **Every halo, before ANY of the centre column, 2026-08-25.**
-	// Developer, twice: "hallo of any button should not come over any
-	// other button selected on not", then — after a first attempt that
-	// only split `drawWidgets` into two loops — "i can still see halo of
-	// button coming over other buttons", plus "the page heading's bottom
-	// seems to be cut off. are u drawing a box above the heading for the
-	// 5 dots?"
+	// EVERY halo, before ANY of the centre column.
 	//
-	// Both reports are the same bug seen twice. A halo reaches
-	// `kWidgetGlowReachPx` past its own frame, which on the stacked
-	// option cards clears the neighbour above and below AND, for the top
-	// card, reaches up into the page title's descender — that "box above
-	// the heading" is the first card's halo, not a box. Splitting
-	// `drawWidgets` in two fixed the halo landing over a neighbour's
-	// GEOMETRY but not over the header, because the whole of
-	// `drawWidgets` runs after `drawPageHeader`. So the glow pass moved
-	// out here and is called before the header, the cart and the info box
-	// — everything in the column now paints on top of every halo.
+	// A halo reaches `kWidgetGlowReachPx` past its own frame, which on the
+	// stacked option cards clears the neighbour above and below and, for
+	// the top card, reaches up into the page title's descender — where it
+	// reads as a mysterious box cutting off the heading. Splitting
+	// `drawWidgets` into two loops is not enough, because the whole of
+	// `drawWidgets` runs after `drawPageHeader`; the glow pass has to be
+	// out here, before the header, the cart and the info box, so that
+	// everything in the column paints on top of every halo.
 	//
-	// The other half of the fix is in `drawWidget`: the card fill is only
-	// ~10% ink, so a neighbour's halo was also showing THROUGH a card
-	// that was drawn over it. See `kCardBaseColor`.
+	// The other half of this is in `drawWidget`: the card fill is only
+	// ~10% ink, so without an opaque base a neighbour's halo shows THROUGH
+	// a card drawn over it. See `kCardBaseColor`.
 	for(const StateLink::Widget & w : state.widgets){
 		drawWidgetGlow(w);
 	}
@@ -3313,13 +3283,11 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 	// with their own phone, so this is sized for a camera at arm's length
 	// rather than for a reader at three metres.
 	//
-	// **Two screens in one function, and which one is showing is decided
-	// by `qr.token` rather than by `qr.paid`.** Developer, 2026-08-25:
-	// "the token number should be given only after sucessfull payment."
-	// Core leaves the token empty until the money has landed (see
-	// StateLink::Qr::token), so this side has no way to draw a number
-	// early even by mistake — the rule lives on the wire, not in a
-	// condition here that a later edit could invert.
+	// Two screens in one function, and which one shows is decided by
+	// `qr.token`, never by `qr.paid`. Core leaves the token empty until
+	// the money has landed (see StateLink::Qr::token), so this side cannot
+	// draw a number early even by mistake: the rule lives on the wire
+	// rather than in a condition here that a later edit could invert.
 	//
 	//   UNPAID   the QR, small, on a white plate, with the total.
 	//   PAID     the token, big, and no QR — the code has done its job
@@ -3348,12 +3316,11 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 		// Centred as a GROUP, token plus hint, rather than the token
 		// being centred and the hint hanging off the bottom of it.
 		//
-		// **TWO hint lines here, not one** (2026-08-25) — core sends what
-		// to do now in `hint` and what happens next in `hint2`; see
-		// StateLink::Screen. Both are counted into the group height
-		// BEFORE anything is drawn, so the block stays centred whether
-		// core sent one line, two, or none: a second line appearing must
-		// not push the token off centre.
+		// TWO hint lines, not one: core sends what to do now in `hint` and
+		// what happens next in `hint2` (see StateLink::Screen). Both are
+		// counted into the group height BEFORE anything is drawn, so the
+		// block stays centred whether core sent one line, two or none — a
+		// second line appearing must not push the token off centre.
 		const float lineH = _infoFont.isLoaded()
 			? _infoFont.getAscenderHeight()
 				+ fabsf(_infoFont.getDescenderHeight())
@@ -3476,12 +3443,11 @@ void UiLayer::drawCheckout(const StateLink::State & state) const {
 }
 
 void UiLayer::drawSkeleton(const std::vector<SkeletonLink::Hand> & hands) const {
-	// RIG_FEEDBACK item 11 diagnostic — see this method's own header
-	// comment. Deliberately the simplest possible draw: no tween, no
-	// hysteresis, no role, nothing hidden past a hold time — whatever
-	// SkeletonLink last accepted is drawn exactly as it arrived, so what
-	// is on the table this frame is the raw signal for this frame and
-	// nothing else.
+	// The cursor-lag diagnostic — see this method's declaration.
+	// Deliberately the simplest possible draw: no tween, no hysteresis, no
+	// role, nothing hidden past a hold time. Whatever SkeletonLink last
+	// accepted is drawn exactly as it arrived, so what is on the table
+	// this frame is the raw signal for this frame and nothing else.
 	for(const SkeletonLink::Hand & h : hands){
 		ofSetColor(kSkeletonLineColor);
 		ofSetLineWidth(kSkeletonLineWidth);
@@ -3557,14 +3523,16 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 	// the rest of layer 5.
 	drawBrandMark();
 
-	// 2026-08-26: the idle-table phantom hand. Developer: "whenever the
-	// device go idle, everything except the bin halo and the logo should
-	// go... so when they hide, I know it is idle state." Halo (layer 4,
-	// just above) and the brand mark (just above this) are drawn OUTSIDE
-	// this gate on purpose — they are the two things that must survive
-	// it. Everything else in layer 5 (plates, cart, widgets, banner, info
-	// box) is exactly this one block, so gating its entry is the whole
-	// change; nothing inside needed to learn about idle attract itself.
+	// On an idle table everything hides except the bin halos and the brand
+	// mark, so that the hidden UI is itself the signal that the table is
+	// idle and the wandering fireball is the only thing left to look at.
+	//
+	// Halo (layer 4, just above) and the brand mark (immediately above
+	// this) are drawn OUTSIDE this gate on purpose — they are the two
+	// things that must survive it. Everything else in layer 5 (plates,
+	// cart, widgets, banner, info box) is exactly this one block, so
+	// gating its entry is the whole mechanism and nothing inside needs to
+	// know about idle attract at all.
 	if(hasState && !state.idleAttract){
 		// Once per frame, ahead of the bins: drawBin's price line and
 		// drawTotal's numeral both format off this same prefix/decimals
@@ -3575,54 +3543,35 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 			drawBin(i, state.bins[i], _bins[i]);
 		}
 
-		// **The centre column is a stack of PAGES now, and exactly one of
-		// them is up at a time.** Developer, 2026-08-25: "the broth should
-		// come like a second page of the selection with an option to go
-		// back to cart. now it overlays the cart and it is teribble."
+		// The centre column is a stack of PAGES, and exactly one is up at
+		// a time. The option widgets' rects live in the cart's own band
+		// (core/hover.py's `_cart_band_px`) and the cart stops drawing on
+		// the screens that are not the cart — both halves are needed, or
+		// the option plates land on top of a cart still being drawn
+		// underneath them.
 		//
-		// It overlaid because this function used to draw the cart on
-		// every screen but CHECKOUT, while core sent option widgets whose
-		// rects (core/hover.py's old BAND_TOP_PX..BAND_BOTTOM_PX)
-		// straddled the info box AND the cart — so four broth plates
-		// landed on top of a cart that was still being drawn underneath
-		// them. Two changes fixed it together: the option rects moved
-		// into the cart's own band (core/hover.py's `_cart_band_px`), and
-		// the cart stops drawing on the screens that are not the cart.
-		//
-		// The band above stays what it always was — the info box — on
-		// every page EXCEPT the two option pages, which is the other half
-		// of the same instruction: "the top info area should be left to
-		// there for broth info and in spicy page, spice info." On the
-		// option pages a page header takes the top of that band
-		// (drawPageHeader) and the box moves down by exactly its height —
-		// or, since 2026-08-25, does not draw at all (see `optionPage`).
+		// The band above is the info box on every page EXCEPT the two
+		// option pages. There, a page header takes the top of that band
+		// (drawPageHeader) and the box either moves down by exactly the
+		// header's height or does not draw at all — see `optionPage`.
 		const bool optionPage = state.phase == "broth" || state.phase == "spice";
-		// **Neither option page shares the info box any more, 2026-08-25.**
-		// Broth stopped first — developer: "there is no info box, instead
-		// the whole button is inlarged to contain the info about
-		// respective brothes." `hover.broth_widgets` lays each broth's own
-		// card across the info box's old band AND the option row's own
-		// band combined (`hover.broth_card_rects`) — `drawOptionPlate`
-		// draws the name/diet/note directly into that card, so drawing
-		// the shared info box on top of it would
-		// either duplicate the same text or (since nothing is ever hovered
-		// on a card that fills its own band) draw nothing into a reserved
-		// strip the broth cards have already grown into.
+		// Neither option page shares the info box. `hover.broth_widgets`
+		// and `hover.spice_widgets` both lay out one full-height card per
+		// option through `hover.broth_card_rects`, spanning the info box's
+		// band and the option row's band combined, and `drawOptionPlate`
+		// draws the name, diet and note directly into that card.
 		//
-		// Spice followed the same day, same reason, and — after a same-day
-		// vertical-slider detour that got reverted — landed on exactly
-		// broth's own shape: `hover.spice_widgets` now lays out one
-		// full-height card per level through `hover.broth_card_rects`,
-		// and that card is exactly what the shared info box used to draw
-		// for whichever ONE level was hovered — now all three show at
-		// once, so the old single-level box would be redundant at best.
+		// Drawing the shared box on top would either duplicate that text
+		// or — since nothing is ever hovered on a card that fills its own
+		// band — reserve a strip the cards have already grown into. Every
+		// option's info shows at once, so a single-level box would be
+		// redundant regardless.
 		const bool payPage = state.overlayKind == "qr";
-		// **A banner outranks a header**, the same precedence doc §14.5
-		// sets for this column and the same one drawInfoBox already
-		// follows: the state that changes what the table is DOING wins
-		// over anything else here. Without this an `error` overlay raised
-		// mid-order (which happens while SERVING) would draw
-		// "SCALES OFFLINE" and "Choose Your Broth" on top of each other.
+		// A banner outranks a header — the same precedence doc §14.5
+		// sets for this column, and the one drawInfoBox follows: the state
+		// that changes what the table is DOING wins. Without it an `error`
+		// overlay raised mid-order, which happens while SERVING, draws the
+		// fault banner and the page title on top of each other.
 		const bool bannerUp = state.overlayKind == "uncalibrated"
 			|| state.overlayKind == "error" || state.mode == "setting";
 		// **`headed` is one condition and the header/box move together.**
@@ -3670,21 +3619,16 @@ void UiLayer::draw(bool hasState, const StateLink::State & state,
 	}
 	else if(hasState && state.idleAttract){
 		// The one thing besides the halo and the brand mark allowed on an
-		// idle table — see drawIdleHand's own comment and the developer
-		// quote on the idleAttract gate above.
+		// idle table — see drawIdleHand and the idleAttract gate above.
 		drawIdleHand();
 	}
 
-	// **Nothing is drawn for the cursor any more, 2026-08-25 (final).** A
-	// dot-and-ring pair, then a candle-flame glyph, both used to go on last
-	// here. Developer: "remove the candle flame icon, no concentric
-	// progress, the progress will be shown in the button, not the pointer."
-	// The fluid fire (ofApp's `fluidActive`, now every page) is the pointer,
-	// and `pointer` arrives here as nullptr on purpose — the parameter is
-	// kept because ofApp's `_ui.draw(...)` signature and the serving-mode
-	// `drawCursorAboveLightPass` path both still carry it, and re-plumbing
-	// both to drop a cursor concept the fluid may yet want back is churn
-	// for nothing.
+	// Nothing is drawn for the cursor. The fluid fire (ofApp's
+	// `fluidActive`, on every page) IS the pointer, and dwell progress is
+	// reported on the widget rather than under the hand — so `pointer`
+	// arrives here as nullptr on purpose. The parameter is kept because
+	// ofApp's `_ui.draw(...)` signature and the `drawAboveLightPass` path
+	// both still carry it.
 	(void)pointer;
 
 	drawConnectionIndicator(connected, staleSeconds);
