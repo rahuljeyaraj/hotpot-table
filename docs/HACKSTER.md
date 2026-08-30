@@ -534,9 +534,15 @@ That one choice is why tipping food back works, and it needed no code: it is the
 [IMAGE: docs/img/architecture-light-pass.svg]
 *Five layers into one frame, and the one that has to go last.*
 
-This is the constraint the whole visual design hangs off: the projected field is the only light in the room and it is also the entire user interface. There is one lamp in this system and it is drawing the prices.
+The projector is the only light over the table, so every frame it draws has to be the interface and the lamp at the same time. A frame is built up in five layers, bottom to top:
 
-So a bin's interior is flat, opaque white, always. That white is what lights the lotus root you are looking at. It is drawn last of everything, after the fire and the halos and the text, so that no future change to any of them can put a pattern inside a bin.
+1. **The table background.** A warm near-white, `#E8E6E1`, cleared first.
+2. **The fire.** The fluid simulation, drawn in multiply so it darkens the background instead of brightening it.
+3. **The light pass.** Flat opaque white filling each of the eight bin cutouts.
+4. **The halos.** A golden ring around each bin.
+5. **The UI.** Names, prices, the info box, the cart, the buttons.
+
+Layer 3 is the one the design hangs off. That white is the light falling on the lotus root you are looking at, so a bin's interior has to be flat white, always: any pattern drawn in there is a pattern printed on the food. To guarantee it, the light pass is not actually drawn third. It is drawn last of everything, after the fire and the halos and the text, so no future change to any of them can reach inside a bin.
 
 [IMAGE: docs/img/architecture-centre-column.svg]
 *440 mm of solid plywood, and everything you read while standing there.*
