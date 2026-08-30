@@ -1882,20 +1882,20 @@ void UiLayer::update(float dt, bool hasState, const StateLink::State & state){
 	// box that shows exactly one bin's facts. Picking the first would put
 	// one arbitrary bin's kcal on the table for as long as the diagnostic
 	// is on, which is worse than the box simply not appearing.
-	// **A hovered WIDGET outranks a hovered bin** (M6). On the BROTH and
+	// A hovered WIDGET outranks a hovered bin. On the BROTH and
 	// SPICE screens the diner is choosing between options, not between
 	// bins, and the option they are pointing at is the thing the box is
 	// about. A bin cannot be hovered on those screens anyway — the
 	// pointer is in the centre column — but the ordering is stated here
 	// rather than left to that coincidence.
-	// **Three sources, in this order: hovered widget, SELECTED widget,
-	// hovered bin.** The middle one is new (2026-08-25) and is what the
-	// developer meant by "when the progress fills the selection is locked
-	// even without hover. then the info als remains locked."
+	// Three sources, in this order: hovered widget, SELECTED widget,
+	// hovered bin.
 	//
-	// Without it the box emptied the instant the hand left the plate the
-	// diner had just chosen, so the one screen where they most want to
-	// re-read what they picked was the one screen that would not show it.
+	// The middle one matters: a selection is LOCKED IN and stays locked
+	// without a hover, so the box has to stay locked with it. Without it
+	// the box empties the instant the hand leaves the plate the diner just
+	// chose, so the one screen where they most want to re-read what they
+	// picked is the one screen that will not show it.
 	// Hover still outranks selection, because a hand moving to a second
 	// broth is asking about that one — the box follows the question, and
 	// falls back to the answer when there is no question.
@@ -1998,19 +1998,13 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	ofRectangle box = binRectPx(i);
 	ofRectangle cut = cutoutRectPx(i);
 
-	// 2026-08-14, developer instruction: the solid plate ring (the M1-era
-	// grey/green frame that used to carry doc §4.3's `hl` state — I8, "hue
-	// carries state") is REMOVED outright, now that the idle halo exists to
-	// occupy that same visual role. It never appears in VISUAL_LAYER.md's
-	// own palette table (§3), which only ever specified the halo/fire pair —
-	// this was the pre-M8 mechanism the new one supersedes, not a second
-	// state channel meant to coexist with it. `highlightColour()` and
-	// `BinTween`'s scale/colR/colG/colB springs went with it — nothing else
-	// read them. **Consequence, not yet answered: "picked" now has no
-	// visual distinction of its own** until the fire ring (build item 6/7)
-	// exists — an idle-halo'd bin and a picked-but-otherwise-idle bin
-	// currently render identically. That is expected to be fire's job, not
-	// a gap to patch here.
+	// There is deliberately no solid ring around a bin: the idle halo
+	// occupies that visual role, and VISUAL_LAYER.md §3's palette specifies
+	// only the halo/fire pair.
+	//
+	// Known consequence: "picked" has no visual distinction of its own. An
+	// idle bin and a picked-but-not-hovered bin render identically — that
+	// is the fire ring's job, not something to patch here.
 	if(!b.resolved){
 		return;   // doc §9.3: unresolved bins render with no label
 	}
@@ -2019,15 +2013,15 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 	const float clearance = mmToPxY(kLabelClearanceMM);
 	const float gap = mmToPxY(kLabelLineGapMM);
 
-	// Labels clear a fixed offset past the CUTOUT, not the bin box — kept
-	// as its own named gap (kRingMM) even though nothing draws a ring there
-	// any more (2026-08-14, see this function's own comment above), because
-	// removing it would pull the label right up against the cutout edge,
-	// a layout change nobody asked for. This is the bug the offset
-	// originally fixed: kLabelClearanceMM and CUTOUT_MARGIN_MM are both
-	// 10mm, so measuring from box.y put the far row's baseline exactly on
-	// the cutout's edge and the light pass ate every descender — the "g"
-	// in both "45g" and "₹18.00/100g".
+	// Labels clear a fixed offset past the CUTOUT, not the bin box, and
+	// that offset keeps its own name (kRingMM) even though nothing draws a
+	// ring there — dropping it would pull every label up against the cutout
+	// edge.
+	//
+	// The offset is load-bearing: kLabelClearanceMM and CUTOUT_MARGIN_MM
+	// are both 10mm, so measuring from box.y puts the far row's baseline
+	// exactly on the cutout's edge and the light pass eats every
+	// descender.
 	const float ringRestY = mmToPxY(kRingMM);
 	const float ringTop = cut.y - ringRestY;
 	const float ringBottom = cut.y + cut.height + ringRestY;
@@ -2047,14 +2041,10 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		detail = std::string(g) + "  " + _priceText(tw.price.get());
 	}
 
-	// b.label is core's display_name() again (core/main.py's `_bin_msg`) —
-	// 2026-08-14, reverted the same day from a `shortLabel`-only, no-wrap
-	// design (see kPlateNamePx's comment above) on developer instruction:
-	// "remove the short label idea... show the original label, max 2
-	// lines." Wrapped to the bin's own footprint, not the gap to its
-	// neighbour — the neighbour gap (250mm) is wider, but wrapping to the
-	// box the label sits over keeps every name visually inside its own
-	// plate.
+	// b.label is core's full display_name(). Wrapped to the BIN's own
+	// footprint, not to the gap between neighbours — that gap (250mm) is
+	// wider, but wrapping to the box the label sits over is what keeps
+	// every name visually inside its own plate.
 	std::vector<std::string> nameLines = wrapNameToTwoLines(_plateNameFont, b.label, mmToPxX(BIN_W_MM));
 	const float nameLineGap = 2.0f;   // px between a name's own wrapped lines, tighter than kLabelLineGapMM's block-to-block gap
 
@@ -2065,19 +2055,20 @@ void UiLayer::drawBin(int i, const StateLink::Bin & b, const BinTween & tw) cons
 		ofSetColor(kPlateRateColor);
 		drawCentered(_plateRateFont, detail, cx, rateBaseline);
 
-		// The visual gap between the rate line and the name block has to
-		// be measured from the RATE line's ascender (its actual top
-		// edge), not its getLineHeight() — line height includes internal
-		// leading on top of the ascender, so using it here was quietly
-		// inflating this gap. See the mirrored near-row branch below: it
-		// made the same mistake in the other direction with a much bigger
-		// error (an ascender is far taller than a descender in this
-		// font), which is why a 2026-08-14 rig photo showed the near
-		// row's label-to-price gap visibly larger than the far row's for
-		// the identical `gap` constant — this fixes both to the same real
-		// gap. nameLines.back() sits closest to the rate line; earlier
-		// lines stack upward, spaced by this font's own line height since
-		// both lines share one font/size.
+		// The gap between the rate line and the name block is measured
+		// from the RATE line's ASCENDER — its actual top edge — never from
+		// getLineHeight(), which adds internal leading on top of the
+		// ascender and silently inflates the gap.
+		//
+		// The mirrored near-row branch below measures from the DESCENDER
+		// for the same reason. Using line height in both directions makes
+		// the two rows' gaps visibly different for the same `gap`
+		// constant, because an ascender is far taller than a descender in
+		// this font.
+		//
+		// nameLines.back() sits closest to the rate line; earlier lines
+		// stack upward, spaced by this font's own line height since both
+		// lines share one font and size.
 		float lastLineBaseline = rateBaseline - _plateRateFont.getAscenderHeight() - gap
 			- fabsf(_plateNameFont.getDescenderHeight());
 		ofSetColor(kPlateNameColor);
@@ -2124,23 +2115,21 @@ std::string UiLayer::_priceText(double amount) const {
 void UiLayer::drawTotal(const StateLink::Total & total, float baselineY) const {
 	// VISUAL_LAYER.md §3/§8: one receipt-style line inside the cart
 	// footer — "Total label" (30px, left) and "Total value" (48px bold,
-	// right), sharing one baseline the way a printed receipt's total
-	// line does. This replaces the old free-standing centred numeral
-	// near the table's diner edge (pre-M8; this function's own git
-	// history) now that build item 9 gives the total a permanent home
-	// inside the cart panel instead. cx is still the table's own centre,
-	// which is also the cart's centre — the pot gap is symmetric about
-	// it (TableGeometry.h's X chain), so no separate column math is
-	// needed here.
+	// right), sharing one baseline the way a printed receipt's total line
+	// does.
+	//
+	// cx is the table's own centre, which is also the cart's centre: the
+	// pot gap is symmetric about it (TableGeometry.h's X chain), so no
+	// separate column math is needed here.
 	const float cx = mmToPxX(TABLE_W_MM * 0.5f);
 	const float leftX = cx - kCartWidthPx * 0.5f + kCartPadXPx;
 	const float rightX = cx + kCartWidthPx * 0.5f - kCartPadXPx;
 
-	// doc §13.4's original "Total label" caption, still core-resolved per
-	// locale (data/locales/<locale>.json's "total" key) and put on
-	// `total.label` — oF only draws whatever string arrives (I2: no
-	// lookup here). Empty on an older core (StateLink defaults it to "")
-	// draws nothing, same rule drawCentered's own callers already follow.
+	// The "Total label" caption, resolved per locale by core
+	// (data/locales/<locale>.json's "total" key) and carried on
+	// `total.label` — oF draws whatever string arrives and looks nothing
+	// up (I2). An empty label draws nothing, the same rule drawCentered's
+	// callers follow.
 	if(!total.label.empty() && _totalLabelFont.isLoaded()){
 		ofSetColor(kPlateNameColor);
 		_totalLabelFont.drawString(total.label, leftX, baselineY);
@@ -2165,13 +2154,11 @@ void UiLayer::drawPageHeader(const StateLink::Screen & screen) const {
 	// gets no header rather than an empty strip: core sends "" on every
 	// screen that is not part of the ordering sequence.
 	//
-	// **Under the title, not beside it** — developer, 2026-08-25: "it is
-	// better to have itsown line instead of same line as the statement
-	// discribing the page." See kStepDotsRowGapPx for what that cost and
-	// where the space came from; the short version is that the title is
-	// now genuinely centred, where the inline version centred the
-	// title-plus-dots GROUP and so pushed the title itself off-centre by
-	// a different amount on every screen.
+	// The dots sit UNDER the title, not beside it — see kStepDotsRowGapPx
+	// for what that costs and where the space comes from. It also centres
+	// the title properly: drawn inline, the title-plus-dots GROUP is what
+	// gets centred, which pushes the title itself off-centre by a
+	// different amount on every screen.
 	if(screen.title.empty() || !_pageTitleFont.isLoaded()){
 		return;
 	}
@@ -2193,9 +2180,9 @@ void UiLayer::drawPageHeader(const StateLink::Screen & screen) const {
 	// people who are not necessarily reading English, and the dots carry
 	// the same fact with no reading at all.
 	//
-	// `screen.steps` is core's, not a constant here — it went 3 -> 5 on
-	// 2026-08-25 (the payment and token screens are steps too) and this
-	// function needed no change for it, which is the point of sending it.
+	// `screen.steps` is core's, never a constant here — changing how many
+	// screens the sequence has must not require an oF change, which is the
+	// point of sending it.
 	if(screen.steps > 0){
 		const float pitch = kStepDotRadiusPx * 2.0f + kStepDotGapPx;
 		const float dotsW = pitch * (float)(screen.steps - 1)
@@ -2228,25 +2215,21 @@ void UiLayer::drawPageHeader(const StateLink::Screen & screen) const {
 
 void UiLayer::drawInfoBox(const StateLink::State & state,
 	float topPx, float heightPx) const {
-	// VISUAL_LAYER.md §8/§9 build item 10. "Info box sits ABOVE the cart,
-	// fixed height, does not push the cart down. Idle: invisible. No fill,
-	// no border. Not an empty bordered box."
+	// VISUAL_LAYER.md §8: the info box sits ABOVE the cart at a fixed
+	// height, does not push the cart down, and is invisible when idle — no
+	// fill, no border, and not an empty bordered box.
 	//
-	// **Direction A, chosen by the developer off the design canvas
-	// 2026-08-24** — the text-forward one, after five directions were put
-	// on a table-simulating canvas together. What that settled, and what
-	// changed here from the rounded pink card this replaced:
+	// The design is text-forward:
 	//   - no fill, no border, no panel: type on the table background, the
-	//     same as the plate labels and the cart (see kInfoBoxTextColor's
-	//     block above);
-	//   - the item's NAME still leads, with kcal RIGHT-ALIGNED on the same
-	//     line and set larger than the body — "i think the kcal/100g is
-	//     too thin to read in option a implement it";
-	//   - one faded rule under that pair (drawFadedRule, and the two
-	//     reports in its declaration);
-	//   - the trivia line is gone from the wire entirely. What is left is
-	//     one note about what the ingredient is LIKE, because the diner
-	//     picks here and the kitchen cooks — see pricing.Item.description.
+	//     same as the plate labels and the cart;
+	//   - the item's NAME leads, with kcal RIGHT-ALIGNED on the same line
+	//     and set larger than the body, since it is the one figure a diner
+	//     weighs a choice against;
+	//   - one faded rule under that pair (drawFadedRule);
+	//   - one note about what the ingredient is LIKE — never an
+	//     instruction, since the diner picks here and the kitchen cooks.
+	//     See pricing.Item.description.
+	//
 	// Every vertical step is laid out from the previous line's own font
 	// metrics, and setup() measures the total against the band.
 	//
@@ -2257,16 +2240,17 @@ void UiLayer::drawInfoBox(const StateLink::State & state,
 	if(fade <= 0.005f || _info.name.empty()){
 		return;
 	}
-	// **Never over a banner.** The two share this band, and doc §14.5's
+	// Never over a banner. The two share this band, and doc §14.5's
 	// precedence rule settles it: the state that changes what the table is
-	// DOING outranks everything else in the centre column. In practice a
-	// banner and a hover almost never coincide (setting mode disables
-	// MediaPipe; an uncalibrated table has no homography to hit-test
-	// with) — the one case that does is `error`, which is raised while
-	// SERVING, and that is exactly the case worth being explicit about
-	// rather than trusting to a coincidence.
-	// `qr` is added to that list for M6: the CHECKOUT screen owns this
-	// whole band (drawCheckout), and a leftover info box from the bin the
+	// DOING outranks everything else in the centre column.
+	//
+	// A banner and a hover almost never coincide — setting mode disables
+	// MediaPipe, and an uncalibrated table has no homography to hit-test
+	// with — but `error` is raised while SERVING, which is exactly why this
+	// is explicit rather than left to coincidence.
+	//
+	// `qr` is on the list too: the CHECKOUT screen owns this whole band
+	// (drawCheckout), and a leftover info box from whichever bin the
 	// diner's hand happened to be over would sit on top of the code they
 	// are trying to scan.
 	if(state.overlayKind == "uncalibrated" || state.overlayKind == "error"
@@ -2294,9 +2278,8 @@ void UiLayer::drawInfoBox(const StateLink::State & state,
 	const float rightX = box.x + box.width - kInfoBoxPadXPx;
 	const float textWidth = box.width - 2.0f * kInfoBoxPadXPx;
 	// ascender+descender, NOT getLineHeight(): oF's line height for this
-	// face runs about 1.8x the point size (measured — the first build of
-	// this box overflowed its band by 37px and setup()'s own check
-	// caught it), which is generous leading for a paragraph and far too
+	// face runs about 1.8x the point size (measured), which is generous
+	// leading for a paragraph and overflows this band — far too
 	// airy for six lines that have to share one panel. Every other
 	// vertical step in this function is built the same way.
 	const float bodyLineH = _infoFont.getAscenderHeight()
@@ -2410,19 +2393,17 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 	// every plate label, and the only rule left on it is the divider
 	// above the total.
 
-	// **The cart grows UPWARD from the divider.** Developer, 2026-08-24:
-	// "let the cart grow from the bottom, as u add more stuff, the older
-	// cart items gets pushed upwards." So the newest bound slot always
+	// The cart grows UPWARD from the divider: the newest bound slot always
 	// sits in the last row, directly above the total, and the list pushes
 	// up as it fills — a receipt printing towards the reader rather than a
-	// list filling a form from the top.
+	// form filling from the top.
 	//
 	// This deliberately overrides doc §8's "the SAME slot updates in place
-	// — it never moves": a bin's row DOES move now, upward, when a later
-	// bin joins the cart. What §8's rule was protecting is that a row
-	// never jumps around as its own numbers change, and that still holds —
-	// _cartSlotBin's pick order is untouched, so the only thing that ever
-	// moves a row is another item arriving.
+	// — it never moves". A bin's row DOES move upward when a later bin
+	// joins the cart. What §8's rule protects is that a row never jumps
+	// around as its OWN numbers change, and that still holds:
+	// _cartSlotBin's pick order is untouched, so the only thing that moves
+	// a row is another item arriving.
 	//
 	// Doc §8's other half is untouched: "Slots are blank at startup. No
 	// name, no placeholder text, no icon, no border. Just reserved empty
@@ -2512,30 +2493,25 @@ void UiLayer::drawCart(const StateLink::State & state) const {
 			x + kCartWidthPx - kCartPadXPx - detailBb.width - detailBb.x, baselineY);
 	}
 
-	// Tapered, matching the info box's own rule — one kind of divider on
-	// this table, not two. Was a flat grey #C9C5BC bar until 2026-08-24.
+	// Faded, matching the info box's own rule — one kind of divider on
+	// this table, not two.
 	drawFadedRule(x + kCartPadXPx, dividerY, kCartWidthPx - 2.0f * kCartPadXPx,
 		kRuleThickPx, kAccentInk, kRuleAlpha);
 	drawTotal(state.total, totalBaselineY);
 	ofSetColor(255);
 
-	// **Confirm/Cancel are NOT drawn here any more.** They were static
-	// placeholders in this function until 2026-08-24, when the developer
-	// reported the obvious consequence: "the confirm and cancell button
-	// didnt work and no progress of hover was shown." They are real dwell
-	// targets now, and a dwell target's rect has to be the rect CORE
-	// hit-tests against (doc §9.4: core hit-tests, "oF does not time
-	// anything") — so core/hover.py owns both buttons outright and they
-	// arrive on the wire like any other widget, drawn by drawWidgets/
-	// drawWidget. Drawing them from a second, oF-local rect would put a
-	// button on the table that a hand could miss while looking like it hit
-	// it, which is worse than the placeholder was.
+	// Confirm and Cancel are NOT drawn here. They are real dwell targets,
+	// and a dwell target's rect has to be the rect CORE hit-tests against
+	// (doc §9.4: core hit-tests, oF times nothing) — so core/hover.py owns
+	// both buttons and they arrive on the wire like any other widget, drawn
+	// by drawWidgets/drawWidget. Drawing them from a second, oF-local rect
+	// would put a button on the table that a hand can miss while looking
+	// like it hit.
 	//
-	// hover.py's CART_* constants mirror kCartWidthPx/the cart's own
-	// bottom edge here, and setup() logs if the two ever drift far enough
-	// for the buttons to collide with the total — that check is the only
-	// thing standing between the two files, so read it before moving
-	// either.
+	// hover.py's CART_* constants mirror kCartWidthPx and the cart's bottom
+	// edge here, and setup() logs if the two drift far enough for the
+	// buttons to collide with the total. That check is the only thing
+	// standing between the two files — read it before moving either.
 }
 
 float UiLayer::cartBottomPx() const {
@@ -2570,30 +2546,25 @@ void UiLayer::drawConnectionIndicator(bool connected, float staleSeconds) const 
 void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
 	const std::string & headline, const std::string & subline) const {
 	// Doc §14.5's pattern for naming a persistent, whole-table state
-	// loudly without touching the light field. Built for `overlay.kind ==
-	// "error"` at M2 and generalised at M2.6, when setting mode became the
-	// second thing that needed exactly this — same panel, different hue
-	// and words.
+	// loudly without touching the light field. One panel, different hue
+	// and words per state.
 	//
-	// **NOT a full-width strip along the top edge, which is what §14.5
-	// literally said and what this drew until it was seen on the table.**
-	// The far row's labels are drawn ABOVE their rings, upward into the
-	// 177mm far margin: a two-line wrapped name (which several catalogue
-	// names are, at 36px in a 200mm box) puts ink as high as ~50px, and a
-	// 72px full-width strip covered it. Staff have to READ those names to
-	// confirm which tray is which — during setting mode above all, which
-	// is exactly when this banner is up. Covering them defeated the mode.
+	// Deliberately NOT the full-width strip along the top edge that §14.5
+	// literally describes. The far row's labels are drawn ABOVE their
+	// rings, upward into the 177mm far margin — a two-line wrapped name
+	// puts ink as high as ~50px — and a full-width strip covers them.
+	// Staff have to READ those names to confirm which tray is which,
+	// during setting mode above all, which is exactly when this banner is
+	// up; covering them defeats the mode the banner is announcing.
 	//
 	// So the panel is confined to the centre column: the span between
-	// bin 1's right edge and bin 2's left edge, which TableGeometry.h
-	// calls "a wide gap up the middle for the pot" and which is the one
-	// horizontal span on the table with no bin and no label in it, by
-	// construction. Derived from BINS rather than hardcoded, so moving a
-	// bin moves the panel with it.
+	// bin 1's right edge and bin 2's left edge, the one horizontal span on
+	// the table with no bin and no label in it by construction. Derived
+	// from BINS rather than hardcoded, so moving a bin moves the panel.
 	//
-	// Being narrower, it is taller and two-line instead — a ~440x88mm
-	// amber block is still unmistakable from three metres, which was the
-	// actual goal, and the strip shape was only ever one way to get there.
+	// Being narrower it is taller and two-line instead. A ~440x88mm block
+	// is still unmistakable from three metres, which was the actual goal;
+	// the strip shape was only ever one way to get there.
 	//
 	// Stage's light pass runs after UiLayer and re-stamps every cutout
 	// white regardless of what this draws (doc §13.2's "any overlay added
@@ -2603,10 +2574,9 @@ void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
 	// them, not instead of them) — doc §13.3's rule for a dead core link
 	// applies just as well to a dead scale link: "It does not black out —
 	// a frozen table is far better... than a dead one."
-	// yTop, not 0: the strip used to start at the table's far edge; now
-	// the brand mark owns that edge (drawBrandMark) and this panel starts
-	// wherever the mark's own bottom margin ends, so the two stack instead
-	// of one replacing the other.
+	// yTop, not 0: the brand mark owns the table's far edge
+	// (drawBrandMark), and this panel starts where the mark's bottom
+	// margin ends, so the two stack rather than one replacing the other.
 	const float gapLeftMM = BINS[1].xMM + BINS[1].wMM;
 	const float gapRightMM = BINS[2].xMM;
 	const float insetPx = mmToPxX(kBannerInsetMM);
