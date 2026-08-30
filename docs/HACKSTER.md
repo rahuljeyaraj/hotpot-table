@@ -49,8 +49,6 @@ So the sign comes down off the wall and lands on the table.
 
 **The Fire Pot** is a self-serve hotpot counter with eight bins set into it. A projector overhead turns the whole tabletop into a display, a camera beside it watches your hands, and there is a scale under every bin. The signage is projected straight onto the food it describes, and it answers back: reach for a bin and it tells you what is in it, scoop it into your bowl and it prices what you took. Nothing to tap, nothing to hold, nothing to ask anyone.
 
-Which is the design brief in one line: a person at a hotpot stand has a bowl in one hand and tongs in the other, so everything has to happen where their hands already are.
-
 [VIDEO: YouTube demo, https://youtube.com/... ]
 
 # 2 Using the table
