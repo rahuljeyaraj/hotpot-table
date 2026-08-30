@@ -43,11 +43,11 @@ Everyone else seemed to know. The staff knew. The regulars knew. The answers exi
 
 # 1.2 The idea: put the answers on the table
 
-Everything I wanted to know was a labelling problem. What is this, what does it taste like, what will it cost me — none of it is hard to know, it just has nowhere to live. A printed card on each bin goes stale and still can't tell you what's in your bowl. An app asks someone holding tongs in one hand and a bowl in the other to hold a phone as well.
+Everything I wanted to know was a signage problem. What is this, what does it taste like, what will it cost me — none of it is hard to know, it just has nowhere to go. A printed card on each bin goes stale by lunchtime and still can't tell you what's in your bowl. A menu board hangs the answer behind the counter, when the question is in front of you, in your hands. An app asks someone holding tongs in one hand and a bowl in the other to hold a phone as well.
 
-So the answers go on the table itself.
+So the sign comes down off the wall and lands on the table.
 
-**The Fire Pot** is a self-serve hotpot counter with eight bins set into it. A projector overhead turns the whole tabletop into a display, a camera beside it watches your hands, and there is a scale under every bin. Reach for a bin and it tells you what is in it. Scoop it into your bowl and it prices what you took. Nothing to tap, nothing to hold, nothing to ask anyone.
+**The Fire Pot** is a self-serve hotpot counter with eight bins set into it. A projector overhead turns the whole tabletop into a display, a camera beside it watches your hands, and there is a scale under every bin. The signage is projected straight onto the food it describes, and it answers back: reach for a bin and it tells you what is in it, scoop it into your bowl and it prices what you took. Nothing to tap, nothing to hold, nothing to ask anyone.
 
 Which is the design brief in one line: a person at a hotpot stand has a bowl in one hand and tongs in the other, so everything has to happen where their hands already are.
 
@@ -567,7 +567,7 @@ What worked was denoising a hand-sized window rather than the whole table. And o
 
 Eight bins, one projector, one webcam, a kilogram of gold filament, and a sheet of plywood standing on twelve printed pillars.
 
-The projector is doing two jobs at once, and that is the whole idea. It is the light over the food and it is the label on the food, so the answer sits on the ingredient itself rather than on a sign somewhere behind the counter. Everything else in this build exists to keep that one surface honest sixty times a second.
+The projector is doing two jobs at once, and that is the whole idea. It is the light over the food and it is the signage on the food, so the answer sits on the ingredient itself rather than on a sign somewhere behind the counter. Everything else in this build exists to keep that one surface honest sixty times a second.
 
 The part that took longest was never the fire, or the hand tracking. It was the arithmetic that has to hold up while somebody is paying: two weights, one subtraction, and eight load cells that say nothing at all rather than say zero.
 
