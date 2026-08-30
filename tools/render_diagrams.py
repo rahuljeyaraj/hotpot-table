@@ -677,57 +677,41 @@ def weights():
 
 # --------------------------------------------------------------- 8. scale filter
 def scalefilter():
-    W, H = 1160, 840
-    s = Svg(W, H, "Ten and a half readings a second",
-            "The architecture document said 78 Hz. The rig says 10.7, and every number below follows from that.")
+    W, H = 760, 612
+    s = Svg(W, H)
 
-    X, CW = 90, 620
+    X, CW, BH = 90, 580, 76
 
-    def stage(y, h, lines, note=None, fill=PANEL, stroke=INK, head=21):
-        s.box(X, y, CW, h, lines, fill=fill, stroke=stroke, head_size=head,
-              body_size=17, body_fill=INK, head_fill=stroke)
-        if note:
-            s.caption(X + CW + 30, y + 38, note, 17, MUTED, gap=25)
+    def stage(y, lines, fill=PANEL, stroke=INK):
+        s.box(X, y, CW, BH, lines, fill=fill, stroke=stroke,
+              body_size=16, body_fill=MUTED, head_fill=stroke)
 
-    stage(130, 92, ["the serial line",
-                    "raw 83422 -211904 84001 82755 ..."],
-          ["one line per conversion cycle",
-           "115200 baud, 8 signed integers"],
+    stage(40, ["the serial line",
+               "8 signed counts, 10.7 times a second"],
           fill=COOL_FILL, stroke=COOL)
 
-    s.line(X + CW / 2, 222, X + CW / 2, 268, arrow="a", sw=2.4)
-    s.label_on_line(X + CW / 2 + 150, 252, "one sample every 93 ms", 16, MUTED,
+    s.line(X + CW / 2, 116, X + CW / 2, 152, arrow="a", sw=2.4)
+    s.label_on_line(X + CW / 2 + 140, 138, "one sample every 93 ms", 15, MUTED,
                     weight="normal")
 
-    stage(270, 92, ["median of the last 5 samples",
-                    "discards a single bad HX711 read"],
-          ["spans 465 ms of wall clock,",
-           "takes about 280 ms to cross a step"])
+    stage(154, ["median of the last 5",
+                "drops a single bad HX711 read"])
 
-    s.line(X + CW / 2, 362, X + CW / 2, 404, arrow="a", sw=2.4)
+    s.line(X + CW / 2, 230, X + CW / 2, 266, arrow="a", sw=2.4)
 
-    stage(406, 96, ["moving average of the last 3 medians",
-                    "smooths the wobble a median cannot"],
-          ["the residual noise is not an outlier,",
-           "so a median has nothing to drop"],
+    stage(268, ["moving average of the last 3",
+                "smooths the wobble a median cannot"],
           fill=ACCENT_FILL, stroke=ACCENT)
 
-    s.line(X + CW / 2, 502, X + CW / 2, 544, arrow="a", sw=2.4)
+    s.line(X + CW / 2, 344, X + CW / 2, 380, arrow="a", sw=2.4)
 
-    stage(546, 92, ["counts to grams, per bin",
-                    "the calibration set on the Bins tab"],
-          ["an uncalibrated bin answers None,",
-           "so it contributes nothing to a price"])
+    stage(382, ["counts to grams",
+                "the per-bin calibration, or None"])
 
-    s.line(X + CW / 2, 638, X + CW / 2, 680, arrow="a", sw=2.4)
+    s.line(X + CW / 2, 458, X + CW / 2, 494, arrow="a", sw=2.4)
 
-    stage(682, 116, ["one slot, under one lock",
-                     "the newest reading, overwriting the last",
-                     "read by the 60 Hz loop"],
-          ["a queue would let the table bill",
-           "from weights that are seconds old.",
-           "Reading one sample nine times in a",
-           "row is correct at 10.7 Hz"])
+    stage(496, ["one slot, newest wins",
+                "read by the 60 Hz loop"])
 
     s.save("architecture-scale-filter.svg")
 
