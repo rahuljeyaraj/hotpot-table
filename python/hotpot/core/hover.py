@@ -1,5 +1,5 @@
 """core/hover.py — doc section 9.4's hover and dwell, and the widget layout
-they hit-test against (doc section 21, M5 build item 4).
+they hit-test against.
 
 Doc section 9.4 in full:
 
@@ -19,29 +19,24 @@ same discipline `tracker/tracking.py` follows and for the same reason —
 "a dwell fires at 1200ms and not at 900ms" should be a test, not a
 stopwatch on a rig.
 
-**Ambient hands are dropped at the door, in `pick_pointer`, not filtered
-at each hit test.** Doc section 11.4 wants the isolation "at the
-consumer", and one function that no ambient hand gets past is a much
-stronger guarantee than remembering to check the role at every call site.
-There are three call sites today and there will be more at M6.
+Ambient hands are dropped at the door, in `pick_pointer`, never filtered
+at each hit test. Doc section 11.4 wants the isolation "at the consumer",
+and one function no ambient hand gets past is a far stronger guarantee
+than remembering to check the role at every call site.
 
 Where the widgets are, and why there
 -------------------------------------
-Doc section 4.3's example rect is `[1480,880,380,140]` — the near-right
-margin. **That is not where they go, and the reason is measured rather
-than aesthetic.** The near margin is where `UiLayer::drawBin` draws every
-near-row bin's name and price, downward from the ring: a two-line name
-puts ink from about y=890 to y=1010, straight through that example rect.
-The doc's number predates any label ever having been measured in a bin —
-the same class of thing as section 13.4's 36px, which M2.6g had to correct
-after looking at the real table.
+Not the near-right margin doc section 4.3's example rect names, and the
+reason is measured rather than aesthetic: that margin is where
+`UiLayer::drawBin` draws every near-row bin's name and price, downward
+from the ring, and a two-line name puts ink straight through that example
+rect.
 
-So widgets live in the **centre column**: the 440mm pot gap between bin 1's
-right edge and bin 2's left edge, which is the one horizontal span on the
-table with no bin and no label in it *by construction*. That is already
-this codebase's own established answer — `UiLayer::drawBanner` moved there
-for exactly this reason, and the brand mark and the running total are
-there too. The column's top holds the brand and the banner and its bottom
+Widgets live in the CENTRE COLUMN instead — the 440mm pot gap between
+bin 1's right edge and bin 2's left edge, the one horizontal span on the
+table with no bin and no label in it by construction. `UiLayer::drawBanner`
+is there for the same reason, as are the brand mark and the running
+total. The column's top holds the brand and the banner and its bottom
 holds the total; the widgets take the free band between them, with the
 primary action nearest the diner.
 
@@ -66,14 +61,13 @@ Rect = Tuple[float, float, float, float]
 DEFAULT_DWELL_MS = 1200.0
 DEFAULT_GRACE_MS = 150.0
 
-# Doc section 4.3's `widgets[].id` values that exist at M5 (build item 4:
-# "Widgets: Done, Cancel, Language").
+# Doc section 4.3's `widgets[].id` values.
 DONE = "done"
 CANCEL = "cancel"
 LANGUAGE = "language"
 
-# 2026-08-25. The reverse edge, offered on every screen after the cart —
-# `fsm.back()` is what it fires and `fsm._BACK_EDGES` is where it goes.
+# The reverse edge, offered on every screen after the cart — `fsm.back()`
+# is what it fires and `fsm._BACK_EDGES` is where it goes.
 #
 # It has an id of its own rather than being "Cancel with a different
 # label" because the two do opposite things: Back keeps the order and
@@ -81,16 +75,14 @@ LANGUAGE = "language"
 # up would lose a cart they spent two minutes filling.
 BACK = "back"
 
-# VISUAL_LAYER.md section 8's own pair, 2026-08-24: "Two buttons below the
-# cart: Confirm, Cancel." `CONFIRM` is deliberately a NEW id rather than a
-# relabelled `DONE`: doc section 9.1's SELECTING -> BROTH edge is M6's, and
-# `DONE` is the name that edge is written against everywhere in this repo.
-# Confirm is the cart's own button and does what the cart can honestly do
-# today (see `core/main.py._fire_widget`) — conflating the two would make
-# M6's arrival a rename instead of an addition.
+# VISUAL_LAYER.md section 8's pair: two buttons below the cart, Confirm
+# and Cancel. `CONFIRM` is deliberately its own id rather than a relabelled
+# `DONE` — `DONE` is the name doc section 9.1's SELECTING -> BROTH edge is
+# written against throughout this repo, and Confirm is the cart's own
+# button (see `core/main.py._fire_widget`).
 CONFIRM = "confirm"
 
-# M6. Option widgets carry their choice in the id itself — `broth:mala`,
+# Option widgets carry their choice in the id itself — `broth:mala`,
 # `spice:2` — so `_fire_widget` reads the choice off the id it was handed
 # rather than needing a parallel lookup of "which option was at index 3
 # when this layout was built". The layout is rebuilt every tick from the
@@ -139,13 +131,13 @@ class Widget:
     kind: str = "button"
     style: str = "primary"
     enabled: bool = True
-    # M6's option widgets carry their own label and info box content
-    # instead of an i18n key, because a broth's name lives in
-    # `data/menu.json` and is already localised there — resolving it
-    # through the locale table would need every broth name copied into
-    # every locale file, which is exactly the duplication `menu.json`'s
-    # own `names` dict exists to avoid. `label_key` stays the route for
-    # the fixed chrome (Cancel, Confirm), which genuinely is UI text.
+    # Option widgets carry their own label and info box content instead of
+    # an i18n key: a broth's name lives in `data/menu.json` and is already
+    # localised there, so resolving it through the locale table would mean
+    # copying every broth name into every locale file — exactly the
+    # duplication `menu.json`'s own `names` dict avoids. `label_key` stays
+    # the route for the fixed chrome (Cancel, Confirm), which really is UI
+    # text.
     label: str = ""
     # {"diet","meta","desc"} — the info box's content while this widget is
     # hovered, same shape as a bin's. Empty for a widget with nothing to
@@ -154,32 +146,22 @@ class Widget:
     # Doc section 18.1's "colour swatch each", hex, "" for no swatch.
     swatch: str = ""
 
-    # --- 2026-08-25: selection is a STATE now, not a page turn -----------
+    # --- selection is a STATE, not a page turn ---------------------------
     #
-    # Developer, verbatim: "each option button doesnt select and move to
-    # the next page, instead hovering over it shows the info and when the
-    # progress fills the the selection is locked even without hover. then
-    # the info als remains locked. the user can still switch his option by
-    # hovering on a different button, only when the button progress
-    # completes the previous button gets unselected and this button get
-    # selected."
+    # A completed dwell on an option advances nothing. It sets core's
+    # scratch choice, and core marks the chosen widget here on the next
+    # tick; hovering a different option shows its info, and only a
+    # COMPLETED dwell there moves the selection.
     #
-    # So a completed dwell on an option no longer advances anything — it
-    # sets core's scratch choice, and core marks the chosen widget here on
-    # the next tick. oF draws a selected plate differently and, crucially,
-    # keeps the info box pinned to it once the hand moves away, which is
-    # what "the info als remains locked" asks for.
+    # oF draws a selected plate differently and keeps the info box pinned
+    # to it once the hand moves away, so a diner can read what they picked
+    # without holding their hand over it.
     selected: bool = False
-    # A glyph oF could draw itself, repeated `icon_count` times — the
-    # mechanism the spice screen's chilli gauge used to be built on (doc
-    # section 18.1's "four plates, 0-3, with chilli glyphs"). Deleted
-    # 2026-08-25, later still: developer, "no need chilli icon... follow
-    # exactly what is done with broth... just 3 boxes" — `UiLayer::
-    # drawOptionPlate` no longer reads any of these three fields, and no
-    # producer in this module sets them any more. Left on the wire rather
-    # than removed outright, since it is generic (a name and a count, not
-    # "chilli" specifically) and nothing downstream currently depends on
-    # its absence — but there is no live caller left to demonstrate it.
+    # A glyph oF could draw `icon_count` times. INERT: nothing in
+    # `UiLayer::drawOptionPlate` reads these fields and no producer here
+    # sets them. They stay on the wire because they are generic — a name
+    # and a count, not "chilli" specifically — but there is no live caller
+    # to demonstrate them.
     icon: str = ""
     icon_count: int = 0
     max_icon_count: int = 0
@@ -212,17 +194,13 @@ def centre_column_px() -> Tuple[float, float]:
 # converting to mm here would only add a round trip that hides the
 # adjacency this has to respect.
 #
-# **BAND_BOTTOM_PX was 900 and it was wrong — found on the rig, not by
-# arithmetic.** `UiLayer::drawTotal`'s label sits at a baseline computed
-# from `_totalNumFont.getAscenderHeight()`, a FreeType metric this module
-# has no access to (it lives in oF, in C++, resolved at font-load time).
-# The value used to derive 900 assumed a modest ascender; a real screenshot
-# of the projected table (M5 build item 3's verification pass) showed the
-# Done button's ring overlapping the word "Total" by several pixels — the
-# same class of gap doc section 0 warns about generally: a number reasoned
-# out in code and never checked against the thing it draws next to. 820
-# leaves a wide margin instead of a tight, font-metric-dependent one, so
-# this stays correct even if the total's font or its size changes later.
+# BAND_BOTTOM_PX deliberately leaves a WIDE margin above the total rather
+# than a tight one. `UiLayer::drawTotal`'s label sits at a baseline
+# computed from `_totalNumFont.getAscenderHeight()` — a FreeType metric
+# this module has no access to, since it lives in oF, in C++, resolved at
+# font-load time. Any value derived here from an assumed ascender will
+# eventually overlap the word "Total" on the real table. The slack is what
+# keeps this correct if the total's font or size changes.
 BAND_TOP_PX = 350.0
 BAND_BOTTOM_PX = 820.0
 
@@ -238,33 +216,27 @@ BAND_BOTTOM_PX = 820.0
 # buttons collide with the total, or float away from the cart — visible on
 # the table, invisible in a diff.
 #
-# **`BUTTONS_TOP_PX` is DERIVED now, not chosen.** Developer, 2026-08-24:
-# "the buttons should be vertically center alligned in the space below the
-# near row bottom edge and the bottom edge of the table." That band is the
-# 177.4mm near margin, and both of its edges are already in
-# `geometry_store`'s mm chain — so this follows the same rule the rest of
-# this module does (see the module docstring: rects are derived from
-# `TableGeometry.h`'s chain rather than hardcoded, so moving a bin moves
-# the buttons with it).
-# 500 -> 520 (2026-08-25), to stop the cart truncating long item names.
-# **Mirrored in UiLayer.cpp's kCartWidthPx** — see the block comment above
-# on why the two cannot share a constant, and UiLayer::setup()'s own check
-# on what breaks if they drift.
+# `BUTTONS_TOP_PX` is DERIVED, never chosen: the button row is centred
+# vertically in the band between the near row's bottom edge and the
+# table's, and both edges are already in `geometry_store`'s mm chain. That
+# follows the module docstring's rule — rects come from `TableGeometry.h`'s
+# chain rather than being hardcoded, so moving a bin moves the buttons.
+#
+# CART_WIDTH_PX is MIRRORED in UiLayer.cpp's kCartWidthPx. See the block
+# comment above on why the two cannot share a constant, and
+# UiLayer::setup()'s check on what breaks if they drift.
 CART_WIDTH_PX = 520.0
 
-# **100 -> 76 tall, 16 -> 28 apart (2026-08-25).** Developer: "also make
-# the buttons smallaer and increase the sapce between them, it feels
-# crammed." Both numbers moved together on purpose — shrinking the button
-# without widening the gap just leaves the same crowded row with more
-# background around it, and the row has to hold THREE buttons now (Back,
-# Cancel, Next) where it held two.
+# Height and gap move together: shrinking the button without widening the
+# gap leaves the same crowded row with more background around it, and the
+# row has to hold THREE buttons.
 #
 # 76px is about 64mm of plywood, and the narrowest a three-button row gets
-# is (520 - 2*28) / 3 = 154.7px, i.e. ~123 x 64 mm. That is still far
-# above the "a hand is not a mouse" floor the sizes below were written
-# against — a MediaPipe landmark's frame-to-frame wander is a few px — and
-# it is roughly a credit card, which is the smallest thing anyone reaches
-# for with confidence.
+# is (520 - 2*28) / 3 = 154.7px — roughly 123 x 64 mm. That is far above
+# the floor the sizes below are written against (a MediaPipe landmark's
+# frame-to-frame wander is a few px, so a hand is not a mouse), and it is
+# about a credit card, which is the smallest thing anyone reaches for with
+# confidence.
 BUTTON_H_PX = 76.0
 BUTTON_GAP_PX = 28.0
 
@@ -300,13 +272,13 @@ def _centred(width: float, height: float, y: float) -> Rect:
     return (x0 + (col_w - width) * 0.5, y, width, height)
 
 
-# **THREE FIXED SLOTS, on every screen, whether or not all three are
-# used.** The grid never re-centres and never closes a gap: a row with
-# two buttons leaves the middle slot EMPTY and fills the two ends, so
-# every button on this table sits on one of three x positions and the
-# row reads as the same row from screen to screen.
+# THREE FIXED SLOTS, on every screen, whether or not all three are used.
+# The grid never re-centres and never closes a gap: a two-button row leaves
+# the middle slot EMPTY and fills the two ends, so every button on this
+# table sits on one of three x positions and the row reads as the same row
+# from screen to screen.
 #
-# Developer, 2026-08-25, giving the row per screen outright:
+# The row, per screen:
 #
 #     cart      Cancel · —      · Next
 #     broth     Back   · Cancel · Next
@@ -314,32 +286,29 @@ def _centred(width: float, height: float, y: float) -> Rect:
 #     payment   Back   · —      · Cancel
 #     paid      —      · —      · Done
 #
-# **A two-button row filling the ends is the developer's call and it
-# costs something real — read this before "simplifying" any row back.**
-# Dwell selection means a hand is resting on a button at the instant that
-# button fires, and firing is what changes the screen. The three slots
-# used to be role-fixed as well as position-fixed (Back 0, Cancel 1,
-# forward 2), which made the crossing safe by geometry: the spice
-# screen's Pay sat in slot 2 and the payment screen left slot 2 empty, so
-# the hand came to rest on nothing. With Cancel in slot 2 on the payment
-# screen, that hand now rests on Cancel instead — 1.2s from voiding the
-# order it just placed. The cart screen has the mirror of it: Back sits
-# in slot 0 on broth, and pressing it lands the hand on the cart screen's
-# Cancel, also slot 0.
+# A two-button row filling the ENDS costs something real — read this
+# before "simplifying" any row. Dwell selection means a hand is resting on
+# a button at the instant it fires, and firing is what changes the screen.
+# Role-fixed slots (Back 0, Cancel 1, forward 2) would make that crossing
+# safe by geometry, because the spice screen's Pay sits in slot 2 and the
+# payment screen leaves slot 2 empty, so the hand comes to rest on
+# nothing. With Cancel in slot 2 on the payment screen, that hand rests on
+# Cancel instead — one dwell from voiding the order it just placed. The
+# cart screen has the mirror: Back sits in slot 0 on broth, and pressing
+# it lands the hand on the cart screen's Cancel, also slot 0.
 #
-# **What stops both is `DwellTracker.suppress_until_exit`, and it is the
-# only thing that does.** `core/main.py` calls it whenever the widget
-# SHAPE changes — ids and rects, not just on a transition — which is
-# exactly what both crossings are, so whatever is under the hand is
-# disarmed until the hand actually leaves and comes back. That call is
-# load-bearing now in a way it was not when the geometry also covered
-# this; do not weaken its trigger to "a transition fired".
+# What stops both is `DwellTracker.suppress_until_exit`, and it is the ONLY
+# thing that does. `core/main.py` calls it whenever the widget SHAPE
+# changes — ids and rects, not merely on a transition — which is exactly
+# what both crossings are, so whatever is under the hand is disarmed until
+# the hand leaves and comes back. Do not weaken that trigger to "a
+# transition fired".
 BUTTON_SLOTS = 3
 SLOT_LEFT, SLOT_MIDDLE, SLOT_RIGHT = 0, 1, 2
-# The old role names, kept because most rows still use the roles they
-# describe (Back left, Cancel middle, the forward action right) and every
-# reader of this module already knows them. They are POSITIONS, not
-# promises about which button lands there — see the table above.
+# Role-flavoured aliases, kept because most rows do use the roles they
+# describe (Back left, Cancel middle, the forward action right). They are
+# POSITIONS, not promises about which button lands there — see the table
+# above.
 SLOT_BACK, SLOT_CANCEL, SLOT_FORWARD = SLOT_LEFT, SLOT_MIDDLE, SLOT_RIGHT
 
 
@@ -356,26 +325,22 @@ def button_slot_rects() -> List[Rect]:
 def button_span_centre(slots: int = 2) -> Rect:
     """One button, centred on the row, `slots` slots wide.
 
-    **The single deliberate exception to the fixed-slot grid, and it is
-    for a row with exactly one button in it.** Developer, 2026-08-25:
-    "the last done button shout be center aligned and double width." The
-    grid's rule (see `BUTTON_SLOTS`) is that a row never re-centres — a
-    two-button row leaves the middle EMPTY and fills the ends, so buttons
-    stay on the same three x positions from screen to screen. That rule
-    exists so a diner's eye does not have to re-find the row; it says
-    nothing useful about a screen whose row is one button, where there is
-    no second button for it to line up with and nothing left to confuse
-    it with.
+    The single deliberate exception to the fixed-slot grid, and only for
+    a row with exactly ONE button in it. The grid's rule (see
+    `BUTTON_SLOTS`) is that a row never re-centres, so a diner's eye does
+    not have to re-find it between screens — which says nothing useful
+    about a row of one button, where there is no second button to line up
+    with and nothing left to confuse it with.
 
     Width is `slots` slots plus the gaps between them, so the button is
     exactly as wide as the slots it spans — the row's own rhythm, not a
     new size invented for one screen.
 
-    **This overlaps the slot the payment screen's Cancel sits in**, which
-    is the crossing `BUTTON_SLOTS` warns about: a hand resting on Cancel
-    when the payment lands is inside the new Done. Nothing about that is
-    new — `DwellTracker.suppress_until_exit` already covers it, because
-    `core/main.py` fires it on any change of widget SHAPE and this is one.
+    This OVERLAPS the slot the payment screen's Cancel sits in, which is
+    the crossing `BUTTON_SLOTS` warns about: a hand resting on Cancel when
+    the payment lands is inside the new Done.
+    `DwellTracker.suppress_until_exit` covers it, because `core/main.py`
+    fires it on any change of widget SHAPE and this is one.
     """
     rects = button_slot_rects()
     btn_w = rects[0][2]
@@ -393,15 +358,12 @@ def button_row(ids: Sequence[Optional[str]]) -> Dict[str, Rect]:
     slot, so a caller cannot accidentally shuffle Cancel into the forward
     position by passing a shorter list.
 
-    **Reading order is reversible-first, committing-last.** Developer,
-    2026-08-24: "cancel button should come first." With Back added that
-    reads Back | Cancel | Next: the two ways out on the left, the one way
-    forward on the right, which is where every checkout a diner has
-    already used puts it.
+    Reading order is reversible-first, committing-last: Back | Cancel |
+    Next, the two ways out on the left and the one way forward on the
+    right, which is where every checkout a diner has already used puts it.
 
-    A row with two buttons passes `None` for the MIDDLE slot, never for
-    an end one — see `BUTTON_SLOTS` for the developer's own table and for
-    what that costs.
+    A two-button row passes `None` for the MIDDLE slot, never for an end
+    one — see `BUTTON_SLOTS` for the row table and for what that costs.
     """
     if len(ids) != BUTTON_SLOTS:
         raise ValueError(
@@ -416,64 +378,46 @@ def layout(include_language: bool = False) -> Dict[str, Rect]:
     second locale is actually loaded, Language in the middle slot that
     used to sit empty between them.
 
-    **The ENDS of the row, with the middle slot empty** (developer,
-    2026-08-25: "the button should be always fill the left and right slot
-    if there is only 2 buttons"). Cancel was in the middle slot until
-    then, with the Back slot empty on the argument that Back appears
-    there on the very next screen — that argument is gone: a two-button
-    row that leaves a hole on one side reads as a row missing a button
-    rather than as a row of two. A THREE-button row (the `zh.json` case)
-    fills all three slots instead, which is the same rule applied to a
-    row that now genuinely has three things in it rather than two and a
-    gap.
+    The ENDS of the row, with the middle slot empty. A two-button row
+    that leaves a hole on
+    one side reads as a row MISSING a button rather than as a row of two.
+    A three-button row (the second-locale case) fills all three slots,
+    which is the same rule applied to a row that genuinely has three
+    things in it.
 
-    Kept as a named function (rather than callers reaching for
-    `button_row` directly) because it is the pair `UiLayer::setup()`'s
-    cross-file check and this module's own tests measure against —
-    `include_language` defaults to `False` so every existing caller of
-    the bare two-button row is untouched.
+    Kept as a named function, rather than callers reaching for
+    `button_row` directly, because it is the pair `UiLayer::setup()`'s
+    cross-file check and this module's tests measure against.
+    `include_language` defaults to `False`, so callers of the bare
+    two-button row are untouched.
 
-    Done is NOT here. It was removed outright in 2026-08-13 (RIG_FEEDBACK
-    items 4-7) and has nowhere to go until M6; the band it used to sit in
-    (`BAND_TOP_PX`..`BAND_BOTTOM_PX`) is the cart's now. Those two
-    constants and the three sizes above are kept because they record what
-    was measured on the rig about that band — see `BAND_BOTTOM_PX`'s own
-    comment, which is a finding, not a leftover.
+    Done is NOT here: it has no FSM edge to fire from this screen, and the
+    band it would sit in is the cart's. `BAND_TOP_PX`/`BAND_BOTTOM_PX` and
+    the three sizes above are kept because they record what was measured
+    on the rig about that band — see `BAND_BOTTOM_PX`.
 
-    **Language WAS removed alongside Done in the same 2026-08-13 pass**,
-    then brought back 2026-08-26 once `data/locales/zh.json` gave it
-    somewhere to switch to (see `widgets_for`'s own gate on
-    `locales_available`) — unlike Done, it never needed a new FSM edge to
-    mean something, so nothing else about its 2026-08-13 removal applied
-    to it once a second locale existed.
+    Language is gated on a second locale actually existing — see
+    `widgets_for`'s check on `locales_available`.
     """
     return button_row([CANCEL, LANGUAGE if include_language else None, CONFIRM])
 
 
-# --- M6: the option list the BROTH and SPICE screens share ----------------
+# --- the option list the BROTH and SPICE screens share --------------------
 #
-# Both screens are "pick one of four", so they get one layout function
+# Both screens are "pick one of these", so they share one layout function
 # rather than two that would drift. The options stack VERTICALLY in the
-# centre column, which is the only span on the table with no bin and no
-# bin label in it (see the module docstring) — doc section 18.1 says
-# "large projected plates" without saying where, and the near/far margins
-# are where the plate labels already are.
+# centre column, the only span on the table with no bin and no bin label
+# in it (see the module docstring) — doc section 18.1 asks for "large
+# projected plates" without saying where, and the near and far margins are
+# where the plate labels already are.
 #
-# **They sit in the CART's band now, not in the free band above it, and
-# that is the whole of the "broth overlays the cart" report.** Developer,
-# 2026-08-25: "the broth should come like a second page of the selection
-# with an option to go back to cart. now it overlays the cart and it is
-# teribble... the buttons should only take the space which was previously
-# once consumedby the cart are, the top info area should be left to there
-# for broth info and in spicy page, spice info."
-#
-# The old band (BAND_TOP_PX..BAND_BOTTOM_PX = 350..820) straddled BOTH the
-# info box and the cart, so four option plates landed on top of a cart that
-# oF was still drawing underneath them. Moving them into exactly the cart's
-# own rows band makes broth a genuine second PAGE: oF stops drawing the cart
-# there (see `UiLayer::draw`) and the info band above is left free for the
-# hovered or selected option's own info, which is what makes the "hover to
-# read, dwell to lock" interaction legible at all.
+# They sit in exactly the CART's band, never in the free band above it.
+# That is what makes an option screen a genuine second PAGE rather than an
+# overlay: oF stops drawing the cart there (see `UiLayer::draw`), and the
+# info band above is left free for the hovered or selected option's own
+# info, which is what makes "hover to read, dwell to lock" legible. A band
+# straddling both would put option plates on top of a cart still being
+# drawn underneath them.
 #
 # The band below mirrors `UiLayer.cpp`'s cart chain term for term —
 # kNearRowBottomPx, kCartBottomGapPx, kCartFooterHeightPx,
@@ -502,19 +446,15 @@ def _cart_band_px() -> Tuple[float, float]:
 
 OPTIONS_TOP_PX, OPTIONS_BOTTOM_PX = _cart_band_px()
 
-# **Narrower than the cart, on purpose — this is the whole of the "broth
-# overlaps the halo" report.** Developer, 2026-08-25: "the broth buttons
-# are too long and it overlaps with the halo, need to be made smaller."
-# `OPTION_W_PX` used to just be `CART_WIDTH_PX` (520px), which the cart
-# and its buttons can afford because nothing else sits in their band —
-# but the option row sits in the SAME centre column as bins 1 and 2, and
-# each bin's idle halo (`UiLayer.cpp`'s `drawHalo`) reaches
-# `kHaloMarginPx` (14px) + `kHaloRingCount`(24) * `kHaloRingPitchPx`(1.5)
-# = 50px past the bin's own edge into that column. 520px leaves only
-# (554 - 520)/2 =~ 17px clear on each side — well inside the halo's own
-# 50px reach. Mirrored here as `_HALO_REACH_PX`, the same reason
-# `CART_WIDTH_PX` itself is mirrored in `UiLayer.cpp` and cannot share a
-# constant with it (one is Python, the other C++).
+# Narrower than the cart, deliberately. The cart and its buttons can use
+# the full `CART_WIDTH_PX` because nothing else sits in their band, but
+# the option row shares the centre column with bins 1 and 2, and each
+# bin's idle halo (`UiLayer.cpp`'s `drawHalo`) reaches `kHaloMarginPx`
+# (14px) + `kHaloRingCount` (24) * `kHaloRingPitchPx` (1.5) = 50px past
+# the bin's own edge into that column. At 520px only ~17px is clear each
+# side, well inside that reach. `_HALO_REACH_PX` is mirrored here for the
+# same reason `CART_WIDTH_PX` is mirrored in `UiLayer.cpp`: one is Python,
+# the other C++, and they cannot share a constant.
 _HALO_REACH_PX = 50.0
 # A bit of daylight beyond the halo's own outer edge, so the row clears
 # it rather than just touching it.
@@ -527,72 +467,47 @@ def _option_w_px() -> float:
 
 
 OPTION_W_PX = _option_w_px()
-# Shared by the spice chili-strip's cell gaps and the broth cards' row
-# gaps (`spice_cell_rects`/`broth_card_rects`) — the two no longer share a
-# per-item height (`OPTION_H_PX` was that shared height, and is gone with
-# the function that used it, `option_rects` — see this constant's own git
-# history if that reasoning is ever needed again).
+# The gap between option cards (`broth_card_rects`). There is deliberately
+# no shared per-item HEIGHT: card height is solved from the band and the
+# number of options, so it tracks a menu that changes size.
 OPTION_GAP_PX = 16.0
 
-# --- the spice screen's own layout, 2026-08-25, later still ----------------
+# --- the option screens' full-height cards --------------------------------
 #
-# Was a horizontal chili-strip row, then (same day) a vertical slider — a
-# narrow chilli-gauge stop paired with its own description card per level.
-# Both are gone. Developer: "no need chilli icon, no need slider which was
-# never implemented, instead a 2 button was implemented, remove that and
-# follow exactly what is done with broth do the same for spice boxes as
-# well. just 3 boxes." The slider was never actually draggable — it was
-# always two more dwellable RECTS per level, same as the chili-strip it
-# replaced, just laid out vertically — so "the slider" is what the
-# developer saw drawn, not a mechanism this module ever built.
+# The spice screen has no layout function of its own: `spice_widgets`
+# calls `broth_card_rects` directly, so a spice level and a broth draw
+# through one card shape.
 #
-# `spice_widgets` below now calls `broth_card_rects` directly: one
-# full-width, full-height card per level, the same layout function and
-# the same card shape `broth_widgets` already uses. No spice-specific
-# layout function is left to own.
-
-
-# --- the broth screen's own full-height cards, 2026-08-25 ------------------
+# The cards are stacked FULL-WIDTH rather than laid out as a row of narrow
+# columns: an option's `note` is a real sentence, and a ~130px column
+# wraps it into a dozen barely-readable lines where a ~434px-wide card
+# fits it in two or three.
 #
-# Developer: "there is no info box, instead the whole button is inlarged to
-# contain the info about respective brothes, so u can use the complete
-# vertical space above the next button row." One card per broth, stacked
-# full-width (not a row of narrow columns like the spice chili-strip — a
-# broth's `note` is a real sentence, and 130px-wide columns would wrap it
-# into a dozen barely-readable lines where a ~434px-wide, ~185px-tall card
-# fits it in two or three).
-#
-# **These three constants mirror `UiLayer.cpp`'s brand-block geometry and
-# cannot share a constant with it (one is Python, the other C++) — same
-# reasoning as `CART_WIDTH_PX`/`kCartWidthPx`.** They give the band's TOP:
-# the same point `kInfoBoxTopPx` marks in oF, i.e. immediately below the
-# brand mark, which is exactly the space broth cards now reclaim from the
-# (no longer drawn, on this screen) shared info box.
+# The three constants below mirror `UiLayer.cpp`'s brand-block geometry
+# and cannot share a constant with it (one is Python, the other C++) —
+# same reasoning as `CART_WIDTH_PX`/`kCartWidthPx`. They give the band's
+# TOP: the point `kInfoBoxTopPx` marks in oF, immediately below the brand
+# mark, which is the space these cards reclaim from the shared info box
+# that is not drawn on these screens.
 _BRAND_TOP_MARGIN_PX = 20.0    # UiLayer kBrandTopMarginPx
 _BRAND_HEIGHT_PX = 170.0       # UiLayer kBrandHeightPx
 _BRAND_BANNER_GAP_PX = 26.0    # UiLayer kBrandBannerGapPx
 _INFO_BOX_TOP_PX = (_BRAND_TOP_MARGIN_PX + _BRAND_HEIGHT_PX
                     + _BRAND_BANNER_GAP_PX)
 # The page header's height (title + step dots) is measured at RUNTIME from
-# the loaded font in oF (`UiLayer::_pageHeaderPx`) — this module has no font
-# metrics to measure it with. 82px is a rounded-up safety margin over the
-# 73.70px this title/font/gap combination measured on a real boot
-# (2026-08-25 session log, after the header's breathing-room pass).
+# the loaded font in oF (`UiLayer::_pageHeaderPx`); this module has no font
+# metrics to measure it with. 82px is a rounded-up margin over the 73.70px
+# that title, font and gap combination measures on a real boot.
 #
-# **Guessing SHORT is not free after all, 2026-08-25.** The comment here
-# used to say a few px of slack costs nothing because the cards are
-# bottom-anchored — that is true of the cards' height but not of their
-# TOP, and when the header grew (kBrandTopMarginPx/kBrandBannerGapPx/
-# kStepDotsRowGapPx all went up) this estimate stayed at 72 and the step
-# dots ended up drawn on top of the first card. Developer, photographed on
-# the rig: "now the 5 dots are on top of the first box, u need to make the
-# boxes smaller to give better breathing space at the top." Every one of
-# these four numbers mirrors a UiLayer constant, so all four move together
-# or this happens again.
+# Guessing SHORT is NOT free. Slack costs nothing on the cards' height,
+# because they are bottom-anchored, but it does cost on their TOP: an
+# estimate left behind when the header grows puts the step dots on top of
+# the first card. All four of these numbers mirror a UiLayer constant, so
+# all four move together.
 _PAGE_HEADER_PX_ESTIMATE = 82.0
 # Visible air between the step dots and the first card, on top of the
-# header's own measured height. Same instruction as above: the dots
-# clearing the card by a hairline is not "breathing space".
+# header's own measured height — the dots clearing the card by a hairline
+# is not breathing space.
 _HEADER_CLEARANCE_PX = 14.0
 
 # The shortest a broth card can be and still hold its own content: one
@@ -660,31 +575,24 @@ def broth_widgets(broths: Sequence[Any], *,
     """Doc section 18.1's BROTH screen: one full-height card per broth,
     plus the nav row (Back, Cancel, Next).
 
-    **Next is disabled until a broth is locked in.** That is the visible
-    half of the new selection model: dwelling a card marks it and does
-    nothing else, so the only thing that can move the diner forward is a
-    button whose own label says so. A Next that fired on nothing chosen
-    would either skip the question or need a silent default, and a broth
-    nobody picked is not a broth a kitchen should cook.
+    Next is DISABLED until a broth is locked in. That is the visible half
+    of the selection model: dwelling a card marks it and does nothing
+    else, so the only thing that moves the diner forward is a button whose
+    label says so. A Next that fired on nothing chosen would either skip
+    the question or need a silent default, and a broth nobody picked is
+    not a broth a kitchen should cook.
 
-    **No swatch, 2026-08-25** — developer: "also the coloured circle
-    infront of the broth name has to be removed." Nothing is passed for
-    it any more (`Widget.swatch` defaults to `""`); `UiLayer::
-    drawOptionPlate`'s broth-card branch never reads `w.swatch` at all,
-    so this is the one place that removal actually lives.
+    No swatch is passed (`Widget.swatch` defaults to `""`), and
+    `UiLayer::drawOptionPlate` never reads it.
 
-    `broths` are `menu.Broth`es; typed loosely so this module does not
-    import `menu` (it imports nothing of core's but `geometry_store`, and
-    keeping it that way is what lets `test_hover` run with no data files).
+    `broths` are `menu.Broth`es, typed loosely so this module does not
+    import `menu` — it imports nothing of core's but `geometry_store`,
+    which is what lets `test_hover` run with no data files.
 
-    `locale` (2026-08-26) is passed straight through to `display_name()`
-    and the new `meta_text()`/`note_text()` — this module still does not
-    look anything up itself (see the module docstring's "keeps knowing
-    nothing about the session"), it just hands the caller's locale to the
-    objects that already know how to resolve themselves in it. `None`
-    (the default) is every existing caller: `display_name(None)` and
-    `meta_text(None)`/`note_text(None)` all fall back to English, same as
-    before this parameter existed.
+    `locale` is passed straight through to `display_name()`,
+    `meta_text()` and `note_text()`: this module looks nothing up itself,
+    it hands the caller's locale to the objects that resolve themselves.
+    `None` falls back to English.
     """
     rects = broth_card_rects(len(broths))
     out = [
@@ -704,39 +612,25 @@ def broth_widgets(broths: Sequence[Any], *,
 def spice_widgets(levels: Sequence[Any], *,
                   selected_level: Optional[int] = None,
                   locale: Optional[str] = None) -> List[Widget]:
-    """Doc section 18.1's SPICE screen. Redesigned twice on 2026-08-25 (a
-    horizontal chili-strip, then a vertical slider) and, later the same
-    day, reverted to `broth_widgets`' own shape. Developer: "no need
-    chilli icon, no need slider which was never implemented, instead a 2
-    button was implemented, remove that and follow exactly what is done
-    with broth do the same for spice boxes as well. just 3 boxes." One
-    dwellable card per level (level 0 excluded — see below), full-width
-    and full-height via `broth_card_rects` — the exact layout function
-    `broth_widgets` already uses — plus the nav row (Back, Cancel, Pay).
+    """Doc section 18.1's SPICE screen: one dwellable card per level,
+    full-width and full-height via `broth_card_rects` — the same layout
+    function `broth_widgets` uses — plus the nav row (Back, Cancel, Pay).
 
-    **Level 0 ("No Spice") is filtered out here, not in the data.**
+    Level 0 ("No Spice") is filtered out HERE, never in the data.
     `menu.Menu.load` still requires it to exist in `data/menu.json` (doc
     section 17's genuine-no-spice guarantee), so the underlying menu is
-    untouched; this is the one place that keeps it off the picker —
-    unchanged from every version of this picker so far.
+    untouched and this is the one place that keeps it off the picker.
 
-    Hottest first, top to bottom — the module docstring's "primary
-    action nearest the diner" rule: Mild sits at the BOTTOM of the
-    stack, closest to the nav row (the diner's own edge), Hot at the
-    TOP.
+    Hottest first, top to bottom — the module docstring's "primary action
+    nearest the diner" rule: Mild sits at the BOTTOM of the stack,
+    closest to the nav row and the diner's own edge, Hot at the TOP.
 
-    No `diet` on a spice level — it is not food.
+    No `diet` on a spice level; it is not food.
 
-    **The chilli gauge is back, 2026-08-25 (later still).** Developer:
-    "in the spicy box, put one chilli in the mil right alighedn in same
-    line as that of mild. then 2 chilli in medium and three in hot, all
-    right alighned. chili icon should be bigger than the one u used
-    before as it was not clear." So `icon_count` is the level itself —
-    Mild 1, Medium 2, Hot 3 — and `UiLayer::drawOptionPlate` draws that
-    many peppers right-aligned on the name's own line. `max_icon_count`
-    is deliberately NOT set: the earlier design drew empty outline
-    peppers up to the maximum as a gauge, and the instruction here is a
-    plain count, not a scale.
+    `icon_count` is the level itself — Mild 1, Medium 2, Hot 3 — and
+    `UiLayer::drawOptionPlate` draws that many peppers right-aligned on
+    the name's line. `max_icon_count` is deliberately NOT set: this is a
+    plain COUNT, not a gauge with empty outline peppers up to a maximum.
     """
     ordered = sorted((s for s in levels if int(s.level) > 0),
                      key=lambda s: int(s.level))
@@ -760,38 +654,35 @@ def spice_widgets(levels: Sequence[Any], *,
 def checkout_widgets(*, paid: bool = False) -> List[Widget]:
     """CHECKOUT — the payment screen, which is two screens in one.
 
-    UNPAID: **Back and Cancel, and no forward button.** A forward here
-    would be a way to clear the table without paying — pressed by mistake
-    it leaves an unpaid order in the kitchen's queue and a diner walking
-    off with food. Back voids the written order and returns to SPICE;
+    UNPAID: Back and Cancel, and NO forward button. A forward here would
+    be a way to clear the table without paying — pressed by mistake it
+    leaves an unpaid order in the kitchen's queue and a diner walking off
+    with food. Back voids the written order and returns to SPICE;
     Cancel voids it and ends the session. Both of those are core's to do
     (`core/main.py._fire_back` and `_dispatch_widget`).
 
-    **The two of them fill the ENDS, so Cancel sits where the spice
-    screen's Pay just was** (developer, 2026-08-25 — see `BUTTON_SLOTS`
-    for the row table). This is the one crossing the old role-fixed grid
-    was explicitly designed to make impossible, and it is now handled by
-    `DwellTracker.suppress_until_exit` instead of by geometry: the hand
-    resting on Cancel at the instant this screen arrives is disarmed
-    until it leaves and comes back. Nothing else stands between a
-    stationary hand and a voided order here.
+    The two of them fill the ENDS, so Cancel sits where the spice
+    screen's Pay just was — see `BUTTON_SLOTS` for the row table. That is
+    the one crossing a role-fixed grid would make impossible by geometry,
+    and it is handled by `DwellTracker.suppress_until_exit` instead: the
+    hand resting on Cancel when this screen arrives is disarmed until it
+    leaves and comes back. Nothing else stands between a stationary hand
+    and a voided order here.
 
-    PAID: **Done, alone — centred, two slots wide.** Back is meaningless (nobody re-chooses a spice
-    level for an order they have paid for) and Cancel would be worse than
-    meaningless — it would offer to cancel money that has already
+    PAID: Done alone, centred and two slots wide. Back is meaningless —
+    nobody re-chooses a spice level for an order they have paid for — and
+    Cancel would be worse, offering to cancel money that has already
     changed hands, which this table cannot do. What is on screen is the
     token, and the only thing left is to take it.
 
-    **Neither half times out.** Developer, 2026-08-25: "i see the qr code
-    dissaperared when it was left idel for sometime, that should not
-    happen, no time out. onc can cancell or go back, but not self
-    disappear." The screen ends when a person presses one of these.
+    Neither half TIMES OUT. A QR that vanishes while a diner is still
+    reaching for their phone is worse than one that waits; the screen ends
+    when a person presses one of these buttons and not before.
     """
     if paid:
-        # Centred and two slots wide (`button_span_centre`), not parked in
-        # the right-hand slot — developer, 2026-08-25. It is the only
-        # thing on the screen a hand can press, and it sat off to one side
-        # under a token that is itself centred.
+        # Centred and two slots wide (`button_span_centre`) rather than
+        # parked in the right-hand slot: it is the only thing on the
+        # screen a hand can press, under a token that is itself centred.
         return [Widget(id=CONFIRM, rect=button_span_centre(), label_key="done",
                        style="primary", enabled=True)]
     rects = button_row([BACK, None, CANCEL])
@@ -808,44 +699,36 @@ def widgets_for(*, selecting: bool, locales_available: int,
     """The cart screen's Cancel and Next, always both, drawn in every
     non-checkout state.
 
-    **2026-08-24, developer: "the confirm and cancell button didnt work and
-    no progress of hover was shown."** They did not work because this
-    function returned `[]` — the buttons on the table were static paint in
-    `UiLayer::drawCart`, hit-tested against nothing. This is the fix: they
-    are real widgets, so core hit-tests them and `DwellTracker` fills them,
-    through the same path that has been tested since M5.
+    These are REAL widgets, so core hit-tests them and `DwellTracker`
+    fills them. Buttons painted by `UiLayer` alone would be hit-tested
+    against nothing.
 
-    **The primary button is labelled "Next", not "Confirm" (2026-08-25).**
-    Its id is still CONFIRM (see `_nav_row`), but what it does from the
-    cart screen is open the broth page, and a button that says Confirm on
-    a screen that confirms nothing is the kind of thing that makes a
-    first-time diner hesitate. Nothing on this table commits an order
-    until the spice screen's Pay.
+    The primary button is labelled "Next", not "Confirm". Its id is still
+    CONFIRM (see `_nav_row`), but what it does from the cart screen is
+    open the broth page, and a button reading Confirm on a screen that
+    confirms nothing makes a first-time diner hesitate. Nothing on this
+    table commits an order until the spice screen's Pay.
 
-    **No Back here**, deliberately: the cart is the first screen of the
-    chain and there is nothing behind it. `fsm.back()` returns False from
-    SELECTING for the same reason.
+    No Back here: the cart is the first screen of the chain and there is
+    nothing behind it. `fsm.back()` returns False from SELECTING for the
+    same reason.
 
-    **Always returned, never conditionally absent** — doc section 8's cart
-    "never moves" and a button that vanishes when the cart empties is the
-    same broken promise as a row that does. `enabled` carries the state
-    instead: with nothing picked there is nothing to cancel or go forward
-    to, so both are disabled, which `DwellTracker` already refuses to
-    accumulate on and `UiLayer::drawWidget` already greys out.
+    ALWAYS returned, never conditionally absent — doc section 8 says the
+    cart never moves, and a button that vanishes when the cart empties
+    breaks that promise the same way a moving row would. `enabled` carries
+    the state instead: with nothing picked there is nothing to cancel or
+    go forward to, so both are disabled, which `DwellTracker` refuses to
+    accumulate on and `UiLayer::drawWidget` greys out.
 
-    `selecting`/`locales_available` are unchanged in shape (callers and
-    tests do not move); `cart_active` is new and defaulted, so a caller
-    that has not been updated gets the disabled pair rather than a crash.
+    `cart_active` is defaulted, so a caller that has not been updated gets
+    the disabled pair rather than a crash.
 
-    **`locales_available` now actually does something (2026-08-26).**
-    Doc section 17.1: the projected Language button "is offered only when
-    there is somewhere to switch TO" (see `i18n.Locales.available`'s own
-    docstring) — with one locale file loaded it stays absent, exactly as
-    `test_locale_count_does_not_resurrect_language` pins; with two it
-    takes the cart row's middle slot, which has sat empty since Cancel
-    moved to the left end (2026-08-25). It is NOT gated by `cart_active`:
-    which language the table speaks is not something to hold hostage to
-    whether a diner has picked anything yet.
+    `locales_available` gates the Language button: doc section 17.1 offers
+    it only when there is somewhere to switch TO (see
+    `i18n.Locales.available`). With one locale file loaded it stays
+    absent; with two it takes the cart row's middle slot. It is NOT gated
+    by `cart_active` — which language the table speaks is not something to
+    hold hostage to whether a diner has picked anything yet.
     """
     show_language = locales_available >= 2
     rects = layout(include_language=show_language)
@@ -855,13 +738,12 @@ def widgets_for(*, selecting: bool, locales_available: int,
                style="danger", enabled=enabled),
     ]
     if show_language:
-        # 2026-08-26, developer: put "EN | 中文" on the button itself,
-        # both sides, rather than a translated word that only ever shows
-        # the CURRENT language back at the diner. A literal `label`
-        # (never `label_key="language"` now — see Widget's own docstring
-        # on why `label` wins) so it reads the same in either locale;
-        # `UiLayer::drawWidget` special-cases any mixed-script label to
-        # draw the ASCII and CJK halves in their own fonts, since no
+        # Both languages on the button itself, rather than a translated
+        # word that only ever shows the CURRENT language back at the
+        # diner. A literal `label` — never `label_key` (see Widget's
+        # docstring on why `label` wins) — so it reads the same in either
+        # locale. `UiLayer::drawWidget` special-cases a mixed-script label
+        # to draw the ASCII and CJK halves in their own fonts, since no
         # single locale-selected font this table loads carries both.
         out.append(Widget(id=LANGUAGE, rect=rects[LANGUAGE],
                           label_key="", label="EN | 中文",
