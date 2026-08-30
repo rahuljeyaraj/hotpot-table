@@ -15,29 +15,20 @@
 // Density alone gives a static blob; velocity (the per-frame position
 // delta) is what makes it flow. Both are required every frame (doc §14.1).
 //
-// 2026-08-14: rewritten to be an EXACT copy of
-// apps/myApps/fireTest/src/ofApp.cpp's fluid — not just its parameters, its
-// resolution (1280x720 density / 640x360 sim) and its injection (flat
-// alpha=255 every frame, ordinary blend, no rate limiting) too. Earlier
-// versions of this file ported only the parameters and adapted the rest
-// (this app's own smaller 480x270 single-resolution grid, a rate-limited/
-// premultiplied injection scheme to dodge a saturation bug) — that
-// adaptation was diagnosed piece by piece on the rig the same day and each
-// piece looked closer to fireTest but never actually WAS fireTest: real
-// bugs got fixed (dissipation.temperature, the rate-limiting masking
-// motion) but the result still read as a sharp comet, not a flame, because
-// diffusion (viscosity.density/temperature) dilutes to fully invisible on
-// the smaller grid at any value above 0 — confirmed at both 1.0 and 0.15,
-// not just faint, blank. The direct fix is to stop adapting and use
-// fireTest's own resolution too, where 1.0 is already proven to work
-// (fireTest's own screenshot, and an exact byte-for-byte copy embedded in
-// this same window — both curled and rose correctly). The one thing
-// fireTest could not have is multiple named inputs: it tracks one
-// glm::vec2 (the mouse) frame to frame, where this tracks one glm::vec2
-// PER HAND ID (_lastDensityPos), because CursorLink can report several
-// hands at once and any of them can appear/disappear on a given frame — a
-// hand reappearing under the same or a new id must not compute a velocity
-// spike from a stale remembered position.
+// This is a faithful copy of the fireTest example's fluid — its parameters,
+// its resolution (1280x720 density / 640x360 sim) and its injection (flat
+// alpha=255 every frame, ordinary blend, no rate limiting) alike. The
+// resolution in particular is NOT free to change: diffusion
+// (viscosity.density/temperature) dilutes to fully invisible — blank, not
+// merely faint — on a smaller grid at any value above 0, so a scaled-down
+// version of this reads as a sharp comet rather than a flame.
+//
+// The one deliberate departure is multiple named inputs. fireTest tracks a
+// single glm::vec2 (the mouse) frame to frame; this tracks one per hand id
+// (_lastDensityPos), because CursorLink can report several hands at once
+// and any of them can appear or disappear on a given frame. A hand
+// reappearing under the same or a new id must not compute a velocity spike
+// from a stale remembered position.
 //
 // Replaces the old dot+ring cursor as the on-table sign of a hand's
 // position (ofApp.cpp no longer passes a pointer to UiLayer while this is
@@ -60,13 +51,12 @@ public:
 		float innerOffsetPx = 0.0f;
 		float outerOffsetPx = 0.0f;
 		float intensity = 0.0f;   // 0..1 crossfade — scales injected alpha only
-		// 2026-08-14, developer request: "various colour flame for each
-		// bin." Just an ordinal slot into this file's own fixed palette
-		// (FluidLayer.cpp's kFireRingColours) — NOT a bin id: this class
-		// still knows nothing about bins/`hl` (I2/I3, this struct's own
-		// comment above), only "which of my colours to use for this ring."
-		// Callers pass the bin index, but that is the caller's choice of
-		// numbering, not something this class interprets.
+		// An ordinal slot into this file's fixed palette (FluidLayer.cpp's
+		// kFireRingColours), NOT a bin id: this class knows nothing about
+		// bins or `hl` (I2/I3, see this struct's comment above), only which
+		// of its colours to use for this ring. Callers happen to pass the
+		// bin index, but that is their choice of numbering rather than
+		// something this class interprets.
 		int colourIndex = 0;
 	};
 
@@ -85,17 +75,16 @@ public:
 private:
 	flowTools::ftFluidFlow _fluid;
 	ofFbo _densityInject;
-	// Same shapes as _densityInject, but a hue-independent red — the fluid's
+	// Same shapes as _densityInject, but a hue-independent red. The fluid's
 	// temperature (and so its buoyancy) is a RED-CHANNEL-ONLY field, so
-	// sharing the coloured buffer made each bin's lift depend on its own
-	// hue. FluidLayer.cpp's kFireRingHeat has the full trace.
+	// sharing the coloured buffer would make each bin's lift depend on its
+	// own hue. See FluidLayer.cpp's kFireRingHeat.
 	ofFbo _temperatureInject;
 	ofFbo _velocityInject;
 
-	// fireTest/src/ofApp.cpp's own resolution numbers, hardcoded — see
-	// FluidLayer.cpp's 2026-08-14 rewrite comment. simScale is no longer
-	// used to derive these; the setup() parameter is kept for interface
-	// compatibility only.
+	// fireTest's resolution numbers, hardcoded — see this class's comment on
+	// why they must not be scaled down. simScale is not used to derive
+	// them; the setup() parameter is kept for interface compatibility only.
 	int _densityW = 1280, _densityH = 720;
 	int _simW = 640, _simH = 360;
 	float _toDensityX = 1.0f, _toDensityY = 1.0f;   // stage px -> density px

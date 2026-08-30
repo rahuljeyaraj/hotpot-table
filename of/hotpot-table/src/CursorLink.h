@@ -8,10 +8,10 @@
 
 class ofxUDPManager;
 
-// The cursor link, oF's side (v3 doc §4, §4.6, §11.4; doc §21 M5 build item
-// 3). The C++ mirror of python/hotpot/common/cursorbus.py, and it has to
-// agree with that file on every byte, because the two are the only things
-// that ever speak this protocol:
+// The cursor link, oF's side (doc §4, §4.6, §11.4). The C++ mirror of
+// python/hotpot/common/cursorbus.py, and it has to agree with that file on
+// every byte, because the two are the only things that ever speak this
+// protocol:
 //
 //   - ONE datagram is ONE whole message. No framing, no newline, no `t`
 //     field — this socket carries exactly one kind of message and always
@@ -30,9 +30,8 @@ class ofxUDPManager;
 // processes exist to avoid. There is deliberately no "read one packet"
 // method on this class, for the same reason cursorbus.Receiver has none.
 //
-// Two rules, not one, and they are different — cursorbus.py's docstring
-// argues this at length and it is repeated here because a future edit to
-// one side must be made to the other:
+// Two rules, not one, and they are different. They are repeated here
+// because an edit to one side must be made to the other:
 //   1. WITHIN one drain: keep the highest seq.
 //   2. ACROSS drains: never accept a seq at or below one already accepted.
 //      UDP may reorder, so a datagram that lost a race arrives on the NEXT
@@ -73,7 +72,7 @@ public:
 	const std::vector<Hand> & hands() const { return _hands; }
 
 	// The pointer hand, or nullptr. doc §11.4: oF draws NO cursor and NO
-	// dwell ring for ambient hands. They are still received, because M8's
+	// dwell ring for ambient hands. They are still received, because the
 	// fluid injects forces at every hand's position — the isolation is
 	// about what is DRAWN as a cursor, not about what is known.
 	const Hand * pointer() const;

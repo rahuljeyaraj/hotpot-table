@@ -64,19 +64,15 @@ public:
 
 	float get() const { return value; }
 
-	// doc §13.3: "Numbers use an odometer roll, not a linear lerp." What
-	// M1.4 actually builds is the SPRING half of that — the continuous,
-	// non-overshooting value a rolling-digit renderer would consume. The
-	// glyph-strip rendering itself (two clipped glyphs per digit cell,
-	// sliding on the fractional part of (value/placeValue) mod 10 — the
-	// trick that makes carries roll cleanly with no special-casing) needs
-	// per-digit clipping this app has no precedent for yet (no shader, no
-	// scissor use anywhere else in it), and M1's acceptance test (doc §21)
-	// checks the settled NUMBER by arithmetic, not the roll animation. So
-	// it is deferred rather than built on unverified clipping: get() below
-	// is drawn as plain text for now, still critically damped, never
-	// linear. Revisit once AudioBus (a later build item) needs the digit
-	// boundaries anyway for `total_tick` (§15.3).
+	// doc §13.3 calls for an odometer roll rather than a linear lerp. This
+	// class is the SPRING half of that: the continuous, non-overshooting
+	// value a rolling-digit renderer would consume. The glyph-strip
+	// rendering itself — two clipped glyphs per digit cell, sliding on the
+	// fractional part of (value/placeValue) mod 10, which is what makes
+	// carries roll cleanly with no special-casing — needs per-digit clipping
+	// this app has no precedent for (no shader, no scissor use anywhere in
+	// it), so get() is drawn as plain text: still critically damped, never
+	// linear.
 
 private:
 	float omega;

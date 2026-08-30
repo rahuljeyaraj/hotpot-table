@@ -8,14 +8,13 @@
 
 class ofxUDPManager;
 
-// RIG_FEEDBACK item 11 diagnostic, oF's side. The C++ mirror of
-// python/hotpot/common/skeletonbus.py — read that module's docstring
-// first for WHY this exists: the developer confirmed the raw MediaPipe
-// skeleton renders smoothly on the staff view's Developer tab while the
-// actual cursor on THIS surface still lags/sticks on a fast hand move, so
-// this draws the same raw signal directly on the projected table for a
-// side-by-side comparison. Not part of doc §4/§4.6 — this transport isn't
-// in the doc at all, deliberately (see skeletonbus.py).
+// Cursor-lag diagnostic, oF's side. The C++ mirror of
+// python/hotpot/common/skeletonbus.py — read that module's docstring for
+// the fuller picture. It draws the raw MediaPipe skeleton directly on the
+// projected table so it can be compared side by side with the smoothed
+// cursor, which is how a lag or stick introduced by smoothing is told apart
+// from one already present in the tracking. Deliberately not part of
+// doc §4/§4.6: this transport is not in the doc at all.
 //
 // Same two drain-to-latest rules as CursorLink (see that class's own
 // comment for the full argument):

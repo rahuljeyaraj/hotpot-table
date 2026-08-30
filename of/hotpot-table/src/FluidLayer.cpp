@@ -5,117 +5,49 @@
 using namespace flowTools;
 
 namespace {
-	// fireTest/src/ofApp.cpp's own literal constants — see FluidLayer.h's
-	// 2026-08-14 class comment for why this file stopped adapting them.
+	// Injection constants, taken from the fireTest example this layer is
+	// modelled on. See FluidLayer.h for why they are used literally rather
+	// than scaled to the stage.
 	const float kInjectRadiusDensityPx = 30.0f;
 	const float kInjectRadiusVelocityPx = 20.0f;
 	const float kVelocityScale = 4.0f;
 
-	// Kill switches, same pattern ofApp.cpp's own kFluidEnabled/
-	// kDrawSkeleton use. 2026-08-14: split in two after "hand fireball is
-	// missing" — the single kAmbientHandFireEnabled this replaced disabled
-	// BOTH the visible hand blob and its velocity push at once, which was
-	// more than the wind bug needed disabled. The wind theory was
-	// specifically about velocity: every hand shares ONE velocity field
-	// across the whole canvas (ftFluidFlow's own single velocityFbo), so a
-	// swipe anywhere — including the empty centre gap, nowhere near a bin —
-	// can inject a gust the sim propagates everywhere, a ring included.
-	// Density has no such reach: it only ever paints a blob at the hand's
-	// OWN position, so putting it back gives the table its cursor again
-	// without reintroducing anything that could blow a ring around from a
-	// distance. Velocity stays off until the ring is confirmed clean with
-	// density alone back on; if it's still clean, try flipping this one
-	// too — a static-looking blob rather than a flowing trail is the
-	// tradeoff of leaving it off.
+	// Kill switches, same pattern as ofApp.cpp's kFluidEnabled/kDrawSkeleton.
+	//
+	// Density and velocity are split because their blast radius differs.
+	// Density only ever paints a blob at the hand's own position. Velocity
+	// is shared: ftFluidFlow keeps ONE velocity field for the whole canvas,
+	// so a swipe anywhere — including the empty centre gap, nowhere near a
+	// bin — injects a gust the sim propagates everywhere, fire rings
+	// included. Velocity is off for that reason; turning it on restores the
+	// flowing trail behind a moving hand at the cost of that coupling.
 	const bool kHandFlameDensityEnabled = true;
 	const bool kHandFlameVelocityEnabled = false;
 
-	// 2026-08-14, developer request: "various colour flame for each bin."
-	// One entry per bin index (FluidLayer::FireRing::colourIndex), `% 8`
-	// guarded at the call site below rather than assumed in range. Chosen
-	// the same way the earlier blue ring colour was — a low-to-moderate
-	// peak channel value under MULTIPLY blend reads as itself rather than
-	// washing toward the light #E8E6E1 background — spread across 8
-	// distinct hues rather than 8 shades of one. Yellow/pale hues skipped
-	// on purpose: this rig's own history (halo's gold, three revisions;
-	// the plate rate line's amber reading red) is about ADDITIVE blend,
-	// not this MULTIPLY path, but a near-white hue is risky under multiply
-	// for the same reason kSparkColourHot would have been if that had
-	// shipped — nothing to darken the background with. All unmeasured
-	// against the projected table, same as every other colour this
-	// session picked; the one thing checked is that they are 8 genuinely
-	// different hues, not 8 numbers that happen to differ.
+	// One flame colour per bin index (FluidLayer::FireRing::colourIndex),
+	// four hues paired across the two islands: 0-6, 4-2, 1-7, 5-3. The
+	// pairing is a point reflection rather than a mirror — bin i's partner
+	// is diagonally opposite it (col 0<->2 / 1<->3 and row 0<->1) — which is
+	// what puts all four colours on both islands instead of two per island.
+	// Colours are also arranged so no two adjacent bins share a hue; only a
+	// bin's diagonal is far enough away to count as separated, since any
+	// bin sharing an edge stays adjacent however the pairs are rotated.
 	//
-	// **2026-08-14, replaced on developer instruction with a flame-chemistry
-	// palette of FOUR colours over eight bins**, paired across the two
-	// islands: 0-6, 4-2, 1-7, 5-3. That pairing is a point reflection, not a
-	// mirror — bin i's partner is diagonally opposite it (col 0<->2 / 1<->3
-	// AND row 0<->1), which is what puts all four colours on BOTH islands
-	// rather than giving each island two.
+	// Hues are constrained by the MULTIPLY blend these rings draw under.
+	// Near-white hues are avoided: multiply cannot darken the #E8E6E1
+	// background with a channel near 255, so a pale hue washes out. A
+	// channel truly at 0 can never accumulate however long a hover runs, so
+	// it anchors the ring against the white-out described at
+	// kFireRingMaxAlpha — blue (0,34,255) and orange (255,85,0) are anchored
+	// this way; yellow and violet are not.
 	//
-	// **Second developer instruction, same day: 0 and 1 (adjacent, both far
-	// row, left island) read as "close by colours" — move one to the
-	// diagonal opposite.** Bin 0's diagonal within its 2x2 island is bin 5,
-	// not bin 1 — moving bin 1's colour there (and bin 5's colour to bin 1)
-	// is what actually separates them, since any colour placed at bin 1 OR
-	// bin 4 is still adjacent to bin 0 (they share an edge); only bin 5 is
-	// bin 0's diagonal. Because colour is assigned per PAIR, this is a swap
-	// between pair (1,7) and pair (5,3), not a single-bin edit — and it
-	// turns out symmetric: the same swap also separates the equivalent
-	// green/blue diagonal on the right island (2,3,6,7), unprompted, because
-	// that island is built from the same four pairs.
+	// Luminance is deliberately NOT matched across the four. The
+	// "distinguish by hue, never brightness" rule is about signalling STATE,
+	// and all four colours mean the same state (one bin, on fire), so hue is
+	// identity here rather than status.
 	//
-	// **Third developer instruction, same day: swapped to a second
-	// flame-chemistry reference list** (this one gives a contrast role per
-	// colour, not a visual-character description — cobalt blue is named
-	// "dark, ultra-deep cool tone" against canary yellow's "high-luminance
-	// warm tone", i.e. the developer's second list is already speaking to
-	// luminance spread, unprompted, in the same direction as this file's own
-	// "distinguish states by hue, never brightness" invariant would want if
-	// this were a state signal — it is not one here, see below, but the
-	// alignment is worth knowing about). Cobalt Blue #0022FF and Bright
-	// Canary Yellow #FFEB3B are from that list.
-	//
-	// **Fourth developer instruction, same day: two more single-colour
-	// substitutions, positions unchanged** — the pair-mapping and the
-	// diagonal-swap arrangement from the previous instruction both stay
-	// exactly as they were, only the hex/name at two of the four pair-slots
-	// changed:
-	//   Pure Emerald Green  #00C853  ->  Bright Flame Orange  #FF5500
-	//   Deep Violet         #8A2BE2  ->  Velvet Violet         #9C27B0
-	//
-	// **Fifth developer instruction, same day: "change diagonally like
-	// before"** — orange and yellow, named just above as adjacent and not
-	// yet acted on, get the exact same treatment bin 0/1's blue/green did.
-	// The adjacent pair this time is bin 4 (yellow) and bin 5 (orange), not
-	// 0/1 — same island, opposite edge (bottom, not top) — so the geometry
-	// is not identical, only the TECHNIQUE is: find the problem bin's
-	// diagonal partner and swap pair-colours so the two land there instead
-	// of on a shared edge. Bin 4's diagonal within the 2x2 island is bin 1,
-	// not bin 5 (bin 4 and bin 5 SHARE an edge, so nothing placed at bin 5
-	// stops being adjacent to bin 4 by moving to some other edge — only the
-	// diagonal removes the adjacency). Kept bin 4 (yellow) fixed, same as
-	// bin 0 (blue) stayed fixed last time, and swapped pair (3,5)'s colour
-	// (orange) with pair (1,7)'s colour (violet) — orange moves onto bin 4's
-	// diagonal (bin 1), violet takes the now-vacated bin 5/3 slot. Same
-	// unprompted symmetry as before: the right island (built from the same
-	// four pairs) gets the equivalent yellow/orange separation for free.
-	//
-	// Zero-channel white-out anchor (MULTIPLY blend; a channel truly at 0
-	// can never accumulate, however long a hover runs, so that channel
-	// cannot wash toward the #E8E6E1 background — kFireRingMaxAlpha's own
-	// comment has the full mechanism), unaffected by this move since it is
-	// a position swap, not a hex change: blue (0,34,255, R=0) and orange
-	// (255,85,0, B=0) are anchored; yellow (255,235,59) and violet
-	// (156,39,176) are not — same "two of four unanchored" bottom line as
-	// before this instruction.
-	//
-	// Two things deliberately NOT done, carried over unchanged. Luminance
-	// is NOT matched across the four — that invariant is about
-	// distinguishing STATE, and all four colours here mean the same state
-	// (one bin, on fire), so hue is identity, not status. And none of the
-	// four is checked against the projector: this rig has turned an
-	// authored amber into red and a gold into muddy brown before now, so
+	// None of the four has been checked against the projector. This rig has
+	// turned an authored amber into red and a gold into muddy brown, so
 	// treat every hex here as unverified until somebody looks at the table.
 	const ofColor kFireRingColours[8] = {
 		ofColor(0, 34, 255),      // 0: cobalt blue          — pairs with 6
@@ -128,110 +60,66 @@ namespace {
 		ofColor(255, 85, 0),      // 7: bright flame orange  — pairs with 1
 	};
 
-	// **2026-08-14, rig report: "the screen is simply getting saturated
-	// with white flame" — developer's own next diagnostic, requested
-	// directly: make every bin the same colour and look again.** This is
-	// separate from kFireRingHeat's finding above: that was about lift
-	// (temperature, the RED channel of a second buffer); this is about the
-	// visible density colour itself, per-bin hue, 8 different values. If
-	// the white-out persists identically with one colour, hue was never
-	// the density side of the story either, the same way it was not the
-	// buoyancy side — narrows what is left to the accumulation math itself
-	// (persistent additive buffer, doc comment above kFireRingMaxAlpha) or
-	// to something upstream in how many bins/how long they are being fed.
-	// `true` here, not a deleted array: kFireRingColours stays byte-for-
-	// byte so this is a one-line revert once the question is answered,
-	// same discipline as every other kill-switch in this file.
-	// **Answered and switched back OFF, 2026-08-14.** The test did its job:
-	// with every ring on one colour the asymmetry was unchanged, so hue was
-	// never the density side of the story either — which is what sent the
-	// investigation into the addon's own shaders, where the real cause was
-	// (ftBuoyancyShader's unscaled density read; CLAUDE.md has the full
-	// trace). Left in place rather than deleted because it costs one bool and
-	// it is the fastest way to take hue out of the picture the next time a
-	// per-bin difference needs explaining.
+	// Diagnostic: forces every ring onto one colour, which takes per-bin hue
+	// out of the picture when a difference between bins needs explaining.
+	// kFireRingColours is left intact so this is a one-line flip either way.
 	const bool kFireRingSingleColourDiagnostic = false;
 	const ofColor kFireRingSingleColour(30, 110, 220);   // the pre-palette blue
 
-	// 2026-08-14, developer question: "is there a way to reduce the white
-	// part of the flame and show more colour... when the bin is on fire?"
-	// Mechanism, worked out from ftFluidFlow's own add/dissipate shaders
-	// rather than guessed: `addDensity` ADDS the injected texture into a
-	// PERSISTENT buffer every single frame, and at density dissipation 1.0
-	// (retained fraction `1 - dt*1.0`, ~0.967/frame at 30fps) a steady
-	// hover's geometric-series steady state is roughly the per-frame
-	// injected value divided by (1 - retained) — around 30x the one-frame
-	// value. A channel that starts anywhere close to 255 saturates well
-	// before that steady state and STAYS saturated; once every channel is
-	// pinned at 255, MULTIPLY blend against the background is the
-	// identity (colour*255/255 = colour), so the densest part of the ring
-	// shows the bare background colour — pale, reads as "white" — while
-	// only the thinner, not-yet-saturated edge still shows the injected
-	// hue. Capped below 255 rather than raising dissipation further
-	// (density is already at fireTest's own max-sane value, and pushing
-	// it higher risks the same "diffuses to invisible" failure
-	// FluidLayer.h's own 2026-08-14 rewrite note describes): the injected
-	// ring alpha now tops out at kFireRingMaxAlpha, so even a long steady
-	// hover's ~30x amplification lands under full saturation and the
-	// densest part of the ring keeps showing its own colour instead of
-	// washing to the background. Unmeasured — unlike a hue, "how white is
-	// too white" can only be judged on the projected table; 190 is a
-	// starting guess, tunable down further (more colour, less brightness)
-	// or up (brighter, more washed) once seen.
+	// Caps the injected ring alpha below 255 to stop a long hover washing
+	// the ring's core out to the background colour.
+	//
+	// The mechanism is in ftFluidFlow's add/dissipate shaders: `addDensity`
+	// ADDS the injected texture into a PERSISTENT buffer every frame, and at
+	// density dissipation 1.0 (retained fraction `1 - dt*1.0`, ~0.967/frame
+	// at 30fps) a steady hover's geometric-series steady state is roughly
+	// the per-frame injected value divided by (1 - retained) — around 30x
+	// the one-frame value. A channel starting near 255 saturates well before
+	// that and stays saturated; once every channel is pinned at 255,
+	// MULTIPLY blend is the identity (colour*255/255 = colour), so the
+	// densest part of the ring shows the bare background and reads as white
+	// while only the thinner edge still shows the injected hue.
+	//
+	// Capping is preferred to raising dissipation further, which is already
+	// at its maximum sane value and risks the ring diffusing to invisible.
+	// 190 is a starting value, not a measured one: how white is too white
+	// can only be judged on the projected table.
 	const float kFireRingMaxAlpha = 190.0f;
 
-	// **2026-08-14: the ring's HUE was silently controlling how hard its
-	// flame rises.** Traced through the installed addon, not guessed:
+	// The fire ring's buoyancy, injected into its own buffer rather than
+	// sharing the density colour.
+	//
 	// `addTemperature` writes into ftFluidFlow's `temperatureFbo`, which is
-	// allocated **GL_R32F** (ftFluidFlow.cpp's own setup) — a single RED
-	// channel, so green and blue are discarded on write. ftBuoyancyShader
-	// then reads `texture(tex_temperature, st).x` and applies an UPWARD
-	// force linearly proportional to it. Feeding the same coloured texture
-	// to addDensity and addTemperature — which this file did — therefore
-	// made lift a function of each bin's red channel. kFireRingColours'
-	// reds run 30 (teal/blue) to 224 (orange), so bins differed by ~7x in
-	// how hard they rose, for no reason anyone chose. Temperature now gets
-	// its OWN injection buffer, same geometry, hue-independent red, so a
-	// palette edit can never move a flame's lift again.
+	// allocated GL_R32F — a single RED channel, so green and blue are
+	// discarded on write. ftBuoyancyShader then reads
+	// `texture(tex_temperature, st).x` and applies an upward force linearly
+	// proportional to it. Feeding the same coloured texture to both
+	// addDensity and addTemperature therefore makes lift a function of each
+	// bin's red channel, so a palette edit silently changes how hard a
+	// flame rises. A separate hue-independent buffer removes that coupling.
 	//
-	// **That coupling is real, but it was NOT the "left bins have too much
-	// flame" bug — equalising it on the rig did not fix the asymmetry.**
-	// Recorded so the next person does not re-derive this and conclude the
-	// same wrong thing: the left/right split survives with every bin on an
-	// identical heat, so its cause is somewhere else entirely (it is also
-	// not the bin grid and not the homography, both recalibrated first).
-	// This buffer is worth keeping on its own merits — hue should not
-	// control physics — but it is not the fix.
-	//
-	// **30 was tried and is WRONG, do not go back to it.** It is the red of
-	// the single blue (30,110,220) every ring used before the 8-hue palette,
-	// so it looked like the value the flame had been tuned at. On the table
-	// it made every ring read THICKER and BRIGHTER, not calmer: low heat is
-	// low buoyancy, and a ring the sim never lifts is a ring whose density
-	// piles up in place, frame after frame, into the persistent buffer
-	// until it saturates — the exact white-out kFireRingMaxAlpha exists to
-	// fight. Lift is what carries density away; removing it does not quiet
-	// a flame, it puddles one. The usable range is bounded on both ends:
-	// too low puddles, too high (the old 214-224) billows more than the
-	// developer wants. 120 is a mid-range starting point and nothing more —
-	// it has not been looked at on the projected table yet.
+	// The usable range is bounded at both ends. Too low puddles: lift is
+	// what carries density away, so a ring the sim never lifts piles up in
+	// the persistent buffer until it saturates — the exact white-out
+	// kFireRingMaxAlpha exists to fight, which is why the value must not go
+	// back down to 30. Too high billows more than intended. 120 is a
+	// mid-range value and has not been looked at on the projected table.
 	const int kFireRingHeat = 120;
 
-	// The hand blob's heat, deliberately the same 199 its density colour
-	// (199,74,52) already carried — the hand's own flame is not what
-	// changed today and must not change now. Split out as its own name only
-	// so the two can be tuned apart later if the hand ever needs it.
+	// The hand blob's heat, matching the 199 its density colour (199,74,52)
+	// already carried. Split out as its own name only so the hand and the
+	// rings can be tuned apart later.
 	const int kHandFlameHeat = 199;
 
-	// VISUAL_LAYER.md §9 build item 6: the fire ring's own injection shape —
-	// same filled, ODD-winding rounded-rect-band technique UiLayer's own
-	// drawRoundedBand uses (that file's comment: an unfilled ofPath's own
-	// "stroke" is glLineWidth in disguise, capped on this rig's driver and
-	// ignored outright on the programmable renderer this app already runs
-	// on). Duplicated rather than shared — FluidLayer must not depend on
-	// UiLayer (I2/I3: layer 2 is core-agnostic, layer 4/5 is UI, and nothing
-	// about this one shape justifies a coupling neither file needs
-	// otherwise).
+	// The fire ring's injection shape: a filled, ODD-winding rounded-rect
+	// band, the same technique as UiLayer's own drawRoundedBand. An unfilled
+	// ofPath's stroke is glLineWidth in disguise, which this rig's driver
+	// caps and the programmable renderer ignores outright, so bands are
+	// always drawn as a filled shape.
+	//
+	// Duplicated rather than shared: FluidLayer must not depend on UiLayer
+	// (layer 2 is core-agnostic, layers 4/5 are UI), and one shape does not
+	// justify a coupling neither file needs otherwise.
 	void drawRoundedBand(const ofRectangle & base, float innerOffsetPx,
 		float outerOffsetPx, float cornerRadiusPx, const ofColor & colour){
 		const ofRectangle outer(base.x - outerOffsetPx, base.y - outerOffsetPx,
@@ -259,32 +147,24 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 	_toDensityX = (float)_densityW / (float)stageW;
 	_toDensityY = (float)_densityH / (float)stageH;
 
-	// fireTest/src/ofApp.cpp::setup(): fluidFlow.setup(simulationWidth,
-	// simulationHeight, densityWidth, densityHeight) — dual-resolution,
-	// byte-for-byte the same call shape.
+	// Dual-resolution setup: simulation and density have separate sizes.
 	_fluid.setup(_simW, _simH, _densityW, _densityH);
 
-	// fireTest/src/ofApp.cpp::setup(), byte-for-byte — all eleven values.
-	// **2026-08-14, build item 6 rig report: a near-row bin's fire, left
-	// hovering, drifted up past its own ring into the far row.** Traced to
-	// ftFluidFlow.cpp's own dissipation formula — VERIFIED in the
-	// installed addon, not assumed — `1.0 - deltaTime * dissipation`, so
-	// the retained-per-frame FRACTION shrinks as the *parameter* grows;
-	// "dissipation" is a decay RATE, not a 0..1 amount-remaining knob. At
-	// this app's ~30fps, `velocity`/`temperature` at fireTest's own 0.1
-	// have an ~7s half-life — `density`'s own 1.0 already decays in ~1s,
-	// so the visible puff fades quickly, but the invisible temperature/
-	// velocity fields it left behind keep pushing for another six seconds,
-	// carrying every newly-injected frame's density further than the one
-	// before it the longer a hand keeps hovering. fireTest never showed
-	// this because its one blob already filled most of the screen — there
-	// was nowhere further for a long hover to carry it into. `temperature`
-	// raised to match `density`'s own decay (no field should outlive the
-	// density it is supposed to be pushing); `velocity` raised to 0.6, not
-	// all the way to 1.0, so the flame keeps some persistence/flicker
-	// rather than reading as inert. Unmeasured against the actual FIRE_RING
-	// geometry — tunable further once seen projected, same as every other
-	// build-item-6 constant.
+	// Simulation parameters.
+	//
+	// `dissipation` is a decay RATE, not a 0..1 amount-remaining knob:
+	// ftFluidFlow computes the retained-per-frame fraction as
+	// `1.0 - deltaTime * dissipation`, so the fraction retained SHRINKS as
+	// the parameter grows. At ~30fps a dissipation of 0.1 is an ~7s
+	// half-life while 1.0 decays in ~1s.
+	//
+	// `temperature` is raised to match `density` so no field outlives the
+	// density it is meant to be pushing — otherwise the visible puff fades
+	// in a second while the invisible temperature and velocity fields keep
+	// pushing for several more, carrying each newly injected frame further
+	// than the last and drifting a bin's fire up out of its own ring.
+	// `velocity` stops at 0.6 rather than 1.0 so the flame keeps some
+	// persistence and flicker rather than reading as inert.
 	_fluid.getParameters().getFloat("speed") = 0.3f;
 	_fluid.getParameters().getGroup("dissipation").getFloat("velocity") = 0.6f;
 	_fluid.getParameters().getGroup("dissipation").getFloat("density") = 1.0f;
@@ -298,19 +178,17 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 	_fluid.getParameters().getGroup("smoke buoyancy").getFloat("weight") = 0.2f;
 	_fluid.getParameters().getGroup("smoke buoyancy").getFloat("ambient temperature") = 0.2f;
 
-	// fireTest's mouseDensityFbo/mouseVelocityFbo, same resolutions
-	// (density at density res, velocity at sim res — fireTest injects
-	// velocity at mousePos*0.5 into a sim-resolution FBO because its sim is
-	// exactly half its density resolution).
+	// Injection buffers. Density is at density resolution; velocity is at
+	// simulation resolution, which is exactly half of it in both dimensions.
 	_densityInject.allocate(_densityW, _densityH, GL_RGBA);
 	ftUtil::zero(_densityInject);
 	_velocityInject.allocate(_simW, _simH, GL_RG32F);
 	ftUtil::zero(_velocityInject);
 
-	// The heat buffer (see kFireRingHeat). Density resolution, not sim, so
-	// both injections are drawn in exactly the same coordinates — ftFlow::
-	// add() rescales whatever it is handed onto the sim-resolution
-	// temperatureFbo either way, so matching density here costs nothing and
+	// The heat buffer (see kFireRingHeat), allocated at density resolution
+	// rather than sim resolution so both injections are drawn in the same
+	// coordinates. ftFlow::add() rescales onto the sim-resolution
+	// temperatureFbo either way, so matching density costs nothing and
 	// removes a second coordinate space from this file.
 	_temperatureInject.allocate(_densityW, _densityH, GL_RGBA);
 	ftUtil::zero(_temperatureInject);
@@ -318,25 +196,18 @@ void FluidLayer::setup(int stageW, int stageH, int simScale){
 
 void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	const std::vector<FireRing> & fireRings){
-	// fireTest/src/ofApp.cpp::update() tracks one glm::vec2 (the mouse)
-	// frame to frame; this tracks one per hand id — see FluidLayer.h's
-	// class comment for why. Each hand's position here is fireTest's own
-	// `mousePos`, in DENSITY space (stage px * _toDensityX/Y).
+	// One tracked position per hand id, in DENSITY space (stage px scaled by
+	// _toDensityX/Y).
 	//
-	// dt is the caller's responsibility to get right, and it matters more
-	// than it looks: fireTest computes its own dt as
-	// 1.0/max(ofGetFrameRate(),1.f) (a smoothed value), not a raw per-frame
-	// delta. ofApp.cpp's debug branch originally passed ofGetLastFrameTime()
-	// instead — 2026-08-14 rig test found this was the actual reason a
-	// byte-for-byte copy of fireTest's own code still came up with a fully
-	// empty density buffer: an occasional large raw frame time inflates
+	// `dt` is the caller's responsibility and it matters more than it looks:
+	// it must be a SMOOTHED frame time (1.0/max(ofGetFrameRate(),1.f)), not
+	// a raw per-frame delta. An occasional large raw frame time inflates
 	// ftFluidFlow's internal timeStep (dt*speed*100), which multiplies
 	// directly into the diffusion shader's strength (viscosityDen*timeStep,
-	// run 20 times/frame) — one bad frame is enough to blur the just-
-	// injected density down to nothing. The smoothed fireTest formula does
-	// not have single-frame spikes. Fixed in ofApp.cpp, not here, since
-	// this function correctly does whatever dt it's given — noted here so
-	// the next person touching either file sees why it matters.
+	// run 20 times per frame) — one bad frame is enough to blur the
+	// just-injected density down to nothing, leaving the density buffer
+	// empty. This function correctly uses whatever dt it is given; the
+	// choice is made in ofApp.cpp.
 	struct HandPos {
 		int id;
 		glm::vec2 pos;
@@ -350,30 +221,21 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 		positions.push_back({h.id, pos});
 		currentDensityPos[h.id] = pos;
 	}
-	// Two buffers, ONE geometry. The density buffer carries the per-bin hue
-	// a diner sees; the heat buffer carries how hard that ring rises, in a
-	// red the palette cannot reach into (kFireRingHeat's own comment has
-	// the whole reason). Written as one lambda rather than two copies of
-	// the loop specifically so the shapes cannot drift apart — a ring that
-	// glowed in one buffer and lifted in a slightly different place in the
-	// other would be a far nastier bug than the one this is fixing.
+	// Two buffers, ONE geometry: the density buffer carries the per-bin hue
+	// a diner sees, the heat buffer carries how hard that ring rises in a
+	// red the palette cannot reach into (see kFireRingHeat). Written as one
+	// lambda rather than two copies of the loop specifically so the shapes
+	// cannot drift apart — a ring that glowed in one place and lifted in
+	// another would be a nastier bug than the one this avoids.
 	//
-	// fireTest/src/ofApp.cpp::update() — the visible "fire" blob at the
-	// hand: flat alpha=255, ORDINARY blending, every frame, no rate
-	// limiting. Byte-for-byte, generalized from one mouse to N hands.
-	//
-	// VISUAL_LAYER.md §9 build item 6: the active bin's own emitter, drawn
-	// into the SAME buffers as the hand's. `intensity` is UiLayer's own
-	// crossfade spring — the same one the halo fades out by — scaling
-	// alpha only, never the geometry, so the ring fills in smoothly rather
-	// than popping to full strength the instant `hl` flips to "hover". It
-	// scales the heat identically, via the same alpha, so a ring fading in
+	// `intensity` is UiLayer's crossfade spring, the same one the halo fades
+	// out by. It scales alpha only, never the geometry, so the ring fills in
+	// smoothly rather than popping to full strength the instant the bin
+	// becomes hovered, and it scales heat through that same alpha so a ring
 	// gains its lift on exactly the same curve as its colour.
-	// Alpha capped at kFireRingMaxAlpha, not 255 — see that constant's own
-	// comment on why a full-alpha ring saturates to a white-looking core
-	// under a long hover. Colour picked per bin from kFireRingColours,
-	// `colourIndex` wrapped with `% 8` here rather than trusted, since
-	// this class has no way to know the caller's own bin count.
+	//
+	// `colourIndex` is wrapped with `% 8` here rather than trusted, since
+	// this class has no way to know the caller's bin count.
 	auto injectShapes = [&](bool heat){
 		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 		if(heat){
@@ -413,10 +275,9 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	injectShapes(true);
 	_temperatureInject.end();
 
-	// fireTest/src/ofApp.cpp::update() — the push, from hand movement.
-	// mousePos*0.5 there is DENSITY-space-position*0.5 here (both map
-	// density space down into the sim-resolution velocity FBO, which is
-	// exactly half of density resolution in both files).
+	// The push, from hand movement. Positions are halved because density
+	// space maps down into the sim-resolution velocity FBO, which is exactly
+	// half of density resolution.
 	_velocityInject.begin();
 	ofClear(0, 0, 0, 0);
 	ofEnableBlendMode(OF_BLENDMODE_DISABLED);
@@ -436,9 +297,9 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 	_velocityInject.end();
 	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
 
-	// addTemperature reads ONLY the red channel (ftFluidFlow's temperatureFbo
-	// is GL_R32F) — which is exactly why it gets its own buffer now rather
-	// than the coloured one. See kFireRingHeat.
+	// addTemperature reads ONLY the red channel (ftFluidFlow's
+	// temperatureFbo is GL_R32F), which is why heat gets its own buffer
+	// rather than sharing the coloured one. See kFireRingHeat.
 	_fluid.addDensity(_densityInject.getTexture());
 	_fluid.addTemperature(_temperatureInject.getTexture());
 	_fluid.addVelocity(_velocityInject.getTexture());
@@ -448,9 +309,8 @@ void FluidLayer::update(float dt, const std::vector<CursorLink::Hand> & hands,
 }
 
 void FluidLayer::draw(int x, int y, int w, int h){
-	// fireTest/src/ofApp.cpp::draw(): ordinary alpha blending (whatever
-	// update() last left active), no special premultiplied blend func —
-	// that was only needed for the rate-limited/premultiplied injection
-	// this file no longer uses.
+	// Ordinary alpha blending, whatever update() last left active. The
+	// premultiplied blend func this once used went with the rate-limited
+	// injection path that no longer exists.
 	_fluid.draw(x, y, w, h);
 }

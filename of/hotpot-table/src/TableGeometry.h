@@ -4,17 +4,16 @@
 // Everything in the app that needs a table position works in mm and
 // converts here, so a projector or table change is a one-place edit.
 //
-// M1.4 note: this is the CAD layout only — no per-line nudge, no
-// bin_offsets.json. v3 §7.1 keeps the *measured* offsets, but as the seed
-// for core's bin grids (core/bin_grid.py, M4m/M4n — state/bin_grid_camera
-// .json and state/bin_grid_projector.json), not as something oF applies to
-// itself; oF has no way to hit-test a hand against a bin any more (that
-// moved to core's FSM at M5), so the alignment tool that used to serve
-// that hit test moved out with it. The raw CAD rects below remain the
-// fallback for the 8 plates and the light-pass cutouts whenever core has
-// not sent a projector-grid rect for a bin yet (UiLayer::binRectPx) — as
-// of M4n core DOES put one on the wire, in `state.bins[].rect`, once a
-// human has set the projector grid; before that this file is still what
+// This is the CAD layout only: no per-line nudge and no measured offsets.
+// The measured offsets seed core's bin grids instead (core/bin_grid.py,
+// state/bin_grid_camera.json and state/bin_grid_projector.json) rather than
+// being something oF applies to itself — oF cannot hit-test a hand against
+// a bin at all, since that lives in core's FSM.
+//
+// The raw CAD rects below are the fallback for the 8 plates and the
+// light-pass cutouts whenever core has not sent a projector-grid rect for a
+// bin (UiLayer::binRectPx). Core puts one on the wire in `state.bins[].rect`
+// once a human has set the projector grid; before that, this file is what
 // draws.
 
 // Plywood top: 60 x 36 inches.
@@ -138,8 +137,5 @@ static_assert(sameMM(BINS[4].yMM, BINS[0].yMM + BIN_H_MM + 50.0f),
 static_assert(sameMM(BINS[4].yMM + BIN_H_MM + 177.4f, TABLE_H_MM),
 	"near row does not close the Y chain");
 
-// HOVER_DWELL_MS used to live here. Hover/dwell is v3 §9.4/§11 territory now
-// — computed from tracker cursors by core's FSM (M5), not by oF reading OSC
-// hand positions itself. Deleted with the rest of the M0.1 hover code
-// (ofApp.cpp's updateHover/binHover) rather than carried forward unused;
-// v3 §7.1 is explicit that this is a rewrite and "deleting is the point."
+// Hover and dwell are doc §9.4/§11 territory: core's FSM computes them from
+// tracker cursors, so no dwell constant belongs in this file.
