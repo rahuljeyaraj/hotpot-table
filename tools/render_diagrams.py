@@ -431,17 +431,30 @@ def spaces():
 
 # ------------------------------------------------------------------ 5. two grids
 def grids():
-    W, H = 1160, 860
+    W, H = 1160, 1012
     s = Svg(W, H, "Two bin grids, neither computed from the other",
             "Four lines across, eight down. Move one line and a whole row or column moves with it.")
 
-    # the line mechanic, drawn once at the top. Bins are drawn taller than
-    # wide, the way the real ones are: 200 mm across, 255 mm deep.
-    gx, gy, gw, gh = 120, 130, 920, 300
+    # The line mechanic, drawn once at the top, to the real table's
+    # proportions rather than sketched: 1524 x 914.4 mm of plywood, 200 x 255
+    # mm bins, a 440 mm gap up the middle for the pot. Every number here is
+    # TableGeometry.h's own, put through one scale factor, so the drawing
+    # cannot drift from the table it describes.
+    TABLE_W_MM, TABLE_H_MM = 1524.0, 914.4
+    BIN_W_MM, BIN_H_MM = 200.0, 255.0
+    COL_MM = (92.0, 342.0, 982.0, 1232.0)   # bin left edges, far row = near
+    ROW_MM = (177.0, 482.0)                 # bin top edges, far then near
+
+    gx, gy, gw = 200, 120, 760
+    k = gw / TABLE_W_MM
+    gh = round(TABLE_H_MM * k, 1)
+
+    def mm(v):
+        return round(v * k, 1)
+
     s.rect(gx, gy, gw, gh, fill=PANEL, stroke=RULE, sw=1.8, rx=4)
-    hs = [gy + 15, gy + 135, gy + 165, gy + 285]
-    vs = [gx + 40, gx + 135, gx + 160, gx + 255,
-          gx + 665, gx + 760, gx + 785, gx + 880]
+    hs = [gy + mm(v) for r in ROW_MM for v in (r, r + BIN_H_MM)]
+    vs = [gx + mm(v) for c in COL_MM for v in (c, c + BIN_W_MM)]
     for i in range(8):
         col, row = i % 4, i // 4
         x0, x1 = vs[2 * col], vs[2 * col + 1]
@@ -458,11 +471,13 @@ def grids():
     s.text(gx - 56, hs[0] + 28, "across", 17, INK, anchor="end")
     s.text(gx + gw / 2, gy + gh + 56, "8 lines down", 17, INK, anchor="middle",
            weight="bold")
+    s.text(gx + gw / 2, gy + gh + 84,
+           "drawn to scale: 1524 x 914.4 mm table, 200 x 255 mm bins",
+           14, MUTED, anchor="middle")
 
     # two stores
-    top = 600
-    s.box(80, top, 480, 236,
-          ["state/bin_grid_camera.json", "", "", "", ""],
+    top = 744
+    s.box(80, top, 480, 236, ["state/bin_grid_camera.json"],
           fill=COOL_FILL, stroke=COOL, head_fill=COOL, head_size=21,
           head_font=MONO, top=top + 42)
     s.caption(112, top + 88, [
@@ -472,8 +487,7 @@ def grids():
         "core's hand-inside-a-bin test.",
     ], 18, INK, gap=27)
 
-    s.box(600, top, 480, 236,
-          ["state/bin_grid_projector.json", "", "", "", ""],
+    s.box(600, top, 480, 236, ["state/bin_grid_projector.json"],
           fill=ACCENT_FILL, stroke=ACCENT, head_fill=ACCENT, head_size=21,
           head_font=MONO, top=top + 42)
     s.caption(632, top + 88, [
