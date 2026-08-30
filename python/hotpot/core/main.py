@@ -1560,14 +1560,10 @@ class Core:
         both, on purpose) is left untouched, still driven by the
         developer panel's mock controls (doc section 12.8).
 
-        **In setting mode this does nothing at all.** That is the whole
-        point of M2.6: staff lifting a tray out is not a diner pick, so
-        no weight change reaches Cart while the mode is live, and
+        In setting mode this does NOTHING AT ALL, which is the whole
+        point of the mode: staff lifting a tray out is not a diner pick,
+        so no weight change reaches Cart while it is live, and
         fsm.exit_setting() re-baselines all eight bins on the way out.
-        This one early return replaced M2.4's `_calibrating` dict, its
-        CAL_FREEZE_TIMEOUT_S dropped-tablet timeout and the
-        cal_begin/cal_end wire messages — all of which existed only
-        because there was no mode-wide "not billing" state to say this in.
 
         Caller holds state_lock — this mutates Cart, the same rule every
         other cart.py call site in this file already follows.
@@ -1578,13 +1574,13 @@ class Core:
         # for it. One predicate, so a state added later cannot start
         # billing by omission.
         #
-        # **This was `fsm.serving` until M6 and had to change with it.**
-        # The two predicates split when the checkout chain landed: a
-        # table on the broth screen is serving a diner but must not be
-        # weighing, or the total moves under a diner who has already been
-        # shown it, and load-cell drift while the QR is up would change an
-        # order already written to the database. See `fsm.weighing` —
-        # including why backing out to the cart deliberately un-freezes it.
+        # `weighing` and `serving` are deliberately different predicates.
+        # A table on the broth screen IS serving a diner but must not be
+        # weighing: otherwise the total moves under a diner who has
+        # already been shown it, and load-cell drift while the QR is up
+        # changes an order already written to the database. See
+        # `fsm.weighing`, including why backing out to the cart
+        # deliberately un-freezes it.
         if not self.fsm.weighing:
             return
         reading = self.scale.read()
@@ -1593,15 +1589,15 @@ class Core:
             if g is None:
                 continue
             if self._scale_baselined[i]:
-                # Pricing/display snap every tick, exactly as before —
-                # core/scale.py's own settle detector is deliberately NOT
-                # in this line, so shown_g keeps snapping the instant the
-                # deadband is crossed (I5's rule, doc section 9.2).
+                # Pricing and display snap every tick: core/scale.py's
+                # settle detector is deliberately NOT in this line, so
+                # shown_g snaps the instant the deadband is crossed
+                # (I5's rule, doc section 9.2).
                 self.cart.set_live_grams(i, g)
             else:
-                # First real reading this bin has ever had: seed, not
-                # set, so the gap to the M1 mock seed never prices as a
-                # phantom pick (cart.py's seed_live_grams docstring).
+                # First real reading this bin has ever had: SEED, not
+                # set, so the gap to the mock seed never prices as a
+                # phantom pick (see cart.py's seed_live_grams).
                 self.cart.seed_live_grams(i, g)
                 self._scale_baselined[i] = True
 
@@ -1618,8 +1614,8 @@ class Core:
 
         seed_live_grams(), not set_live_grams(): the point is to move the
         bin's whole session onto its current real weight without pricing
-        the difference, which is the same one-time hand-off M2 build item
-        5 uses for a bin's first ever reading. A bin the scale cannot
+        the difference — the same one-time hand-off a bin's first ever
+        reading uses. A bin the scale cannot
         weigh keeps its mock/placeholder value, same rule as everywhere
         else — there is no real number to move it to.
 
@@ -1634,14 +1630,14 @@ class Core:
             self.cart.seed_live_grams(i, g)
             self._scale_baselined[i] = True
 
-    # -- classifier live updates (doc section 19's M7, build items 2-3) -----
+    # -- classifier live updates (doc section 19) --------------------------
 
     def _classify_loop(self) -> None:
         """Runs for the whole life of the process, on its own thread.
 
-        One pass at boot regardless of mode (build item 2's "startup scan:
-        all 8 bins at once, slow is fine" — a table rebooted with trays
-        already sitting on it should not come up with all 8 bins
+        One pass at boot regardless of mode — a startup scan of all 8
+        bins at once, where slow is fine, because a table rebooted with
+        trays already sitting on it should not come up with all 8 bins
         unresolved when the mock seed's placeholders are the only reason
         it would). After that, a pass every `1/classify_hz` seconds, but
         **only while the table is in SETTING** (build item 5: "No re-scan
@@ -1828,13 +1824,10 @@ class Core:
             phantom_pointer = None
             self._phantom_pointer = None
 
-        # Doc section 9.1's IDLE -> SELECTING edge, which has had no driver
-        # since M1 (`fsm.hand_present()` existed with nothing calling it —
-        # CLAUDE.md's M2.6 notes say so outright, and `_handle_cancel_order`
-        # carries a fallback that becomes unreachable the moment this line
-        # lands). Only a REAL POINTER starts a session: a bowl set down on
-        # the table must not open an order, and neither may the idle-table
-        # phantom hand waking itself back up.
+        # Doc section 9.1's IDLE -> SELECTING edge. Only a REAL POINTER
+        # starts a session: a bowl set down on the table must not open an
+        # order, and neither may the idle-table phantom hand wake itself
+        # back up.
         if pointer is not None:
             self._last_real_pointer_at = now
             self.fsm.hand_present()
@@ -1842,14 +1835,13 @@ class Core:
         self._apply_phantom(now, pointer)
 
         # `cart_active` gates whether Cancel/Confirm are dwellable at all
-        # (hover.widgets_for's own docstring). `cart.is_active()` reads
-        # `shown_g`, i.e. the DEADBANDED number — deliberately, and for the
-        # same reason M2.6 chose it for the setting-mode refusal: the raw
-        # removed grams move with load-cell noise, so gating on those would
-        # arm both buttons on an untouched table and never disarm them.
+        # (see hover.widgets_for). `cart.is_active()` reads `shown_g`, the
+        # DEADBANDED number, deliberately: raw removed grams move with
+        # load-cell noise, so gating on those would arm both buttons on an
+        # untouched table and never disarm them.
         self._widgets = self._widgets_for_state()
 
-        # **When the buttons change, disarm whatever is under the hand.**
+        # When the buttons change, disarm whatever is under the hand.
         #
         # A dwell fires with the hand still resting on the button — that
         # is what dwell means — and the usual reason the buttons change is
@@ -1860,13 +1852,12 @@ class Core:
         # while the id under the hand is unchanged; this covers the case
         # where it is not.
         #
-        # **Keyed on the LAYOUT changing, not on a transition having
-        # fired**, because the two are not the same event and the case
-        # that proved it has no transition in it at all: a payment landing
-        # on the WebSocket swaps the payment screen's Back/Cancel for a
-        # single Done, in the same FSM state, from another thread. A hand
-        # resting where Done lands would have ended the session 1.2s later
-        # — with the token the diner is meant to read still on screen.
+        # Keyed on the LAYOUT changing, never on a transition having
+        # fired: the two are not the same event. A payment landing on the
+        # WebSocket swaps the payment screen's Back/Cancel for a single
+        # Done, in the same FSM state, from another thread — and a hand
+        # resting where Done lands would end the session one dwell later,
+        # with the token the diner is meant to read still on screen.
         #
         # Ids AND rects, but not `enabled` or `dwell`: those two move
         # constantly (a Next button arming the moment a broth is chosen)
@@ -1877,31 +1868,29 @@ class Core:
             self._widget_shape_prev = shape
             self.dwell.suppress_until_exit(self._widgets, pointer)
 
-        # The 90s CHECKOUT timeout that used to be checked here is gone —
-        # see CHECKOUT_TIMEOUT_S' own block at the top of this module for
-        # the report that removed it and what replaced it. Nothing on this
-        # tick ends the payment screen; only a person or a payment does.
+        # Nothing on this tick ends the payment screen: only a person or
+        # a payment does. See the checkout-timeout block at the top of
+        # this module for why there is deliberately no deadline here.
 
         # `hover.bin_under` already answers None for a None hand (its own
         # docstring), so this runs unconditionally rather than duplicating
         # that check here — one place decides what "no pointer" means for
         # a hit test.
         #
-        # **The idle-table phantom hand hovers bins too, cosmetically —
-        # that IS the feature (it lights the fire ring the same way a
-        # real hand does).** `pointer or phantom_pointer`: a real hand
-        # always wins the highlight the instant one exists (`pointer` is
-        # only non-None here when `_apply_phantom` has already confirmed
-        # no phantom can be active at the same time — see that method),
-        # and `dwell.update()` below still reads `pointer` alone, never
-        # `phantom_pointer` — hover is the only thing a phantom hand may
-        # ever drive.
+        # The idle-table phantom hand hovers bins too, cosmetically —
+        # that IS the feature: it lights the fire ring the way a real hand
+        # does. In `pointer or phantom_pointer` a real hand always wins the
+        # highlight the instant one exists, since `pointer` is only
+        # non-None here when `_apply_phantom` has already confirmed no
+        # phantom can be active at the same time. `dwell.update()` below
+        # reads `pointer` ALONE, never `phantom_pointer`: hover is the only
+        # thing a phantom hand may ever drive.
         was = self._hover_bin
         raw_hover_bin = hover.bin_under(self.camera_grid.rects(),
                                         pointer or phantom_pointer)
         if raw_hover_bin is not None:
-            # A hand IS over a bin this tick — wins immediately, same as
-            # before. This also covers switching directly from one bin to
+            # A hand IS over a bin this tick, and wins immediately. This
+            # also covers switching directly from one bin to
             # another (raw_hover_bin != was): the new bin still catches
             # fire the instant it is entered, no HOVER_EXIT_GRACE_S delay
             # on the exciting edge, only on leaving.
@@ -1918,11 +1907,9 @@ class Core:
                 self._hover_bin = None
                 self._hover_left_at = None
         if self._hover_bin != was:
-            # 2026-08-26, developer request: the bin "catches fire" the
-            # instant a hand enters it and "goes off" once it has been
-            # gone for HOVER_EXIT_GRACE_S — replaces the old `hover` tick
-            # (doc section 15.2) outright, not alongside it. Sent as
-            # one-shot `evt`s, same reasoning that sound always had:
+            # The bin catches fire the instant a hand enters it and goes
+            # out once the hand has been gone for HOVER_EXIT_GRACE_S.
+            # Sent as one-shot `evt`s, for the reason sound always is:
             # `state` repeats at 60Hz and a repeated sound would fire
             # sixty times a second (doc section 4.4). The sustained
             # crackle while a hand STAYS in a bin (grace included) is
@@ -1932,22 +1919,21 @@ class Core:
             # `idle_attract`/`attract` already uses for the idle simmer
             # bed.
             #
-            # Switching directly from one bin to another (no frame with
-            # no bin in between) plays `fire_start` again for the new
-            # bin and no `fire_stop` for the old one — the new bin
-            # catching fire is the audible event; the old one's flame
-            # just isn't there anymore, same as the visual fire ring's
-            # own crossfade only ever targets the one currently-hovered
-            # bin.
+            # Switching directly from one bin to another, with no frame
+            # in between, plays `fire_start` again for the new bin and no
+            # `fire_stop` for the old one: the new bin catching fire is
+            # the audible event, and the old one's flame simply is not
+            # there any more — the same way the visual fire ring's
+            # crossfade only ever targets the currently-hovered bin.
             if self._hover_bin is not None:
                 self._send_evt({"t": "evt", "kind": "sound", "id": "fire_start"})
             else:
                 self._send_evt({"t": "evt", "kind": "sound", "id": "fire_stop"})
 
-        # 2026-08-26, developer request: no sound at all during a dwell's
-        # progress — the doc section 15.2 `dwell_tick` rising-pitch ladder
-        # is gone outright, not muted. `_fire_widget` below is the only
-        # sound a dwell produces now, once it actually completes.
+        # No sound at all during a dwell's progress: doc section 15.2's
+        # `dwell_tick` ladder is deliberately absent rather than muted.
+        # `_fire_widget` below is the only sound a dwell produces, and
+        # only once it completes.
         fired = self.dwell.update(self._widgets, pointer, now)
         if fired is not None:
             self._fire_widget(fired)
@@ -2001,18 +1987,17 @@ class Core:
         """
         idle_for = now - self._last_real_pointer_at
 
-        # **An abandoned, EMPTY SELECTING session auto-cancels back to
-        # IDLE after the same idle window**, so the attract loop is
-        # reachable at all on a table where `hand_present()` can fire
-        # from a hand that never goes on to pick anything — a diner who
-        # tapped once and walked off, or (found live, 2026-08-26) a
-        # webcam that briefly saw something hand-shaped with nobody
-        # actually there. Gated on `cart.is_active()` being False for the
-        # same reason the old `CHECKOUT_TIMEOUT_S` (deleted above) was
-        # wrong to have one: a cart with real food already taken from it
-        # is a diner's order, and this must never touch that — only a
-        # session with nothing in it, which costs nobody anything to
-        # cancel.
+        # An abandoned, EMPTY SELECTING session auto-cancels back to IDLE
+        # after the same idle window. Without it the attract loop is
+        # unreachable on a table where `hand_present()` can fire from a
+        # hand that never picks anything — a diner who reached in once and
+        # walked off, or a camera that briefly saw something hand-shaped
+        # with nobody there.
+        #
+        # Gated on `cart.is_active()` being False, and that gate is the
+        # whole safety of it: a cart with real food already taken from it
+        # is a diner's order and must never be touched. Only a session
+        # with nothing in it is cancelled, which costs nobody anything.
         if (self.fsm.state is fsm.State.SELECTING
                 and pointer is None
                 and not self.cart.is_active()
@@ -2075,12 +2060,10 @@ class Core:
             return hover.checkout_widgets(
                 paid=self._order is not None and self._order.paid)
         # `cart_active` gates whether Cancel/Confirm are dwellable at all
-        # (hover.widgets_for's own docstring). `cart.is_active()` reads
-        # `shown_g`, i.e. the DEADBANDED number — deliberately, and for
-        # the same reason M2.6 chose it for the setting-mode refusal: the
-        # raw removed grams move with load-cell noise, so gating on those
-        # would arm both buttons on an untouched table and never disarm
-        # them.
+        # (see hover.widgets_for). `cart.is_active()` reads `shown_g`, the
+        # DEADBANDED number, deliberately: raw removed grams move with
+        # load-cell noise, so gating on those would arm both buttons on an
+        # untouched table and never disarm them.
         return hover.widgets_for(
             selecting=st is fsm.State.SELECTING,
             locales_available=len(self.locales.available()),
@@ -2096,26 +2079,24 @@ class Core:
         """The order is over — re-baseline every bin onto what it weighs
         right now. Doc section 9.1's I6: "re-baseline, never re-tare."
 
-        **Unconditional, deliberately — no `cart.is_active()` guard.**
-        Developer, 2026-08-24: "a cancel order or confirmed order should
-        set the current weight as the weight of the item, right now a
-        cance will clear the cart but if any item is touched all the old
-        items get popped up." The guard is exactly how that happened. A
-        pick under the display deadband leaves `shown_g` at 0, so
-        `is_active()` is False (cart.py's own docstring on why it reads
-        the deadbanded number and not the raw one), so the guarded call
-        did nothing at all — and `start_g` kept the old baseline. The next
-        pick from that bin added to the discarded one and crossed the
-        deadband together, so a cancelled order's grams reappeared inside
-        the following diner's. Ending a session has to end it for every
+        UNCONDITIONAL, deliberately: there is no `cart.is_active()`
+        guard, and adding one is a billing bug.
+
+        A pick under the display deadband leaves `shown_g` at 0, so
+        `is_active()` is False — see cart.py on why it reads the
+        deadbanded number rather than the raw one — and a guarded call
+        would do nothing, leaving `start_g` on the old baseline. The next
+        pick from that bin then adds to the discarded one and crosses the
+        deadband together, so a cancelled order's grams reappear inside
+        the following diner's. Ending a session has to end it for EVERY
         bin, including the ones with nothing visible in them.
 
         Caller holds `state_lock`.
         """
         self.cart.reset_session()
-        # M6: the checkout's own scratch state dies with the session, so
-        # a previous diner's broth, spice or order code can never ride
-        # into the next one. `_order` in particular is what the QR screen
+        # The checkout's own scratch state dies with the session, so a
+        # previous diner's broth, spice or order code can never ride into
+        # the next one. `_order` in particular is what the QR screen
         # and the payment callback read — leaving it set would let a
         # payment landing minutes later reset a table a new diner is
         # already using.
@@ -2141,12 +2122,11 @@ class Core:
 
         Caller holds `state_lock`.
         """
-        # 2026-08-26, developer request: the bottom nav buttons (Cancel/
-        # Back/Confirm/Language/Done) get no dwell-progress sound and no
-        # generic chime — one "single tap" the instant the dwell fires,
-        # nothing during the dwell itself. Broth/spice selection is NOT
-        # in this set — those fire their own "double tap" from
-        # `_choose_broth`/`_choose_spice` below, only when the choice
+        # The bottom nav buttons (Cancel, Back, Confirm, Language, Done)
+        # get no dwell-progress sound and no generic chime: one cue the
+        # instant the dwell fires, nothing during the dwell itself.
+        # Broth and spice selection are NOT in this set — they fire from
+        # `_choose_broth`/`_choose_spice` below, and only when the choice
         # actually changes.
         if widget_id in (hover.CANCEL, hover.BACK, hover.CONFIRM,
                          hover.LANGUAGE, hover.DONE):
@@ -2334,29 +2314,23 @@ class Core:
             _log.info("core: Next fired but the cart is empty — staying put")
             return
         self.cart.finalize()
-        # **The diner's broth and spice are NOT cleared here**, and that
-        # changed with the Back button (2026-08-25). This method runs on
-        # every SELECTING -> BROTH crossing, including the second one after
-        # somebody backed out to the cart to add an item — and wiping their
-        # choices for that would punish exactly the correction the Back
-        # button exists to make possible. A session's choices are cleared
-        # where a session ends: `_end_session`.
+        # The diner's broth and spice are NOT cleared here. This method
+        # runs on EVERY SELECTING -> BROTH crossing, including the one
+        # after somebody backed out to the cart to add an item, and wiping
+        # their choices for that would punish exactly the correction the
+        # Back button exists to make possible. A session's choices are
+        # cleared where a session ends: `_end_session`.
         _log.info("core: SELECTING -> BROTH, cart finalised at %.2f",
                   pricing.total(self.cart, self.binmap, self.catalogue))
 
     def _choose_broth(self, broth_id: str) -> None:
-        """Lock a broth in. **Does not advance the screen.**
+        """Lock a broth in. Does NOT advance the screen.
 
-        Developer, 2026-08-25: "each option button doesnt select and move
-        to the next page... only when the button progress completes the
-        previous button gets unselected and this button get selected."
-
-        A completed dwell on a plate used to BE the BROTH -> SPICE
-        transition, which made the choice invisible: the screen was gone
-        before the diner could see what they had picked, and there was no
-        way to change it short of Cancel. Now it writes one field, the
-        next tick marks that widget `selected` on the wire, and the diner
-        moves on when they press Next.
+        A completed dwell that also turned the page would make the choice
+        invisible: the screen would be gone before the diner could see
+        what they picked, with no way to change it short of Cancel. This
+        writes one field, the next tick marks that widget `selected` on
+        the wire, and the diner moves on when they press Next.
 
         Re-choosing is just this method again with a different id — the
         old choice is overwritten, so "the previous button gets
@@ -2373,16 +2347,14 @@ class Core:
         if broth_id == self._broth_id:
             return
         self._broth_id = broth_id
-        # 2026-08-26, developer request: one "single tap" cue everywhere
-        # (double_tap retired the same day) — plays exactly once, when
-        # the choice is actually made, never during the dwell that led
-        # up to it.
+        # One cue, played exactly once when the choice is actually made,
+        # never during the dwell that led up to it.
         self._send_evt({"t": "evt", "kind": "sound", "id": "single_tap"})
         _log.info("core: broth %s selected", broth_id)
 
     def _choose_spice(self, level: int) -> None:
-        """Lock a spice level in. **Does not advance the screen** — same
-        change and same reasoning as `_choose_broth`.
+        """Lock a spice level in. Does NOT advance the screen — same
+        reasoning as `_choose_broth`.
 
         **`_spice_chosen` is a separate flag and has to be.** Level 0 is a
         genuine choice (doc section 17: "many shops offer a level 0 with
@@ -2411,11 +2383,7 @@ class Core:
         """SPICE -> CHECKOUT: doc section 18.1's "order written to SQLite,
         a short code assigned, a QR code projected".
 
-        Was the RECAP -> CHECKOUT edge until 2026-08-25; RECAP is deleted
-        (see `fsm.py`'s module docstring) and this is unchanged apart from
-        which state it leaves.
-
-        **The cart is NOT re-baselined here.** That happens at
+        The cart is NOT re-baselined here. That happens at
         `_finish_checkout`, when the diner is actually done — doc section
         9.1 lists checkout *completion* as the reset_session() caller, not
         checkout entry. Resetting now would empty the cart out from under
@@ -2479,17 +2447,17 @@ class Core:
             item = self.catalogue.item(item_id)
             if item is None:
                 continue
-            # **`removed_grams`, not `shown_g`** — I5: the deadband never
-            # enters price maths, and `pricing.total()` (what bills) is
-            # built on this same number. They agree anyway by the time
-            # this runs, because `_begin_checkout` called `finalize()`,
-            # but reading the billed number directly means they cannot
-            # come apart if that ordering is ever changed.
+            # `removed_grams`, NOT `shown_g` — I5: the deadband never
+            # enters price maths, and `pricing.total()`, which bills, is
+            # built on this same number. They agree by the time this runs,
+            # since `_begin_checkout` called `finalize()`, but reading the
+            # billed number directly means they cannot come apart if that
+            # ordering is ever changed.
             grams = self.cart.removed_grams(i)
-            # **Not `grams <= 0` — `is_billable`.** A true zero was never
-            # the thing appearing on receipts with a 1-cent tag; a
-            # sub-gram pick was, printed as "0 g" and priced anyway. Same
-            # predicate `pricing._sum_resolved` now uses, so the lines
+            # `is_billable`, NOT `grams <= 0`. A true zero is not what
+            # reaches a receipt with a 1-cent tag; a SUB-GRAM pick is,
+            # printed as "0 g" and priced anyway. The same predicate
+            # `pricing._sum_resolved` uses, so the lines
             # here and the total they sit under drop exactly the same
             # bins (2026-08-25).
             if not pricing.is_billable(grams):
@@ -2753,12 +2721,11 @@ class Core:
         """
         if self.fsm.state is fsm.State.UNCALIBRATED:
             return {"kind": "uncalibrated"}
-        # M6, and it outranks the fault overlay for the same reason doc
-        # section 14.5 puts SETTING above `error`: a table in CHECKOUT is
-        # not billing any more — the order is written and the numbers are
-        # fixed — so "SCALES OFFLINE, NOT BILLING" would warn about a risk
-        # that cannot occur while covering the code the diner is trying to
-        # pay with.
+        # Outranks the fault overlay, for the same reason doc section
+        # 14.5 puts SETTING above `error`: a table in CHECKOUT is not
+        # billing any more — the order is written and the numbers are
+        # fixed — so a scales-offline warning would name a risk that
+        # cannot occur while covering the code the diner is paying with.
         if self.fsm.state is fsm.State.CHECKOUT and self._order is not None:
             return {
                 "kind": "qr",
