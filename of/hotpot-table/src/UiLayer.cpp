@@ -2614,14 +2614,12 @@ void UiLayer::drawBanner(const ofColor & fill, const ofColor & ink,
 }
 
 void UiLayer::drawBrandMark() const {
-	// Developer request, not doc §14.5: persistent "always visible" table
-	// branding, top-anchored in the pot-gap centre column — "the one
-	// horizontal span on the table with no bin and no label in it, by
-	// construction" (see drawBanner). Unlike the banner this is never
-	// hidden — draw() always calls it when the image loaded — and
-	// drawBanner positions itself below the mark's bottom edge rather
-	// than sharing this strip, so the two stack instead of one replacing
-	// the other.
+	// Persistent, always-visible table branding, top-anchored in the
+	// pot-gap centre column — the one horizontal span with no bin and no
+	// label in it (see drawBanner). Unlike the banner this is never
+	// hidden: draw() always calls it once the image has loaded, and
+	// drawBanner positions itself below the mark's bottom edge rather than
+	// sharing this strip, so the two stack.
 	if(!_brandLogoLoaded){
 		return;
 	}
@@ -2642,40 +2640,36 @@ void UiLayer::drawBrandMark() const {
 }
 
 void UiLayer::drawTopBanner(const StateLink::State & state) const {
-	// **Precedence: SETTING wins over error.** Both claim the same strip
-	// and both can be true at once — in setting mode, someone knocks the
-	// XIAO cable out. Nothing bills in setting mode (core's
-	// _apply_scale_to_cart returns immediately there), so
-	// "SCALES OFFLINE — NOT BILLING" would be warning about a risk that
-	// cannot occur, while displacing the one message that is true. The
-	// person doing setting-mode work is holding the tablet, and the staff
-	// view's Bins tab already shows "Load cells: no connection"; this
-	// strip is for everyone *not* holding the tablet.
+	// Precedence, doc §14.5's table: uncalibrated > setting > error.
 	//
-	// This is the general rule for the strip, established here because
-	// `qr` (M6) asks the same question: the state that changes
-	// what the table is DOING outranks the state that reports a fault in
-	// a subsystem that state has already disabled.
+	// The general rule is that the state which changes what the table is
+	// DOING outranks a fault reported by a subsystem that state has
+	// already disabled.
 	//
-	// English only, matching UiLayer's current scope. Doc §14.5 pairs the
-	// banner with a Chinese string; zh locale data does not exist yet (M1
-	// is English-only end to end) and §17.3 is explicit that Chinese
-	// judges will read this, so the zh text must be confirmed by a native
-	// speaker before it ships rather than guessed at here.
-	// Both banners lead with the SAME headline, deliberately. "NOT
-	// SERVING" is the only part a diner needs, and it is equally true of
-	// both states; which one it is only matters to the operator, who gets
-	// it from the subline and from the hue (I8). The old wording said
-	// "NOT BILLING" — an internal word for an external surface, and the
-	// system's own second word for the same idea. There is one word now,
-	// "serving", and it is the one a diner already understands.
-	// **Order, doc §14.5's precedence table:**
-	//   uncalibrated > setting > error
+	// SETTING therefore wins over error. Both claim this strip and both
+	// can be true at once — someone knocks the XIAO cable out mid-setup —
+	// but nothing bills in setting mode (core's _apply_scale_to_cart
+	// returns immediately there), so a scales-offline warning would name a
+	// risk that cannot occur while displacing the message that is true.
+	// Whoever is doing setting-mode work is holding the tablet, where the
+	// Bins tab already reports the dead link; this strip is for everyone
+	// NOT holding it.
 	//
 	// `uncalibrated` outranks `setting` because it SURVIVES setting mode:
-	// an operator who exits setting mode on a table with no geometry
-	// still cannot serve, and `setting` would mask the one message that
-	// is still true for the whole time they are trying to fix it.
+	// an operator who exits on a table with no geometry still cannot
+	// serve, and `setting` would mask the one message that stays true for
+	// the whole time they are trying to fix it.
+	//
+	// Both banners lead with the SAME headline, deliberately: it is the
+	// only part a diner needs and is equally true of both states, and
+	// which one it is matters only to the operator, who reads it off the
+	// subline and the hue (I8). The wording is "serving" throughout rather
+	// than "billing" — one word for the idea, and the one a diner already
+	// understands.
+	//
+	// English only. Doc §14.5 pairs the banner with a Chinese string, and
+	// §17.3 is explicit that Chinese judges will read it, so that text
+	// must be confirmed by a native speaker rather than guessed at here.
 	if(state.overlayKind == "uncalibrated"){
 		drawBanner(kUncalBannerFill, kUncalBannerInk,
 			"NOT SERVING", "not set up yet");
@@ -2705,27 +2699,22 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 		// The Cancel button. A style of its own rather than "secondary"
 		// grey — I8 wants a state carried by hue, and "this discards your
 		// order" is not the same statement as "this is the lesser of two
-		// buttons." Since 2026-08-25 it is a MUTED clay rather than a
-		// fire-engine red; see kWidgetDanger.
+		// buttons." A MUTED clay rather than a fire-engine red; see
+		// kWidgetDanger.
 		ink = kWidgetDanger;
 	}
 	else if(w.style == "option"){
-		// M6's broth and spice plates. Neutral ink, selected or not — a
+		// The broth and spice plates. Neutral ink, selected or not — a
 		// fourth hue here would make the SCREEN look like it was carrying
 		// state, when the only state on it is which one is chosen.
 		//
-		// **Selection used to swap this to `kWidgetPrimary` (teal);
-		// 2026-08-25, later still, it stopped.** Developer: "dont make it
-		// blue like done currently. instead change the border thickness
-		// and change the halo colour." Both of those already happen
-		// downstream of `ink` (the ring in `drawOptionPlate` goes thicker
-		// on `sel`, the glow goes teal-tinted on `sel`) without this
-		// value ever needing to change — see that function's own comment.
+		// Selection is signalled downstream of `ink` instead:
+		// `drawOptionPlate` thickens the ring and tints the glow on
+		// `sel`, neither of which needs this value to change.
 		ink = kInkColor;
 	}
 
-	// **How lit this control is, 0..1 — and the one number the whole
-	// "breathing halo" report comes down to.**
+	// How lit this control is, 0..1.
 	//
 	//   hovered        1.0, steady. A control under the hand must not
 	//                  pulse; the step from breathing to solid is itself
@@ -2750,9 +2739,9 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 		return;
 	}
 
-	// **A rounded RECTANGLE, not a pill** (kWidgetCornerPx's own comment
-	// carries the report). The glow is drawHalo's falloff (drawGlow) so a
-	// lit button and a lit bin are the same effect at two sizes.
+	// A rounded RECTANGLE, not a pill — see kWidgetCornerPx. The glow is
+	// drawHalo's falloff (drawGlow), so a lit button and a lit bin are the
+	// same effect at two sizes.
 	const float corner = std::min(kWidgetCornerPx,
 		std::min(box.width, box.height) * 0.5f);
 	const bool primary = w.enabled && w.style == "primary";
@@ -2766,31 +2755,21 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 		ofColor(ink, w.enabled ? (int)(fillPeak * (0.55f + 0.45f * glow01))
 			: kWidgetFillAlpha / 2));
 
-	// Dwell progress, drawn INSIDE the button — and since 2026-08-25 the
-	// ONLY place it is drawn at all. The cursor used to carry a concentric
-	// ring showing the same fraction, but it sits under the diner's hand —
-	// which is exactly where a hand is while dwelling — so on the rig it
-	// read as no feedback at all (developer, 2026-08-24: "no progress of
-	// hover was shown"). The ring is now deleted outright (developer,
-	// 2026-08-25: "no concentric progress, the progress will be shown in
-	// the button, not the pointer"). `dwell` is core's 0..1 fraction; oF
-	// still times nothing (doc §9.4).
+	// Dwell progress, drawn INSIDE the button, and the ONLY place it is
+	// drawn at all. A concentric ring on the cursor sits under the diner's
+	// hand — which is exactly where a hand is while dwelling — so it reads
+	// as no feedback whatever. `dwell` is core's 0..1 fraction; oF times
+	// nothing (doc §9.4).
 	//
-	// **The button row now uses the option cards' inverting sweep**,
-	// 2026-08-25: "the same inversion effect is also needed for the
-	// cancel, next back pay, done icons at the bottom as well." It was a
-	// translucent amber wash (`kWidgetDwellFill`, alpha 80) that left the
-	// label alone; it is now the same near-solid dark band the cards use,
-	// with the label inverting behind its leading edge — so Back, Cancel,
-	// Pay, Next and Done all report progress the same way a broth card
-	// does, and the table has one dwell language instead of two.
+	// The button row uses the option cards' inverting sweep: the same
+	// near-solid dark band, with the label inverting behind its leading
+	// edge. Back, Cancel, Pay, Next and Done therefore report progress the
+	// same way a broth card does, so the table has one dwell language
+	// rather than two.
 	//
-	// **It fills LEFT to RIGHT**, which was forced by the old pill shape
-	// (a partial-height rounded rect on a pill's bottom edge pokes its
-	// corners out through the pill's curve) and is kept now that the
-	// shape is a rounded rect, because left-to-right is what a progress
-	// bar does everywhere else a diner has seen one. The clamp to the
-	// button's own corner is what keeps the sweep inside the frame.
+	// It fills LEFT to RIGHT, which is what a progress bar does everywhere
+	// else a diner has seen one. The clamp to the button's own corner is
+	// what keeps the sweep inside the frame.
 	const float sweep01 = sweep01For(w);
 	drawSweep(box, corner, sweep01);
 
@@ -2841,110 +2820,79 @@ void UiLayer::drawWidget(const StateLink::Widget & w) const {
 
 void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 	float glow01) const {
-	// A broth or a spice option — the two draw identically now,
-	// 2026-08-25, later still. Developer: "no need chilli icon, no need
-	// slider which was never implemented, instead a 2 button was
-	// implemented, remove that and follow exactly what is done with
-	// broth do the same for spice boxes as well. just 3 boxes." The
-	// chili-strip cell and the vertical-slider layout it grew into
-	// (`icon == "chilli"`, `hover.spice_layout_rects`) are both gone —
-	// `hover.spice_widgets` now lays out full-height cards through
-	// `hover.broth_card_rects`, the exact function `hover.broth_widgets`
-	// already used, so this one card style is the whole function.
+	// A broth or a spice option: the two draw identically.
+	// `hover.spice_widgets` lays out full-height cards through
+	// `hover.broth_card_rects`, the same function `hover.broth_widgets`
+	// uses, so this one card style is the whole function.
 	const ofRectangle box(w.x, w.y, w.w, w.h);
 	const float corner = std::min(kWidgetCornerPx,
 		std::min(box.width, box.height) * 0.5f);
 	const bool sel = w.selected && w.enabled;
 
-	// **Selection is a halo colour now, not a card colour.** Developer:
-	// "when a broth or spicy button gets selected, dont make it blue like
-	// done currently. instead change the border thickness and change the
-	// halo colour." `ink` (the fill/ring/name colour below) stays neutral
-	// regardless of `sel` — see drawWidget's own `style == "option"`
-	// branch — and only the GLOW reaches for `kWidgetPrimary`, so a
-	// locked-in choice reads as "this one is glowing teal" rather than
-	// "this whole card turned blue."
+	// Selection is a HALO colour, not a card colour: `ink` — the fill,
+	// ring and name colour below — stays neutral regardless of `sel` (see
+	// drawWidget's `style == "option"` branch), and only the GLOW reaches
+	// for `kWidgetPrimary`. A locked-in choice reads as "this one is
+	// glowing" rather than "this whole card changed colour".
+	//
 	// The halo itself is `drawWidgetGlows`, called much earlier — see
 	// there for why every glow has to land under the whole column.
 	//
-	// An OPAQUE base first, then the usual translucent ink wash on top of
-	// it. The wash is only ~10% ink, so without this the neighbouring
-	// cards' halos read straight through a card that was drawn over them
-	// — which is what "i can still see halo of button coming over other
-	// buttons" was still seeing after the draw order was fixed. The base
-	// is the table's own colour, so the card looks exactly as it did;
-	// it just stops being a window.
+	// An OPAQUE base first, then the translucent ink wash on top. The wash
+	// is only ~10% ink, so without the base the neighbouring cards' halos
+	// read straight through a card drawn over them. The base is the
+	// table's own colour, so the card looks unchanged; it just stops being
+	// a window.
 	drawRoundedRectFill(box, corner, kCardBaseColor);
 	drawRoundedRectFill(box, corner,
 		ofColor(ink, w.enabled
 			? (int)(kWidgetFillAlpha * (0.55f + 0.45f * glow01))
 			: kWidgetFillAlpha / 2));
 
-	// **The dwell sweep INVERTS the text it crosses, 2026-08-25 (final).**
-	// Developer: "when we hover we load a darker shade right. so as that
-	// shade comes up the text in the darker area gets colour inverted. so
-	// the progress will be actuall usefull." The previous pass filled a
-	// selected card with ink at 140/255 and left the text at its dark
-	// inks, which on the projector read as a black hole with the words
-	// dissolved inside it (photographed on the rig). Now the sweep goes
-	// nearly SOLID and the text comes with it: everything left of the
-	// leading edge is redrawn in the lit inks below, so contrast is
-	// preserved the whole way across instead of collapsing at the end.
+	// The dwell sweep INVERTS the text it crosses. A dark fill that leaves
+	// the text at its dark inks reads on the projector as a black hole
+	// with the words dissolved inside it, so the sweep goes nearly solid
+	// and the text comes with it: everything left of the leading edge is
+	// redrawn in the lit inks, and contrast holds the whole way across
+	// instead of collapsing at the end.
 	const float sweep01 = sweep01For(w);
 	const float sweepW = box.width * sweep01;
 	drawSweep(box, corner, sweep01);
 
-	// **The ring does NOT thicken on selection any more, 2026-08-25.**
-	// Developer: "now we are filling with black there is no point in
-	// creating the button edges thicker, let it remain the same." The
-	// thicker ring was the border half of an older selection signal
-	// ("change the border thickness and change the halo colour") from when
-	// the card itself stayed pale; a fully swept card carries the state in
-	// its own fill now, and a ring that also jumped from 5mm to 9mm shifted
-	// the text inside it at the moment of locking.
+	// The ring does NOT thicken on selection: a fully swept card carries
+	// that state in its own fill, and a ring that jumped width as well
+	// would shift the text inside it at the moment of locking.
 	drawRing(box, mmToPxX(kWidgetRingMM), mmToPxY(kWidgetRingMM), ink, corner);
 
-	// The broth screen's own card style, 2026-08-25. Developer: "there is
-	// no info box, instead the whole button is inlarged to contain the
-	// info about respective brothes, so u can use the complete vertical
-	// space above the next button row... also the coloured circle infront
-	// of the broth name has to be removed." `hover.broth_widgets` lays
+	// The card carries the option's own info: `hover.broth_widgets` lays
 	// out one FULL-WIDTH row per broth (`hover.broth_card_rects`),
-	// spanning the band the shared info box used to occupy plus the old
-	// option row's own band — `UiLayer::draw` skips `drawInfoBox`
-	// entirely on the broth screen (see that call site), so this card is
-	// the ONLY place a broth's diet/note reach the table now. No swatch
-	// (the old `kOptionSwatchFrac` circle is gone with it —
-	// `parseHexColor`/`w.swatch` are no longer read here at all), no icon
-	// column, no tick, and — 2026-08-25, later still — no spice-level
-	// row either: the chilli gauge this card's meta slot used to draw is
-	// gone (developer: "completely remove the spice icon or words in the
-	// broth boxes"), so `w.meta` is no longer read here at all.
+	// spanning the band the shared info box occupies on other screens plus
+	// the option row's own band. `UiLayer::draw` skips `drawInfoBox`
+	// entirely on these screens (see that call site), so this card is the
+	// ONLY place an option's diet and note reach the table.
 	//
-	// **The note's line count is SOLVED from the card's own remaining
-	// height, not a fixed budget.** `drawInfoBox` can get away with a
-	// fixed `kInfoBoxNoteMaxLines` because there is only ever one shared
-	// box; this function draws N cards of whatever height `hover.py`
-	// divided the band into for however many broths (or spice levels) the
-	// menu holds today, and that count has already changed once this
-	// session (4 -> 3). A card this function was never measured against
-	// must still be unable to overflow its own box.
+	// There is no swatch, no icon column and no tick, and `w.meta` and
+	// `w.swatch` are not read here at all.
+	//
+	// The note's line count is SOLVED from the card's own remaining
+	// height, never a fixed budget. `drawInfoBox` can use a fixed
+	// `kInfoBoxNoteMaxLines` because there is only ever one shared box;
+	// this function draws N cards of whatever height `hover.py` divided
+	// the band into, for however many options the menu holds — a count
+	// that changes with the menu. A card this function was never measured
+	// against must still be unable to overflow its own box.
 	if(!_infoFont.isLoaded() || !_infoNameFont.isLoaded()){
 		ofSetColor(255);
 		return;
 	}
 	const float padX = kInfoBoxPadXPx;
 	const float leftX = box.x + padX;
-	// **The note draws in `_cardNoteFont`, not `_infoFont`, since
-	// 2026-08-25.** Developer: "now broth content is getting truncated. u
-	// may reduce the font size but it cant truncate." The header's
-	// breathing-room pass took ~28px off the top of every card and the
-	// longest broth note stopped fitting. `_cardNoteFont` is the same face
-	// at `kCardNotePx` (16px against the shared box's 18px), which buys
-	// back a line and a half of note per card — and it is a font of the
-	// card's OWN, deliberately not a smaller `kInfoBoxTextPx`, because the
-	// shared info box on the bin screen has its own band arithmetic and
-	// has no reason to shrink with this.
+	// The note draws in `_cardNoteFont`, not `_infoFont`: the same face at
+	// `kCardNotePx` (16px against the shared box's 18px), which buys back
+	// a line and a half of note per card. It is the card's OWN font rather
+	// than a smaller `kInfoBoxTextPx`, because the shared info box on the
+	// bin screen has its own band arithmetic and no reason to shrink with
+	// this.
 	const ofTrueTypeFont & noteFace =
 		_cardNoteFont.isLoaded() ? _cardNoteFont : _infoFont;
 	const float textWidth = box.width - 2.0f * padX;
@@ -2952,26 +2900,22 @@ void UiLayer::drawOptionPlate(const StateLink::Widget & w, const ofColor & ink,
 		+ fabsf(noteFace.getDescenderHeight()) + kBrothCardNoteLineGapPx;
 	float y = box.y + kBrothCardPadYPx;
 
-	// The name — `_optionFont` (20px), not `_infoNameFont` (32px, sized
-	// for a bin's shorter catalogue name): measured against the real
-	// three broths at this card's own width, "Mushroom Vegan Broth" is
-	// the worst case and clears this font/width pair with ~30px to
-	// spare, where 32px would not — "measured, not guessed," learned the
-	// hard way earlier this session.
+	// The name uses `_optionFont` (20px), not `_infoNameFont` (32px, sized
+	// for a bin's shorter catalogue name). Measured against the real
+	// broths at this card's own width: the longest clears this font/width
+	// pair with ~30px to spare, where 32px would not.
 	const ofTrueTypeFont & nameFace =
 		_optionFont.isLoaded() ? _optionFont : _nameFont;
 	const float nameBaseline = y + nameFace.getAscenderHeight();
-	// The chilli count, right-aligned on the NAME's own line — developer,
-	// 2026-08-25: "put one chilli in the mil right alighedn in same line
-	// as that of mild. then 2 chilli in medium and three in hot, all right
-	// alighned." Drawn before the name so the name's width budget can
-	// subtract the strip: a broth sends no icon and loses nothing.
+	// The chilli count, right-aligned on the NAME's own line. Drawn before
+	// the name so the name's width budget can subtract the strip; a broth
+	// sends no icon and loses nothing.
 	const int chilliCount = (w.icon == "chilli")
 		? std::max(0, std::min(8, w.iconCount)) : 0;
 	// Sized to the NAME's own cap height, measured off the label rather
-	// than off the font's ascender — "Hot", "Medium" and "Mild" are all
-	// caps-and-x-height with no descender, so the string's own bounding
-	// box IS the letter height the developer asked the pepper to match.
+	// than off the font's ascender: "Hot", "Medium" and "Mild" are all
+	// caps and x-height with no descender, so the string's own bounding
+	// box IS the letter height the pepper has to match.
 	const float chilliH = chilliCount > 0
 		? nameFace.getStringBoundingBox(w.label, 0, 0).height : 0.0f;
 	const float chilliPitch = chilliH * (kChilliWidthFactor + kChilliGapFactor);
