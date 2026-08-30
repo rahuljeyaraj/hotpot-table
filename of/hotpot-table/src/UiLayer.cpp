@@ -400,48 +400,31 @@ namespace {
 	// the note), so a single point off it is worth more here than anywhere
 	// else on the table.
 	//
-	// **The second cut paid for the header's breathing room**, same day:
-	// `kBrandTopMarginPx`/`kBrandBannerGapPx`/`kStepDotsRowGapPx` took 20px
-	// out of this band, and setup()'s own check caught it immediately
-	// (224.0px of content in a 204.8px band — exactly the overflow the
-	// check exists to refuse to ship). ~15px comes back off the line gap
-	// and ~6px off the pad, which clears it without touching a font size
-	// on the one screen the diner reads longest.
+	// The padding and line gap are the slack that absorbs changes to the
+	// header above: whenever `kBrandTopMarginPx`, `kBrandBannerGapPx` or
+	// `kStepDotsRowGapPx` grow, this band shrinks, and setup()'s check
+	// refuses to ship an overflow. Take it out of the gap and the pad
+	// rather than out of a font size — this is the screen the diner reads
+	// longest.
 	const float kInfoBoxPadYPx = 7.0f;
 	const float kInfoBoxLineGapPx = 3.0f;
-	// **No fill, no border, no panel.** The pink-fill + fire-glow rounded
-	// card that lived here until 2026-08-24 is gone: the developer picked
-	// Direction A off the design canvas, which is the text-forward one —
-	// the box is type on the table background, exactly as doc §4 already
-	// requires of the plate ("no fill and no border. Text sits directly on
-	// the table background") and as the cart itself was changed to be
-	// earlier the same day. It is also doc §8's own words for this
-	// element: "Idle: invisible. No fill, no border."
-	//
-	// What groups it instead is the tapered gold rule and the shared left
-	// margin with the cart below it. kInfoBoxFill/kInfoBoxGlow/
-	// kInfoBoxCornerPx and their glow-band counts are deleted outright,
-	// this file's usual rule, rather than left dormant at alpha 0.
+	// No fill, no border, no panel — the box is type on the table
+	// background, the same rule doc §4 sets for the plate and doc §8 sets
+	// for this element outright ("Idle: invisible. No fill, no border").
+	// What groups it instead is the faded rule and the shared left margin
+	// with the cart below it.
 	const ofColor kInfoBoxTextColor(0x4A, 0x42, 0x38);   // the note line
 	const ofColor kInfoBoxNameColor(0x2B, 0x21, 0x18);   // the plate's own ink
 	const ofColor kInfoBoxKcalColor(0x56, 0x4D, 0x3A);
-	// The note wraps to at most this many lines.
+	// The note wraps to at most this many lines, and this is exactly the
+	// requirement rather than headroom. The ingredient notes in
+	// `catalogue.json` measure two lines, but the broth and spice notes in
+	// `menu.json` are longer sentences and the worst of them takes all
+	// three. The box's band therefore has to fit three lines, which is what
+	// the padding, line gap and text size above are tuned for.
 	//
-	// **This stopped being headroom when M6 landed, and nothing noticed
-	// until 2026-08-25.** It was written as "three, against content that
-	// measures two" — true of the ingredient notes in `catalogue.json`,
-	// which is all there was then. The broth and spice notes in
-	// `menu.json` are longer sentences, and measured against the real face
-	// at the real width the worst of them ("Numbing and fiery, built on
-	// Sichuan pepper and chilli. The boldest broth here.") takes all
-	// three, at 18px and at 19px alike. So the cap is now exactly the
-	// requirement, and the box's band has to fit three lines rather than
-	// two-plus-slack — which is what the padding, line gap and text size
-	// above were retuned for.
-	//
-	// "No text should get truncated" (developer, 2026-08-24) still holds:
-	// `wrapToLines`' ellipsis is the net, and setup()'s own check is what
-	// says whether the net is about to be needed.
+	// Nothing may truncate: `wrapToLines`' ellipsis is the net, and
+	// setup()'s check is what says whether the net is about to be needed.
 	const int kInfoBoxNoteMaxLines = 3;
 
 	// --- doc §18.1's CHECKOUT screen -------------------------------------
@@ -453,42 +436,33 @@ namespace {
 	const float kQrQuietModules = 4.0f;
 	const float kQrCaptionGapPx = 14.0f;
 
-	// **The whole code, quiet zone included, is 200px — SMALLER THAN A
-	// BIN.** Developer, 2026-08-25: "the qr code should be much smaller
-	// smaller, now it even overlaps the bins. it should be easily scanned
-	// by persons phone. so bigger means they have to move phone much far
-	// away. it should be smaler than the bin size."
+	// The whole code, quiet zone included, is deliberately SMALLER THAN A
+	// BIN — 200px is 159mm on the plywood against a bin's 200mm.
 	//
-	// Two separate faults, and this fixes both:
+	// Bigger is worse, not better: a QR is scanned at the distance where it
+	// fills the phone's frame, so a larger projected code makes the diner
+	// stand FURTHER back, which on a 1.5m table means leaning away from the
+	// thing they are scanning.
 	//
-	// 1. The overlap was arithmetic. The old sizing solved for a module
-	//    from `avail - 2 * kQrQuietModules * 4` — a fixed 32px allowance
-	//    for the margins — and then laid out `module * n + 2 * (module *
-	//    4)`, where the quiet zone is 8 MODULES wide, not 32px. At the
-	//    module size it picked that came out at 592px against a 554px
-	//    centre column, so the code ran off the pot gap and onto the
-	//    trays either side of it.
+	// At 29 modules plus 8 of quiet zone that is a 5px module, ~4mm
+	// physical, comfortably above what a phone camera resolves at arm's
+	// length. The code is projected at full contrast onto a white plate
+	// (below), which is the part that actually decides whether a scan
+	// succeeds.
 	//
-	// 2. The size was wrong even where it fitted. A QR is scanned at the
-	//    distance where it fills the phone's frame, so a bigger projected
-	//    code makes the diner stand FURTHER back, not closer — which on a
-	//    1.5m table means leaning away from the thing they are scanning.
-	//
-	// 200px is 159mm on the plywood against a bin's 200mm, so it is
-	// visibly smaller than the trays beside it. At 29 modules plus 8 of
-	// quiet zone that is a 5px module, ~4mm physical — comfortably above
-	// what a phone camera resolves at arm's length, and the code is
-	// projected at full contrast onto a white plate (below), which is the
-	// part that actually decides whether a scan succeeds.
+	// Note when resizing that the quiet zone is 8 MODULES wide, not a fixed
+	// pixel allowance: solving for a module size against a fixed margin and
+	// then laying out `module * n + 2 * (module * 4)` overflows the centre
+	// column and puts the code on the trays either side of it.
 	const float kQrTargetSidePx = 200.0f;
 	// The token, once it exists. Big, because it is the one thing a diner
 	// carries away from this screen — and it exists ONLY after payment,
 	// which is core's rule, not this file's (see StateLink::Qr::token).
 	const int kTokenPx = 88;
-	// The two lines under the token (2026-08-25). The first gap is larger
-	// than the second so the pair reads as ONE block hung off the token
-	// rather than as three evenly spaced lines — the token is the thing,
-	// the two lines are its caption.
+	// The two lines under the token. The first gap is larger than the
+	// second so the pair reads as ONE block hung off the token rather than
+	// as three evenly spaced lines: the token is the thing, the two lines
+	// are its caption.
 	const float kTokenHintGapPx = 18.0f;
 	const float kTokenHintLineGapPx = 8.0f;
 	// Line two ("we'll call this number") is a promise, not an
@@ -506,15 +480,12 @@ namespace {
 	const float kInfoDietDotRadiusPx = 8.0f;
 	const float kInfoDietDotGapPx = 10.0f;
 
-	// The broth card's own, tighter vertical rhythm, 2026-08-25: developer,
-	// "the broth details is getting truncated... reduce the size of the
-	// info to fit in that box." Two of the three real notes (mala,
-	// collagen) were overrunning `drawOptionPlate`'s broth-card branch by
-	// one short line under the shared `kInfoBoxPadYPx`/`kInfoBoxLineGapPx`
-	// rhythm the bins' info box uses — that rhythm is left alone (the bins
-	// were already measured against it) and the broth card gets its own,
-	// smaller pad and note line-gap instead, which is the whole difference
-	// needed to clear a 3rd note line without shrinking any text.
+	// The broth card's own, tighter vertical rhythm. Under the shared
+	// `kInfoBoxPadYPx`/`kInfoBoxLineGapPx` the longer broth notes overrun
+	// `drawOptionPlate`'s card by one short line. That shared rhythm is
+	// left alone, since the bins are measured against it, and the broth
+	// card takes a smaller pad and note line-gap instead — enough to clear
+	// a third note line without shrinking any text.
 	const float kBrothCardPadYPx = 7.0f;
 	const float kBrothCardNoteLineGapPx = 3.0f;
 	// The option card's own note size — see `drawOptionPlate`'s comment on
@@ -526,21 +497,7 @@ namespace {
 	// has to be a number no menu note can reach rather than zero.
 	const size_t kCardNoteLineCap = 64;
 
-	// --- The pointer: none of it is drawn any more ------------------------
-	// This block used to hold the cursor's own furniture — first a dot and
-	// a concentric dwell-ring pair, then (2026-08-25) a candle-flame
-	// silhouette sized to the same footprint. Both are deleted. Developer,
-	// 2026-08-25, final: "remove the candle flame icon, no concentric
-	// progress, the progress will be shown in the button, not the pointer,"
-	// "make the normal fire we had few commits before as the default
-	// pointer everywhere." The pointer is now the ofxFlowTools fluid fire
-	// and nothing else, on every page — see ofApp::draw's `fluidActive` and
-	// `cursorForUi`. Dwell progress lives on the widget (drawWidget's dwell
-	// fill), which is the half of the pair a hand does not cover anyway.
-	// The one colour kept is the dwell amber, because the WIDGET fill still
-	// uses that hue — see kWidgetDwellColor's own comment.
-
-	// --- RIG_FEEDBACK item 11 diagnostic: the raw skeleton ----------------
+	// --- the raw-skeleton diagnostic ---------------------------------------
 	// Deliberately its own palette — this must read as a different thing
 	// from a real hand indicator at a glance, since the whole point is
 	// telling the two apart on the same table. Same lime/gold pairing the
@@ -570,7 +527,7 @@ namespace {
 		{0, 17},
 	};
 
-	// --- M5: the projected buttons ----------------------------------------
+	// --- the projected buttons ---------------------------------------------
 	// A button is drawn the same way a plate is — a filled rect ring with
 	// the label inside it — so the two read as one system rather than as a
 	// UI pasted onto a table. 5mm rather than the plate's 6mm because a
@@ -578,18 +535,13 @@ namespace {
 	// frame starts to compete with its own label.
 	const float kWidgetRingMM = 5.0f;
 
-	// **A ROUNDED RECTANGLE, not a pill (2026-08-25).** Developer: "also
-	// make itrectangle with rounded corners insted of current shape", and
-	// on the same shape a message earlier, "still the shape and size tooks
-	// bad."
-	//
-	// The pill was half-height corners, which was the roundest a rect can
-	// be — and at 100px tall with a 6-letter label that made a lozenge
-	// whose end caps were wider than the space the word sat in. It read as
-	// a badge, not as a button. 18px of radius on a 76px button is about
-	// what every kiosk, phone and ticket machine a diner has already used
-	// puts on a primary action: unmistakably a button, still soft enough
-	// not to fight the fluid and the halos around it.
+	// A ROUNDED RECTANGLE, not a pill. Half-height corners — the roundest a
+	// rect can be — make a lozenge whose end caps are wider than the space
+	// the word sits in, which reads as a badge rather than as a button.
+	// 18px of radius on a 76px button is about what every kiosk, phone and
+	// ticket machine a diner has already used puts on a primary action:
+	// unmistakably a button, still soft enough not to fight the fluid and
+	// the halos around it.
 	//
 	// The option plates use the SAME radius rather than a proportional
 	// one, so a 520x74 broth plate and a 155x76 Next button read as the
@@ -597,22 +549,18 @@ namespace {
 	// shape would make the wide plates look flatter than the buttons.
 	const float kWidgetCornerPx = 18.0f;
 
-	// **The green/red pair is gone (2026-08-25).** Developer: "the red and
-	// green is not suing well."
-	//
-	// They were right, and the reason is that this table has a palette
-	// already: a warm near-white field (#E8E6E1), amber halos breathing
-	// around the bins, orange fire, and one deep teal accent that earned
-	// its place by being the only ink that survived three rounds of the
-	// projector's warm shift (see kAccentInk). A saturated traffic-light
-	// green and a fire-engine red are from a different design — they read
-	// as a web form dropped onto the plywood, and the red in particular
-	// competed with the actual fire.
+	// Deliberately NOT a traffic-light green/red pair. This table has a
+	// palette already — a warm near-white field (#E8E6E1), amber halos
+	// breathing around the bins, orange fire, and one deep teal accent that
+	// is the only ink to survive the projector's warm shift (see
+	// kAccentInk). Saturated green and fire-engine red belong to a
+	// different design: they read as a web form dropped onto the plywood,
+	// and the red competes with the actual fire.
 	//
 	// What replaces them is a hierarchy rather than two opposed signals,
-	// which is also what every restaurant kiosk does (QSR Magazine's own
-	// guidance: the confirming action is the large, bold one; "Cancel" and
-	// "Edit" are kept smaller and less prominent):
+	// which is what a restaurant kiosk does — the confirming action is the
+	// large, bold one, and Cancel and Back are kept smaller and less
+	// prominent:
 	//
 	//   PRIMARY (Next / Pay)  the teal accent, the loudest thing in the
 	//                         row — filled harder, glowing brighter. It is
@@ -632,30 +580,26 @@ namespace {
 	const ofColor kWidgetSecondary(0x6E, 0x6A, 0x62); // warm graphite
 	const ofColor kWidgetDanger(0xA8, 0x55, 0x45);    // muted clay
 	const ofColor kWidgetDisabled(0xB4, 0xB0, 0xA8);  // warm grey, not blue-grey
-	// The dwell sweep, drawn INSIDE a widget (see drawWidget). This is now
-	// the ONLY place dwell progress is shown — developer, 2026-08-25: "no
-	// concentric progress, the progress will be shown in the button, not
-	// the pointer." It keeps the amber the deleted cursor ring used, at the
-	// low alpha a tint under dark text has to keep.
+	// The dwell sweep, drawn INSIDE a widget (see drawWidget). This is the
+	// ONLY place dwell progress is shown; there is no progress ring on the
+	// pointer. The alpha is low because this is a tint under dark text.
 	const ofColor kWidgetDwellFill(200, 120, 0, 80);
 
-	// **A glow drawn in the same dark ink as a button's border reads as a
-	// SHADOW, not a halo — 2026-08-25, developer: "if u r putting halo
-	// around buttons, its not at all clear, it looks like a shado."** The
-	// bins' own halo (`drawHalo`) never has this problem because it never
-	// glows in its own ink: it uses a bright, saturated colour of its own
-	// (`kHaloIdleColor`, a hue the ink palette does not otherwise carry) at
-	// up to full 255 alpha. `kWidgetPrimary`/`kWidgetDanger`/
-	// `kWidgetSecondary` were tuned the opposite way, deliberately DARK and
-	// muted so they read as ink on a light field (see kAccentInk's own
-	// comment on that fight) — exactly the properties that make a diffuse
-	// blur of them look like an ordinary drop shadow instead of light.
-	// Rather than adding a fourth hex per hue (this table's palette has
-	// already been through three rounds of "that colour drifts under the
-	// projector" — see kAccentInk), this pushes the SAME hue toward full
-	// brightness and saturation for the glow only, leaving every ink use
-	// (text, borders) untouched. A light, saturated version of a colour is
-	// unambiguously light; a dark, muted one is not.
+	// A glow drawn in the same dark ink as a button's border reads as a
+	// SHADOW, not a halo.
+	//
+	// The bins' halo never has this problem because it never glows in its
+	// own ink: `kHaloIdleColor` is bright and saturated, a hue the ink
+	// palette does not otherwise carry, at up to full alpha.
+	// `kWidgetPrimary`, `kWidgetDanger` and `kWidgetSecondary` are tuned
+	// the opposite way — deliberately dark and muted so they read as ink on
+	// a light field — and those are exactly the properties that make a
+	// diffuse blur of them look like a drop shadow rather than light.
+	//
+	// Rather than adding a fourth hex per hue, this pushes the SAME hue
+	// toward full brightness and saturation for the glow only, leaving
+	// every ink use (text, borders) untouched. A light, saturated version
+	// of a colour is unambiguously light; a dark, muted one is not.
 	ofColor glowTint(const ofColor & ink){
 		ofColor c = ink;
 		c.setSaturation(215.0f);
@@ -665,29 +609,22 @@ namespace {
 
 	// --- the glow, and why it BREATHES ------------------------------------
 	//
-	// Developer, 2026-08-25 (second report on the same thing): "the
-	// cancell and confirm button still does not have a active breathing
-	// halo."
+	// The reach and band count match the bins' halo: a 24px, 9-band version
+	// sits under the visible threshold on this field.
 	//
-	// The glow was already here and already the right size — the previous
-	// fix widened it to match the bins' own halo (40px of reach, 20 bands)
-	// after a 24px/9-band version turned out to be under the visible
-	// threshold on this field. What it was not was ALIVE. The bins breathe
-	// (drawHalo's `breathe` term, a 3s sine with a 0.65 floor) and the
-	// buttons sat at a constant alpha next to them, which on a table where
-	// everything else is moving reads as "dead", not as "quiet".
+	// The glow runs the same breathing sine as the bins, at the same period
+	// and off the same clock, so the whole table breathes once rather than
+	// in two rhythms. A button at constant alpha beside breathing bins
+	// reads as dead rather than as quiet. `kWidgetBreathFloor` is higher
+	// than the halo's floor because a button must never be at its dimmest
+	// when a diner first looks for it: the swing is smaller and the floor
+	// higher, so it reads as steady-with-a-pulse rather than as fading in
+	// and out.
 	//
-	// So the button's glow now runs the same sine, at the same period, off
-	// the same clock — one breath across the whole table rather than two
-	// rhythms. `kWidgetBreathFloor` is higher than the halo's 0.65 because
-	// a button must never be at its dimmest when a diner first looks for
-	// it; the swing is smaller and the floor is higher, so it reads as
-	// steady-with-a-pulse rather than as fading in and out.
-	//
-	// **Hovering pins it to full and stops the breathing.** A control the
-	// hand is on should be steady, not pulsing under the finger, and the
-	// step change from breathing to solid is itself the "yes, this one"
-	// feedback — before the dwell ring has moved at all.
+	// Hovering pins it to full and STOPS the breathing. A control the hand
+	// is on should be steady rather than pulsing under it, and that step
+	// change from breathing to solid is itself the "yes, this one"
+	// feedback, before the dwell sweep has moved at all.
 	const float kWidgetGlowReachPx = 40.0f;
 	const int kWidgetGlowBands = 20;
 	const float kWidgetBreathPeriodS = kHaloBreathPeriodS;   // one breath, table-wide
@@ -696,57 +633,40 @@ namespace {
 	// the palette block above on kiosk button hierarchy. These are the
 	// peak alphas the breath multiplies.
 	const int kWidgetFillAlpha = 26;
-	// Raised alongside `glowTint`, 2026-08-25 — the tint made the glow
-	// lighter, and a light colour at the old 105/165 alpha over #E8E6E1
-	// was still too washed out to read as lit rather than smudged.
+	// High because `glowTint` makes the glow LIGHT, and a light colour over
+	// #E8E6E1 needs the alpha to read as lit rather than smudged.
 	const int kWidgetGlowAlpha = 150;
 	const int kWidgetPrimaryFillAlpha = 52;
 	const int kWidgetPrimaryGlowAlpha = 205;
 
 	// --- the option plates (broth, spice) ---------------------------------
-	// A selected plate is filled and check-marked rather than merely
-	// glowing: the developer's model is "the selection is locked even
-	// without hover... then the info als remains locked", and a lock has
-	// to be readable from across the table with no hand anywhere near it.
+	// A selection is LOCKED IN and stays locked with no hand near it, so it
+	// has to be readable from across the table rather than only under a
+	// hover.
 	//
-	// **Fill and ring both raised, 2026-08-25** — developer: "the selected
-	// button blue colour looks like grey and it is very difficult to see
-	// it is selected. we need really contrast colour for selected and not
-	// selected." The old 60/255 (~23%) fill was close enough to the
-	// unselected card's own 26/255 wash that "selected" read as a hairline
-	// hue difference rather than a locked-in state; this is now more than
-	// double the unselected fill and paired with a ring nearly TWICE
-	// `kWidgetRingMM` thick (`kOptionSelectedRingMM`, drawOptionPlate) so a
-	// selected card is unmistakable by shape alone, not just by a subtler
-	// shade of the same near-white.
-	//
-	// **The card's own ink no longer changes on selection, 2026-08-25,
-	// later still** — developer: "dont make it blue like done currently.
-	// instead change the border thickness and change the halo colour."
-	// `kOptionSelectedRingMM` above already carried the border half of
-	// that; `drawOptionPlate` now carries the halo half itself, tinting
-	// ONLY the glow with `kWidgetPrimary` on selection — the fill, the
-	// ring and the name ink all stay the plate's ordinary neutral colour
-	// whether it is selected or not.
+	// Selection is signalled by SHAPE and by glow, never by recolouring the
+	// card. The ring goes to nearly twice `kWidgetRingMM`
+	// (`kOptionSelectedRingMM`, drawOptionPlate) and `drawOptionPlate`
+	// tints ONLY the glow with `kWidgetPrimary`; the fill, the ring colour
+	// and the name ink stay the plate's ordinary neutral whether it is
+	// selected or not. A subtler shade of the same near-white does not
+	// carry the difference — it reads as a hairline hue shift rather than
+	// as a locked-in state.
 	const int kOptionSelectedGlowAlpha = 210;
 
-	// **The dwell sweep, and the inverted ink behind it, 2026-08-25
-	// (final).** The 140/255 selected fill this block used to define was
-	// photographed on the rig and rejected: "the selected button is now
-	// almost blacked out with very little readability." The fix the
-	// developer chose is not a lighter fill but a darker one that BRINGS
-	// THE TEXT WITH IT — "as that shade comes up the text in the darker
-	// area gets colour inverted. so the progress will be actuall usefull."
+	// The dwell sweep, and the inverted ink behind it.
 	//
-	// So the sweep is near-solid (235, not 140 — the residue of the card's
-	// own fill underneath keeps it from reading as a printed black box on
-	// a projected surface) and `drawStringLitTo` redraws every string in
-	// the lit inks up to the sweep's edge. Those inks are off-white rather
-	// than #FFFFFF for the same reason the table ground is #E8E6E1 and not
-	// white: a pure-white glyph on a projector blooms into its own
-	// neighbours. The note ink stays a step below the name ink, preserving
-	// exactly the hierarchy `kInfoBoxNameColor`/`kInfoBoxTextColor` set on
-	// the light side.
+	// The sweep is a NEAR-SOLID dark band that carries the text with it:
+	// `drawStringLitTo` redraws every string in the lit inks up to the
+	// sweep's edge, so the progress is legible instead of blacking the card
+	// out as it fills. The residue of the card's own fill underneath keeps
+	// the band from reading as a printed black box on a projected surface.
+	//
+	// The lit inks are off-white rather than #FFFFFF for the same reason
+	// the table ground is #E8E6E1: a pure-white glyph on a projector blooms
+	// into its neighbours. The note ink stays a step below the name ink,
+	// preserving the hierarchy `kInfoBoxNameColor`/`kInfoBoxTextColor` sets
+	// on the light side.
 	const ofColor kOptionSweepColor(20, 20, 20, 235);
 	const ofColor kOptionNameLitColor(0xFB, 0xF9, 0xF5);
 	const ofColor kOptionNoteLitColor(0xDC, 0xD6, 0xCC);
@@ -762,69 +682,44 @@ namespace {
 	const ofColor kCardBaseColor(0xE8, 0xE6, 0xE1);
 
 	// --- the spice card's chilli count ------------------------------------
-	// **Back on 2026-08-25, third time.** Developer: "in the spicy box,
-	// put one chilli in the mil right alighedn in same line as that of
-	// mild. then 2 chilli in medium and three in hot, all right alighned."
-	// `hover.spice_widgets` sends the count as `icon_count` and
-	// `drawOptionPlate` draws exactly that many, with no empty outline
-	// peppers behind them — a count, not a gauge.
+	// A COUNT, not a gauge: `hover.spice_widgets` sends the number as
+	// `icon_count` and `drawOptionPlate` draws exactly that many peppers,
+	// right-aligned, with no empty outline peppers behind them.
 	//
-	// **The height is not a constant: it is the NAME's cap height.**
-	// Developer, after a fixed 40px version: "the height of the chili
-	// should be same as the height of the hot, medium mild letters." So
-	// the glyph is measured off `nameFace` at draw time and this block
-	// only carries the proportions. That also means the peppers track the
-	// name font if it is ever resized again, instead of silently drifting
-	// out of step with it the way a hard-coded px would.
+	// The height is NOT a constant — it is the name's cap height, measured
+	// off `nameFace` at draw time, so a pepper is exactly as tall as the
+	// word beside it and the two stay in step if the name font is ever
+	// resized. This block carries only the proportions.
 	//
-	// **The pepper is the developer's own artwork now, 2026-08-25, latest
-	// pass.** "use this image as chilli. it is not refeerence image to
-	// draw from, use this exact image, scale if u like." So `drawChilli`
-	// draws `_chilliIcon` (img/chilli.png) and nothing else: the flat
-	// silhouette it used to build out of two ofPaths is gone, and with it
-	// `kChilliAspect`, `kChilliRotationDeg` and the three colour
-	// constants that shape needed. The image carries its own reds, its
-	// own green stem and its own black outline, and it is already tipped
-	// the way the -38 degree rotation was faking.
-	//
-	// **The one number the layout still needs is measured off the file,
-	// not guessed.** In the 512x512 artwork the opaque pixels run y 0..511
-	// — the FULL height — and x 34..477, so the pepper is centred in the
-	// square with equal transparent margins left and right and none at
-	// all top or bottom. Two things follow, and both matter:
+	// Those proportions are measured off the artwork rather than guessed.
+	// In the 512x512 file the opaque pixels run y 0..511 — the FULL height
+	// — and x 34..477, so the pepper is centred with equal transparent
+	// margins left and right and none at all top or bottom. Two things
+	// follow, and both matter:
 	//   - drawing the square H tall makes the VISIBLE pepper exactly H
-	//     tall, which is what "the height of chilli is exactly same as
-	//     the text in the same line" asks for. Sizing to the file's box
-	//     would be sizing to a margin that is not there.
+	//     tall. Sizing to the file's box would be sizing to a vertical
+	//     margin that is not there.
 	//   - the pepper is only 444/512 of the square WIDE, so the strip
-	//     arithmetic below has to reserve the ink width and not the draw
-	//     width, or the last pepper would float a transparent 8% of its
-	//     height short of the card's right pad and the three cards would
-	//     stop reading as one right-aligned scale.
+	//     arithmetic below must reserve the INK width, not the draw width.
+	//     Otherwise the last pepper floats a transparent 8% of its height
+	//     short of the card's right pad and the three cards stop reading as
+	//     one right-aligned scale.
 	const float kChilliWidthFactor = 444.0f / 512.0f;
 	const float kChilliGapFactor = 0.26f;  // between peppers, x height
 
 	// --- the idle-table wave prompt ---------------------------------------
-	// 2026-08-26. Developer, over the artwork: "keep on waving this exact
-	// hand to make people wave their hand above it to start. dont redraw
-	// the hand pic, just reuse it." Same "developer's own artwork, draw it
-	// exactly" rule the chilli follows (see kChilliWidthFactor's own block)
-	// — drawIdleHand rotates the one loaded `_idleHandIcon` about its wrist
-	// each frame rather than swapping in a second image or rebuilding the
-	// shape, so "reuse it" holds for the wave motion too, not just the
-	// initial draw.
+	// A waving hand inviting a passer-by to wave back and start. drawIdleHand
+	// rotates the one loaded `_idleHandIcon` about its wrist each frame
+	// rather than swapping in a second image or rebuilding the shape.
 	//
-	// Sized well short of the pot-gap column's own width (drawBrandMark's
+	// Sized well short of the pot-gap column's width (drawBrandMark's
 	// gapRightMM - gapLeftMM, 440mm / ~554px) so the swept arc of the wave
-	// never grazes a bin either side of it. Centred in the table's true
-	// geometric middle (TABLE_W_MM/2, TABLE_H_MM/2) — the one point on the
-	// surface both rows of bins leave clear, and where a real hand offered
-	// over the table would naturally land.
+	// never grazes a bin either side of it. Centred on the table's true
+	// geometric middle (TABLE_W_MM/2, TABLE_H_MM/2): the one point both rows
+	// of bins leave clear, and where a hand offered over the table lands.
 	const float kIdleHandHeightPx = 220.0f;
 	// A hello-wave: side to side, not a full spin — +-kIdleHandWaveDeg about
-	// the wrist, one full swing every kIdleHandWavePeriodS. Unmeasured
-	// starting guesses, tunable once seen projected, same as every other
-	// new motion constant in this file.
+	// the wrist, one full swing every kIdleHandWavePeriodS.
 	const float kIdleHandWaveDeg = 16.0f;
 	const float kIdleHandWavePeriodS = 1.4f;
 	// "Wave to start" — the prompt's own text, drawn below the icon by
