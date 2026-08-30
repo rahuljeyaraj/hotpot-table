@@ -145,12 +145,12 @@ WRITING RULES (each of these came from a rejected draft)
 FACTS ALREADY CORRECTED (do not reintroduce any of these)
 - Host is an ASUS NUC 14 running Windows 11. NOT a Seeed ODYSSEY; that
   was never obtained. The Seeed part in the build is the XIAO ESP32S3.
-- The projector is a WZATCO Yuva Go Plus, an ORDINARY projector, at the
-  top of a wooden batten on the wall, hard against the ceiling. Not
+- The projector is a WZATCO Yuva Go Plus, an ORDINARY projector,
+  mounted on the wall itself, hard against the ceiling. Not
   short-throw. Keystone is done on the projector's own 4D keystone;
   bin/data/keystone.json is the identity rectangle and does nothing.
-- The camera is a Lenovo 300 FHD webcam, on the same batten below the
-  projector, mounted at 180 degrees.
+- The camera is a Lenovo 300 FHD webcam, zip tied to the end of a
+  wooden batten fixed to the projector mount, mounted at 180 degrees.
 - The tabletop is 6 mm plywood covered in projector screen fabric. It
   carries NO weight: it stands on twelve printed pillars at the height
   of the bin tops. The bins sit on printed cross bases on the table
