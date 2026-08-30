@@ -556,7 +556,7 @@ Every one of those bands is positioned from the bin geometry rather than typed i
 [IMAGE: docs/img/architecture-hand-window.svg]
 *A 700 pixel window that follows the hand, and the tiles it hunts through to find one.*
 
-The camera sees the whole table, but MediaPipe is never shown the whole table. It only ever gets a 700 pixel square, roughly the size of a hand at this camera height, and it is that square which moves.
+The camera sees the whole table, but MediaPipe is never shown the whole table. It only ever gets a 700 pixel square, and it is that square which moves. A hand is about a hundred pixels across in this camera, so the window is not hand-sized, it is about seven hands wide: small enough that a hand is a fifth of the picture rather than a twentieth of it, which is the difference between being detected and not.
 
 With nobody at the table the square is a scanner, stepping through overlapping tiles laid over the table's footprint, one tile per tick, each denoised before it is handed over. As soon as a hand turns up in one, the square commits to it and re-centres on the hand every tick from then on, so it travels with the hand. It has to: MediaPipe carries on tracking a hand only through the framing it first found it in.
 
