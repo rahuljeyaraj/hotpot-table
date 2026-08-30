@@ -1,51 +1,39 @@
-"""Core process — M0 scope (doc section 21, build item 7), M1 build item
-3 (the domain modules wired in and broadcasting `state` at 60Hz), M2
-build items 4 and 5 (the staff view's Bins tab, doc section 12.4, and
-real grams wired into pricing), and now M2.6: the SERVING/SETTING mode.
+"""The core process: the one place that owns state.
 
-What exists here: the one control server every other process dials into,
-the client registry that turns hellos and heartbeats into the six status
-pips, a minimal staff view that pushes those pips to the browser over a
-WebSocket, the five pure domain modules from M1 build item 2 (pricing,
-cart, binmap, i18n, fsm) held as Core's state and serialised into doc
-section 4.3's `state` message sent to `of` at a fixed 60Hz, and — new
-here — the load-cell reader and calibrator (core/scale.py,
-core/calibrator.py) that the Bins tab drives over a second, lower-rate
-broadcast to the web hub.
+What lives here:
 
-M2 build item 5 ("wire real grams into pricing") is done: every state
-tick, `_apply_scale_to_cart()` reads `self.scale.read()` and feeds any
-bin with a real (non-None) grams value into Cart — set_live_grams() from
-then on, but seed_live_grams() the first time, so the M1 mock seed's
-placeholder weight never gets priced against a real one (cart.py's own
-docstring). A bin the scale cannot weigh (uncalibrated, or no XIAO at
-all) is left exactly where the developer panel's mock controls put it —
-doc section 12.8's "stays forever as a test harness" is what that
-sentence was for. The Bins tab's grams still come straight from
-`self.scale.read()` rather than Cart, but for a bin Cart has already
-adopted the two numbers are now the same reading one tick apart, not two
-independent sources.
+  - the control server every other process dials into, and the client
+    registry that turns hellos and heartbeats into the six status pips;
+  - the staff view, pushing those pips and the Bins/Setup/Capture tabs to
+    a browser over a WebSocket;
+  - the pure domain modules (pricing, cart, binmap, i18n, fsm, menu,
+    orders) held as Core's state and serialised into doc section 4.3's
+    `state` message, sent to `of` at a fixed 60Hz;
+  - the load-cell reader and calibrator (core/scale.py,
+    core/calibrator.py), driven by the Bins tab over a second, lower-rate
+    broadcast.
 
-M2.6 adds the mode itself. `_state_msg()`'s `"mode"` is now derived from
-`fsm.state` instead of the hardcoded `"diner"` it carried since M1 —
-doc section 4.3 has specified that field since v3.0 and nothing had ever
-produced it. `_apply_scale_to_cart()` returns immediately in SETTING, and
-`fsm.exit_setting()` refreshes every bin's weight (via
-`_refresh_weights_from_scale` below), re-baselines and locks the bin map
-on the way out. That mode-wide gate is what let M2.4's `_calibrating`
-dict, `CAL_FREEZE_TIMEOUT_S`, `_handle_cal_session` and the
-`cal_begin`/`cal_end` wire messages all be deleted: they were the per-bin
-stand-in for a "not billing" state that did not exist yet. Tare and
-Calibrate now require SETTING (M2.6 decision 4), and the tablet drives
-the mode with `set_mode`, answered by a broadcast `mode` message.
+Real grams reach pricing every state tick: `_apply_scale_to_cart()` reads
+`self.scale.read()` and feeds any bin with a non-None grams value into
+Cart — `set_live_grams()` from then on, but `seed_live_grams()` the first
+time, so a placeholder weight is never priced against a real one (see
+cart.py). A bin the scale cannot weigh — uncalibrated, or no XIAO at all
+— is left exactly where the developer panel's mock controls put it, which
+is what doc section 12.8's "stays forever as a test harness" is for.
 
-**Do NOT** (M0 build list, doc section 21): open the camera, touch
-MediaPipe, or write any oF code. This file does none of those.
+The SERVING/SETTING mode gates all of that. `_apply_scale_to_cart()`
+returns immediately in SETTING, and `fsm.exit_setting()` refreshes every
+bin's weight (via `_refresh_weights_from_scale`), re-baselines and locks
+the bin map on the way out. Tare and Calibrate require SETTING, and the
+tablet drives the mode with `set_mode`, answered by a broadcast `mode`
+message.
+
+This process must NEVER open the camera, touch MediaPipe, or hold a
+frame (invariant I3).
 
 Host and port are hardcoded to the doc section 4.1 defaults, same as
-common/stub.py and for the same reason: config loading is not built until
-it has a reader that needs more than one key. `SCALE_PORT` below is the
-same story — doc section 8.6's config example has no serial-port key yet.
+common/stub.py; `SCALE_PORT` likewise, since doc section 8.6's config
+example has no serial-port key.
 """
 
 from __future__ import annotations
@@ -101,21 +89,19 @@ STATE_INTERVAL = 1.0 / STATE_HZ
 # cart.seed_live_grams(), never plain set_live_grams() — see that
 # module's docstring on why the hand-off needs its own entry point) the
 # first time core/scale.py reports one, and never reads it again after
-# that. Not "removed" by M2 build item 5 — still needed as long as a
-# bin can be diner-facing before it has been calibrated.
+# that. Still needed as long as a bin can be diner-facing before it has
+# been calibrated.
 MOCK_SEED_GRAMS = 500.0
 
-# Doc section 8.6's config example has no serial-port key (a known gap —
-# config loading is not built, CLAUDE.md's "Known gaps" list). Hardcoded
-# the same way CONTROL_PORT/WEB_PORT are, and matches this dev rig's XIAO
-# (CLAUDE.md, verified 2026-08-11). Not the deploy machine's port — that
-# is unmeasured and waits on config loading, same as every other §8.6 key.
+# Doc section 8.6's config example has no serial-port key, so this is
+# hardcoded the same way CONTROL_PORT/WEB_PORT are. It matches the dev
+# rig's XIAO, NOT the deploy machine's port, which waits on config
+# loading like every other §8.6 key.
 SCALE_PORT = "COM5"
 
 # doc section 8.6's `camera.host_for_browser`/`camera.mjpeg_port` defaults —
-# what the Live tab (M3 build item 3) embeds in the `<img>` src, since the
-# MJPEG server is camera's own HTTP listener, a different port than this
-# process's. Constructor params, not read from config.py here directly
+# what the Live tab embeds in the `<img>` src, since the MJPEG server is
+# camera's own HTTP listener on a different port than this process's. Constructor params, not read from config.py here directly
 # (same reason cal_path/scale_open_port are params, not module reads): a
 # Core built by a test must never depend on config/system.json. main()
 # below is the one place that actually calls config.load().
@@ -137,17 +123,17 @@ EI_PROJECT_PATH = ei_store.DEFAULT_PATH
 EI_PROJECT_NAME = "hotpot-ingredients"
 MODELS_DIR = Path(__file__).resolve().parents[3] / "models"
 
-# `docs/ROBOFLOW_PATHWAY.md` — a second training/deploy path beside Edge
-# Impulse, additive per the developer's own instruction (that doc's own
-# opening line): every ei_* thing above is untouched, and Roboflow is a
-# sibling set of files behind the same ClassifierBackend Protocol. The
+# `docs/ROBOFLOW_PATHWAY.md` — a second training and deploy path beside
+# Edge Impulse, strictly additive: every ei_* thing above is untouched and
+# Roboflow is a sibling set of files behind the same ClassifierBackend
+# Protocol. The
 # Capture tab's Roboflow card drives rf_client.py/rf_store.py/rf_deploy.py
 # against these, exactly as EI_PROJECT_PATH/EI_PROJECT_NAME do for the ei_*
 # side above.
 #
-# **Unlike Edge Impulse, there is no username/password/TOTP flow at all**
-# (doc §6 step 6) — Roboflow links by workspace + project + one account
-# API key, so `_handle_rf_link` takes those three fields and nothing else.
+# Unlike Edge Impulse there is NO username/password/TOTP flow (doc §6
+# step 6): Roboflow links by workspace, project and one account API key,
+# so `_handle_rf_link` takes those three fields and nothing else.
 RF_PROJECT_PATH = rf_store.DEFAULT_PATH
 # Path B's ONNX filename — config/system.default.json's `classifier.
 # roboflow_model` names the same file (doc §6 step 7); duplicated here as
@@ -168,7 +154,7 @@ RF_DEFAULT_MODEL_TYPE = "classification"
 # `en` name of every item it holds). They exist only so the classifier
 # can be trained to recognise the two non-food states a bin is actually
 # in some of the time: nothing there at all, or the tray itself lifted
-# out (2026-08-13, replaces the earlier single placeholder "empty").
+# out.
 NON_FOOD_CAPTURE_LABELS = ("empty_tray", "no_tray")
 
 # Doc section 12.4's Bins tab is "live" but does not need `state`'s 60Hz —
@@ -186,28 +172,26 @@ BINS_BROADCAST_EVERY = 6
 NOISE_DOTS = 8
 NOISE_BAR_SPAN_MULT = 2.0
 
-# Bins tab restock alert (2026-08-27, developer request — not a doc
-# build item). A resolved bin whose live weight has dropped below this
-# many grams needs the item topped up before the next diner reaches for
-# it. Unmeasured, chosen as a round number well above load-cell noise on
-# every channel this file has ever recorded (worst case ~5-7g rms) so a
-# quiet, empty-ish bin cannot flicker the alert on and off.
+# Bins tab restock alert: a resolved bin whose live weight has dropped
+# below this many grams needs topping up before the next diner reaches for
+# it. Chosen well above load-cell noise on every channel measured on this
+# rig (worst case ~5-7g rms), so a quiet, empty-ish bin cannot flicker the
+# alert on and off.
 RESTOCK_THRESHOLD_G = 50.0
 
-# Doc section 4.3's `mode` field, both values. Derived from fsm.State, not
-# stored: two places that can disagree about which mode the table is in is
-# exactly the bug M2.6 exists to remove.
+# Doc section 4.3's `mode` field, both values. DERIVED from fsm.State,
+# never stored — two places that can disagree about which mode the table
+# is in is the bug this mode exists to prevent.
 MODE_SERVING = "serving"
 MODE_SETTING = "setting"
 
 # Refusal shown when Tare or Calibrate is asked for outside setting mode.
-# **"serving", never "billing".** The system had grown two words for one
-# idea — the table banner said NOT BILLING while the mode was called
-# SERVING — which makes an operator work out that they mean the same
-# thing. One word, and it is the one that is already the mode's name.
-# It also names the CONTROL the operator has to reach for: the staff
-# view's header is one switch labelled Serving, and the word "setting"
-# appears nowhere on it, so "enter setting mode" would send them hunting.
+#
+# "serving", never "billing": one word for the idea, and it is already the
+# mode's name. It also names the CONTROL the operator has to reach for —
+# the staff view's header is one switch labelled Serving, and the word
+# "setting" appears nowhere on it, so "enter setting mode" would send them
+# hunting.
 NOT_IN_SETTING_MSG = ("Turn Serving off first — the table is still "
                       "serving.")
 
@@ -219,43 +203,38 @@ TRACKER_EMIT_HZ = 60.0
 
 # How long the table may sit with no REAL pointer before the idle-table
 # phantom hand (common/phantom.py) takes over the fireball and starts
-# wandering the bins — developer's own number, 5s, chosen for a fast demo
-# loop over the original 15s guess. Unlike POINTER_STALE_S just below,
-# this is measured against `_last_real_pointer_at`, which only a
-# genuinely real (non-phantom) pointer ever advances — see
-# `_apply_phantom`.
+# wandering the bins. Unlike POINTER_STALE_S below, this is measured
+# against `_last_real_pointer_at`, which only a genuinely real
+# (non-phantom) pointer advances — see `_apply_phantom`.
 PHANTOM_IDLE_S = 5.0
 
 # How long a cursor may go without a NEW datagram before core treats the
-# pointer as gone rather than merely between frames (doc section 21's M5
-# build item 4, found while verifying it on the rig — see _apply_cursor's
-# docstring). Matches oF's own CursorLink::kCursorHoldSeconds so the table
-# and core agree about when a hand is "still here".
+# pointer as gone rather than merely between frames — see _apply_cursor.
+# Matches oF's own CursorLink::kCursorHoldSeconds, so the table and core
+# agree about when a hand is "still here".
 POINTER_STALE_S = 0.35
 
 # How long a bin stays "hovered" (fire ring lit, `fire_burning` looping,
-# info box showing) after a hand actually leaves it, before `fire_stop`
-# fires and the info box clears — developer report, 2026-08-26: picking
-# from a bin is not one clean enter-then-leave, it is several — a pinch
-# taken out, a hand withdrawn to drop it in the bowl, a hand back in for
-# more — and wiring `fire_start`/`fire_stop` straight to the raw per-frame
-# hit test (the old behaviour) played the catch/put-out one-shots on every
-# one of those in/out crossings, which on a real pick is a burst of
-# several within a second or two: "very distracting and noisy". Same wire
-# field (`hl`/`fire_active`) drives the info box, so it was blinking on
-# the same crossings instead of "staying up for a few secs" the way a
-# diner reading it needs.
+# info box showing) after a hand leaves it, before `fire_stop` fires and
+# the info box clears.
 #
-# The fix is hysteresis, the same shape `hover.DEFAULT_GRACE_MS` already
-# uses for dwell (`hover.py`'s "leaving resets after a 150ms grace"): a
-# hand ENTERING a bin (or a different bin) still wins instantly — no
-# reason to delay the exciting edge — but a hand LEAVING one is held for
-# this long before it counts, so a same-bin re-entry inside the window is
-# invisible on the wire (no new `fire_start`, no info-box flicker) and
-# only a hand that is actually gone for a couple of seconds clears it.
-# Seconds, not `hover.py`'s 150ms, because that grace only has to survive
-# one jittery tracker frame; this one has to survive an actual human hand
-# leaving the bin's airspace to drop what it picked.
+# Picking from a bin is NOT one clean enter-then-leave. It is several: a
+# pinch taken out, a hand withdrawn to drop it in the bowl, a hand back in
+# for more. Wired straight to the raw per-frame hit test, the catch and
+# put-out one-shots play on every one of those crossings — a burst of
+# several within a second or two — and the info box blinks with them,
+# because the same wire field drives both.
+#
+# The fix is hysteresis, the same shape `hover.DEFAULT_GRACE_MS` uses for
+# dwell. A hand ENTERING a bin, or a different bin, still wins instantly:
+# there is no reason to delay the exciting edge. A hand LEAVING one is
+# held for this long before it counts, so a same-bin re-entry inside the
+# window is invisible on the wire and only a hand that is genuinely gone
+# clears it.
+#
+# Seconds, not `hover.py`'s 150ms: that grace only has to survive one
+# jittery tracker frame, while this has to survive a human hand leaving
+# the bin's airspace to drop what it picked.
 HOVER_EXIT_GRACE_S = 1.5
 
 # How long core waits for a classifier reply to one of doc section 4.7's
@@ -263,9 +242,9 @@ HOVER_EXIT_GRACE_S = 1.5
 # over 5 s) plus the JPEG writes.
 CLASSIFIER_REPLY_TIMEOUT_S = 30.0
 
-# A SEPARATE, much shorter timeout for `classify` specifically (doc section
-# 19's M7 acceptance: "physically swap two trays -> both labels follow
-# within ~2s"). Reusing CLASSIFIER_REPLY_TIMEOUT_S's 30s here would let one
+# A SEPARATE, much shorter timeout for `classify` specifically — doc
+# section 19 wants both labels to follow a physical tray swap within ~2s.
+# Reusing CLASSIFIER_REPLY_TIMEOUT_S's 30s here would let one
 # slow classifier pass blow that budget by 15x before core even notices —
 # this bounds a single bad/slow pass, not the steady state, which is why it
 # is still well above `1/live_hz` (0.5s at the doc section 8.6 default):
@@ -278,30 +257,25 @@ CLASSIFY_LIVE_TIMEOUT_S = 5.0
 # makes core the one place a client's effective configuration lives.
 CLASSIFIER_LIVE_HZ = 2.0
 
-# **Doc section 18.3's 90s CHECKOUT timeout is DELETED, 2026-08-25.**
+# There is deliberately NO CHECKOUT timeout, against doc section 18.3's
+# 90s.
 #
-# Developer, verbatim: "i see the qr code dissaperared when it was left
-# idel for sometime, that should not happen, no time out. onc can cancell
-# or go back, but not self disappear."
+# The doc's reasoning is about a table nobody clears, but the person a
+# timer actually fires on is a diner who has just got their phone out,
+# opened the camera and is lining up the code. That takes longer than most
+# UI waits and it is the ONLY thing anybody does on this screen — so the
+# timeout's whole population is people using it correctly, and what it
+# does to them is delete the code mid-scan with the order already written
+# and unpaid.
 #
-# The doc's reasoning ("a contest floor has no patience and no diner will
-# remember to press anything") was about a table nobody clears. It is
-# wrong about the one person the timer actually fires on: a diner who has
-# just got their phone out, opened the camera and is lining up the code.
-# That takes longer than most UI waits and it is the ONLY thing anybody is
-# doing on this screen — so the timeout's whole population is people who
-# are using it correctly, and what it does to them is delete the code
-# mid-scan, with the order already written and unpaid.
+# What ends the screen instead is a person pressing one of two buttons
+# (`hover.checkout_widgets` — Back and Cancel, both of which void the
+# order), or the payment landing on the WebSocket. A genuinely abandoned
+# table sits on the QR screen until staff touch it, which is visible and
+# recoverable.
 #
-# What replaced it is two buttons a person presses (`hover.checkout_widgets`
-# — Back and Cancel, both of which void the order) plus the payment itself
-# landing on the WebSocket. A table left genuinely abandoned now sits on
-# the QR screen until staff touch it, which is visible and recoverable;
-# the old behaviour was invisible and lost the diner's scan.
-#
-# `_checkout_since` is kept — it still stamps when the screen opened, which
-# is useful in the log and on the staff view — but nothing reads it as a
-# deadline any more.
+# `_checkout_since` still stamps when the screen opened, which is useful
+# in the log and on the staff view, but nothing reads it as a deadline.
 
 
 def _html_escape(s: str) -> str:
@@ -389,11 +363,9 @@ def _seed_cart(deadband_g: float = cart.DEFAULT_DEADBAND_G) -> cart.Cart:
     not a negative clamp from an empty tray. See MOCK_SEED_GRAMS above.
 
     `deadband_g` is doc section 8.6's `core.deadband_g`, threaded in from
-    `main()` rather than left on `Cart`'s own default — the key has been
-    in `config/system.json` since M3.2 with nothing reading it, so an
-    operator editing it got no effect and no warning. See
-    `cart.DEFAULT_DEADBAND_G` for what the number does and what bounds
-    how far it can drop.
+    `main()` rather than left on `Cart`'s own default, so an operator
+    editing that key gets an effect. See `cart.DEFAULT_DEADBAND_G` for
+    what the number does and what bounds how far it can drop.
     """
     c = cart.Cart(deadband_g=deadband_g)
     for i in range(cart.NUM_BINS):
@@ -480,23 +452,19 @@ class Core:
         # makes it show up red instead of hiding behind the other five.
         self._self_beat = health.Heartbeat(self._beat_self, who="core")
 
-        # -- M1 build item 3: the domain state the broadcaster sends ----
+        # -- the domain state the broadcaster sends ---------------------
         data_dir = Path(data_dir)
         self.catalogue = pricing.Catalogue.load(data_dir / "catalogue.json")
         self.locale = i18n.DEFAULT_LOCALE
-        # 2026-08-26: was `locales=(self.locale,)` — English only, for M1.4's
-        # scope, deliberately loading nothing else. `Locales.load`'s own
-        # default `("en", "zh")` tolerates a missing file (`i18n.py`'s own
-        # docstring), so passing it explicitly here just means "load every
-        # locale this table might ever speak" and costs nothing on a rig
-        # that only has `en.json` — `available()` still comes back with one
-        # entry and the Language button stays gated off (`hover.widgets_for`).
-        # Now that `data/locales/zh.json` exists, this is the one line that
-        # makes it actually load.
+        # Loads every locale this table might speak. `Locales.load`'s
+        # default tolerates a missing file (see i18n.py), so this costs
+        # nothing on a rig carrying only `en.json`: `available()` comes
+        # back with one entry and the Language button stays gated off
+        # (`hover.widgets_for`).
         self.locales = i18n.Locales.load(data_dir / "locales")
         self.bin_map_path = Path(bin_map_path)
         self.binmap = self._load_binmap()
-        # -- M6: the checkout flow's own data ---------------------------
+        # -- the checkout flow's own data -------------------------------
         # Loaded at boot and validated there, like the catalogue: a bad
         # `menu.json` stops core on the bench rather than projecting a
         # blank broth plate at a diner three screens into an order.
@@ -507,17 +475,13 @@ class Core:
         # — is the fallback a session carries until the diner picks. Doc
         # section 17's "no spice is a genuine choice" guarantee is about
         # the DATA still existing (`menu.Menu.load` still requires level
-        # 0), not about it being the default; see `hover.spice_widgets`'s
-        # own docstring for the developer's call on why it is excluded.
+        # 0), not about it being the default — see `hover.spice_widgets`.
         #
-        # **It is a fallback, NOT a pre-selection, since 2026-08-25.**
-        # Developer: "spicy button has the mild as default. it should not
-        # be the case." Mild briefly arrived pre-ticked, which meant a
-        # diner who never looked at the spice screen shipped Mild without
-        # deciding, and the screen opened with one card already locked
-        # dark. `_spice_chosen` below now starts False, so nothing is
-        # marked until a dwell completes — this value only settles what
-        # `_spice_level` holds in the meantime.
+        # This is a FALLBACK, never a pre-selection. A pre-ticked card
+        # would ship a spice level a diner never decided on, and would open
+        # the screen with one card already locked. `_spice_chosen` starts
+        # False, so nothing is marked until a dwell completes; this value
+        # only settles what `_spice_level` holds in the meantime.
         self._default_spice_level: int = min(
             (s.level for s in self.menu.spice_levels if s.level > 0),
             default=0)
@@ -531,7 +495,7 @@ class Core:
         # absence, so the int cannot also mean "not chosen yet" — and Pay
         # is gated on a choice having been made. See `_choose_spice`.
         # Starts False: no card is pre-selected — see
-        # `_default_spice_level` above for the developer's call.
+        # `_default_spice_level` above.
         self._spice_chosen: bool = False
         # The previous tick's widget ids+rects, for the "the buttons just
         # changed under a resting hand" guard in `_apply_cursor`. Starts
@@ -573,7 +537,7 @@ class Core:
                            is_calibrated=lambda: (self.geometry.has_homography
                                                   and self.camera_grid.has_grid))
 
-        # -- M2 build item 4: the Bins tab's reader and calibrator ------
+        # -- the Bins tab's reader and calibrator -----------------------
         # calibrator.py's own docstring gives this exact wiring order:
         # load the saved calibration, hand it to the reader (never a
         # copy — see that module's docstring on why), and hand the
@@ -589,27 +553,24 @@ class Core:
         # repo doc section 9.6 calls out as able to silently mis-bill,
         # and a test run must never read or write the real one.
         #
-        # `scale_open_port` exists for the same reason and is not a
-        # hypothetical: SCALE_PORT's default is this dev machine's real
-        # port, and on it COM5 is a live XIAO (verified 2026-08-11) — a
-        # test that leaves this None gets Core's own reader thread
-        # racing real hardware counts against whatever it just fed in
-        # through scale.feed(). scale.ScaleReader's own docstring built
-        # this hook for exactly this: "the numbers in here can silently
-        # mis-bill, so they have to be reachable from a test" with no
-        # port attached.
-        # M3 build item 3: the Live tab's `<img>` src. Static for the
-        # process's whole life (doc section 8.6 has no runtime reload for
-        # it), so it rides the join seed rather than a broadcast.
+        # `scale_open_port` exists for the same reason, and it is not
+        # hypothetical: SCALE_PORT's default is a real port with a live
+        # XIAO on it, so a test that leaves this None gets Core's reader
+        # thread racing genuine hardware counts against whatever it just
+        # fed in through `scale.feed()`. See scale.ScaleReader — the
+        # numbers there can silently mis-bill, so they have to be
+        # reachable from a test with no port attached.
+        # The Live tab's `<img>` src. Static for the process's whole life
+        # (doc section 8.6 has no runtime reload for it), so it rides the
+        # join seed rather than a broadcast.
         self.camera_host = camera_host
         self.camera_port = camera_port
 
         self.cal = loadcell_cal.Calibration.load(cal_path)
-        # 2026-08-26: the Developer tab's window-size controls persist here
-        # (scale.SCALE_FILTER_PATH's own docstring) — a developer tuning
-        # knob, not a calibration, so a missing/corrupt file is never
-        # fatal, just DEFAULT_MEDIAN_WINDOW/DEFAULT_AVG_WINDOW as if
-        # nobody had ever touched it.
+        # The Developer tab's filter-window controls persist here (see
+        # scale.SCALE_FILTER_PATH). A tuning knob, not a calibration, so a
+        # missing or corrupt file is never fatal — it falls back to
+        # DEFAULT_MEDIAN_WINDOW/DEFAULT_AVG_WINDOW as if untouched.
         self.scale_filter_path = Path(scale_filter_path)
         filter_window = scale.load_filter_window(self.scale_filter_path)
         self.scale = scale.ScaleReader(
@@ -620,23 +581,22 @@ class Core:
                 "avg_window", scale.DEFAULT_AVG_WINDOW))
         self.calibrator = calibrator.Calibrator(self.scale, path=cal_path)
 
-        # -- M4: geometry (doc sections 5.3, 8.4, 8.5) -------------------
+        # -- geometry (doc sections 5.3, 8.4, 8.5) -----------------------
         # Paths are parameters for the same reason `cal_path` is: these
         # files decide where every bin is, and a test run must never read
-        # or write the rig's own. Two stores, not one — GeometryStore owns
-        # only `H_cam_to_stage` now; `camera_grid` owns the camera-space
-        # bin grid it used to also carry (core/bin_grid.py's docstring).
+        # or write the rig's own. Two stores, not one: GeometryStore owns
+        # `H_cam_to_stage` and `camera_grid` owns the camera-space bin
+        # grid (see core/bin_grid.py).
         self.geometry = geometry_store.GeometryStore(
             homography_path=homography_path,
             view_rotation_path=view_rotation_path)
         self.camera_grid = bin_grid.BinGridStore(camera_grid_path)
-        # M4n: the second BinGridStore instantiation core/bin_grid.py's
-        # docstring always said was coming. Lines dragged (or nudged —
-        # there is no camera image to drag them on) while a human watches
-        # the ACTUAL PROJECTED TABLE, never derived from `camera_grid` or
-        # `self.geometry` — see bin_grid.py's module docstring on why the
-        # two grids must never be derived from each other. This is what
-        # `_bin_msg` now reads `rect` from for oF.
+        # The projector-space grid. Its lines are nudged — there is no
+        # camera image to drag them on — while a human watches the ACTUAL
+        # PROJECTED TABLE, and are never derived from `camera_grid` or
+        # `self.geometry`; see bin_grid.py on why the two grids must never
+        # be derived from each other. This is what `_bin_msg` reads `rect`
+        # from for oF.
         self.projector_grid = bin_grid.BinGridStore(projector_grid_path)
 
         # Doc section 8.5's staleness check needs oF's live fingerprint,
@@ -698,16 +658,16 @@ class Core:
         self._rf_deploy = rf_deploy
         self._rf_active: Optional[str] = None
 
-        # M2 build item 5: which bins have ever had a real scale reading
+        # Which bins have ever had a real scale reading
         # applied to Cart. False means still on the M1 mock seed (or a
         # mock pick/put-back on top of it) — see _apply_scale_to_cart().
         self._scale_baselined = [False] * cart.NUM_BINS
 
         # The last (mode, cart_active) pair actually put on the wire. The
-        # `mode` message is broadcast on change, not on a timer (M2.6 —
-        # same model as _on_pip_change, no new clock), and this is what
-        # "on change" is compared against. None means nothing has been
-        # sent yet, so the first tick always sends one.
+        # `mode` message is broadcast on change rather than on a timer —
+        # the same model as _on_pip_change, with no new clock — and this
+        # is what "on change" compares against. None means nothing has
+        # been sent yet, so the first tick always sends one.
         self._last_mode_key: Optional[tuple] = None
 
         # I1 says core owns all state; it does not say core touches it from
@@ -718,15 +678,14 @@ class Core:
         # this, so a message is always a snapshot of one instant rather than
         # a mix of two.
         #
-        # The damage today is one frame wide and nobody could see it. It
-        # stops being cosmetic at M2 (core/scale.py's serial thread writes
-        # grams at ~78Hz — doc §9.5 locks its own slot, which says nothing
-        # about the cart it feeds) and it stops being survivable at M6,
-        # where finalisation is `cart.finalize()` then an order write then
-        # `reset_session()`: read between the first and third and the table
-        # broadcasts snapped shown_g against a start_g that has not been
-        # re-baselined yet, which is a recap disagreeing with the bill. That
-        # is the I4 failure arriving by a door I4 does not guard.
+        # Two places make this load-bearing rather than cosmetic. The
+        # serial thread writes grams continuously — doc §9.5 locks its own
+        # slot, which says nothing about the cart it feeds — and
+        # finalisation is `cart.finalize()`, then an order write, then
+        # `reset_session()`. A read between the first and third broadcasts
+        # snapped shown_g against a start_g that has not been re-baselined
+        # yet: a recap disagreeing with the bill, which is the I4 failure
+        # arriving by a door I4 does not guard.
         #
         # RLock, not Lock: doc §9.1's triggers already nest (fsm.cancel()
         # calls cart.reset_session()), and a future handler that takes this
@@ -735,7 +694,7 @@ class Core:
 
         self.emit_hz = emit_hz
 
-        # -- M5 build item 4: hover and dwell (doc section 9.4) ----------
+        # -- hover and dwell (doc section 9.4) ---------------------------
         # The UDP listener the tracker sends to (doc section 4.1's
         # `cursor.core_port`). Bound in __init__ rather than start() so a
         # test can ask which port it got before anything is running, the
@@ -788,7 +747,7 @@ class Core:
         self._state_stop = threading.Event()
         self._state_thread: Optional[threading.Thread] = None
 
-        # Doc section 19's M7 build items 2-3: a full-table classify pass
+        # Doc section 19: a full-table classify pass
         # at boot, then again at `classify_hz` for as long as the table is
         # in SETTING. Its own thread, never the 60Hz `_state_thread` above
         # or a tablet's WebSocket thread — `_send_classifier_cmd`'s own
@@ -917,7 +876,7 @@ class Core:
             "camera_size": list(self.geometry.camera_size),
             "emit_hz": self.emit_hz,
             "mirror_handedness": self.mirror_handedness,
-            # 2026-08-12: added for `backend_mediapipe.py`'s 180-degree
+            # Added for `backend_mediapipe.py`'s 180-degree
             # mount compensation — this was a display-only preference
             # until now (see `GeometryStore.set_view_rotation`'s own
             # docstring), but the tracker needs the same physical fact
@@ -978,7 +937,7 @@ class Core:
                 self.frames_stale[conn.who] = stale
             return
         if t == "landmarks":
-            # Staff-view Developer tab debug telemetry only (RIG_FEEDBACK
+            # Staff-view Developer tab debug telemetry only (see
             # item 10 — "draw every point MediaPipe identifies"), relayed
             # to every connected tablet verbatim. Not state: core stores
             # nothing from it and nothing else in this process ever reads
@@ -1073,11 +1032,11 @@ class Core:
 
     def _join_msgs(self) -> list:
         """Everything a tablet cannot derive on its own, sent the moment
-        it attaches (web/server.py's `on_join`, which takes a list as of
-        M2.6). The pips alone stopped being enough once the action bar
-        existed: a tablet that joins mid-run would render ENTER SETTING
-        MODE while the table was already in setting mode, and stay wrong
-        until someone touched something.
+        it attaches (web/server.py's `on_join`).
+
+        The pips alone are not enough: a tablet joining mid-run would
+        render the wrong mode on its action bar and stay wrong until
+        someone touched something.
 
         Not the `bins` message — that one is already on a 10Hz timer, so
         a joining tablet waits at most 100ms for it.
@@ -1086,7 +1045,7 @@ class Core:
                 self._geometry_msg(), self._projector_grid_msg(),
                 self._capture_msg(), self._ei_msg(), self._rf_msg()]
 
-    # -- the Live tab's MJPEG source (doc §12.3, §5.4 — M3 build item 3) ----
+    # -- the Live tab's MJPEG source (doc §12.3, §5.4) ---------------------
 
     def _camera_msg(self) -> Dict[str, Any]:
         """Where the camera process's own MJPEG server lives. Core never
@@ -1097,7 +1056,7 @@ class Core:
         """
         return {"t": "camera", "host": self.camera_host, "port": self.camera_port}
 
-    # -- the mode (doc sections 4.3, 9.1, 12.2 — M2.6) ----------------------
+    # -- the mode (doc sections 4.3, 9.1, 12.2) ----------------------------
 
     def _mode_msg(self, refused: Optional[str] = None) -> Dict[str, Any]:
         """The `mode` message the staff view's action bar reads.
@@ -1150,7 +1109,7 @@ class Core:
         self._last_mode_key = key
         self.web.broadcast(msg)
 
-    # -- developer-panel mock controls (doc section 12.8, build item 5) -----
+    # -- developer-panel mock controls (doc section 12.8) ------------------
     # -- and the Bins tab's Tare/Calibrate wizard (doc section 12.4, M2) ----
 
     def _on_web_message(self, msg: Dict[str, Any]) -> None:
@@ -1232,7 +1191,7 @@ class Core:
         _log.debug("web: unhandled message type %r from a tablet", t)
 
     def _handle_set_mode(self, msg: Dict[str, Any]) -> None:
-        """Doc section 12.2's action bar, both directions (M2.6).
+        """Doc section 12.2's action bar, both directions.
 
         The transition happens under state_lock and the broadcast happens
         outside it — _broadcast_state's own rule, and it matters more
@@ -1303,26 +1262,19 @@ class Core:
                   if not self.binmap.resolved(i))
 
     def _handle_cancel_order(self) -> None:
-        """Doc section 12.2's second action-bar button, and the first
-        caller `fsm.cancel()` has ever had — it has existed since M1
-        build item 2 with nothing wired to it.
+        """Doc section 12.2's second action-bar button.
 
         Confirmation is the tablet's job (index.html), not this one: by
         the time a frame arrives here the operator has already said yes,
         and re-asking over the wire would need a round trip the wire
         protocol has no shape for.
 
-        **The fallback below is not belt-and-braces — without it this
-        button does nothing at all today, and the M2.6 plan did not
-        anticipate that.** `fsm.cancel()` is SELECTING -> IDLE, and
-        *nothing in this codebase yet moves the table into SELECTING*:
-        `hand_present()` is M5's tracker and `staff_start()` is a Start
-        button that does not exist. So a diner picking 50 g leaves the
-        cart active while the FSM sits in IDLE, `cancel()` returns False,
-        and the cart is never cleared — which would leave setting mode
-        permanently refused with a "cancel the order first" button that
-        cannot fix it. That is exactly the refusal loop doc section 9.1's
-        pairing exists to prevent.
+        The fallback below is NOT belt-and-braces. `fsm.cancel()` is
+        SELECTING -> IDLE, so a cart left active while the FSM sits in
+        IDLE makes `cancel()` return False and the cart is never cleared —
+        which leaves setting mode permanently refused, behind a "cancel
+        the order first" button that cannot fix it. That is the refusal
+        loop doc section 9.1's pairing exists to prevent.
 
         `reset_session()` is doc section 9.1's own shared function, called
         here rather than re-derived, so this is not the inlining that rule
@@ -1422,7 +1374,7 @@ class Core:
         if not isinstance(i, int) or isinstance(i, bool) or not (0 <= i < binmap.NUM_BINS):
             _log.warning("web: %s with bad bin %r — ignored", t, i)
             return
-        # M2.6 decision 4: both flows are gated behind setting mode. Doc
+        # Both flows are gated behind setting mode. Doc
         # section 12.4's own steps require an empty bin and then a
         # reference mass placed in it — both of those are ordinary picks
         # in serving mode, and would bill. The mode is what makes them
@@ -1474,50 +1426,31 @@ class Core:
     def _load_binmap(self) -> binmap.BinMap:
         """`state/bin_map.json` if it exists, `_seed_binmap`'s mock if not.
 
-        **2026-08-24, developer: "the items i manually set in the bin tab
-        didnt persist after a reload of the app. it should perssist."**
-        `BinMap.save`/`load` have existed since M1.2 and NOTHING has ever
-        called either — `Core.__init__` rebuilt the mock seed on every
-        boot, so a manual override (and, equally, a classify result, and
-        `binmap.locked`) lived exactly as long as the process did. This
-        method and `_save_binmap` are that gap closed.
+        Which bin holds which item has to survive a restart: a manual
+        override, a classify result and `binmap.locked` all live here
+        rather than only in memory. This method and `_save_binmap` are the
+        two ends of that.
 
-        **An item_id the catalogue no longer has is dropped at load, not
-        carried.** Catalogue ids have been renamed wholesale once already
-        (2026-08-13's substitute-prop pass) and would be again; a stale id
-        would otherwise sit in the file forever, unresolvable, with the
-        bin silently unbillable and nothing saying why. Dropped bins fall
-        back to nothing rather than to the mock seed — a bin a human once
+        An `item_id` the catalogue no longer holds is DROPPED at load,
+        never carried. Catalogue ids can be renamed wholesale, and a stale
+        one would otherwise sit in the file forever — unresolvable, with
+        the bin silently unbillable and nothing saying why. A dropped bin
+        falls back to NOTHING rather than to the mock seed: a bin a human
         set to something real must not quietly become whatever
         `catalogue.ids()` happens to list Nth.
 
-        A missing file is a fresh clone (`BinMap.load`'s own docstring),
-        and that is the one case that takes the mock seed, exactly as
-        every boot did before this.
+        A missing file is a fresh clone (see `BinMap.load`), and that is
+        the one case that takes the mock seed.
 
-        **EVERY saved bin is restored, whatever set it — and this was
-        the other way round for one day.** The 2026-08-24 version dropped
-        any bin whose `source` was `"classifier"` back to the seed,
-        answering that day's report ("when u handed over the app to me
-        this time, the food label all were wrong"): the model is not
-        tuned (`classifier.enabled` is false), it had written guesses
-        like bins 4 and 5 both reading `white_rusk`, and persistence had
-        just made them permanent.
-
-        That cure was worse than the disease, and the next day's report
-        is what showed it: "the bin item label is not getting persisted
-        across restarting the app." Four bins on the rig were
-        classifier-sourced, so every restart threw them back to
-        `catalogue.ids()[i]` — and with the classifier DISABLED nothing
-        could ever answer them again, so they sat on a seed value nobody
-        chose, permanently. Two bins reading "Wheat Noodles" in the same
-        photo is exactly that: bin 0 was a real manual override and bin 1
-        was the seed's own first item showing through.
-
-        The real cure for a wrong guess is the manual override, which
-        exists now and persists — a human's answer wins and stays won. A
-        stale guess is still visible and still fixable; a seed value that
-        silently replaces one every boot is neither.
+        EVERY saved bin is restored, whatever set it — including a
+        classifier-sourced one, even though the model is not yet tuned.
+        Dropping those back to the seed is worse: with the classifier
+        disabled nothing can ever answer them again, so they sit forever
+        on a seed value nobody chose, and two bins can end up showing the
+        same name — one a real override, one the seed's first item
+        showing through. A stale guess stays visible and fixable through
+        the manual override, where a seed value that silently replaces one
+        every boot is neither.
         """
         seed = _seed_binmap(self.catalogue)
         if not Path(self.bin_map_path).exists():
@@ -1525,10 +1458,10 @@ class Core:
         try:
             saved = binmap.BinMap.load(self.bin_map_path)
         except Exception as e:                        # noqa: BLE001
-            # A corrupt file must not stop a table from opening — same
-            # tolerance `_read_pidfile` gives its own (CLAUDE.md's FIXED
-            # section). The seed is visibly approximately right, which is
-            # the safer of the two wrong answers.
+            # A corrupt file must not stop a table from opening — the
+            # same tolerance `_read_pidfile` gives its own. The seed is
+            # visibly approximately right, which is the safer of the two
+            # wrong answers.
             _log.warning("core: %s unreadable (%s) — falling back to the "
                          "mock seed", self.bin_map_path, e)
             return seed
@@ -1618,7 +1551,7 @@ class Core:
     # this handler pointless the moment the accuracy problem it exists
     # for actually occurs.
 
-    # -- wiring the scale into Cart (doc section 21, M2 build item 5) -------
+    # -- wiring the scale into Cart ----------------------------------------
 
     def _apply_scale_to_cart(self) -> None:
         """Every state tick: any bin the scale can currently weigh
@@ -1808,7 +1741,7 @@ class Core:
             "ms": reply.get("ms"),
         })
 
-    # -- hover and dwell (doc section 9.4 — M5 build item 4) ---------------
+    # -- hover and dwell (doc section 9.4) ---------------------------------
 
     def _apply_cursor(self, now: float) -> None:
         """Drain the cursor socket and turn the newest frame into hover,
