@@ -487,8 +487,6 @@ Five programs run at once, and not one of them shares a variable with any other.
 
 `python run.py` is the whole start command. It launches all five, waits for each to announce itself, merges every log into one stream, and restarts anything that dies. The order it starts them in is only a convenience: every process reconnects forever, so any one of them can die and come back at any moment and the table carries on.
 
-The split that matters is the last one. `core` owns every price, every rule and every word. `of` draws what it is told and holds no opinion. The price on a plate arrives as the finished string `$1.40/100g`, symbol and suffix and all, because even the `g` has to become `克` when someone presses the language button. Adding Chinese to the whole table was two data files and zero lines of C++.
-
 # 8.2 Three transports for three kinds of traffic
 
 Three kinds of traffic pass between the processes, and each one gets the transport that suits it rather than a single channel carrying all three.
