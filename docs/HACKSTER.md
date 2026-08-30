@@ -477,7 +477,15 @@ The pictures below are the architecture. The words are there to point at them.
 [IMAGE: docs/img/architecture-processes.svg]
 *Five processes, four transports. Those arrows are the only way any of them learn anything.*
 
-`python run.py` is the whole start command. It launches everything, waits for each process to announce itself, merges every log into one stream, and restarts anything that dies. Start order is a convenience: every process reconnects forever, so any of them can die and come back at any moment and the table carries on.
+Five programs run at once, and not one of them shares a variable with any other. Everything they know about each other comes down the arrows in that diagram.
+
+- **`camera`** owns the webcam. It sets exposure and white balance once, locks them so the picture stops drifting, and publishes every frame into shared memory.
+- **`tracker`** reads those frames, finds the hand in them, and sends the fingertip out sixty times a second.
+- **`classifier`** reads the same frames, crops out each bin, and works out what is in it.
+- **`core`** is everything the table means: the state machine, the cart, the prices, the bin map, the geometry, the load cell readings coming in over USB serial, the order database and the staff dashboard. Every other process dials into it.
+- **`of`** is the openFrameworks renderer. It draws the table exactly as `core` describes it, sixty times a second.
+
+`python run.py` is the whole start command. It launches all five, waits for each to announce itself, merges every log into one stream, and restarts anything that dies. The order it starts them in is only a convenience: every process reconnects forever, so any one of them can die and come back at any moment and the table carries on.
 
 The split that matters is the last one. `core` owns every price, every rule and every word. `of` draws what it is told and holds no opinion. The price on a plate arrives as the finished string `$1.40/100g`, symbol and suffix and all, because even the `g` has to become `克` when someone presses the language button. Adding Chinese to the whole table was two data files and zero lines of C++.
 
