@@ -43,15 +43,13 @@ Everyone else seemed to know. The staff knew. The regulars knew. The answers exi
 
 # 1.2 The idea: put the answers on the table
 
-Everything I wanted to know was a labelling problem. What is this, what does it taste like, what will it cost me — none of it is hard to know. It just has nowhere to live. A printed card on each bin is out of date by lunchtime and still can't tell you what's in your bowl. An app asks someone holding tongs in one hand and a bowl in the other to hold a phone as well.
+Everything I wanted to know was a labelling problem. What is this, what does it taste like, what will it cost me — none of it is hard to know, it just has nowhere to live. A printed card on each bin goes stale and still can't tell you what's in your bowl. An app asks someone holding tongs in one hand and a bowl in the other to hold a phone as well.
 
 So the answers go on the table itself.
 
-**The Fire Pot** is a self-serve hotpot counter with eight bins set into it. A projector overhead turns the whole tabletop into a display, a camera beside it watches your hands, and there is a scale under every bin. That is the entire trick: the counter you are already leaning over is the screen, and reaching for a bin is the only input. Nothing to tap, nothing to hold, nothing to ask.
+**The Fire Pot** is a self-serve hotpot counter with eight bins set into it. A projector overhead turns the whole tabletop into a display, a camera beside it watches your hands, and there is a scale under every bin. Reach for a bin and it tells you what is in it. Scoop it into your bowl and it prices what you took. Nothing to tap, nothing to hold, nothing to ask anyone.
 
-Hold a hand over the table and all eight bins name themselves, price and all. Hover over one and it catches fire, and the middle of the table tells you what it is, whether it is veg, what it costs you in calories, and one honest sentence about what it actually tastes like. Scoop it into your bowl and the scale underneath catches it: the item joins a cart along the near edge with its weight and its price, and a running total climbs as you fill up. Tip some back and the total falls again. Then choose a broth, choose how spicy, pay, and take a token number — all of it on the same lit tabletop, without ever looking away from your food.
-
-The rule the whole build follows comes straight out of that hawker centre: a person at a hotpot stand has a bowl in one hand and tongs in the other, so everything has to happen where their hands already are.
+Which is the design brief in one line: a person at a hotpot stand has a bowl in one hand and tongs in the other, so everything has to happen where their hands already are.
 
 [VIDEO: YouTube demo, https://youtube.com/... ]
 
