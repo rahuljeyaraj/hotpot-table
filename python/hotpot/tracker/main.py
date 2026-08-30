@@ -1,8 +1,7 @@
 """Tracker process — MediaPipe Hands, roles, and the cursor datagram
-(doc sections 3, 4.6, 6.4, 11; doc section 21, M5 build item 1).
+(doc sections 3, 4.6, 6.4, 11).
 
-Was `common/stub.py` from M0 through M4. From here on it is doc section
-11.1's pipeline:
+Doc section 11.1's pipeline:
 
     attach shm -> read latest frame -> downsample -> MediaPipe Hands ->
     landmark 9 -> camera->stage homography -> role assignment -> UDP to
@@ -59,85 +58,54 @@ it measures the achieved rate over the first few seconds and logs it, and
 it will climb if a second bundle ever lands in `models/`. What it cannot
 do is pretend a one-rung ladder was climbed.
 
-6. SUPERSEDED 2026-08-12, same day it was written — the hand-size/
-frame-position theory below is FALSE, disproven with the developer's own
-real hand on the live rig, and decision 7 replaces it. It is kept
-verbatim rather than deleted because commit `65b2717` shipped it as fact
-and a future reader diffing that commit needs the wrong reasoning in
-front of them, not just a hole where it was:
+6. The table footprint is a SCAN BOUND, not a detection crop.
+`ROI_MARGIN_PX` and `MIN_ROI_PX` bound where acquisition tiles are placed;
+they never crop the image handed to the detector. `DEFAULT_INPUT_WIDTH`
+does not reach hand detection at all — a whole-frame downsample is exactly
+the framing that can never cold-acquire a real hand, for the reason
+decision 7 measures.
 
-> RIG_FEEDBACK item 2 — "the cursor doesn't appear when the hand is near
-> the table edges" — is not about edges, and it is not about confidence
-> thresholds, rotation or resolution (all four were tested to exhaustion
-> first and none of them moves the number). MediaPipe's palm detector
-> letterboxes whatever it is handed into a fixed square input, so the
-> only quantity that decides whether a hand is findable is the hand's
-> share of the frame's LONG side... Cropping is the only lever that
-> moves it, and it is worth 83% -> 100% over a 60-trial sweep.
-
-The sweep above was real and the percentages were real — but it swept a
-*composited* hand pasted into the frame, and a composited hand and a
-real one turned out not to behave the same way. The very next test
-pasted the SAME known-good hand into the SAME rig frame at the SAME
-size and position a real hand was failing at, and it detected every
-time; the real hand failed at every crop, rotation, resolution,
-brightness and contrast setting tried. Position was separately
-re-confirmed not to matter (`debug/tracker_acquisition_2026-08-12/`,
-gitignored but not deleted — the throwaway scripts and evidence images
-this paragraph is reporting). Whatever was wrong, it was never about how
-much of the frame the hand fills or where it sits in the frame — the
-crop below is not, and never was, the fix. `ROI_MARGIN_PX` and
-`MIN_ROI_PX` remain (decision 7 repurposes the same table footprint as
-a scan BOUND, not a detection crop), but `DEFAULT_INPUT_WIDTH` no longer
-reaches hand detection at all — see decision 7.
-
-7. The real fault was sensor noise on the hand's own pixels, only
-fixable by denoising a HAND-SIZED window, not the whole table — and
-MediaPipe's own tracking state turns out to be tied to the exact crop
-framing it was given, which decided this whole mechanism's shape
-(2026-08-12). Three things were measured, each on this rig against the
-developer's real hand, none of them against a composited stand-in:
+7. Acquisition fails on sensor noise on the hand's own pixels, and is
+only fixable by denoising a HAND-SIZED window rather than the whole
+table. MediaPipe's tracking state is also bound to the exact crop
+framing it was given, which is what decides this whole mechanism's
+shape. Three things were measured on this rig, against a real hand
+rather than a composited stand-in:
 
 First: denoising a hand-sized crop (bilateral filter, twice) finds a
 cold real hand reliably; denoising the whole table crop the same way
-does not — and this was checked hard enough to trust, because it
-disagreed with itself once. A whole-crop-then-bilateral run scored
-20/20 at one hand position and 0/20 at another in the same live session
-(`debug/tracker_acquisition_2026-08-12/raw_test2_score.py` vs
-`raw_test3_score.py`) — position-dependent enough that it is not a fix,
-it is a trap for whoever re-tries it next. The hand-sized window
+does not. That was checked hard, because it disagrees with itself — a
+whole-crop-then-bilateral run scored 20/20 at one hand position and 0/20
+at another in the same session. It is position-dependent enough to be a
+trap rather than a fix, for whoever re-tries it. The hand-sized window
 (`ACQUISITION_WINDOW_PX`, 700 px at this rig's framing) scored 20/20 at
 both positions.
 
-Second: once MediaPipe has successfully detected a hand through a given
-crop, it keeps tracking that hand through SUBSEQUENT calls using that
-SAME crop even with the denoise removed — a real, measured
-consequence, not folklore (`debug/tracker_acquisition_2026-08-12/
-seed_test2.py`: same window afterwards, 5/5 with no denoise at all).
-That is a genuine cost saving: acquisition needs the hand-sized window
-AND the denoise; ongoing tracking of an already-found hand needs only
-the window.
+Second: once MediaPipe has detected a hand through a given crop, it
+keeps tracking that hand through subsequent calls using that SAME crop
+even with the denoise removed (measured: 5/5 with no denoise at all).
+That is a real cost saving — acquisition needs the hand-sized window AND
+the denoise, while tracking an already-found hand needs only the window.
 
 Third, and this is what makes "hand off to a plain whole-frame detect"
 unworkable: switching the SAME `HandLandmarker` instance from a
-successful windowed detect back to the ordinary whole-crop-downsampled
-call it used to get, even denoised, loses the hand on the very next
-call — 0/5, immediately (`seed_test2.py` phases 4-5). MediaPipe's
-VIDEO-mode tracking state is bound to the crop's own framing (position
-and scale), not to "a hand was recently seen somewhere in this camera
-feed." There is no seeding it from outside. What DOES survive is a small
-SHIFT in the same window's origin, same size, re-centred to follow the
-hand tick to tick (`seed_test3.py`: shifts up to 60px, still tracking,
-denoise or not) — which is the only reason continuous tracking is
-possible here at all without re-running the palm detector from scratch
-every single frame.
+successful windowed detect back to an ordinary whole-crop downsampled
+call, even denoised, loses the hand on the very next call — 0/5,
+immediately. MediaPipe's VIDEO-mode tracking state is bound to the
+crop's own framing, position and scale, not to "a hand was recently seen
+somewhere in this camera feed", and there is no seeding it from outside.
+What DOES survive is a small SHIFT of the same window's origin at the
+same size, re-centred to follow the hand tick to tick (measured: shifts
+up to 60px still track, denoise or not). That is the only reason
+continuous tracking is possible here without re-running the palm
+detector from scratch every frame.
 
 The mechanism this forced: `_hand_windows` holds up to `max_hands`
 committed crops, each a fixed-size window re-centred on its own last
 detection every time it is serviced, never handed a differently-framed
 crop. `_acquisition_tile_centers` covers the table's own footprint
-(decision 6's crop, now a scan BOUND rather than the detection input
-itself) with overlapping hand-sized tiles; an empty hand slot's turn is
+(a scan BOUND, not the detection input) with overlapping hand-sized
+tiles; an empty hand slot's turn is
 spent scanning the next tile instead, denoised, looking for a new hand.
 One `backend.detect()` call per tick, always — round-robining service
 between committed windows and open scan slots is what keeps that true
@@ -147,79 +115,53 @@ A tracked window that stops being found is not dropped instantly
 cost the whole state" reasoning `tracker/tracking.py`'s own
 `TRACK_GRACE_S` already uses for the layer above this one.
 
-The first rig run of this mechanism pulsed — locked on, lost, locked
-on, lost — worse near the edges, and this third finding is exactly why.
-One shared `backend.detect()` call was still being routed through a
-SINGLE `MediaPipeBackend` instance for both scanning and tracking. With
-`max_hands` at its default of 2, a lone tracked hand still leaves a
-second slot open, so the round-robin keeps spending most turns scanning
-for a second hand — on the SAME instance the first hand's lock lives on.
-Every scan tile is a different crop, so every scan turn reset the tracked
-hand's lock exactly as this finding says it would, and the very next
-service turn had to re-acquire from a WARM (undenoised) call against
-what was, for MediaPipe's own state, a cold crop — a coin flip, which is
-what pulsing IS. `backend_factory`, added the same day once this was
-seen on the rig: one independent `HandLandmarker` per `max_hands`
-tracking slot, plus one more for scanning, so scanning for a second hand
-can never touch the instance the first hand is locked to. `_all_backends`
-is the one place anything that has to reach every instance (rotation,
-mirror, shutdown) goes through, so a future config knob cannot land on
-the scanner alone and leave the tracked hands unrotated.
+PULSING, and the three things that address it. The symptom is a cursor
+locking on, losing, locking on again — worse near the table's edges —
+and it has more than one cause.
 
-2026-08-13: per-instance isolation alone did not fix the pulsing —
-the real cause was a duplicate window on the same hand. Confirmed on
-the rig with the isolation fix already in place: pulsing was still
-there, edges only, never in the table's centre. Three isolated live
-tests on the rig ruled out the obvious suspects one at a time — a fixed
-699px window at the exact reported edge position scored 36-38/38 with
-NO per-tick denoise, 38/38 with it (so denoise-while-tracking is not
-it); the SAME window with the real `_clamp_window` re-centring run every
-tick, exactly as `tick()` does, scored 302/304 (so re-centre/clamp
-toggling at the frame edge is not it either). Neither reproduced any
-flicker. What both tests shared, and production does not, is a single
-backend serviced every tick with no competing turn. Reading
-`_next_detection_input`/`_update_acquisition` side by side found the
-actual mechanism: at `max_hands=2` with one real hand on the table, one
-slot is permanently free, so the round robin ALWAYS alternates between
-servicing that hand and taking a scan turn — a scan tile large enough to
-also contain the already-tracked hand (likely; a 700px window against a
-table-sized scan region overlaps a lot) would detect that SAME hand and
-claim the free slot for it, with no check that anything was already
-tracking that position. Two windows on one physical hand, serviced on
-alternating ticks, only one reaching the cursor per tick — the
-duplicate's rougher scan-tile-derived framing misses often enough that
-the cursor visibly drops and returns. `_update_acquisition` now declines
-to claim a free slot when the hit already falls inside an existing
-window (see its own comment). Still owed: this fix has not yet been
-watched live on the rig — the mechanism explains the reported symptom
-precisely and is grounded in the two ruled-out tests above, not in
-guesswork, but "the code can produce this" is not the same claim as "and
-this is what did" until someone sees the pulsing actually stop.
+Cause one follows directly from the third finding above. Routing both
+scanning and tracking through a SINGLE `MediaPipeBackend` instance means
+every scan turn hands that instance a differently-framed crop, which
+resets the tracked hand's lock; the next service turn then has to
+re-acquire from a warm, undenoised call against what is, for MediaPipe,
+a cold crop. That is a coin flip, and a coin flip is what pulsing is.
+`backend_factory` gives one independent `HandLandmarker` per tracking
+slot plus one more for scanning, so scanning can never touch the
+instance a tracked hand is locked to. `_all_backends` is the single
+place anything that must reach every instance — rotation, mirror,
+shutdown — goes through, so a future config knob cannot land on the
+scanner alone and leave the tracked hands unrotated.
 
-2026-08-13, later the same day: live A/B on the rig — `562eeed` was
-necessary but not sufficient, and `max_hands=1` is what actually stops
-the pulsing. Three tests, in order, same rig, same edge position that
-pulsed before: `max_hands=1` — pulsing gone, one real hand, developer
-confirmed. `max_hands=2` restored, same one-hand-at-the-edge case that
-had just been clean — pulsing came straight back. With a SECOND real
-hand also at the edge (both slots filled, so `_next_detection_input`
-never offers a scan turn — `len(active) == max_hands`), both hands
-pulsed, not in lockstep: right detected/left not, then flipped, and
-sometimes both missed the same tick. This is a different failure from
-the duplicate-window bug above, which needs a FREE slot to reproduce at
-all, and it has not been root-caused — the round-robin arithmetic
-alone (each filled slot serviced every other tick, ~15Hz here at a
-~30Hz capture rate, against `tracking.py`'s 500ms `TRACK_GRACE_S`)
-does not obviously explain a miss this frequent, and nobody has yet
-logged per-tick `conf` at the edge to see whether detection confidence
-itself is what is marginal there, the way `min_hand_detection_confidence`
-flickering was flagged as a live possibility before this test ran.
-Decided, not diagnosed further: `tracker.max_hands` defaults to `1`
-in both `config/system.json` and `config/system.default.json`.
-Two-hand tracking is disabled, not fixed — `_hand_windows`, the round
-robin and `backend_factory`'s per-slot instances are all still here,
-unchanged, for whenever this is revisited, but nothing on the rig has
-shown it can be made to hold up with two real hands yet.
+Cause two is a DUPLICATE WINDOW on one hand. With a free slot, the round
+robin alternates between servicing the tracked hand and taking a scan
+turn, and a scan tile large enough to also contain that hand — likely,
+since a 700px window against a table-sized scan region overlaps a lot —
+detects the SAME hand and claims the free slot for it. Two windows on
+one physical hand, serviced on alternating ticks, with only one reaching
+the cursor per tick: the duplicate's rougher framing misses often enough
+that the cursor visibly drops and returns. `_update_acquisition`
+therefore declines to claim a free slot when the hit already falls
+inside an existing window.
+
+Ruled OUT by isolated tests at the reported edge position, so do not
+re-investigate them first: denoise-while-tracking (a fixed 699px window
+scored 36-38/38 without per-tick denoise, 38/38 with it) and
+re-centre/clamp toggling at the frame edge (the same window with the
+real `_clamp_window` re-centring every tick scored 302/304).
+
+Cause three is unresolved, and it is why `tracker.max_hands` defaults to
+1 in both config files. With two real hands at the edge — both slots
+filled, so `_next_detection_input` never offers a scan turn — both hands
+pulse, not in lockstep. That needs no free slot, so it is not cause two,
+and the round-robin arithmetic alone (each filled slot serviced every
+other tick, ~15Hz at a ~30Hz capture rate, against `tracking.py`'s 500ms
+`TRACK_GRACE_S`) does not obviously explain a miss that frequent. Nobody
+has logged per-tick `conf` at the edge to see whether detection
+confidence is what is marginal there.
+
+Two-hand tracking is therefore DISABLED, not fixed. `_hand_windows`, the
+round robin and `backend_factory`'s per-slot instances are all still
+here for whenever it is revisited.
 """
 
 from __future__ import annotations
@@ -268,7 +210,7 @@ DEFAULT_INPUT_WIDTH = 480
 
 # See the module docstring's decision 7. How far OUTSIDE the table's own
 # footprint `table_roi` reaches, in capture pixels — a SCAN bound now, not
-# a detection crop (that was decision 6, superseded the same day it was
+# a detection crop (that was decision 7, superseded the same day it was
 # measured: see the docstring). Still the right number for the job it has
 # now, and for the same physical reason it was measured for the old job: a
 # hand reaches in from *outside* the table (decision 1), and a bound tight
@@ -285,20 +227,19 @@ DEFAULT_ROI_MARGIN_PX = 200
 MIN_ROI_PX = 160
 
 # ---------------------------------------------------------------------------
-# Acquisition (module docstring, decision 7 — 2026-08-12)
+# Acquisition (module docstring, decision 7)
 # ---------------------------------------------------------------------------
 
-# The hand-sized window's side, in capture pixels. Measured on this rig,
-# against the developer's real hand, at two positions (roughly table
-# centre and a near-edge reach): 700px scored 20/20 at both — see
-# `debug/tracker_acquisition_2026-08-12/raw_test2_score.py` and
-# `raw_test3_score.py`. **Not swept across many hand sizes or many diners
-# — a single-session number, TUNE rather than assume if it under- or
-# over-performs on the rig.** Must stay well clear of the ~90-99px
-# transition band decision 6's own (still-valid) composited-hand sweep
-# found, which it does with a wide margin: a window this size holds a
-# ~100px palm at roughly 14-20% of its own width, several times the
-# fraction that mattered on the whole frame.
+# The hand-sized window's side, in capture pixels. Measured on this rig
+# against a real hand at two positions — roughly table centre and a
+# near-edge reach — where 700px scored 20/20 at both.
+#
+# NOT swept across many hand sizes or many diners: this is a
+# single-session number, so TUNE it rather than assume it if it under- or
+# over-performs. It must stay well clear of the ~90-99px transition band
+# below which a hand stops being findable, and it does so by a wide
+# margin: a window this size holds a ~100px palm at roughly 14-20% of its
+# own width.
 ACQUISITION_WINDOW_PX = 700
 
 # Centre-to-centre spacing of acquisition scan tiles. Deliberately less
@@ -314,8 +255,8 @@ ACQUISITION_TILE_STRIDE_PX = 470
 # pattern (`tracker/tracking.py`'s `TRACK_GRACE_S`/`PROMOTE_DELAY_S`)
 # argues for a real grace period rather than dropping on the first empty
 # tick: a hand a committed window briefly loses (motion blur, a fast
-# gesture) should get a few more tries at the SAME framing — decision 7's
-# own finding that re-detection needs the window's exact framing means a
+# gesture) should get a few more tries at the SAME framing. Decision 7's
+# finding that re-detection needs the window's exact framing means a
 # window given up too eagerly has to re-earn a hit from cold, denoised,
 # scan-rotation odds, not just get re-centred.
 ACQUISITION_WINDOW_LOST_S = 1.0
@@ -334,20 +275,20 @@ PROBE_KEEP_ABOVE_FPS = 25.0
 # not a busy loop on a board with four cores and no spare one (doc 10.4).
 IDLE_SLEEP_S = 0.005
 
-# 2026-08-12: the staff view's Developer tab redraws its raw-landmark
-# debug view (RIG_FEEDBACK item 10) at 10Hz, the same cadence
-# core/main.py already uses for the Bins tab and the reduced `hands`
-# message — a human eye gets nothing from 60Hz here, and it would just
-# compete with the real cursor path for the control link's send queue.
-# Own throttle, independent of `emit_hz`.
+# The staff view's Developer tab redraws its raw-landmark debug view at
+# 10Hz, the same cadence core/main.py uses for the Bins tab and the
+# reduced `hands` message: a human eye gets nothing from 60Hz here, and it
+# would compete with the real cursor path for the control link's send
+# queue. Its own throttle, independent of `emit_hz`.
 LANDMARKS_HZ = 10.0
 
-# Developer feedback running M5 on the rig (2026-08-12): the cursor, drawn
-# at the tracked landmark's own stage position, sits under the hand's
-# shadow and is invisible most of the time — the projected field is the
-# table's only light (CLAUDE.md's "hard invariant"), so a hand over its
-# own cursor blocks it outright, it is not merely "partly covered".
-# Shifted here, upstream of both core's hit test and oF's rendering, so
+# A cursor drawn at the tracked landmark's own stage position sits under
+# the hand's shadow and is invisible most of the time: the projected
+# field is the table's only light, so a hand over its own cursor blocks it
+# outright rather than merely partly covering it.
+#
+# The offset is applied here, upstream of both core's hit test and oF's
+# rendering, so
 # the visible dot and whatever it is hovering never disagree — doc
 # section 9.4: "core hit-tests stage-space cursors against stage-space
 # rects," the same points oF draws. Direction is toward the far edge
@@ -356,10 +297,10 @@ LANDMARKS_HZ = 10.0
 # from the near edge, so that is the one direction clear of the arm/hand
 # behind the tracked point, for every bin and every widget.
 #
-# Shrunk 2026-08-12 (was 70mm) when the cursor landmark itself moved
-# from landmark 9 (middle-finger MCP, the palm centre — deep under the
-# hand, needing real clearance) to landmark 8 (index fingertip —
-# `backend_mediapipe.py`'s own doc section 11.2 override). The fingertip
+# Sized for landmark 8, the index fingertip
+# (`backend_mediapipe.py`'s doc section 11.2 override), which needs far
+# less clearance than landmark 9 — the middle-finger MCP at the palm
+# centre, deep under the hand. The fingertip
 # is normally already the most exposed, forward-most point of a reaching
 # hand, so it needs only a small nudge clear of its own tip, not a
 # fingertip's reach. Not yet physically confirmed at either value —
@@ -463,7 +404,7 @@ def table_roi(h, stage, frame_shape, margin: float = DEFAULT_ROI_MARGIN_PX):
 
     See the module docstring's decision 7 for why this exists at all —
     it now bounds the acquisition scan rather than being the detection
-    crop itself (that was decision 6, superseded).
+    crop itself (that was decision 7, superseded).
 
     None rather than a raise for every reason it can fail, and the caller
     treats all of them identically by detecting on the uncropped frame:
@@ -573,10 +514,9 @@ def _denoise_for_acquisition(img):
     from unfindable into found IN A HAND-SIZED WINDOW — see the module
     docstring's decision 7. Two passes rather than one: measured 20/20 at
     every window size tried from 440px up, where one pass needed the full
-    700px to be reliable (`debug/tracker_acquisition_2026-08-12/
-    raw_test2_score.py`). Never applied to an already-tracking window
-    (decision 7's second finding: tracking survives with no denoise at
-    all once a window has one successful hit) — denoise is an
+    700px to be reliable. Never applied to an already-tracking window —
+    decision 7's second finding is that tracking survives with no denoise
+    at all once a window has had one successful hit — so denoise is an
     ACQUISITION cost, not a per-tick one.
     """
     import cv2      # noqa: WPS433
@@ -649,24 +589,22 @@ class TrackerProcess:
                  ) -> None:
         self.source = source or FrameSource()
         self.sender = sender or cursorbus.Sender()
-        # RIG_FEEDBACK item 11 diagnostic — see skeletonbus.py's module
-        # docstring. A separate sender/target from `self.sender` on
-        # purpose: oF only, never core, and a distinct wire shape.
+        # The cursor-lag diagnostic — see skeletonbus.py. A separate
+        # sender and target from `self.sender` on purpose: oF only, never
+        # core, and a distinct wire shape.
         self.skeleton_sender = skeleton_sender or skeletonbus.Sender()
         self.send_stat = send_stat or (lambda msg: None)
         self.input_width = input_width
         self.roi_margin_px = roi_margin_px
         self.max_hands = max(1, int(max_hands))
         self.emit_hz = emit_hz
-        # RIG_FEEDBACK item 8: `tracking.py`'s own module docstring has the
-        # full reasoning for why the filter lives inside `HandTracker`
-        # rather than out here.
+        # `tracking.py`'s module docstring has the reasoning for why the
+        # smoothing filter lives inside `HandTracker` rather than here.
         self.tracker = tracking.HandTracker(smoothing_tau_s=smoothing_tau_s)
 
-        # 2026-08-12, found live on the rig, not in a test: a single
-        # shared MediaPipe instance for both scanning and tracking pulsed
-        # — locked onto a hand, then lost it, over and over, worse near
-        # the edges. Decision 7's own `seed_test2.py` already proved why:
+        # A single shared MediaPipe instance for both scanning and
+        # tracking PULSES — locking onto a hand, then losing it, over and
+        # over, worse near the edges. Decision 7 has the mechanism:
         # switching a `HandLandmarker`'s crop framing even once resets its
         # tracking lock. The scheduler switches framing on purpose EVERY
         # time an open hand slot's turn goes to scanning instead (which is
@@ -795,11 +733,11 @@ class TrackerProcess:
         mirror = cfg.get("mirror_handedness")
         if isinstance(mirror, bool):
             self.set_mirror_handedness(mirror)
-        # 2026-08-12: core owns this (`geometry.view_rotation_deg`,
-        # `state/view_rotation.json`) the same way it owns the homography
-        # — a fact about the physical rig, pushed here rather than read
-        # from a local default, so a value this process invented can never
-        # disagree with what core actually has on disk. Only 0/90/180/270
+        # Core owns this (`geometry.view_rotation_deg`,
+        # `state/view_rotation.json`) the same way it owns the homography:
+        # a fact about the physical rig, pushed here rather than read from
+        # a local default, so a value this process invented can never
+        # disagree with what core has on disk. Only 0/90/180/270
         # are ever written there (`GeometryStore.set_view_rotation`'s own
         # validation), so the isinstance/membership check here is a
         # defence against a malformed `cfg`, not a real validation layer.
@@ -885,10 +823,11 @@ class TrackerProcess:
 
     def _all_backends(self) -> List[Backend]:
         """Every distinct backend instance this process owns — one call
-        site for anything that has to reach ALL of them (config that
-        applies to the whole camera/session, or shutdown), now that
-        decision 7's crop-isolation fix (2026-08-12) can mean more than
-        one. Deduplicated by identity: in the common case (no
+        site for anything that has to reach ALL of them — config that
+        applies to the whole camera or session, or shutdown — since
+        decision 7's crop isolation can mean more than one.
+
+        Deduplicated by identity: in the common case (no
         `backend_factory`, every test in this file) `_scan_backend` and
         every `_track_backends` entry ARE `self.backend`, and applying a
         setting three times over would be harmless but is not the point.
@@ -1004,10 +943,10 @@ class TrackerProcess:
             # backend swap immediately after cannot see time run backwards.
             detections: List[Detection] = []
         else:
-            # 2026-08-12: routed to a PER-SLOT backend instance, not the
-            # single shared one — see `__init__`'s own note. Scanning a
-            # different tile on `self._scan_backend` must never touch the
-            # instance a tracked hand's own lock lives on.
+            # Routed to a PER-SLOT backend instance, never the single
+            # shared one — see `__init__`. Scanning a different tile on
+            # `self._scan_backend` must never touch the instance a tracked
+            # hand's own lock lives on.
             active_backend = (self._track_backends[service_slot]
                               if service_slot is not None
                               else self._scan_backend)
@@ -1020,18 +959,18 @@ class TrackerProcess:
             self._update_acquisition(detections, origin, frame.shape,
                                      service_slot, now)
 
-        # 2026-08-12: moved ahead of the homography check below, on
-        # purpose. Detection itself has nothing to do with the
-        # camera->stage solve — MediaPipe finds hands (or doesn't) in raw
-        # frame pixels regardless of whether the table has ever been
-        # calibrated. The staff view's Developer tab (RIG_FEEDBACK item
-        # 10) needs to answer "does MediaPipe see a hand at all"
-        # independent of calibration state; gating detection itself on
-        # `h` would make that view go blank on an uncalibrated table for
-        # a reason that has nothing to do with what it is trying to show.
-        # The cursor pipeline below is UNCHANGED — it still requires `h`
-        # and still sends nothing without one (doc section 21: "the
-        # cursor is meaningless without it").
+        # Deliberately AHEAD of the homography check below. Detection has
+        # nothing to do with the camera->stage solve: MediaPipe finds
+        # hands, or does not, in raw frame pixels whether or not the table
+        # has ever been calibrated. The staff view's Developer tab has to
+        # answer "does MediaPipe see a hand at all" independent of
+        # calibration state, and gating detection on `h` would blank that
+        # view on an uncalibrated table for a reason unrelated to what it
+        # is showing.
+        #
+        # The cursor pipeline below is unaffected: it still requires `h`
+        # and still sends nothing without one, because a cursor is
+        # meaningless without it.
         self._maybe_send_landmarks(detections, scale, origin, now)
 
         if h is None:
@@ -1058,14 +997,11 @@ class TrackerProcess:
                                     role=cursorbus.ROLE_POINTER,
                                     x=px, y=py, conf=1.0, phantom=True)]
         self.sender.send(hands, ts=time.time())
-        # RIG_FEEDBACK item 11 diagnostic: confirmed fixed on the rig,
-        # 2026-08-13 — no longer called here, same call `classifier/
-        # main.py` made for `dots.detect_best` (CLAUDE.md's M4i): the
+        # The raw-skeleton diagnostic is NOT sent from here. The
         # mechanism (`self.skeleton_sender`, `_skeleton_to_stage`) is
-        # untouched and still directly tested
-        # (test_tracker_main.py's `TestSkeletonMapping`), just not wired
-        # into the tick loop any more. oF's own side of this is
-        # `ofApp.cpp`'s `kDrawSkeleton` kill switch.
+        # intact and still directly tested — see test_tracker_main.py's
+        # `TestSkeletonMapping` — just not wired into the tick loop. oF's
+        # side of it is `ofApp.cpp`'s `kDrawSkeleton` kill switch.
         self._last_emit = now
         self.emitted += 1
         self._count_probe_frame(now)
@@ -1075,7 +1011,7 @@ class TrackerProcess:
 
     def _acquisition_bounds(self, h, stage, shape):
         """The region the scan rotation covers — the table's own footprint
-        padded by `roi_margin_px` (decision 6's old crop, now a bound), or
+        padded by `roi_margin_px` (decision 7's old crop, now a bound), or
         the whole frame when there is no homography yet, the same
         first-boot fallback `table_roi` itself used to provide directly.
         """
@@ -1192,18 +1128,19 @@ class TrackerProcess:
                 win.x0, win.y0, win.w, win.h = x0, y0, w, h_px
                 win.last_hit = now
             else:
-                # 2026-08-13 pulsing bug: a scan tile overlapping an
-                # ALREADY-tracked hand used to claim the free slot too,
-                # producing a second window on the same physical hand.
-                # The two windows are then serviced on alternating ticks
-                # (round robin at max_hands capacity), and only one
-                # slot's detection reaches the cursor per tick — the
-                # duplicate's rougher, scan-tile-derived framing misses
-                # often enough that the cursor visibly drops and returns
-                # every other beat. This is a real hand at (cx, cy)
-                # already sitting inside an existing committed window,
-                # not a second hand — decline the slot instead of
-                # cloning a tracker onto a hand that already has one.
+                # A scan tile overlapping an ALREADY-tracked hand must
+                # not claim the free slot: that produces a SECOND window
+                # on the same physical hand. The two are then serviced on
+                # alternating ticks (round robin at max_hands capacity)
+                # and only one slot's detection reaches the cursor per
+                # tick, so the duplicate's rougher, scan-tile-derived
+                # framing misses often enough that the cursor visibly
+                # drops and returns every other beat — one of the causes
+                # of pulsing (see the module docstring).
+                #
+                # A hit at (cx, cy) already inside an existing committed
+                # window is that hand, not a second one, so decline the
+                # slot rather than cloning a tracker onto it.
                 if any(existing is not None and
                        existing.x0 <= cx < existing.x0 + existing.w and
                        existing.y0 <= cy < existing.y0 + existing.h
@@ -1268,8 +1205,7 @@ class TrackerProcess:
                                  handedness=det.handedness))
         return out
 
-    # -- projected-table debug: raw skeleton, stage space (RIG_FEEDBACK
-    # item 11) --------------------------------------------------------------
+    # -- projected-table debug: raw skeleton, stage space -------------------
 
     def _skeleton_to_stage(self, detections: Sequence[Detection],
                            scale: float, origin,
@@ -1308,7 +1244,7 @@ class TrackerProcess:
                     handedness=det.handedness, conf=det.conf, points=points))
         return out
 
-    # -- staff view debug: every raw MediaPipe point (RIG_FEEDBACK item 10) -
+    # -- staff view debug: every raw MediaPipe point -----------------------
 
     def _maybe_send_landmarks(self, detections: Sequence[Detection],
                               scale: float, origin, now: float) -> None:
@@ -1476,12 +1412,11 @@ def build_backend(cfg: Dict[str, Any],
         return backend_stub.Stub()
     mirror = bool(config.get(cfg, "tracker.mirror_handedness", False))
     max_hands = int(config.get(cfg, "tracker.max_hands", 2) or 2)
-    # RIG_FEEDBACK item 2's own third suspect ("check backend_mediapipe.py's
-    # confidence thresholds against a logged conf value at the edge") —
-    # config keys now, not hardcoded 0.5s, so they can be tuned from the
-    # rig against the Developer tab's raw landmark view with no rebuild.
-    # 0.5 here matches MediaPipe's own default exactly, so a system.json
-    # with no opinion on these three keys changes nothing.
+    # Config keys rather than hardcoded values, so the confidence
+    # thresholds can be tuned from the rig against the Developer tab's raw
+    # landmark view with no rebuild. 0.5 matches MediaPipe's own default
+    # exactly, so a system.json with no opinion on these three keys
+    # changes nothing.
     min_detection = float(config.get(
         cfg, "tracker.min_hand_detection_confidence", 0.5))
     min_presence = float(config.get(
@@ -1514,9 +1449,9 @@ def main() -> None:
             ("127.0.0.1", int(config.get(cfg, "cursor.core_port",
                                          cursorbus.CORE_PORT))),
         ]),
-        # RIG_FEEDBACK item 11 diagnostic (skeletonbus.py's module
-        # docstring) — oF only, no `cursor.skeleton_of_port` in doc §8.6
-        # since this transport isn't in the doc at all.
+        # The raw-skeleton diagnostic (see skeletonbus.py) — oF only.
+        # There is no `cursor.skeleton_of_port` in doc §8.6, since this
+        # transport is not in the doc at all.
         skeleton_sender=skeletonbus.Sender(
             ("127.0.0.1", int(config.get(cfg, "skeleton.of_port",
                                          skeletonbus.OF_PORT)))),
@@ -1532,9 +1467,9 @@ def main() -> None:
         # process handing state to another that has no other use for it.
         max_hands=int(config.get(cfg, "tracker.max_hands", 2) or 2),
         emit_hz=float(config.get(cfg, "tracker.emit_hz", 60)),
-        # RIG_FEEDBACK item 8. Config key, not a hardcoded constant, for
-        # the same reason `min_hand_detection_confidence` above is one —
-        # tunable from the rig against a real hand with no rebuild.
+        # A config key, not a hardcoded constant, for the same reason
+        # `min_hand_detection_confidence` above is one: tunable from the
+        # rig against a real hand with no rebuild.
         smoothing_tau_s=float(config.get(
             cfg, "tracker.smoothing_tau_s", tracking.TRACK_SMOOTHING_TAU_S)),
     )
