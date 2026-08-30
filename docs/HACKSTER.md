@@ -547,7 +547,9 @@ Layer 3 is the one the design hangs off. That white is the light falling on the 
 [IMAGE: docs/img/architecture-centre-column.svg]
 *440 mm of solid plywood, and everything you read while standing there.*
 
-The column up the middle is the one strip of table with no bin and no bin label in it, so that is where the reading goes. The original plan put the buttons in the near-right corner instead. That corner is exactly where the near-right bin writes its own name, which nobody noticed until it was projected onto plywood and the two came out printed on top of each other.
+The two rows of four bins leave a 440 mm strip down the middle of the table, 554 pixels of it, and everything you read is in there. Top to bottom: the brand mark, then the info box for whichever bin your hand is over, then the cart, eight rows and a total, then three buttons along the bottom edge. When Serving is switched off, a mode banner takes the info box's place.
+
+Every one of those bands is positioned from the bin geometry rather than typed in, so moving a bin in the layout moves the reading column with it.
 
 # 8.7 Hand tracking through a moving window
 
