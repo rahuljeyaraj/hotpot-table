@@ -11,184 +11,124 @@
 namespace {
 	const char * kTag = "UiLayer";
 
-	// Doc §13.4: "Load each font at its final display size... projected
-	// text at 3x scale is mud." Inter (the doc's specified `en` face) is not
-	// present anywhere in this repo or the oF distribution — checked both
-	// before reaching for a substitute, not assumed absent. DejaVuSans-Bold
-	// already ships in bin/data/fonts/ for the legacy bin labels this
-	// rewrite deletes, and it already satisfies the harder rule underneath
-	// the font choice ("dark ink on light field, set bold" — doc §13.4).
-	// Swap this one line once the real font file exists.
+	// Doc §13.4: load each font at its final display size — projected text
+	// scaled up at draw time is mud. Inter, the doc's specified `en` face,
+	// is not present in this repo or the oF distribution; DejaVuSans-Bold
+	// ships in bin/data/fonts/ and satisfies the rule underneath the font
+	// choice (dark ink on a light field, set bold). Swap this one line if
+	// the specified face is ever added.
 	const std::string kFontFile = "fonts/DejaVuSans-Bold.ttf";
 
-	// 2026-08-14, rig photo: the plate rate line was VISUAL_LAYER.md's
-	// "regular" weight, but this repo only ever had DejaVuSans-Bold, so it
-	// drew bold-on-bold and the doc's own weight distinction never showed
-	// up. DejaVuSansMono is the same font family (Bitstream Vera/DejaVu
-	// license, permissive — the same terms as kFontFile above, already
-	// vendored in this repo) and gives two things at once: a genuine
-	// regular weight, and monospace digits so a price line's width doesn't
-	// twitch as the digits change on a pick (developer request, same
-	// session). Copied from this machine's matplotlib install
-	// (mpl-data/fonts/ttf/DejaVuSansMono.ttf) into bin/data/fonts/ — same
-	// vendoring precedent as kFontFile itself.
+	// The plate rate line's face. DejaVuSansMono is the same family as
+	// kFontFile above (Bitstream Vera/DejaVu, permissively licensed) and
+	// gives two things at once: a genuine regular weight, so the rate line
+	// is not bold-on-bold against the name above it, and monospace digits
+	// so a price line's width does not twitch as the digits change on a
+	// pick.
 	const std::string kMonoFontFile = "fonts/DejaVuSansMono.ttf";
 
-	// **2026-08-25: a regular weight, because everything on this table was
-	// bold.** Developer, verbatim: "every text font look bulky bold i
-	// never asked to use same font through out the table. use better font
-	// as needed for each item." This repo genuinely only had ONE
-	// proportional face until now, so every heading, label, note and
-	// caption drew at the same weight and nothing could be subordinate to
-	// anything else — the info box's note shouted as loudly as the item's
-	// name above it.
+	// A regular proportional weight, so the table has a hierarchy rather
+	// than drawing every heading, label, note and caption at one weight.
 	//
-	// The rule now, and it is the ordinary typographic one: BOLD is for
-	// things read at a distance or read first (a plate's name, the info
-	// box's name, a button, the total's figure); REGULAR is for prose and
-	// for anything the eye should land on second (the info box's note,
-	// cart row names, the total's label); MONO is for numbers that must
-	// not jitter as their digits change (the plate rate, cart amounts).
-	// Same DejaVu family throughout, so this is one voice at three
-	// weights rather than three typefaces arguing.
-	//
-	// Vendored from this machine's matplotlib install, same precedent and
-	// same permissive licence as the two above.
+	// The rule is the ordinary typographic one. BOLD is for things read at
+	// a distance or read first: a plate's name, the info box's name, a
+	// button, the total's figure. REGULAR is for prose and for anything the
+	// eye should land on second: the info box's note, cart row names, the
+	// total's label. MONO is for numbers that must not jitter as their
+	// digits change: the plate rate, cart amounts. Same DejaVu family
+	// throughout, so this is one voice at three weights rather than three
+	// typefaces arguing.
 	const std::string kRegularFontFile = "fonts/DejaVuSans.ttf";
 	const std::string kMonoBoldFontFile = "fonts/DejaVuSansMono-Bold.ttf";
 
-	// 2026-08-26: doc §17.1's `zh` face. Noto Sans SC — none of the four
-	// DejaVu files above carry a single CJK glyph, so a fifth file is
-	// unavoidable once `data/locales/zh.json` exists; unlike the DejaVu
-	// family this repo does not have a matching bold/mono/regular set for
-	// it, only this one weight, fetched from Google Fonts (OFL) as the
-	// variable font's default instance. Every role in loadFonts() below
-	// converges on this one file when the locale is zh, the same way
-	// every English role already converges on one of the four files
-	// above — see that function's own comment.
+	// Doc §17.1's `zh` face. None of the four DejaVu files above carry a
+	// single CJK glyph, so a fifth file is unavoidable. Unlike the DejaVu
+	// family there is no matching bold/mono/regular set for it, only this
+	// one weight (Google Fonts, OFL, the variable font's default instance),
+	// so every role in loadFonts() converges on this one file when the
+	// locale is zh — see that function's comment.
 	const std::string kCjkFontFile = "fonts/NotoSansSC-Regular.ttf";
 
-	// Doc §13.4 fixed these at 36px and 26px, corrected once already
-	// (2026-08-11) to 28px/22px after the catalogue names of the day
-	// mostly didn't fit at 36px. Still used for the banner headline/
-	// subline and the M5 widget label — see kPlateNamePx/kPlateRatePx
-	// below for the bin plate's own, VISUAL_LAYER.md-specified sizes.
+	// The banner headline and subline, and the widget label. Doc §13.4
+	// specifies 36px and 26px; these are smaller because catalogue names
+	// mostly do not fit at 36px. The bin plate has its own sizes — see
+	// kPlateNamePx and kPlateRatePx below.
 	const int kNamePx = 28;
 	const int kDetailPx = 22;
 
-	// VISUAL_LAYER.md section 3's palette named 40px for the plate name.
-	// **2026-08-14, corrected the same day from a real rig photo**: at
-	// 40px DejaVuSans-Bold, catalogue names overflowed a 200mm bin (252px)
-	// and ran into the paired bin's own name — "Noodles" and "Wheat
-	// Noodles" merged into one unreadable run. 28px is where every one of
-	// the catalogue's real display names either fits on one line or wraps
-	// cleanly to two (measured against the real font and the real
-	// catalogue, PIL/FreeType, not eyeballed) — see drawBin's wrap call
-	// below. **§3's palette table is corrected to match.**
+	// The plate name, at the size where every one of the catalogue's real
+	// display names either fits a 200mm bin (252px) on one line or wraps
+	// cleanly to two — measured against the real font and the real
+	// catalogue with PIL/FreeType, not eyeballed. VISUAL_LAYER.md §3's
+	// palette named 40px, at which names overflow the bin and run into the
+	// paired bin's name.
 	//
-	// A same-day `shortLabel` catalogue field (core/pricing.py,
-	// data/catalogue.json) briefly existed so this could stay one line
-	// with no wrap at all — **deleted the same day, developer instruction:
-	// "remove the short label idea... show the original label, max 2
-	// lines."** The catalogue's `names` field is the single source again;
-	// core/main.py's `_bin_msg` sends the full display name and oF wraps
-	// it here.
+	// The catalogue's `names` field is the single source of the text: core
+	// sends the full display name and oF wraps it here (see drawBin's wrap
+	// call below). There is deliberately no shortened-label field.
 	const int kPlateNamePx = 28;
-	// 2026-08-14, second rig photo: at the doc's 26px, DejaVuSansMono's
-	// ink height (25px, measured) was actually TALLER than the 28px bold
-	// name's (21px) — a mono font's cap-height runs bigger relative to its
-	// nominal size than a proportional face's, so the "smaller" number was
-	// the visually bigger line. Developer: "make it smaller." Dropped to
-	// 18px (measured ink height 18px, 86% of the name's — clearly
-	// secondary now, still legible up close where a diner reads this
-	// line). Re-run the same PIL/FreeType measurement rather than
-	// re-guessing if either face or size changes again.
-	// 2026-08-14, developer's own follow-up call, unmeasured: 20px.
+	// The plate rate line. Smaller than the doc's 26px because a mono
+	// font's cap-height runs bigger relative to its nominal size than a
+	// proportional face's: at 26px, DejaVuSansMono's measured ink height
+	// (25px) is TALLER than the 28px bold name's (21px), so the nominally
+	// smaller number draws as the visually bigger line. Re-run the same
+	// PIL/FreeType measurement rather than guessing if either the face or
+	// the size changes again.
 	const int kPlateRatePx = 20;
-	// #2B2118, VISUAL_LAYER.md section 3's palette table exactly.
+	// #2B2118, VISUAL_LAYER.md §3's palette table exactly.
 	const ofColor kPlateNameColor(43, 33, 24);
-	// 2026-08-14, second rig photo: the doc's #B8781A amber read as RED on
-	// the projector, not yellow/gold — high enough red-channel share
-	// (184:120:26) that a warm projector white balance pushed it further
-	// that way (this exact rig's camera has needed repeated yellow-cast
-	// fixes — see CLAUDE.md's M4h/M4p). Developer tried a mid green
-	// (#6AA84F) then a blue (#0f26b8) in this same session; both
-	// superseded, same day, by an orange, #E67E22 — the developer's own
-	// call each time, none yet confirmed by a rig photo. Deliberately NOT
-	// tied to the doc's Halo-idle entry, which still lists the old amber —
-	// halo is unbuilt (build item 4) and has no rig evidence of its own.
+	// Not the doc's #B8781A amber: that has too high a red-channel share
+	// (184:120:26) and reads as RED on this projector rather than as
+	// yellow or gold, because the rig's warm white balance pushes it
+	// further that way. Deliberately independent of the doc's Halo-idle
+	// entry, which still lists the old amber. Unconfirmed by a rig photo.
 	const ofColor kPlateRateColor(0xE6, 0x7E, 0x22);
 
-	// VISUAL_LAYER.md section 4: "plateRect = fixed height PLATE_H (start
-	// at 130px)... Halo wraps the BIN ONLY, never the plate" — this app has
-	// no halo or fire geometry yet (that's build items 4/6), so nothing
-	// reads this constant back out today. Recorded now, at the step that
-	// pins the font sizes it has to fit, and checked once at setup() below
-	// against the actual loaded metrics rather than left as an unverified
-	// guess for whichever later step is the first to consume it.
-	// 2026-08-14: the doc's starting 130px genuinely doesn't hold once the
-	// name is allowed to wrap to 2 lines (max 2 lines, developer
-	// instruction) — setup()'s own check measured the real worst case at
-	// ~133px. Bumped to 140px for headroom rather than left to warn on
-	// every boot; whoever picks up build item 4/6 should re-measure
-	// against the actual halo/fire geometry once it exists, not trust
-	// this number blindly either.
+	// VISUAL_LAYER.md §4's fixed plate height. The doc's starting 130px
+	// does not hold once the name is allowed to wrap to two lines —
+	// setup()'s check measures the real worst case at ~133px — so this
+	// carries headroom rather than warning on every boot. setup() verifies
+	// it against the actual loaded font metrics.
 	const float kPlateHPx = 140.0f;
 
-	// --- VISUAL_LAYER.md §4/§6, build item 4: the idle halo -----------------
-	// 2026-08-14, first rig photo: the original 16-ring, 2.5px-pitch,
-	// 1.5px-thick version (gapped bands, margin starting at the doc's own
-	// 20px) read as a faint, noisy smudge rather than a halo — the old
-	// plate ring (now removed, see drawBin) was also up in the same photo
-	// and visually dominated it, and the gaps between bands likely added
-	// noise of their own on top. Retuned, still unconfirmed by a second
-	// photo: CONTIGUOUS bands (thickness == pitch, no gap — a smooth
-	// gradient instead of 16 separate slivers) starting closer to the bin
-	// (14px, now that there is no ring to clear first) and a brighter
-	// floor on the breathing sine so it never dims toward invisible.
-	// "haloRect = binRect inflated by HALO_MARGIN" — 14px now, was 20.
+	// --- VISUAL_LAYER.md §4/§6: the idle halo -------------------------------
+	// haloRect is binRect inflated by this margin. The bands are
+	// CONTIGUOUS — thickness equals pitch, no gap — which reads as a smooth
+	// gradient; gapped bands read as separate slivers and, on the projected
+	// table, as a faint noisy smudge rather than a halo.
 	const float kHaloMarginPx = 14.0f;
-	// "~16 nested ofPath rounded-rect strokes, each 2-3px further out" —
-	// 24 rings at 1.5px pitch (== thickness, contiguous) instead, for a
-	// smoother gradient over roughly the same total span (36px vs. 40px).
+	// The doc asks for ~16 nested rounded-rect strokes, each 2-3px further
+	// out; this uses 24 rings at 1.5px pitch (equal to thickness, so they
+	// are contiguous) for a smoother gradient over roughly the same total
+	// span, 36px against 40px.
 	const int kHaloRingCount = 24;
 	const float kHaloRingPitchPx = 1.5f;
 	const float kHaloRingThicknessPx = 1.5f;
-	// §3's palette originally: "Halo — idle #B8781A." Two corrections since
-	// (both on this rig's own projected evidence, not guessed): #B8781A
-	// projected as muddy brown (the same failure the plate rate's own
-	// colour hit on this identical hex); the next attempt, #FFC800, was
-	// "improved... but now it is orange shade" (developer). Green pushed
-	// higher again, closer to red, for #FFEB00 (255,235,0) — near the top
-	// of what still reads as "amber/gold" rather than a flat CSS yellow,
-	// but each step so far has needed to go brighter/greener than felt
-	// necessary off-projector to land where it should on this rig's
-	// warm-shifted white balance. §3 is not updated to match yet — see
-	// this file's other "doc still lists the original" notes; sync it
-	// once a photo confirms this lands right rather than before.
+	// Not §3's "Halo — idle #B8781A", which projects as muddy brown on this
+	// rig, and not the #FFC800 between them, which reads as orange. This
+	// rig's warm-shifted white balance means an amber has to be pushed
+	// noticeably brighter and greener than looks right off-projector to
+	// land as amber on the table; (255,235,0) is near the top of what still
+	// reads as amber or gold rather than as a flat yellow. §3 still lists
+	// the original; sync it once a photo confirms this.
 	const ofColor kHaloIdleColor(0xFF, 0xEB, 0x00);
-	// "Slow breathing sine on alpha." No period is given in the doc; 3s is
-	// a reasoned starting guess (slow enough to read as breathing, not a
-	// strobe), unmeasured, tunable once seen projected. The floor was
-	// raised from the first attempt's 0.1 to 0.35 (drawHalo's own formula)
-	// so a bin never reads as fully faded out mid-breath — the first photo
-	// looked weak partly because it likely caught several bins near their
-	// low point at once.
+	// A slow breathing sine on alpha. The doc gives no period; 3s is slow
+	// enough to read as breathing rather than as a strobe. drawHalo's floor
+	// is well above zero so a bin never reads as fully faded out
+	// mid-breath, which otherwise leaves several bins looking dead at once
+	// whenever they happen to be near their low point together.
 	const float kHaloBreathPeriodS = 3.0f;
-	// Geometric note, not yet checked against a photograph: the halo's own
-	// outward reach (14px to 14+24*1.5=50px from the bin edge) is not
-	// small next to how close the plate's rate line sits to the bin on
-	// this same axis (drawBin's ringTop/ringBottom, roughly 19px out
-	// before the rate line's own clearance/ascender stack further beyond
-	// it) — the two were tuned independently and may turn out to overlap
-	// on the near/far axis once both are on the projected table at once.
-	// Doc §4 says "Halo wraps the BIN ONLY, never the plate"; if a photo
-	// shows the halo reaching into the plate's own text, the fix is here
-	// (kHaloMarginPx or the ring span), not in drawBin's clearance, which
-	// several rig photos have already tuned for other reasons.
+	// The halo's outward reach (14px to 14+24*1.5=50px from the bin edge)
+	// is not small next to how close the plate's rate line sits on the same
+	// axis (drawBin's ringTop/ringBottom, roughly 19px out before the rate
+	// line's clearance and ascender stack further beyond it). The two were
+	// tuned independently and may overlap on the near/far axis. Doc §4 is
+	// explicit that the halo wraps the BIN ONLY, never the plate, so if it
+	// reaches into the plate's text the fix belongs here — kHaloMarginPx or
+	// the ring span — not in drawBin's clearance.
 
-	// --- VISUAL_LAYER.md §4/§6, build item 6: the active fire ring ---------
-	// "fireRect = binRect inflated by FIRE_RING (start at 52px)." Inner
+	// --- VISUAL_LAYER.md §4/§6: the active fire ring -----------------------
+	// fireRect is binRect inflated by FIRE_RING. Inner
 	// edge matches the halo's own margin on purpose — the fire ring picks
 	// up right where the halo's innermost band sits, so the crossfade
 	// (drawHalo's fireFade, fireEmitters()'s intensity — the same spring)
@@ -197,60 +137,46 @@ namespace {
 	const float kFireRingInnerPx = kHaloMarginPx;
 	const float kFireRingOuterPx = 52.0f;
 
-	// doc's old kBinOutlineMM/kLabelClearanceMM/kLabelLineGapMM (ofApp.cpp,
-	// now deleted). Redefined here rather than resurrected in
-	// TableGeometry.h, which v3 §7.1 keeps for CAD geometry only.
+	// Label clearance and line gap. Defined here rather than in
+	// TableGeometry.h, which is kept for CAD geometry only.
 	const float kLabelClearanceMM = 10.0f;
 	const float kLabelLineGapMM = 4.0f;
 
-	// Formerly the plate ring's own width — the band of colour that framed
-	// a bin's cutout and carried doc §4.3's `hl` state (I8 — "distinguish
-	// states by hue"). **2026-08-14: that ring is deleted outright**, now
-	// that the idle halo occupies the same visual role (see drawBin's own
-	// comment) — VISUAL_LAYER.md's palette (§3) never listed this grey/
-	// green ring at all, only the halo/fire pair. Kept as a named constant
-	// purely because drawBin's label positions still measure their
-	// clearance from where the ring's outer edge used to sit (see
-	// ringRestY there) — removing the ring shouldn't also pull every label
-	// closer to the cutout as a side effect nobody asked for.
+	// Nothing draws a ring of this width: the idle halo occupies that
+	// visual role, and VISUAL_LAYER.md §3's palette lists only the
+	// halo/fire pair. It survives as a named constant because drawBin's
+	// label positions measure their clearance from where that ring's outer
+	// edge sat (see ringRestY), and dropping it would pull every label
+	// closer to the cutout as a side effect.
 	const float kRingMM = 6.0f;
 
-	// doc §13.4: "Dark ink on a light field, and set bold" — the field is
+	// doc §13.4: dark ink on a light field, set bold. The field is
 	// near-white by construction (I9's white floor), so text has to win on
-	// stroke weight, not brightness. Near-black rather than pure 0,0,0: full
-	// black on this bold a face at these sizes reads harsher than the doc's
-	// own comparison point (dark plates on the pre-rewrite app).
+	// stroke weight rather than on brightness. Near-black rather than pure
+	// 0,0,0 — full black on a face this bold at these sizes reads harsh.
 	const ofColor kInkColor(20, 20, 20);
 
-	// M2 doc §21 acceptance test's "fault overlay" (`state.overlay.kind ==
-	// "error"`, set by core/main.py's _overlay_msg when a bin that was
-	// billing off real weight goes dark — doc §9.5's "no billing occurs
-	// from the frozen reading"). Reuses the staff view's own fault palette
-	// (web/static/index.html's --red #e05d5d, and the dark-red-on-red ink
-	// its red pip already uses, #2a0000) so the same failure reads the same
-	// way on both surfaces instead of inventing a second "red" for this
-	// table.
+	// The fault overlay (`state.overlay.kind == "error"`), set by core when
+	// a bin that was billing off real weight goes dark — doc §9.5: no
+	// billing occurs from the frozen reading. Reuses the staff view's fault
+	// palette (its --red #e05d5d and the dark-red-on-red ink of its red
+	// pip, #2a0000) so the same failure reads the same way on both surfaces
+	// rather than inventing a second red for this table.
 	const ofColor kErrorBannerFill(224, 93, 93);   // #e05d5d
 	const ofColor kErrorBannerInk(42, 0, 0);       // #2a0000
 
-	// M2.6: setting mode's banner (doc §14.5, "a persistent banner strip
-	// along the top edge"). Amber for the same reason the error banner is
-	// red — it is the staff view's own --amber (#e8b33d) and the ink its
-	// amber pip already uses (#2a1f00), so the header chip on the tablet
-	// and the strip on the table are visibly the same statement. I8: modes
-	// are distinguished by HUE, never by brightness, and this hue is
-	// luminance-matched to the red one rather than being brighter or
-	// dimmer than it.
-	//
-	// The rest of doc §14.5 — fluid off, amber chrome throughout, the
-	// 100mm grid — stays M8 build item 6. Most of it is a no-op today
-	// since no fluid exists. The banner alone is what makes this
-	// milestone's acceptance test visible from three metres.
+	// Setting mode's banner: doc §14.5's persistent strip along the top
+	// edge. Amber for the same reason the error banner is red — it is the
+	// staff view's --amber (#e8b33d) and the ink of its amber pip
+	// (#2a1f00), so the header chip on the tablet and the strip on the
+	// table are visibly the same statement. Per I8, modes are distinguished
+	// by HUE and never by brightness, so this hue is luminance-matched to
+	// the red rather than being brighter or dimmer than it.
 	const ofColor kSettingBannerFill(232, 179, 61);   // #e8b33d
 	const ofColor kSettingBannerInk(42, 31, 0);       // #2a1f00
 
-	// M4 build item 6: `overlay.kind == "uncalibrated"` (doc §9.1's
-	// first-boot state). A THIRD hue rather than reusing amber or red,
+	// `overlay.kind == "uncalibrated"`, doc §9.1's first-boot state.
+	// A THIRD hue rather than reusing amber or red,
 	// because I8 distinguishes states by hue and this is a genuinely
 	// different state from both: it is not a fault in a subsystem (red)
 	// and it is not staff working on a table that is otherwise fine
@@ -272,157 +198,100 @@ namespace {
 	const float kBannerHeightPx = 104.0f;
 	const float kBannerInsetMM = 10.0f;
 
-	// The brand mark sits ABOVE the banner in the same centre column,
-	// never sharing its strip — see drawBrandMark and drawBanner's yTop.
-	// Height is developer-tuned (not a doc value); top margin is
-	// clearance from the table's far edge; the gap is breathing room
-	// between the mark's bottom and the banner's top when both are up.
+	// The brand mark sits ABOVE the banner in the same centre column and
+	// never shares its strip — see drawBrandMark and drawBanner's yTop.
+	// The top margin is clearance from the table's far edge; the gap is
+	// breathing room between the mark's bottom and the banner's top when
+	// both are up.
 	//
-	// **20 -> 12 and 24 -> 14 (2026-08-25), and the 18px that buys is
-	// spent, not saved.** Moving the step dots onto their own line under
-	// the title (drawPageHeader, developer's own instruction) grows
-	// `_pageHeaderPx` by exactly that much, and the info box's band —
-	// which `setup()` measures against real font metrics — had 6px of
-	// slack, not 18. Lowering `kInfoBoxTopPx` by 18 gives the band back
-	// what the header took, so the box is no tighter than before.
-	// Split across both gaps rather than taken out of one, so neither
-	// the mark's clearance from the table edge nor its breathing room
-	// above the banner collapses on its own.
-	// **The header block was given room, 2026-08-25.** Developer: "the
-	// icon, the page name and the 5 dots all looks cramped up there, need
-	// to give breathing space for them. it is ok to reduce the font size to
-	// acheive that if necessary." Three gaps opened together — the mark's
-	// clearance from the table edge, the mark-to-title gap here, and
-	// `kStepDotsRowGapPx` below — and `kPageTitlePx` took the size cut the
-	// developer offered, which is what pays for most of it. The mark itself
-	// keeps its 170px: shrinking the logo would have made the header
-	// airier by making its one graphic element smaller, which is the
-	// opposite of what was asked for.
+	// These two gaps, `kStepDotsRowGapPx` below and `kPageTitlePx` are
+	// tuned together: the header block (mark, page title, step dots) has to
+	// read as three separate things rather than one crowded stack, and the
+	// room comes from the title's size rather than from the mark, which
+	// keeps its height because shrinking the one graphic element would make
+	// the header smaller rather than airier.
 	const float kBrandHeightPx = 170.0f;
 	const float kBrandTopMarginPx = 20.0f;
 	const float kBrandBannerGapPx = 26.0f;
 
-	// --- VISUAL_LAYER.md §8/§9, build item 9: the cart panel ----------------
+	// --- VISUAL_LAYER.md §8/§9: the cart panel -----------------------------
 	// Lives in the same centre column as the brand mark and the mode
-	// banner (drawBrandMark/drawBanner's own gapLeftMM/gapRightMM — the
-	// pot gap, the one horizontal span with no bin in it), stacked below
-	// both. Doc: "Cart width ~460px, row height 44px... Total sits at a
-	// fixed position and never moves."
+	// banner (drawBrandMark/drawBanner's gapLeftMM/gapRightMM — the pot
+	// gap, the one horizontal span with no bin in it), stacked below both.
 	//
-	// **2026-08-24, first rig look: the white panel fill and its 2px
-	// border are GONE** — developer: "cart now have a white background, it
-	// is not needed, it should remain like all other text written in the
-	// table." That is doc §4's own rule for the plate ("Plate has no fill
-	// and no border. Text sits directly on the table background") applied
-	// to the cart, which the §3 palette rows for "Cart panel fill"/"Cart
-	// border" contradicted. `kCartPanelFill` is deleted outright rather
-	// than left dormant; `kCartBorderColor` survives because the divider
-	// above the total (its own §3 row) still uses it — that one is a rule
-	// in a receipt, not a container around it.
+	// The cart has NO panel fill and no border, which extends doc §4's rule
+	// for the plate — no fill, no border, text sitting directly on the
+	// table background — to the cart, against the §3 palette rows for
+	// "Cart panel fill" and "Cart border". `kCartBorderColor` survives
+	// because the divider above the total still uses it — that one is a
+	// rule in a receipt, not a container around it.
 	const ofColor kCartBorderColor(0xC9, 0xC5, 0xBC);    // #C9C5BC
 	const ofColor kCartRowDetailColor(0x6E, 0x6A, 0x62); // #6E6A62
 
-	// --- the one gold on this table, and why it is not the halo's hex ----
-	// Developer, 2026-08-24: "the total you are showing in gold colour is
-	// coming as red. if you need gold use the bin's hallow's colour."
+	// --- the table's accent ink, and why it is not gold --------------------
+	// Gold does not work as INK on this table, and the reason is arithmetic
+	// rather than taste. Two separate failures rule out the whole family:
 	//
-	// The instruction is followed on HUE, which is where the fault was.
-	// #B8781A sits at hue ~35 degrees (orange), and this rig's projector
-	// has now warm-shifted a 35-degree ink into "red" twice — the plate
-	// rate line first, then this. kHaloIdleColor is hue ~55, and these
-	// constants are that same hue, so a warm shift lands them on gold
-	// rather than dragging them into red.
+	//   - A warm hue slides to red. #B8781A sits at hue ~35 degrees, and
+	//     this rig's projector has warm-shifted a 35-degree ink into "red"
+	//     twice — the plate rate line first, then this.
+	//   - A hue cool enough to survive that shift is too light to read.
+	//     #FFEB00 (kHaloIdleColor's hue) has relative luminance ~0.808
+	//     against the table background's ~0.792, a contrast ratio of about
+	//     1.02. It works on a bin because a halo is light spilling onto the
+	//     field, not text read against it; as a GLYPH it is invisible.
 	//
-	// **It is NOT literally 0xFFEB00, and that is arithmetic, not taste.**
-	// Relative luminance of #FFEB00 is ~0.808 against the table
-	// background's ~0.792 (I9's near-white field, Stage's
-	// kTableBackground) — a contrast ratio of about 1.02. Halo yellow
-	// AS A GLYPH is invisible on this table. It works on a bin because a
-	// halo is light spilling onto the field, not text read against it.
-	//
-	// That reasoning produced a dark ink of the halo's hue, which the
-	// developer then saw projected and rejected outright ("dont go with
-	// gold, use some other colour"). It is kept here because it is the
-	// measurement that rules out the whole gold family on this rig, not
-	// just the two hexes that were tried: nothing in that hue can be both
-	// legible on #E8E6E1 and still read as gold. kAccentInk below is the
-	// answer that followed from it.
-	// **2026-08-25: not gold at all any more.** Developer, after seeing
-	// the halo-hue version projected: "dont go with gold, use some other
-	// colour." Gold has now been tried three ways on this table (#B8781A
-	// orange, then the halo's own #FFEB00, then a dark ink of that hue)
-	// and every one of them fought the warm projector or the near-white
-	// field. This is a deep TEAL, which is the useful direction: it is
-	// far from the projector's warm shift (so it cannot slide toward
-	// red the way every amber has), it is nowhere near the green of
-	// Confirm or the red of Cancel, and it is dark enough to read as ink
-	// on #E8E6E1 — relative luminance ~0.13 against the field's ~0.79, a
-	// contrast ratio near 6:1, where the best gold managed 3.3.
+	// This is a deep TEAL instead. It is far from the projector's warm
+	// shift, so it cannot slide toward red the way every amber has; it is
+	// nowhere near the green of Confirm or the red of Cancel; and it is
+	// dark enough to read as ink on #E8E6E1 — relative luminance ~0.13
+	// against the field's ~0.79, a contrast ratio near 6:1, where the best
+	// gold managed 3.3.
 	const ofColor kAccentInk(0x0E, 0x6B, 0x78);
-	// Was #B8781A (the doc's original "Total value" hex) until 2026-08-24,
-	// when the developer read it on the table: "the total you are showing
-	// in gold colour is coming as red" — and then, once it was a
-	// halo-hue gold instead, "dont go with gold, use some other colour."
-	// It is kAccentInk, a deep teal; see that constant.
+	// Not the doc's original "Total value" hex — see kAccentInk above on
+	// why no gold survives this projector.
 	const ofColor kCartTotalValueColor = kAccentInk;
-	// **The total has NO glow.** A `drawGlow` behind the numeral was
-	// tried for one build and the developer saw exactly what it is:
-	// "there is a wierd rectangle around the total price which doesnt
-	// make any sense." drawGlow emits nested ROUNDED-RECT bands around a
-	// bounding box — which reads as a halo around a bin, where the thing
-	// inside really is a rectangle, and as a mysterious box around a
-	// number, where it is not. Deleted rather than dimmed.
+	// The total has NO glow, deliberately. drawGlow emits nested
+	// ROUNDED-RECT bands around a bounding box, which reads as a halo
+	// around a bin — where the thing inside really is a rectangle — and as
+	// an inexplicable box around a number, where it is not.
 
-	// The rule above the total, and the one inside the info box.
+	// The rule above the total, and the one inside the info box: a plain
+	// alpha fade at CONSTANT thickness.
 	//
-	// **A plain alpha fade at constant thickness.** Developer, 2026-08-25:
-	// "the line spereator betwwn cart item and total looks terrible, why
-	// did u put that weierd broken lines there. just the fade effect is
-	// more than enough." The version they saw tapered its HEIGHT as well
-	// as its alpha, and the height taper is what broke it: the core was
-	// clamped to a 1px minimum, so the last stretch at each end became a
-	// row of 1px stubs whose alpha had already rounded to nothing — a
-	// dashed line, not a fade. Height is constant now and only alpha
-	// moves, which is the effect that was wanted in the first place.
+	// Tapering the height as well as the alpha breaks it. The core clamps
+	// to a 1px minimum, so the last stretch at each end becomes a row of
+	// 1px stubs whose alpha has already rounded to nothing — a dashed line
+	// rather than a fade.
 	const float kRuleThickPx = 2.0f;
 	const int kRuleAlpha = 150;
-	// §3's palette says 26px for both cart-row columns. **Corrected to
-	// 22px, 2026-08-24, from the developer's first look at a filled cart:
-	// "the full name of item is not coming, that is unacceptable."** At
-	// 26px the widest catalogue name ("Button Mushrooms") measures 279px
-	// and the detail column's own worst case ("500g  $17.50") 191px — 486px
-	// of content against the doc's own 460px panel, so every long name hit
-	// truncateToWidth below and lost its tail. Measured, not guessed (the
-	// same PIL/FreeType script against the same real .ttf and the real
-	// catalogue that fixed the plate name's own overflow earlier this
-	// month): at 22px those are 238px and 160px, which fit inside a 500px
-	// panel with 46px to spare. Both numbers moved — the size DOWN and the
-	// width UP — because either alone was marginal. §3 is not edited to
-	// match yet, same "flag it, confirm on a photo first" rule this file
-	// already uses for the halo's own colour.
+	// Smaller than §3's 26px for both cart-row columns, because at 26px the
+	// widest catalogue name ("Button Mushrooms") measures 279px and the
+	// detail column's worst case ("500g  $17.50") 191px — 486px of content
+	// against the doc's 460px panel, so every long name truncates and loses
+	// its tail. Measured with PIL/FreeType against the real .ttf and the
+	// real catalogue, not guessed. Both the size and the panel width moved
+	// (see kCartWidthPx), because either alone was marginal. §3 is not
+	// edited to match; confirm on a photo first.
 	const int kCartRowPx = 21;
-	// The grams/price column, mono. Two points smaller than the name it
-	// sits beside: mono's cap height runs larger for the same nominal
-	// size (measured, PIL/FreeType against the real .ttf — the same thing
-	// that made a "smaller" 26px rate line read BIGGER than a 28px name
-	// on 2026-08-14), so equal numbers here would not look equal.
+	// The grams/price column, mono. Smaller than the name it sits beside
+	// because mono's cap height runs larger for the same nominal size
+	// (measured, PIL/FreeType against the real .ttf), so equal numbers here
+	// would not look equal — the same trap as kPlateRatePx.
 	const int kCartDetailPx = 17;
-	// 500 -> 520 (2026-08-25). setup()'s own check said the name column
-	// was 276px against the 280px the longest catalogue name needs — 4px
-	// short, which is exactly the kind of margin that had been failing
-	// silently before that check existed. **Mirrored in core/hover.py's
-	// CART_WIDTH_PX** (the buttons and M6's option plates derive from it)
-	// and still inside the 554px centre column.
+	// Wide enough that the name column clears the 280px the longest
+	// catalogue name needs — setup()'s check measures it, and the margin
+	// here is only a few px, which is exactly the kind of thing that fails
+	// silently without that check. MIRRORED in core/hover.py's
+	// CART_WIDTH_PX, from which the buttons and the option plates derive.
+	// Still inside the 554px centre column.
 	const float kCartWidthPx = 520.0f;
-	// 44px -> 32px, 2026-08-24: developer, on the second rig look, "the
-	// total and buttons all feels cramped together, reduce the cart size,
-	// it should fit with the near row." Eight 44px rows plus the footer
-	// ran 394px, which cannot fit the near row's own 301mm-tall band
-	// however it is positioned. At 32px the rows are 256px and the whole
-	// cart is ~348px, which sits inside the band plus the empty 50mm gap
-	// above it — the "may take little space of far row" the same message
-	// allowed for. 32px still clears the row font's own ink height (22px
-	// bold measures 21px ascender + 6px descender).
+	// Smaller than the doc's 44px so the cart fits alongside the near row.
+	// Eight 44px rows plus the footer run 394px, which cannot fit the near
+	// row's 301mm band however it is positioned; at 32px the rows are 256px
+	// and the whole cart is ~348px, which sits inside the band plus the
+	// empty 50mm gap above it. 32px still clears the row font's ink height
+	// (21px ascender + 6px descender).
 	const float kCartRowHeightPx = 32.0f;
 	const float kCartBorderWidthPx = 2.0f;   // filled bars, not ofSetLineWidth
 	                                          // — see the halo's own comment
@@ -432,77 +301,55 @@ namespace {
 	const float kCartRowMidGapPx = 16.0f;    // name column <-> detail column
 	const float kCartDividerGapPx = 12.0f;   // rows -> divider -> total
 
-	// **The right-hand column is a FIXED width, measured once at setup()
-	// from this string, and that is the fix for the second truncation
-	// report.** Developer, 2026-08-24: "the names still gets tuncate when
-	// the weight go double didgit, even if it go tripple digit, it should
-	// not truncate." The first fix sized the name column against whatever
-	// the detail column happened to measure THAT ROW — so "5g $0.18" left
-	// the name plenty of room and "125g $4.50" took it away again, and a
-	// name that fitted at 5 grams lost its tail at 125. A column whose
-	// width depends on the number in it is a column that moves, and the
-	// thing next to it pays for it.
+	// The right-hand column is a FIXED width, measured once at setup() from
+	// this string.
 	//
-	// Reserving the worst case instead costs the same 160px on every row
-	// and can never move: 500 - 2*20 pad - 16 gap - 160 leaves 284px for
-	// the name, against the widest catalogue name's 238px at 22px
-	// (measured, PIL/FreeType against the real .ttf and the real
-	// catalogue). `truncateToWidth` stays as the net; it should now never
-	// fire.
+	// Sizing the name column against whatever the detail column measures
+	// THAT ROW does not work: "5g  $0.18" leaves the name plenty of room
+	// and "125g  $4.50" takes it away again, so a name that fits at 5 grams
+	// loses its tail at 125. A column whose width depends on the number in
+	// it is a column that moves, and the thing beside it pays for it.
+	//
+	// Reserving the worst case costs the same 160px on every row and can
+	// never move: 500 - 2*20 pad - 16 gap - 160 leaves 284px for the name,
+	// against the widest catalogue name's 238px. `truncateToWidth` stays as
+	// the net, and should never fire.
 	const char * kCartDetailWorstCase = "999g  $99.99";
-	// What the longest catalogue name needs, and **the number that broke
-	// two truncation fixes in a row.**
+	// oF measures text WIDER than PIL/FreeType does for the same string in
+	// the same face at the same size, and any column sized from the PIL
+	// number alone comes out too narrow on the actual table.
 	//
-	// PIL/FreeType against the real .ttf says "Button Mushrooms" is 197px
-	// at 21px regular. oF does NOT agree: its own `getStringBoundingBox`
-	// comes back substantially wider for the same string in the same face
-	// at the same size. Both previous attempts at this bug sized the
-	// columns from the PIL number and both left the name column too
-	// narrow on the actual table. So this is the PIL measurement scaled
-	// by oF's own observed ratio, with headroom, and setup() logs the
-	// real numbers at every boot so the next surprise is one grep away
-	// rather than a rebuild.
+	// The ratio is measured, not estimated. setup() logs both numbers at
+	// every boot:
 	//
-	// **kOfWidthRatio: that ratio is 1.400, and it is now MEASURED rather
-	// than estimated (2026-08-25).** It was written here as "~33%" from a
-	// single half-remembered pair; the boot log has been printing the
-	// real number at every start since setup()'s check landed, and it
-	// settles it exactly:
+	//     "999g  $99.99" at 17px DejaVuSansMono
+	//         PIL 120.0px      oF 168.0px      ratio 1.400
 	//
-	//     kCartDetailWorstCase "999g  $99.99" at 17px DejaVuSansMono
-	//         PIL 120.0px      oF 168.0px (logged)      ratio 1.400
+	// Cross-checked against "Button Mushrooms" at 21px regular:
+	// PIL 197.0 x 1.400 = 275.8, against the 274-280 kCartMinNameSpacePx
+	// was set to by hand. Two independent faces, two sizes, one ratio.
 	//
-	// Cross-checked against the other pair in the log — "Button
-	// Mushrooms" at 21px regular, PIL 197.0 x 1.400 = 275.8, against the
-	// 274-280 this constant was set to by hand. Two independent faces,
-	// two sizes, one ratio.
-	//
-	// **This is the number to size any new text column against**, and the
-	// option plates below are the first thing to use it deliberately
-	// rather than by trial. It is not a magic constant — oF measures a
-	// bounding box where PIL reports an advance, and the two differ by
-	// bearings and by oF's own atlas padding — but it is stable enough
-	// across these faces to design with, and every use of it is still
-	// backed by a runtime warning rather than trusted outright.
+	// This is the number to size any new text column against. It is not
+	// magic — oF measures a bounding box where PIL reports an advance, and
+	// the two differ by bearings and by oF's atlas padding — but it is
+	// stable enough across these faces to design with, and every use of it
+	// is still backed by a runtime warning rather than trusted outright.
 	const float kOfWidthRatio = 1.400f;
 	const float kCartMinNameSpacePx = 280.0f;
 
-	// **The cart is anchored to the NEAR ROW's own bottom edge, not to the
-	// banner above it.** Developer, 2026-08-24: "it should fit with the
-	// near row... the buttons should be vertically center alligned in the
-	// space below the near row bottom edge and the bottom edge of the
-	// table." Growing the block downward from the banner is what left the
-	// total and the buttons crowding each other at the diner's edge; this
-	// derivation puts the cart's last pixel a fixed gap above the near
-	// row, whatever happens to the info box or the banner above it, and
-	// leaves the whole 209px below the near row free for the buttons.
+	// The cart is anchored UPWARD from the near row's bottom edge, never
+	// downward from the banner above it. Growing the block downward leaves
+	// the total and the buttons crowding each other at the diner's edge;
+	// this derivation puts the cart's last pixel a fixed gap above the near
+	// row whatever happens to the info box or the banner, and leaves the
+	// whole 209px below the near row free for the buttons.
 	//
 	// `kCartFooterHeightPx` is the divider gap + rule + gap + the total's
-	// own ascender-plus-descender block. It is a reserved budget rather
-	// than a font measurement because these are namespace constants and
-	// the fonts are not loaded yet — `setup()` measures the real thing and
-	// warns if this number is short. Do not shrink it without watching
-	// that warning.
+	// ascender-plus-descender block. It is a reserved budget rather than a
+	// font measurement, because these are namespace constants and the fonts
+	// are not loaded yet; `setup()` measures the real thing and warns if
+	// this number is short. Do not shrink it without watching that
+	// warning.
 	const float kCartFooterHeightPx = 92.0f;
 	const float kCartBottomGapPx = 16.0f;
 	const float kNearRowBottomPx = mmToPxY(BINS[4].yMM + BIN_H_MM);
@@ -513,31 +360,27 @@ namespace {
 	// appearing as it does to growing.
 	const float kCartTopPx = kCartRowsBottomPx - kCartRowHeightPx * 8.0f;
 
-	// --- VISUAL_LAYER.md §8, build item 10: the info box -------------------
-	// "Info box sits ABOVE the cart, fixed height, does not push the cart
-	// down." Fixed height is still the whole mechanism, but the band it
-	// gets is now everything between the brand mark and the cart, rather
-	// than a 136px strip with the banner's own band left empty above it.
+	// --- VISUAL_LAYER.md §8: the info box ----------------------------------
+	// The box sits ABOVE the cart at a fixed height and never pushes the
+	// cart down. Its band is everything between the brand mark and the
+	// cart.
 	//
-	// **It starts where the mode banner starts, and the two never share a
-	// frame.** Developer, 2026-08-24: "there is ton of space above the box
-	// and below the logo unused." That space is the banner's, and the
-	// banner only exists when the table is NOT serving — no hover, so no
-	// info box. `drawInfoBox` refuses to draw while a banner is up rather
-	// than relying on that being true, which is also doc §14.5's own
-	// precedence rule: the state that changes what the table is DOING
-	// outranks anything else in the centre column.
+	// It starts where the mode banner starts, and the two never share a
+	// frame: the banner only exists when the table is NOT serving, so there
+	// is no hover and no info box. `drawInfoBox` refuses to draw while a
+	// banner is up rather than relying on that being true, which is also
+	// doc §14.5's precedence rule — the state that changes what the table
+	// is DOING outranks anything else in the centre column.
 	//
-	// The height is derived from the cart's own top so the two can never
-	// be edited into overlapping.
+	// The height is derived from the cart's own top, so the two cannot be
+	// edited into overlapping.
 	const float kInfoBoxTopPx = kBrandTopMarginPx + kBrandHeightPx
 		+ kBrandBannerGapPx;
 	const float kInfoBoxCartGapPx = 12.0f;
 	const float kInfoBoxHeightPx = kCartTopPx - kInfoBoxCartGapPx - kInfoBoxTopPx;
-	// **The item's NAME leads the box now.** Developer, same message: "it
-	// is not telling the food items name in it." Nothing else on the table
-	// says which bin the box is about — the plate's own label is at the
-	// far end of a 1.5m table from the reader.
+	// The item's NAME leads the box. Nothing else on the table says which
+	// bin the box is about: the plate's own label is at the far end of a
+	// 1.5m table from the reader.
 	const int kInfoBoxNamePx = 30;
 	// 24 -> 19 ("u can reduce the font size") -> 18, 2026-08-25. The last
 	// point came off the option screens: the box's band is shorter there
