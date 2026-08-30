@@ -540,12 +540,12 @@ The four middle screens each have a Back button, and Cancel returns to IDLE from
 
 The cart keeps two numbers per bin: what it weighed when you walked up, and what it weighs now. Every price on the table is the difference between them, worked out afresh sixty times a second, and nothing anywhere adds up individual scoops. That is also why putting food back works without any code for it — the same subtraction, a smaller answer.
 
-# 8.6 The projector is the only light in the room
+# 8.6 The projector lights the food it is labelling
 
 [IMAGE: docs/img/architecture-light-pass.svg]
 *Five layers into one frame, and the one that has to go last.*
 
-The projector is the only light over the table, so every frame it draws has to be the interface and the lamp at the same time. A frame is built up in five layers, bottom to top:
+The room has its own lighting, but the projector is the brightest thing on the table and the only light this system controls, so every frame it draws has to be the interface and the lamp at once. A frame is built up in five layers, bottom to top:
 
 1. **The table background.** A warm near-white, `#E8E6E1`, cleared first.
 2. **The fire.** The fluid simulation, drawn in multiply so it darkens the background instead of brightening it.
@@ -553,7 +553,7 @@ The projector is the only light over the table, so every frame it draws has to b
 4. **The halos.** A golden ring around each bin.
 5. **The UI.** Names, prices, the info box, the cart, the buttons.
 
-Layer 3 is the one the design hangs off. That white is the light falling on the lotus root you are looking at, so a bin's interior has to be flat white, always: any pattern drawn in there is a pattern printed on the food. To guarantee it, the light pass is not actually drawn third. It is drawn last of everything, after the fire and the halos and the text, so no future change to any of them can reach inside a bin.
+Layer 3 is the one the design hangs off. That white is what the projector puts on the lotus root you are looking at, so a bin's interior has to be flat white, always: any pattern drawn in there is a pattern printed on the food. To guarantee it, the light pass is not actually drawn third. It is drawn last of everything, after the fire and the halos and the text, so no future change to any of them can reach inside a bin.
 
 [IMAGE: docs/img/architecture-centre-column.svg]
 *440 mm of solid plywood, and everything you read while standing there.*
@@ -590,7 +590,7 @@ The table is built and it works. Eight bins set into a sheet of plywood, a proje
 
 Walk up to it and the food labels itself. Each bin says what it holds and what it costs per 100 g, projected onto the food rather than printed on a card or hung on a board behind the counter. Reach for a bin and it tells you more about that ingredient. Scoop some into your bowl and the price appears in a cart on the table, because a bin that weighs less than it did a minute ago is food you took. Nothing to tap, nothing to hold, and nobody to ask.
 
-The projector doing two jobs at once is the whole idea. It is the light over the food and it is the sign on the food, so the answer is in the same place as the question.
+The projector doing two jobs at once is the whole idea. It lights the food and it labels the food, so the answer is in the same place as the question.
 
 The hard part was never the fire or the hand tracking. It was making the weighing honest enough to charge someone with: every price on the table is a subtraction between what a bin weighed when you arrived and what it weighs now, recomputed from scratch many times a second, and eight load cells that would rather say nothing at all than say a wrong zero.
 

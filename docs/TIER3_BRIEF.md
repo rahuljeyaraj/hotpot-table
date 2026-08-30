@@ -26,8 +26,12 @@ AS POSSIBLE: design is better shown than described. Assume the reader
 has read Tier 2 and wants to know how the thing actually works.
 
 MATERIAL WORTH TELLING (from the developer)
-- The projected field is the room's only light source AND the UI. The
-  table lights the food it is describing.
+- The projected field is the UI and it is also the light on the food.
+  It is NOT the room's only light source — the dark room this design was
+  first written against was never achieved on the real rig (see
+  HOTPOT_ARCHITECTURE_v3.md §24.1). What is true is that it is the only
+  light the system controls, and the table lights the food it is
+  describing.
 - The dot-projection calibration that was defeated by room lighting and
   replaced by manual corner-dragging. The wizard was removed outright.
 - Two ofxFlowTools shader bugs. The GLSL 4.10 path was dead code on this

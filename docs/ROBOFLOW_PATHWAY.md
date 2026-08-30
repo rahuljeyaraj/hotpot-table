@@ -104,7 +104,7 @@ was so a choice like this could be made per machine — this is that
 mechanism being used a second time, exactly as intended.
 
 **Do not** use Roboflow's hosted inference API (a network round trip per
-classify). The table is a dark room installation with no guaranteed
+classify). The table is a dim-room installation with no guaranteed
 route off the network; `core/scale.py` and every other subsystem here is
 built to keep working when something is unplugged, and a classifier that
 needs the internet at 2 Hz is not.

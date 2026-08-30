@@ -147,7 +147,7 @@ Never sum per-event deltas. Two absolute weights subtracted cannot bake in a dro
 
 **I8 — Distinguish states by hue at full chroma, not by brightness.** Brightness is spent on illumination (I9) and is therefore not available as a signalling channel — everything on the table sits near the top of the range, so a "dimmer" state reads as a rendering fault rather than as a state. Hues must additionally be **luminance-matched to each other**, or a state change reads as the table brightening rather than as the state changing. Already measured on the rig: the dwell-progress green had to come down from 255 to 115 to sit at the same luminance as the 200-red it replaces, because a full-value green on a light field lands at about 1.4:1 — worse than the dim cyan that had already been rejected at the table.
 
-**I9 — The projected field is the illuminant, not a background.** The demo runs in a dark room, so the projector is the only light the camera has. Three consequences, none of them aesthetic:
+**I9 — The projected field is the illuminant, not a background.** The projected field is the only light this system controls and the brightest light on the table. **The dark room this invariant was originally written against was never achieved** — room light was uncontrolled on every real rig session (§24.1), and §25's risk table already says the design does not invert under ambient, it just stops being the *only* light. The invariant stands either way: the requirements below are what keep the food lit and the tracker fed, and ambient light is a bonus that cannot be relied on. Three consequences, none of them aesthetic:
 
 1. **Every tray cutout carries a flat, pure-white patch at full field level.** Not black. A black rectangle over a cutout is not "leaving the food alone" — with no ambient to fall back on it is the food in total darkness, which starves the classifier rather than protecting it. The choice is projector light or no light, and the patch also lights the back of the hand exactly when the hand is over a bin.
 2. **Nothing coloured, patterned, textured or animated ever reaches a cutout.** The objection this invariant was originally written against was real, but it was about a *coloured, patterned* image washing pink and white over the food — not about light as such. Flat white is neither. Fluid, gradients, grid lines, diagonals, text and low-stock tints are all excluded from the bin patches. §13.2 makes this structural rather than something to remember.
@@ -980,7 +980,7 @@ The staff view is not a debug page. It is the calibration surface, the diagnosti
 
 ### 12.1 Design principles
 
-- **Dark UI.** The environment is dim; a white page is a flashlight in the operator's face. **This is the operator's screen, not the projected field** — it is not a contradiction of I9, which governs light landing on the table. The two surfaces have opposite jobs: the tablet is read by a human eye in a dark room, the table is read by a camera that has no other light source.
+- **Dark UI.** The environment is dim; a white page is a flashlight in the operator's face. **This is the operator's screen, not the projected field** — it is not a contradiction of I9, which governs light landing on the table. The two surfaces have opposite jobs: the tablet is read by a human eye in a dim room, the table is read by a camera whose only controlled light is the field itself.
 - **Touch first.** Assume a tablet. Minimum touch target 44×44 CSS px. No hover-only affordances.
 - **One primary action per screen.** An untrained operator should never have to choose between two similarly-weighted buttons.
 - **State is always visible.** Mode, order total, and the six process pips are in a header that never scrolls away.
@@ -1090,7 +1090,7 @@ This exists so that training data can be gathered from the real rig under the re
 
 Deliberate design note, **revised under I9**: an earlier session concluded "do not vary the lighting and do not measure the illuminant," on the reasoning that the dataset spans varied conditions naturally across sessions so the model learns to ignore illumination, and that illuminant measurement only matters for a single-illuminant dataset — "which this is not."
 
-That premise no longer holds. In a dark room with the projector as the only light, this **is** a single-illuminant dataset, and the illuminant is one this system controls exactly. The conclusion changes accordingly:
+That premise no longer holds, or at least not in the form it was written. The projected field is the dominant illuminant and the only one this system controls exactly, so this is close to a single-illuminant dataset. **It is not strictly one: the dark room was never achieved (§24.1), so uncontrolled room light is a second illuminant on every capture.** The conclusions below were drawn assuming the strict case, and the first still holds regardless; the second is weaker than it reads, and is flagged here rather than silently rewritten:
 
 - **Do not vary the lighting** — still right, and now for a stronger reason. There is nothing to vary; the field is a constant.
 - **Do not measure the illuminant** — still right, but not because measurement is unnecessary. It is unnecessary because the illuminant is *known*: it is a flat white patch at a recorded `field_level`. Record it (above); do not go photometering it.
