@@ -5,7 +5,7 @@
 <h1 align="center">The Firepot</h1>
 
 <p align="center">
-  A dining table that weighs your food, prices it as you pick, and sets itself on fire. Responsibly.
+  A self-serve hotpot counter that weighs your bowl, prices it as you fill it, and sets itself on fire. Responsibly.
 </p>
 
 ---
@@ -74,8 +74,11 @@ covers the renderer.
 
 - **8 ×** 1 kg load cells with HX711 amplifiers, one per bin
 - **1 ×** Seeed Studio XIAO ESP32S3, streaming all eight channels over USB
-- **1 ×** 1080p projector, ceiling-mounted, covering the full 1524 × 914 mm table
-- **1 ×** 1080p webcam on the same mount
+- **1 ×** 1080p projector, mounted on the wall right against the ceiling and
+  aimed straight down, covering the full 1524 mm width of the table; squared
+  up with its own 4D keystone
+- **1 ×** 1080p webcam, zip-tied to a batten off the projector's mount and
+  looking down at the same table — it hangs upside down on this build
 - **1 ×** mini PC host (developed against an ASUS NUC 14 running Windows 11)
 - Plywood, projector screen fabric, and a kilogram of gold PLA
 
