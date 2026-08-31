@@ -320,11 +320,18 @@ Stand the plywood on the pillars over the table, with each bin coming up through
 
 # 5.5 Hanging the projector and the camera
 
-The projector is mounted on the wall, hard against the ceiling and aimed down at the table, far enough back that its image covers the full 1524 mm width. The camera hangs off the projector: a wooden batten is fixed to the projector's mount and sticks out from it, and the camera is zip tied to the end of that batten, looking down at the same table. On this build it hangs at 180 degrees.
+Mount the projector on the wall, right against the ceiling, aimed straight down at the table. Set it back far enough that the image covers the full 1524 mm width.
 
-Square the image on the table with the projector's own 4D keystone. The app draws to a 1920 x 1080 rectangle and puts nothing between that and the lens.
+The camera rides on the projector. A wooden batten is fixed to the projector's mount and sticks out from it. Zip tie the camera to the end of that batten, looking down at the same table. On this build the camera hangs upside down — 180 degrees.
 
-Run the HDMI cable to the projector, and the two USB extensions to the camera and the XIAO. Give the camera a USB 3 port on the host.
+Square the image with the projector's own 4D keystone. Nothing else is needed for that: the app just draws a plain 1920 x 1080 rectangle and sends it straight to the lens.
+
+Cabling:
+
+- HDMI to the projector
+- One USB extension to the camera
+- One USB extension to the XIAO
+- The camera needs a USB 3 port on the host; the XIAO doesn't
 
 [IMAGE: the projector on the wall with the camera zip tied to the batten off its mount, seen from below]
 *Projector on the wall at the ceiling, camera zip tied to a batten off the projector mount.*
