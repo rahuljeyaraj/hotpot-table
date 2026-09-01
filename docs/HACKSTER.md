@@ -157,39 +157,7 @@ The engineering window. A live hand skeleton overlaid on the camera feed showing
 
 The tabletop rests on eight load cells, one under each bin, read by a **Seeed Studio XIAO ESP32S3** that streams all eight channels up to the host over USB. The host is an **ASUS NUC 14**, running the brains in Python and the projected table itself in openFrameworks — I had wanted a Seeed Studio reComputer for that job and simply could not get hold of one, so the NUC took its place. Above it all, an ordinary projector mounted almost against the ceiling, high enough that its throw covers the full table, with a webcam beside it and Google's MediaPipe doing the hand tracking.
 
-Everything past this point is the engineering. If you want to build one, the next section is the parts and the wiring. If you want to know how it works, the section after that is the architecture, the calibration, and the fire.
-
-# 4.2 Gallery
-
-[IMAGE: hero, the whole table lit, all 8 bins named and priced]
-*Plywood, a sheet of projector screen fabric, and a projector bolted near the ceiling. Everything else is light.*
-
-[IMAGE: a bin on fire under a hovering hand]
-*Bring the fire to a bin and the bin keeps it, until you leave.*
-
-[IMAGE: the info box showing name, veg/non-veg, kcal, description]
-*Veg or not, how many calories, and what it actually tastes like. The information I stood there wishing for, some years late.*
-
-[IMAGE: the cart with several items and a running total]
-*The running total: statistically the most-requested feature by anyone who has ever eaten on a student budget.*
-
-[IMAGE: the table in Chinese]
-*Same table, one button later.*
-
-[IMAGE: broth selection screen]
-*Three broths, each admitting up front whether it's spicy and whether it's vegetarian.*
-
-[IMAGE: the three spice cards]
-*Hot at the top, mild at the bottom, counted out in chillies.*
-
-[IMAGE: QR / token number screen]
-*Scan, pay, take a number, hand over the bowl.*
-
-[IMAGE: under the table, the 8 load cells and wiring]
-*The unglamorous half. Eight load cells, one microcontroller, and a great deal of patience.*
-
-[IMAGE: idle attract mode, flame wandering with no hand present]
-*Nobody's here, so it plays with fire by itself.*
+Everything past this point is the engineering. If you want to build one, section 5 is the parts and the wiring. If you want to know how it works, sections 7 and 8 cover the calibration, the architecture, and the fire.
 
 
 # 5 Building the hardware
