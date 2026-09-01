@@ -157,7 +157,7 @@ The engineering window. A live hand skeleton overlaid on the camera feed showing
 
 The tabletop rests on eight load cells, one under each bin, read by a **Seeed Studio XIAO ESP32S3** that streams all eight channels up to the host over USB. The host is an **ASUS NUC 14**, running the brains in Python and the projected table itself in openFrameworks — I had wanted a Seeed Studio reComputer for that job and simply could not get hold of one, so the NUC took its place. Above it all, an ordinary projector mounted almost against the ceiling, high enough that its throw covers the full table, with a webcam beside it and Google's MediaPipe doing the hand tracking.
 
-Everything past this point is the engineering. If you want to build one, follow sections 5, 6 and 7. If you want to understand how it works, section 8 covers the architecture and the fire.
+Everything past this point is the engineering. If you want to build one, follow sections 5, 6 and 7. If you want to understand how it works, section 8 covers the architecture.
 
 
 # 5 Building the hardware
